@@ -1,0 +1,379 @@
+#!/bin/bash
+#
+# OpenCode Event Daemon
+# Surveille toutes les instances OpenCode et met à jour l'état pour SwiftBar
+#
+
+set -u
+
+# Singleton
+LOCK_DIR="/tmp/opencode-eventd.lock"
+PID_FILE="$LOCK_DIR/pid"
+
+cleanup() {
+    kill_all_sse_listeners 2>/dev/null
+    rm -f /tmp/opencode-events.fifo 2>/dev/null
+    rm -rf "$LOCK_DIR"
+    exit 0
+}
+
+if ! mkdir "$LOCK_DIR" 2>/dev/null; then
+    if [[ -f "$PID_FILE" ]]; then
+        old_pid=$(cat "$PID_FILE" 2>/dev/null)
+        if kill -0 "$old_pid" 2>/dev/null; then
+            echo "Already running (PID $old_pid). Exiting."
+            exit 1
+        fi
+    fi
+    rm -rf "$LOCK_DIR"
+    mkdir "$LOCK_DIR"
+fi
+echo $$ > "$PID_FILE"
+
+# Track SSE listener PIDs per port (declared early for cleanup)
+declare -A SSE_PIDS
+
+trap cleanup EXIT SIGTERM SIGINT
+
+# Config
+STATE_FILE="/tmp/opencode-state.json"
+PREV_BUSY_SESSIONS=""
+PREV_PERMISSIONS=0
+LAST_STATE_HASH=""
+LAST_REFRESH=0
+MIN_REFRESH_INTERVAL=2  # seconds
+
+log() {
+    echo "[$(date +%H:%M:%S)] $1"
+}
+
+# Refresh SwiftBar only if state changed or enough time passed
+maybe_refresh_swiftbar() {
+    local new_hash=$(md5 -q "$STATE_FILE" 2>/dev/null)
+    local now=$(date +%s)
+    local elapsed=$((now - LAST_REFRESH))
+    
+    if [[ "$new_hash" != "$LAST_STATE_HASH" ]] && [[ $elapsed -ge $MIN_REFRESH_INTERVAL ]]; then
+        LAST_STATE_HASH="$new_hash"
+        LAST_REFRESH=$now
+        open -g "swiftbar://refreshplugin?name=opencode" 2>/dev/null &
+    fi
+}
+
+# Find all OpenCode instances (ports)
+find_opencode_ports() {
+    /usr/sbin/lsof -i -P 2>/dev/null | awk '/opencode.*LISTEN/ {gsub(/.*:/,"",$9); print $9}' | sort -u
+}
+
+# Get TTY for an opencode port
+get_tty_for_port() {
+    local port="$1"
+    local pid=$(/usr/sbin/lsof -i -P 2>/dev/null | awk -v p="$port" '/opencode.*LISTEN/ && $9 ~ ":"p"$" {print $2}')
+    [[ -n "$pid" ]] && ps -o tty= -p "$pid" 2>/dev/null | tr -d ' '
+}
+
+
+
+write_disconnected_state() {
+    cat > "$STATE_FILE" <<EOF
+{"instances":[],"instance_count":0,"agent_count":0,"busy_count":0,"todos":{"pending":0,"in_progress":0},"permissions_pending":0,"tools_running":[],"updated":$(date +%s),"connected":false}
+EOF
+    maybe_refresh_swiftbar
+}
+
+fetch_and_write_state() {
+    local ports=$(find_opencode_ports)
+    
+    if [[ -z "$ports" ]]; then
+        write_disconnected_state
+        log "No OpenCode instances found"
+        return
+    fi
+    
+    local instance_count=0
+    local total_agents=0
+    local total_busy=0
+    local total_pending=0
+    local total_in_progress=0
+    local stuck_tools=0
+    local instances_json="["
+    local all_tools="[]"
+    local first_instance=true
+    
+    for port in $ports; do
+        local url="http://127.0.0.1:${port}"
+        local status=$(curl -s "${url}/session/status" 2>/dev/null)
+        
+        # Skip if can't connect
+        [[ -z "$status" || "$status" == "null" ]] && continue
+        
+        instance_count=$((instance_count + 1))
+        
+        # Get sessions for this instance
+        local sessions=$(echo "$status" | jq -r 'to_entries[] | "\(.key)|\(.value.type)"' 2>/dev/null)
+        local agents_json="["
+        local first_agent=true
+        local instance_busy=0
+        local instance_agents=0
+        
+        # Get previously known session for this port (if idle now)
+        local known_session=""
+        if [[ -z "$sessions" && -f "$STATE_FILE" ]]; then
+            known_session=$(jq -r --arg p "$port" '.instances[] | select(.port == ($p | tonumber)) | .agents[0] // empty' "$STATE_FILE" 2>/dev/null)
+            if [[ -n "$known_session" && "$known_session" != "null" ]]; then
+                local known_id=$(echo "$known_session" | jq -r '.id // empty' 2>/dev/null)
+                if [[ -n "$known_id" ]]; then
+                    sessions="${known_id}|idle"
+                fi
+            fi
+        fi
+        
+        while IFS='|' read -r ses_id ses_status; do
+            [[ -z "$ses_id" ]] && continue
+            instance_agents=$((instance_agents + 1))
+            total_agents=$((total_agents + 1))
+            
+            [[ "$ses_status" == "busy" ]] && instance_busy=$((instance_busy + 1)) && total_busy=$((total_busy + 1))
+            
+            # Get session info
+            local info=$(curl -s "${url}/session/${ses_id}" 2>/dev/null)
+            local title=$(echo "$info" | jq -r '.title // "Sans titre"' 2>/dev/null | sed 's/"/\\"/g')
+            local full_dir=$(echo "$info" | jq -r '.directory // ""' 2>/dev/null | sed 's/"/\\"/g')
+            local short_dir=$(basename "$full_dir" 2>/dev/null || echo "global")
+            
+            # Check if this session has a permission pending (tool running > 5s)
+            local has_permission="false"
+            if [[ "$ses_status" == "busy" ]]; then
+                local msg=$(curl -s "${url}/session/${ses_id}/message?limit=1" 2>/dev/null)
+                if [[ -n "$msg" && "$msg" != "null" ]]; then
+                    local now_ms=$(($(date +%s) * 1000))
+                    local stuck=$(echo "$msg" | jq -r --argjson now "$now_ms" '.[0].parts[] | select(.type == "tool" and .state.status == "running" and (.state.time.start + 5000) < $now) | .tool' 2>/dev/null | head -1)
+                    if [[ -n "$stuck" ]]; then
+                        has_permission="true"
+                        stuck_tools=$((stuck_tools + 1))
+                    fi
+                fi
+            fi
+            
+            [[ "$first_agent" == "true" ]] && first_agent=false || agents_json="$agents_json,"
+            agents_json="$agents_json{\"id\":\"$ses_id\",\"title\":\"$title\",\"dir\":\"$short_dir\",\"full_dir\":\"$full_dir\",\"status\":\"$ses_status\",\"permission_pending\":$has_permission}"
+            
+            # Get todos
+            local todos=$(curl -s "${url}/session/${ses_id}/todo" 2>/dev/null)
+            if [[ -n "$todos" && "$todos" != "null" && "$todos" != "[]" ]]; then
+                local p=$(echo "$todos" | jq '[.[] | select(.status == "pending")] | length' 2>/dev/null || echo 0)
+                local i=$(echo "$todos" | jq '[.[] | select(.status == "in_progress")] | length' 2>/dev/null || echo 0)
+                total_pending=$((total_pending + p))
+                total_in_progress=$((total_in_progress + i))
+            fi
+            
+            # Get running tools (permission detection moved above)
+            if [[ "$ses_status" == "busy" ]]; then
+                local msg=$(curl -s "${url}/session/${ses_id}/message?limit=1" 2>/dev/null)
+                if [[ -n "$msg" && "$msg" != "null" ]]; then
+                    local running=$(echo "$msg" | jq -c '[.[0].parts[] | select(.type == "tool" and .state.status == "running") | .tool] | unique' 2>/dev/null)
+                    if [[ -n "$running" && "$running" != "null" && "$running" != "[]" ]]; then
+                        all_tools=$(echo "[$all_tools, $running]" | jq -c 'flatten | unique' 2>/dev/null)
+                    fi
+                fi
+            fi
+        done <<< "$sessions"
+        agents_json="$agents_json]"
+        
+        # Get TTY for this instance
+        local tty=$(get_tty_for_port "$port")
+        
+        [[ "$first_instance" == "true" ]] && first_instance=false || instances_json="$instances_json,"
+        instances_json="$instances_json{\"port\":$port,\"tty\":\"$tty\",\"agents\":$agents_json,\"agent_count\":$instance_agents,\"busy_count\":$instance_busy}"
+    done
+    instances_json="$instances_json]"
+    
+    # Build current busy session list for completion detection
+    local current_busy_sessions=$(echo "$instances_json" | jq -r '.[].agents[] | select(.status == "busy") | .id' 2>/dev/null | tr '\n' ' ')
+    
+    # Detect sessions that completed (were busy, now not busy)
+    for prev_ses in $PREV_BUSY_SESSIONS; do
+        if ! echo " $current_busy_sessions " | grep -q " $prev_ses "; then
+            # Get session title from previous state
+            local ses_title=$(jq -r --arg id "$prev_ses" '.instances[].agents[] | select(.id == $id) | .title' "$STATE_FILE" 2>/dev/null | head -1)
+            [[ -z "$ses_title" || "$ses_title" == "null" ]] && ses_title="Session"
+            
+            log "Session completed: $ses_title ($prev_ses)"
+        fi
+    done
+    PREV_BUSY_SESSIONS="$current_busy_sessions"
+    
+    # Detect permissions: use stuck_tools count (tools running > 5s = likely permission)
+    # This is more reliable than SSE events which can be missed
+    local detected_perms=$stuck_tools
+    
+    # Force refresh if permissions changed
+    if [[ $detected_perms -ne $PREV_PERMISSIONS ]]; then
+        log "Permissions changed: $PREV_PERMISSIONS -> $detected_perms"
+        PREV_PERMISSIONS=$detected_perms
+        open -g "swiftbar://refreshplugin?name=opencode" 2>/dev/null &
+        if [[ $detected_perms -gt 0 ]]; then
+            :
+        fi
+    fi
+    
+    cat > "$STATE_FILE" <<EOF
+{"instances":$instances_json,"instance_count":$instance_count,"agent_count":$total_agents,"busy_count":$total_busy,"todos":{"pending":$total_pending,"in_progress":$total_in_progress},"permissions_pending":$detected_perms,"tools_running":$all_tools,"updated":$(date +%s),"connected":true}
+EOF
+    
+    log "State updated: $instance_count instances, $total_agents agents ($total_busy busy)"
+    maybe_refresh_swiftbar
+}
+
+process_event() {
+    local event_type="$1"
+    
+    case "$event_type" in
+        session.status|todo.updated)
+            fetch_and_write_state
+            ;;
+        session.idle)
+            # Reset permissions when session goes idle
+            jq '.permissions_pending = 0' "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+            fetch_and_write_state
+            ;;
+        message.part.updated)
+            # Debounce frequent message updates - only update state, SwiftBar refreshed by maybe_refresh
+            fetch_and_write_state
+            ;;
+        permission.updated|permission.requested)
+            log "Permission pending"
+            local current=$(jq -r '.permissions_pending // 0' "$STATE_FILE" 2>/dev/null)
+            jq ".permissions_pending = $((current + 1))" "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+            open -g "swiftbar://refreshplugin?name=opencode" 2>/dev/null &
+            ;;
+        permission.replied)
+            log "Permission replied - resetting counter"
+            jq '.permissions_pending = 0' "$STATE_FILE" > "${STATE_FILE}.tmp" && mv "${STATE_FILE}.tmp" "$STATE_FILE"
+            open -g "swiftbar://refreshplugin?name=opencode" 2>/dev/null &
+            ;;
+        server.connected)
+            log "Connected to OpenCode server"
+            fetch_and_write_state
+            ;;
+    esac
+}
+
+# Kill SSE listener for a port
+kill_sse_listener() {
+    local port="$1"
+    if [[ -n "${SSE_PIDS[$port]:-}" ]]; then
+        kill "${SSE_PIDS[$port]}" 2>/dev/null
+        unset SSE_PIDS[$port]
+    fi
+}
+
+# Kill all SSE listeners
+kill_all_sse_listeners() {
+    for port in "${!SSE_PIDS[@]}"; do
+        kill_sse_listener "$port"
+    done
+}
+
+# Listen to a single instance's events (runs in background)
+listen_instance_events() {
+    local port="$1"
+    local url="http://127.0.0.1:${port}"
+    
+    curl -sN "${url}/event" 2>/dev/null | while IFS= read -r line; do
+        if [[ "$line" == data:* ]]; then
+            local event_data="${line#data: }"
+            local event_type=$(echo "$event_data" | jq -r '.type // empty' 2>/dev/null)
+            if [[ -n "$event_type" ]]; then
+                # Write event to a fifo for main process to handle
+                echo "$port|$event_type" >> /tmp/opencode-events.fifo 2>/dev/null
+            fi
+        fi
+    done
+}
+
+# Start SSE listeners for all instances
+start_sse_listeners() {
+    local ports="$1"
+    
+    # Create fifo if needed
+    [[ ! -p /tmp/opencode-events.fifo ]] && mkfifo /tmp/opencode-events.fifo 2>/dev/null
+    
+    for port in $ports; do
+        # Skip if already listening
+        if [[ -n "${SSE_PIDS[$port]:-}" ]] && kill -0 "${SSE_PIDS[$port]}" 2>/dev/null; then
+            continue
+        fi
+        
+        log "Starting SSE listener for port $port"
+        listen_instance_events "$port" &
+        SSE_PIDS[$port]=$!
+    done
+    
+    # Kill listeners for ports no longer active
+    for old_port in "${!SSE_PIDS[@]}"; do
+        if ! echo "$ports" | grep -q "^${old_port}$"; then
+            log "Stopping SSE listener for port $old_port (no longer active)"
+            kill_sse_listener "$old_port"
+        fi
+    done
+}
+
+# Process events from fifo
+process_events_fifo() {
+    # Non-blocking read with timeout
+    while IFS='|' read -t 0.1 port event_type 2>/dev/null; do
+        if [[ -n "$event_type" ]]; then
+            process_event "$event_type"
+        fi
+    done < /tmp/opencode-events.fifo
+}
+
+main() {
+    log "OpenCode Event Daemon started"
+    
+    # Create event fifo
+    rm -f /tmp/opencode-events.fifo 2>/dev/null
+    mkfifo /tmp/opencode-events.fifo 2>/dev/null
+    
+    # Open fifo for reading in non-blocking mode
+    exec 3<>/tmp/opencode-events.fifo
+    
+    local last_poll=0
+    local poll_interval=30  # Poll every 30s as fallback
+    local last_ports=""
+    
+    while true; do
+        local ports=$(find_opencode_ports)
+        local now=$(date +%s)
+        
+        if [[ -n "$ports" ]]; then
+            # Full poll if ports changed or timeout reached
+            if [[ "$ports" != "$last_ports" ]] || [[ $((now - last_poll)) -ge $poll_interval ]]; then
+                fetch_and_write_state
+                last_poll=$now
+                last_ports="$ports"
+            fi
+            
+            start_sse_listeners "$ports"
+            
+            # Process events from SSE (blocking read with timeout)
+            while IFS='|' read -t 2 -u 3 port event_type 2>/dev/null; do
+                if [[ -n "$event_type" ]]; then
+                    log "Event from port $port: $event_type"
+                    process_event "$event_type"
+                fi
+            done
+        else
+            if [[ "$last_ports" != "" ]]; then
+                log "No OpenCode instances, waiting..."
+                kill_all_sse_listeners
+                write_disconnected_state
+                last_ports=""
+            fi
+            sleep 2
+        fi
+    done
+}
+
+main
