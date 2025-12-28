@@ -1,5 +1,14 @@
 # Plan 07 - Detection des permissions (agents stuck)
 
+> **STATUT : NON REALISABLE**
+> 
+> Ce plan a ete abandonne car les API OpenCode ne permettent pas de detecter l'etat "waiting for permission" de maniere fiable :
+> - L'endpoint `/permission` retourne toujours un tableau vide
+> - Les SSE events `permission.updated` ne sont pas emis
+> - La detection via scan des tools (`status: "pending"`) est trop peu fiable (timing, sessions non listees dans `/session/status`)
+> 
+> **Alternative** : La fonctionnalite de notification de permission sera integree de maniere simplifiee dans le Plan 10 (notification au moment de la detection, sans suivi d'etat "stuck" ni affichage dans le menu).
+
 ## Contexte
 
 OpenCode (Claude Code CLI) demande regulierement des permissions a l'utilisateur avant d'executer certaines actions sensibles (ecriture de fichiers, execution de commandes, etc.). Quand une permission est demandee, l'agent est bloque en attente de la reponse de l'utilisateur.

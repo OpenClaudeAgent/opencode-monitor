@@ -19,32 +19,37 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 4 | Refonte backend Python | [plan-04](./plan-04-python-backend.md) | `feature/python-backend` | v2.0.0 | Termine |
 | 5 | Migration vers rumps | [plan-05](./plan-05-rumps-migration.md) | `feature/rumps-migration` | v2.4.0 | Termine |
 | 6 | Tooltips elements tronques | [plan-06](./plan-06-tooltips-truncated.md) | `feature/tooltips` | - | En attente |
-| 7 | Detection permissions/stuck | [plan-07](./plan-07-permission-detection.md) | `feature/permissions` | - | En attente |
+| 7 | Detection permissions/stuck | [plan-07](./plan-07-permission-detection.md) | `feature/permissions` | - | Non realisable |
 | 8 | Panel de configuration | [plan-08](./plan-08-settings-panel.md) | `feature/settings` | v2.6.0 | Termine |
 | 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
 | 10 | Notifications systeme macOS | [plan-10](./plan-10-system-notifications.md) | `feature/notifications` | - | En attente |
 | 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | - | En attente |
+| 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | - | En attente |
 
 ## Priorite
 
-Les plans 06, 07, 08, 10, 11 sont des ameliorations pour l'application rumps native (v2.4.0+).
+Les plans 06, 08, 10, 11, 12 sont des ameliorations pour l'application rumps native (v2.4.0+).
 
 Ordre suggere :
 1. ~~**Plan 09** (Icones)~~ - Termine v2.5.0
 2. ~~**Plan 08** (Settings)~~ - Termine v2.6.0
-3. **Plan 07** (Permissions) - Detection des agents stuck, depend de plan 08 pour la configuration
-4. **Plan 10** (Notifications systeme) - Notifications macOS natives, depend de plans 07 et 08
-5. **Plan 06** (Tooltips) - Amelioration UX independante
-6. **Plan 11** (Securite) - Analyse des commandes, alertes. Beneficie de plan-10 pour les notifications
+3. ~~**Plan 07** (Permissions)~~ - **Non realisable** - Les API OpenCode ne permettent pas de detecter l'etat "waiting for permission" de maniere fiable
+4. **Plan 12** (Debug preferences) - Correction du systeme de preferences (sons ignores)
+5. **Plan 10** (Notifications systeme) - Notifications macOS natives, accompagne les sons existants
+6. **Plan 06** (Tooltips) - Amelioration UX independante
+7. **Plan 11** (Securite) - Analyse des commandes, alertes. Beneficie de plan-10 pour les notifications
 
-**Note** : Le plan 10 peut etre implemente partiellement (notifications de completion) avant les plans 07/08, puis complete une fois ceux-ci termines.
+**Note Plan-07** : L'endpoint `/permission` d'OpenCode retourne toujours un tableau vide et les SSE events `permission.updated` ne sont pas emis. La seule detection possible (scan des tools avec `status: "pending"`) est trop peu fiable pour une UX correcte. La fonctionnalite de notification de permission sera integree dans le Plan 10 de maniere simplifiee (notification au moment de la detection, sans suivi d'etat "stuck").
 
-**Note plan-11** : Le module de securite peut etre implemente independamment (sous-taches 11.1-11.3), mais les notifications (11.4) beneficieront du plan-10 s'il est termine avant.
+**Note Plan-10** : Ce plan integre maintenant la notification de permission de maniere simplifiee (notification sonore + systeme au moment de la detection).
 
 ## Historique
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Ajout plan-12 (debug systeme preferences) |
+| 2025-12-28 | Plan-07 marque non realisable - API OpenCode ne supporte pas la detection des permissions |
+| 2025-12-28 | Mise a jour plan-10 - Integration notifications permissions simplifiee |
 | 2025-12-28 | Ajout plan-11 (module securite / analyse commandes) |
 | 2025-12-28 | Plan-08 termine - Panel de configuration v2.6.0 |
 | 2025-12-28 | Ajout plan-10 (notifications systeme macOS) |

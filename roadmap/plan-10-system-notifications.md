@@ -12,6 +12,8 @@ Les notifications systeme macOS (Centre de notifications) offrent plusieurs avan
 
 **Note** : Ce plan est complementaire au plan-02 (sons). Les deux systemes peuvent fonctionner ensemble ou independamment selon les preferences utilisateur.
 
+**Note Plan-07** : Le plan-07 (detection permissions) a ete abandonne car les API OpenCode ne permettent pas une detection fiable. Ce plan integre une version simplifiee de la notification de permission : detection ponctuelle via scan des tools avec `status: "pending"`, notification immediate sans suivi d'etat "stuck".
+
 ## Objectif
 
 Ajouter des notifications systeme macOS natives pour les evenements importants, permettant a l'utilisateur d'etre informe visuellement meme sans surveiller la barre de menu, et de pouvoir interagir avec ces notifications.
@@ -25,10 +27,11 @@ Ajouter des notifications systeme macOS natives pour les evenements importants, 
 | Evenement | Priorite | Description |
 |-----------|----------|-------------|
 | Agent termine | Normale | Un agent a complete sa tache |
-| Permission demandee | Haute | Un agent attend une reponse utilisateur |
-| Agent stuck | Urgente | Un agent attend une permission depuis trop longtemps |
+| Permission demandee | Haute | Un agent attend une reponse utilisateur (detection simplifiee) |
 | Usage API eleve | Normale | Seuil d'utilisation atteint (70%, 90%) |
 | Erreur agent | Haute | Un agent a rencontre une erreur |
+
+**Note** : L'evenement "Agent stuck" du plan-07 n'est pas inclus car la detection fiable de l'etat "waiting for permission" n'est pas possible via les API OpenCode. La notification de permission est declenchee au moment de la detection (scan des tools), sans suivi de duree.
 
 ### 2. Contenu des notifications
 
@@ -42,12 +45,8 @@ Ajouter des notifications systeme macOS natives pour les evenements importants, 
 **Permission demandee** :
 - Titre : "Permission requise"
 - Sous-titre : Nom/identifiant de la session
-- Corps : Type de permission si disponible (ex: "Ecriture fichier", "Execution commande")
-
-**Agent stuck** :
-- Titre : "Agent en attente"
-- Sous-titre : Nom/identifiant de la session
-- Corps : "En attente de permission depuis X minutes"
+- Corps : Nom de l'outil en attente (ex: "bash", "edit", "write")
+- Note : Detection simplifiee, notification unique au moment de la detection
 
 **Usage API eleve** :
 - Titre : "Usage API Anthropic"
@@ -162,17 +161,16 @@ Ajouter des notifications systeme macOS natives pour les evenements importants, 
 
 ## Dependances
 
-- **Plan-07 (Permissions)** : Fournit les etats "permission en attente" et "stuck" necessaires pour certaines notifications
-- **Plan-08 (Settings)** : Fournit l'infrastructure de configuration pour activer/desactiver les notifications
+- **Plan-08 (Settings)** : Fournit l'infrastructure de configuration pour activer/desactiver les notifications (termine v2.6.0)
+- **Plan-12 (Debug preferences)** : Correction du systeme de preferences si necessaire avant implementation
 
-**Note** : Ce plan peut etre implemente partiellement sans les dependances (ex: notifications de completion uniquement), puis complete quand les autres plans sont termines.
+**Note** : Le plan-07 (Permissions) a ete abandonne. La detection de permission est integree directement dans ce plan de maniere simplifiee (scan des tools avec `status: "pending"`, notification immediate sans suivi d'etat).
 
 ## Checklist de validation
 
 ### Types de notifications
 - [ ] Notification pour agent termine
-- [ ] Notification pour permission demandee
-- [ ] Notification pour agent stuck
+- [ ] Notification pour permission demandee (detection simplifiee)
 - [ ] Notification pour usage API eleve (70%, 90%)
 - [ ] Notification pour erreurs
 
@@ -184,7 +182,7 @@ Ajouter des notifications systeme macOS natives pour les evenements importants, 
 
 ### Interaction
 - [ ] Clic sur notification met l'application au premier plan
-- [ ] Clic sur notification permission/stuck focus le bon terminal (si possible)
+- [ ] Clic sur notification permission focus le bon terminal (si possible)
 - [ ] Notifications presentes dans le Centre de notifications
 
 ### Anti-spam
