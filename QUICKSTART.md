@@ -1,195 +1,80 @@
-# Quick Start Guide
+# Quick Start
 
-Get OpenCode SwiftBar Monitor running in 5 minutes.
+Get OpenCode Monitor running in 2 minutes.
 
-## 1. Installation
-
-```bash
-# Navigate to project directory
-cd ~/Projects/opencode-swiftbar-monitor
-
-# Run installation
-bash install.sh
-```
-
-That's it! The installer will:
-- ✅ Install SwiftBar (if needed)
-- ✅ Copy daemons to `~/.local/bin/`
-- ✅ Copy plugin to SwiftBar plugins folder
-- ✅ Configure and start services
-
-## 2. Verify Installation
-
-Check if everything is running:
+## 1. Install
 
 ```bash
-# Check if daemons are running
-ps aux | grep opencode
-
-# View the state file
-cat /tmp/opencode-state.json | jq .
-
-# View the usage file
-cat /tmp/opencode-usage.json | jq .
+cd opencode-swiftbar-monitor
+make run
 ```
 
-## 3. Look in Menu Bar
+That's it! The app will appear in your menu bar with a 🤖 icon.
 
-You should see the OpenCode icon (🤖) in your menu bar!
+## 2. What You'll See
 
-Click it to see:
-- Active instances
-- Running agents
-- Pending todos
-- Claude API usage
-
-## 4. Common Actions
-
-### Refresh SwiftBar Plugin
-```bash
-open -g "swiftbar://refreshplugin?name=opencode"
+### Menu Bar
 ```
-
-### View Logs
-```bash
-tail -f /tmp/opencode-eventd.log
-tail -f /tmp/opencode-usaged.log
+🤖 2 ⏳3 🟢45%
 ```
+- Number of busy agents
+- Pending todos count
+- Claude API usage %
 
-### Restart Daemons
-```bash
-launchctl unload ~/Library/LaunchAgents/com.opencode.eventd.plist
-launchctl load ~/Library/LaunchAgents/com.opencode.eventd.plist
+### Click to Open Menu
 ```
-
-### Uninstall
-```bash
-cd ~/Projects/opencode-swiftbar-monitor
-bash uninstall.sh
-```
-
-## 5. Customize
-
-### Change Plugin Refresh Rate
-
-Rename the plugin file to change refresh interval:
-
-```bash
-# Refresh every 5 seconds instead of 2
-cd ~/Library/Application\ Support/SwiftBar/Plugins
-mv opencode.2s.sh opencode.5s.sh
-```
-
-Valid intervals: `.1s`, `.2s`, `10s`, `1m`, `5m`, `1h`
-
-### Modify Daemon Polling
-
-Edit `~/.local/bin/opencode-eventd`:
-
-```bash
-# Find this line (~365):
-local poll_interval=30  # Change to desired seconds
-```
-
-Then reload:
-```bash
-launchctl unload ~/Library/LaunchAgents/com.opencode.eventd.plist
-launchctl load ~/Library/LaunchAgents/com.opencode.eventd.plist
-```
-
-## 6. Troubleshooting
-
-### Plugin not visible
-```bash
-# Check if plugin exists
-ls ~/Library/Application\ Support/SwiftBar/Plugins/opencode.2s.sh
-
-# Check if executable
-chmod +x ~/Library/Application\ Support/SwiftBar/Plugins/opencode.2s.sh
-
-# Refresh SwiftBar
-open -g "swiftbar://refreshplugin?name=opencode"
-```
-
-### No instances detected
-```bash
-# Check if OpenCode is running
-ps aux | grep opencode | grep -v grep
-
-# Check eventd logs
-tail -20 /tmp/opencode-eventd.log
-
-# Find OpenCode ports
-/usr/sbin/lsof -i -P | grep opencode
-```
-
-### Daemons not starting
-```bash
-# Check launchd status
-launchctl list | grep opencode
-
-# Check plist files
-plutil -lint ~/Library/LaunchAgents/com.opencode.eventd.plist
-
-# Reload services
-bash ~/Projects/opencode-swiftbar-monitor/install.sh
-```
-
-## 7. File Locations
-
-After installation, files are located at:
-
-```
-~/.local/bin/
-  ├── opencode-eventd
-  └── opencode-usaged
-
-~/Library/Application Support/SwiftBar/Plugins/
-  └── opencode.2s.sh
-
-~/Library/LaunchAgents/
-  ├── com.opencode.eventd.plist
-  └── com.opencode.usaged.plist
-
-/tmp/
-  ├── opencode-state.json
-  ├── opencode-usage.json
-  ├── opencode-eventd.log
-  └── opencode-usaged.log
-```
-
-## 8. Data Files
-
-The monitor stores data in JSON files:
-
-### `/tmp/opencode-state.json`
-Updated in real-time when OpenCode instances change:
-- Instances (ports, TTY)
-- Agents (status, permissions)
-- Todos (pending, in progress)
-- Tools running
-
-### `/tmp/opencode-usage.json`
-Updated every 5 minutes from Claude API:
-- 5-hour window usage
-- 7-day window usage
-- Reset times
-
-## 9. Next Steps
-
-- Read [README.md](README.md) for full documentation
-- Read [DEVELOPMENT.md](DEVELOPMENT.md) to modify components
-- Check [examples/](examples/) for sample data formats
-- Review logs for any issues
-
-## Support
-
-Having issues? Check:
-1. Logs: `tail -f /tmp/opencode-eventd.log`
-2. Status: `launchctl list | grep opencode`
-3. Files: `ls -la ~/Library/LaunchAgents/com.opencode.*`
-4. Running processes: `ps aux | grep opencode`
-
+🤖 My Agent Task
+    🔧 bash: running command
+    🔄 Current todo
+    └ ● Sub-agent
+⚪ Idle Instance (idle)
 ---
+🟢 Session: 45%
+📅 Weekly: 29%
+📊 Open Claude Usage
+---
+⚙️ Preferences
+---
+Quit
+```
 
-**Enjoying the monitor?** Consider starring the repo or contributing improvements! 🌟
+## 3. Features
+
+- **Click agent** → Focus its terminal in iTerm2
+- **⚙️ Preferences** → Configure refresh rate and sounds
+- **📊 Open Claude Usage** → Open Claude usage page
+
+## 4. Configure
+
+Click **⚙️ Preferences** to:
+
+- Set usage refresh interval (30s - 10m)
+- Enable/disable completion sounds
+
+## 5. Stop
+
+- Click **Quit** in the menu, or
+- `pkill -f opencode-menubar`
+
+## 6. Run Again
+
+```bash
+make run
+```
+
+## Troubleshooting
+
+**No icon in menu bar?**
+```bash
+pkill -f opencode-menubar
+make run
+```
+
+**No instances showing?**
+- Make sure OpenCode is running
+- Check: `lsof -i :4096` (or your OpenCode port)
+
+**Need logs?**
+```bash
+uv run python3 bin/opencode-menubar 2>&1 | tee debug.log
+```

@@ -1,251 +1,204 @@
 # Development Guide
 
-This document explains the project structure and how to develop/modify components.
+## Quick Start
 
-## Architecture Overview
+```bash
+# Run the app
+make run
 
-### Components
-
-#### 1. Eventd Daemon (`bin/opencode-eventd`)
-- **Purpose**: Monitor OpenCode instances in real-time
-- **Mechanism**: 
-  - Discovers OpenCode instances via port scanning
-  - Connects to each instance via HTTP
-  - Listens to SSE (Server-Sent Events) stream
-  - Polls for state updates every 30 seconds (fallback)
-- **Output**: `/tmp/opencode-state.json`
-- **Frequency**: Real-time + polling fallback
-
-**Key Functions:**
-- `find_opencode_ports()`: Discover running instances
-- `fetch_and_write_state()`: Gather state from all instances
-- `listen_instance_events()`: SSE stream listener
-- `process_event()`: Handle incoming events
-
-#### 2. Usaged Daemon (`bin/opencode-usaged`)
-- **Purpose**: Track Claude API usage
-- **Mechanism**: HTTP requests to Anthropic API
-- **Output**: `/tmp/opencode-usage.json`
-- **Frequency**: Every 5 minutes
-- **Auth**: Reads from `~/.local/share/opencode/auth.json`
-
-#### 3. SwiftBar Plugin (`plugins/opencode.2s.sh`)
-- **Purpose**: Display monitor data in menu bar
-- **Mechanism**: 
-  - Reads JSON files from /tmp
-  - Formats for SwiftBar display
-  - Refreshes every 2 seconds
-- **Output**: Menu bar display
-
-### Data Flow
-
-```
-OpenCode Instances
-        ↓
-  Port Discovery (lsof)
-        ↓
-  HTTP Polling & SSE Listening
-        ↓
-  /tmp/opencode-state.json (updated real-time)
-        ↓
-  SwiftBar Plugin reads JSON
-        ↓
-  Menu Bar Display
+# Or directly with uv
+uv run python3 bin/opencode-menubar
 ```
 
-## Development
+## Architecture
 
-### Modifying the Eventd Daemon
+### Single App Architecture
 
-**File**: `bin/opencode-eventd`
+OpenCode Monitor is a native macOS menu bar app built with [rumps](https://github.com/jaredks/rumps).
 
-**Common modifications:**
+```
+┌─────────────────────────────────────────────┐
+│           OpenCodeApp (rumps.App)           │
+│                                             │
+│  ┌─────────────────┐  ┌──────────────────┐  │
+│  │ Background      │  │ UI Thread        │  │
+│  │ Thread          │  │ (main)           │  │
+│  │                 │  │                  │  │
+│  │ - fetch state   │  │ - build menu     │  │
+│  │ - fetch usage   │──▶ - update title   │  │
+│  │ - notifications │  │ - handle clicks  │  │
+│  └─────────────────┘  └──────────────────┘  │
+│                                             │
+│  State: self._state, self._usage (in-memory)│
+└─────────────────────────────────────────────┘
+```
 
-1. **Change polling interval** (line ~365):
-   ```bash
-   local poll_interval=30  # seconds
-   ```
+### Key Components
 
-2. **Add new event type** (in `process_event()`):
-   ```bash
-   case "$event_type" in
-       my.new.event)
-           log "Handling my new event"
-           fetch_and_write_state
-           ;;
-   esac
-   ```
+| File | Purpose |
+|------|---------|
+| `app.py` | Main rumps application, UI, menu building |
+| `monitor.py` | Async detection of OpenCode instances |
+| `usage.py` | Claude API usage fetching |
+| `settings.py` | Preferences persistence |
+| `sounds.py` | macOS sound notifications |
+| `models.py` | Data classes |
+| `client.py` | OpenCode HTTP client |
 
-3. **Extract additional data from API**:
-   Edit the `fetch_and_write_state()` function to add more jq processing
+## Adding Features
 
-### Modifying the Usaged Daemon
+### Add a New Setting
 
-**File**: `bin/opencode-usaged`
+1. Add field to `Settings` dataclass in `settings.py`:
+```python
+@dataclass
+class Settings:
+    usage_refresh_interval: int = 60
+    sound_completion: bool = True
+    my_new_setting: bool = False  # Add here
+```
 
-**Common modifications:**
+2. Add UI in `app.py` `_build_static_menu()`:
+```python
+my_item = rumps.MenuItem("My Setting", callback=self._toggle_my_setting)
+my_item.state = 1 if settings.my_new_setting else 0
+prefs_menu.add(my_item)
+```
 
-1. **Change fetch interval** (line ~19):
-   ```bash
-   FETCH_INTERVAL=300  # 5 minutes (in seconds)
-   ```
+3. Add callback:
+```python
+def _toggle_my_setting(self, sender):
+    settings = get_settings()
+    settings.my_new_setting = not settings.my_new_setting
+    save_settings()
+    sender.state = 1 if settings.my_new_setting else 0
+```
 
-2. **Add new fields** to API response parsing:
-   Use jq to extract and format additional data
+### Add a New Sound
 
-### Modifying the Plugin
+1. Add to `SOUNDS` dict in `sounds.py`:
+```python
+SOUNDS = {
+    "completion": "/System/Library/Sounds/Glass.aiff",
+    "my_sound": "/System/Library/Sounds/Ping.aiff",
+}
+```
 
-**File**: `plugins/opencode.2s.sh`
+2. Add setting toggle (see above)
 
-**Common modifications:**
+3. Create check function:
+```python
+def check_and_notify_my_event(condition: bool):
+    settings = get_settings()
+    if not settings.sound_my_event:
+        return
+    if condition:
+        play_sound("my_sound")
+```
 
-1. **Change refresh interval** (filename):
-   - `opencode.2s.sh` → `opencode.5s.sh` (5 second refresh)
-   - SwiftBar uses filename to determine refresh rate
+### Add New Data to State
 
-2. **Add new display sections**:
-   ```bash
-   if [[ -n "$MY_DATA" ]]; then
-       echo "My Section | size=12 color=gray"
-       echo "  Data: $MY_DATA | size=11"
-   fi
-   ```
+1. Add field to model in `models.py`:
+```python
+@dataclass
+class Agent:
+    # ... existing fields
+    my_field: str = ""
+```
 
-3. **Add custom colors**:
-   Valid values: `red`, `green`, `blue`, `gray`, `orange`, `yellow`, `#RRGGBB`
+2. Extract in `monitor.py` `fetch_instance()`:
+```python
+my_field = info.get("myField", "")
+agent = Agent(
+    # ... existing
+    my_field=my_field,
+)
+```
+
+3. Display in `app.py` `_add_agent_to_menu()`:
+```python
+if agent.my_field:
+    self.menu.insert_before("Refresh", 
+        rumps.MenuItem(f"    📌 {agent.my_field}"))
+```
 
 ## Testing
 
-### Test Eventd Locally
+### Manual Testing
 
 ```bash
-# Run daemon in foreground for debugging
-bash -x bin/opencode-eventd
+# Run and watch logs
+uv run python3 bin/opencode-menubar
 
-# Check state file
-jq '.' /tmp/opencode-state.json
+# Test usage API
+uv run python3 -c "
+from src.opencode_monitor.usage import fetch_usage
+u = fetch_usage()
+print(f'Session: {u.five_hour.utilization}%')
+"
 
-# Monitor logs
-tail -f /tmp/opencode-eventd.log
+# Test instance detection
+uv run python3 -c "
+import asyncio
+from src.opencode_monitor.monitor import fetch_all_instances
+state = asyncio.run(fetch_all_instances())
+print(f'Instances: {state.instance_count}')
+"
 ```
 
-### Test Plugin Manually
+### Check Settings
 
 ```bash
-# Run plugin directly
-bash plugins/opencode.2s.sh
-
-# Check output format
-bash plugins/opencode.2s.sh | head -20
-```
-
-### Test Data Files
-
-```bash
-# Create sample state
-cat > /tmp/opencode-state.json << 'EOF'
-{
-  "instances": [],
-  "instance_count": 0,
-  "agent_count": 0,
-  "busy_count": 0,
-  "todos": {"pending": 0, "in_progress": 0},
-  "permissions_pending": 0,
-  "tools_running": [],
-  "updated": $(date +%s),
-  "connected": false
-}
-EOF
-
-# Test plugin with sample data
-bash plugins/opencode.2s.sh
-```
-
-## Building for Release
-
-### 1. Update Version
-Edit `README.md` and `DEVELOPMENT.md` with version info
-
-### 2. Test All Components
-```bash
-bash install.sh
-bash plugins/opencode.2s.sh
-tail -f /tmp/opencode-eventd.log
-```
-
-### 3. Create Git Tags
-```bash
-git tag -a v1.0.0 -m "Release version 1.0.0"
-git push origin v1.0.0
+cat ~/.config/opencode-monitor/settings.json
 ```
 
 ## Debugging
 
-### Enable Verbose Logging
+### Enable Debug Logging
 
-Edit `bin/opencode-eventd` and uncomment debug statements:
-
-```bash
-# Add near functions you want to debug
-set -x  # Enable debug mode
-# ... function code ...
-set +x  # Disable debug mode
-```
-
-### Check System State
+In `logger.py`, debug messages go to stderr. Run the app from terminal to see them:
 
 ```bash
-# Find OpenCode ports
-/usr/sbin/lsof -i -P 2>/dev/null | grep opencode
-
-# Check daemon processes
-ps aux | grep opencode
-
-# Check launchd services
-launchctl list | grep opencode
-
-# Check loaded agents
-ls -la ~/Library/LaunchAgents/com.opencode.*
+uv run python3 bin/opencode-menubar 2>&1 | tee /tmp/opencode-debug.log
 ```
 
-## Common Issues & Solutions
+### Common Issues
 
-### Daemon not finding OpenCode instances
-- Verify OpenCode is running: `ps aux | grep opencode`
-- Check ports: `lsof -i :4096` (replace 4096 with actual port)
-- Check eventd logs: `tail -f /tmp/opencode-eventd.log`
+**App not appearing in menu bar:**
+- Check if another instance is running: `pgrep -f opencode-menubar`
+- Kill and restart: `pkill -f opencode-menubar && make run`
 
-### Plugin not updating
-- Verify state file exists: `ls -la /tmp/opencode-state.json`
-- Check plugin syntax: `bash -n plugins/opencode.2s.sh`
-- Check SwiftBar plugin directory: `ls ~/Library/Application\ Support/SwiftBar/Plugins/`
+**Usage not updating:**
+- Check auth file: `cat ~/.local/share/opencode/auth.json`
+- Check settings interval: `cat ~/.config/opencode-monitor/settings.json`
 
-### Services not starting
-- Check plist syntax: `plutil -lint ~/Library/LaunchAgents/com.opencode.eventd.plist`
-- Reload: `launchctl unload ... && launchctl load ...`
-- Check launchd logs: `log stream --predicate 'process == "launchd"'`
+**Instances not detected:**
+- Verify OpenCode is running: `lsof -i :4096`
+- Check netstat: `netstat -an | grep LISTEN | grep 127.0.0.1`
 
-## Performance Considerations
+## Dependencies
 
-### Memory Usage
-- Daemons: ~7-8 MB each
-- Keep JSON files compact (jq -c flag)
+Defined in `pyproject.toml`:
 
-### CPU Usage
-- Polling every 30s (configurable)
-- SSE listeners have minimal CPU
-- Plugin refresh every 2s (configurable)
+- **rumps**: macOS menu bar framework
+- **aiohttp**: Async HTTP client
 
-### Network Usage
-- One HTTP request per instance per 30s poll
-- One HTTPS request to Anthropic API every 5 minutes
-- SSE stream connection (persistent, low bandwidth)
+Install with:
+```bash
+uv sync
+```
 
-## Future Enhancements
+## Git Workflow
 
-- [ ] Add sound notifications
-- [ ] Custom alert thresholds
-- [ ] Database for historical data
-- [ ] Web dashboard
-- [ ] Multiple user support
-- [ ] Configuration file support
+```bash
+# Development in worktree
+cd worktrees/feature
+git checkout -b feature/my-feature
+# ... make changes ...
+git commit -m "feat(scope): description"
+
+# Merge to main
+cd /path/to/main/repo
+git merge feature/my-feature
+git tag -a vX.Y.Z -m "description"
+```

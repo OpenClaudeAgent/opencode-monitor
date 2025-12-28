@@ -3,224 +3,138 @@
 ```
 opencode-swiftbar-monitor/
 │
-├── 📄 README.md                          # Main documentation
-├── 📄 QUICKSTART.md                      # 5-minute setup guide  
-├── 📄 DEVELOPMENT.md                     # Development guide
-├── 📄 STRUCTURE.md                       # This file
+├── bin/
+│   └── opencode-menubar              # Entry point script
 │
-├── 🚀 Makefile                           # Build/dev commands (make help)
-├── 🚀 install.sh                         # Installation script
-├── 🚀 uninstall.sh                       # Uninstallation script
+├── src/
+│   └── opencode_monitor/             # Main Python package
+│       ├── __init__.py
+│       ├── app.py                    # rumps menu bar application
+│       ├── settings.py               # Configuration management
+│       ├── monitor.py                # OpenCode instance detection
+│       ├── usage.py                  # Claude API usage fetching
+│       ├── sounds.py                 # Sound notifications
+│       ├── models.py                 # Data classes (State, Agent, etc.)
+│       ├── client.py                 # OpenCode HTTP client
+│       └── logger.py                 # Logging utilities
 │
-├── 📁 bin/
-│   ├── opencode-eventd                   # Daemon: Monitor OpenCode instances
-│   └── opencode-usaged                   # Daemon: Track Claude API usage
+├── roadmap/
+│   ├── README.md                     # Roadmap overview and tracking
+│   └── plan-XX-*.md                  # Feature plans (00-11)
 │
-├── 📁 plugins/
-│   └── opencode.2s.sh                    # SwiftBar plugin (2s refresh)
+├── worktrees/
+│   ├── feature/                      # Development worktree
+│   └── roadmap/                      # Planning worktree
 │
-├── 📁 launchd/
-│   ├── com.opencode.eventd.plist         # LaunchAgent config for eventd
-│   └── com.opencode.usaged.plist         # LaunchAgent config for usaged
-│
-├── 📁 examples/
-│   ├── model.json                        # Sample: LLM model config
-│   ├── opencode-state.json               # Sample: Daemon state output
-│   └── opencode-usage.json               # Sample: Usage statistics
-│
-├── .gitignore                            # Git ignore patterns
-├── .gitattributes                        # Git attributes (line endings)
-└── .git/                                 # Git repository
+├── .gitignore
+├── .python-version                   # Python version (3.12)
+├── pyproject.toml                    # Python project config (uv)
+├── uv.lock                           # Dependency lock file
+├── Makefile                          # Dev commands
+├── README.md                         # Main documentation
+├── STRUCTURE.md                      # This file
+└── LICENSE                           # MIT License
 ```
 
-## File Descriptions
+## Module Descriptions
 
-### Scripts (Root Level)
+### `bin/opencode-menubar`
 
-| File | Purpose |
-|------|---------|
-| `install.sh` | Automated installation of all components |
-| `uninstall.sh` | Clean uninstallation of all components |
+Entry point script that launches the rumps application. Adds `src/` to Python path and calls `main()`.
 
-### Bin Directory (`bin/`)
+### `src/opencode_monitor/`
 
-#### opencode-eventd
-- **Type**: Bash daemon
-- **Purpose**: Monitor OpenCode instances in real-time
-- **Mechanism**: SSE listener + HTTP polling
-- **Output**: `/tmp/opencode-state.json`
-- **Frequency**: Real-time updates + 30s polling fallback
-- **Dependencies**: `curl`, `jq`, `lsof`
+#### `app.py`
+Main application class `OpenCodeApp(rumps.App)`:
+- Menu bar icon and title management
+- Background thread for monitoring
+- UI refresh timer (2s)
+- Preferences submenu
+- Click-to-focus terminal integration
 
-#### opencode-usaged
-- **Type**: Bash daemon
-- **Purpose**: Fetch Claude API usage statistics
-- **Mechanism**: HTTP requests to Anthropic API
-- **Output**: `/tmp/opencode-usage.json`
-- **Frequency**: Every 5 minutes
-- **Dependencies**: `curl`, `jq`
-- **Auth**: Reads from `~/.local/share/opencode/auth.json`
+#### `settings.py`
+Configuration management:
+- `Settings` dataclass with defaults
+- JSON persistence (`~/.config/opencode-monitor/settings.json`)
+- `get_settings()` / `save_settings()` functions
 
-### Plugins Directory (`plugins/`)
+#### `monitor.py`
+OpenCode instance detection:
+- Port scanning via `netstat`
+- Async fetching of instance data
+- Agent and sub-agent extraction
+- TTY detection for terminal focus
 
-#### opencode.2s.sh
-- **Type**: SwiftBar plugin
-- **Purpose**: Display monitor data in macOS menu bar
-- **Refresh**: Every 2 seconds (configurable via filename)
-- **Input**: Reads `/tmp/opencode-state.json` and `/tmp/opencode-usage.json`
-- **Output**: SwiftBar-formatted text (menu bar display)
-- **Dependencies**: `jq`, `bash`
+#### `usage.py`
+Claude API usage:
+- OAuth token reading from OpenCode auth file
+- Anthropic usage API calls
+- 5-hour and 7-day utilization parsing
 
-### Launchd Directory (`launchd/`)
+#### `sounds.py`
+Sound notifications:
+- Completion sound (Glass.aiff)
+- Respects settings for enable/disable
+- Anti-spam tracking
 
-#### com.opencode.eventd.plist
-- **Type**: LaunchAgent configuration
-- **Purpose**: Auto-start eventd daemon on login
-- **User**: Current user (LaunchAgent, not LaunchDaemon)
-- **Logs**: `/tmp/opencode-eventd.log`
+#### `models.py`
+Data classes:
+- `State`, `Instance`, `Agent`, `Tool`
+- `Usage`, `UsagePeriod`
+- `Todos`, `AgentTodos`
 
-#### com.opencode.usaged.plist
-- **Type**: LaunchAgent configuration
-- **Purpose**: Auto-start usaged daemon on login
-- **User**: Current user (LaunchAgent, not LaunchDaemon)
-- **Logs**: `/tmp/opencode-usaged.log`
+#### `client.py`
+HTTP client for OpenCode API:
+- Session status fetching
+- Session data (info, messages, todos)
+- Port validation
 
-### Examples Directory (`examples/`)
-
-Sample data files showing expected formats:
-
-- `model.json`: OpenCode model configuration
-- `opencode-state.json`: Typical daemon state output
-- `opencode-usage.json`: Typical usage statistics output
+#### `logger.py`
+Simple logging to stderr with timestamps.
 
 ## Data Flow
-
-### Event Monitoring
 
 ```
 OpenCode Instances (http://127.0.0.1:PORT)
         ↓
-   eventd daemon
+    monitor.py (async port scan + HTTP)
         ↓
-   - Port discovery (lsof)
-   - SSE listener (persistent connection)
-   - HTTP polling (every 30s)
+    models.py (State object)
         ↓
-/tmp/opencode-state.json
+    app.py (in-memory state)
         ↓
-  opencode.2s.sh plugin
-        ↓
-  SwiftBar Menu Bar Display
+    rumps Menu Bar Display
 ```
 
-### Usage Tracking
-
 ```
-Anthropic Claude API
+Anthropic API
         ↓
-   usaged daemon
+    usage.py (HTTP request)
         ↓
-   HTTP GET request (every 5 minutes)
-   Auth: ~/.local/share/opencode/auth.json
+    models.py (Usage object)
         ↓
-/tmp/opencode-usage.json
+    app.py (in-memory usage)
         ↓
-  opencode.2s.sh plugin
-        ↓
-  SwiftBar Menu Bar Display
+    Menu Bar Display
 ```
 
-## Installation Paths
+## Configuration
 
-After running `install.sh`, files are placed in:
+Settings stored in `~/.config/opencode-monitor/settings.json`:
 
-```
-~/.local/bin/
-  ├── opencode-eventd          (copied from bin/)
-  └── opencode-usaged          (copied from bin/)
-
-~/Library/Application Support/SwiftBar/Plugins/
-  └── opencode.2s.sh           (copied from plugins/)
-
-~/Library/LaunchAgents/
-  ├── com.opencode.eventd.plist    (from launchd/)
-  └── com.opencode.usaged.plist    (from launchd/)
-
-/tmp/
-  ├── opencode-state.json      (created by eventd)
-  ├── opencode-usage.json      (created by usaged)
-  ├── opencode-eventd.log      (created by eventd)
-  └── opencode-usaged.log      (created by usaged)
+```json
+{
+  "usage_refresh_interval": 60,
+  "sound_completion": true
+}
 ```
 
-## Dependencies
+## Development
 
-### System Requirements
-- macOS 10.15+ (for LaunchAgents)
-- Bash 4.0+ (compatible with /bin/bash or /opt/homebrew/bin/bash)
-
-### Command Dependencies
-- `curl`: HTTP requests
-- `jq`: JSON parsing
-- `lsof`: Port discovery
-- `sed`: Text processing
-- `md5`: Checksum verification
-
-### Software Dependencies
-- **OpenCode**: Accessible at http://127.0.0.1:PORT
-- **SwiftBar**: Menu bar plugin system
-- **Homebrew** (optional): For automatic SwiftBar installation
-
-## Development Structure
-
-```
-Development Workflow:
-1. Clone/fork repository
-2. Make changes to bin/ or plugins/
-3. Test locally (install.sh)
-4. Verify functionality
-5. Commit with clear messages
-6. Create pull request or push to branch
-```
-
-## Version Control
-
-### Repository Info
-- **VCS**: Git
-- **Initial Branch**: master
-- **License**: MIT
-- **.gitignore**: Excludes logs, macOS files, IDE files
-
-### Typical Workflow
 ```bash
-# Create feature branch
-git checkout -b feature/new-feature
+# Run the app
+make run
 
-# Make changes
-# Commit often with clear messages
-
-# Test thoroughly
-bash install.sh
-
-# Push to remote (when configured)
-git push origin feature/new-feature
-```
-
-## File Permissions
-
-After installation:
-- Daemons: `755` (executable)
-- Plugin: `755` (executable)
-- Config: `644` (readable)
-- LaunchAgent plists: `644` (readable)
-
-## Future Structure (Planned)
-
-```
-(Future additions)
-
-├── 📁 tests/                  # Unit tests
-├── 📁 ci/                     # CI/CD configuration
-├── .github/
-│   └── workflows/             # GitHub Actions (if public)
+# Or directly
+uv run python3 bin/opencode-menubar
 ```
