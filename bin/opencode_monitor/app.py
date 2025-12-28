@@ -212,8 +212,8 @@ class OpenCodeApp(rumps.App):
 
         # Agent icon
         if indent > 0:
-            # Sub-agent: colored circle, NOT clickable
-            status_icon = "↳ 🔵" if agent.status == SessionStatus.BUSY else "↳ ⚪"
+            # Sub-agent: minimal unicode, NOT clickable
+            status_icon = "└ ●" if agent.status == SessionStatus.BUSY else "└ ○"
             callback = None
         else:
             # Main agent: robot icon, CLICKABLE to focus terminal
