@@ -19,6 +19,8 @@ from .settings import get_settings, save_settings
 from .logger import info, error, debug
 from .security import analyze_command, SecurityAlert, RiskLevel, get_level_emoji
 from .security_auditor import get_auditor, start_auditor
+from .terminal import focus_iterm2
+from .reporter import SecurityReporter
 
 
 # Truncation limits for menu items
@@ -569,35 +571,7 @@ class OpenCodeApp(rumps.App):
 
     def _focus_terminal(self, tty: str):
         """Focus iTerm2 on the given TTY"""
-        tty_path = f"/dev/{tty}" if not tty.startswith("/dev/") else tty
-        script = f'''
-            on run
-                set searchTerm to "{tty_path}"
-                tell application "iTerm2"
-                    activate
-                    repeat with w in windows
-                        repeat with t in tabs of w
-                            try
-                                set s to current session of t
-                                if (tty of s) is equal to searchTerm then
-                                    select t
-                                    select w
-                                    return
-                                else if name of s contains searchTerm then
-                                    select t
-                                    select w
-                                    return
-                                end if
-                            end try
-                        end repeat
-                    end repeat
-                end tell
-            end run
-        '''
-        try:
-            subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
-        except Exception as e:
-            error(f"Focus terminal failed: {e}")
+        focus_iterm2(tty)
 
     def _on_refresh(self, _):
         """Manual refresh callback"""
@@ -654,160 +628,24 @@ class OpenCodeApp(rumps.App):
         from datetime import datetime as dt
 
         auditor = get_auditor()
+        reporter = SecurityReporter()
+
+        # Get all data
         commands = auditor.get_all_commands(limit=10000)
         reads = auditor.get_all_reads(limit=10000)
         writes = auditor.get_all_writes(limit=10000)
         fetches = auditor.get_all_webfetches(limit=10000)
 
-        # Generate export file
+        # Generate report using reporter
+        content = reporter.generate_full_export(commands, reads, writes, fetches)
+
+        # Write to file
         export_dir = os.path.expanduser("~/.config/opencode-monitor")
         timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
         export_path = os.path.join(export_dir, f"security_audit_{timestamp}.txt")
 
-        lines = [
-            "=" * 80,
-            "OPENCODE SECURITY AUDIT LOG",
-            f"Exported: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}",
-            f"Total commands: {len(commands)}",
-            f"Total file reads: {len(reads)}",
-            f"Total file writes: {len(writes)}",
-            f"Total webfetches: {len(fetches)}",
-            "=" * 80,
-            "",
-            "",
-            "█" * 40,
-            "BASH COMMANDS",
-            "█" * 40,
-        ]
-
-        # Group commands by risk level
-        for level in ["critical", "high", "medium", "low"]:
-            level_cmds = [c for c in commands if c.risk_level == level]
-            if level_cmds:
-                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
-                    level
-                ]
-                lines.append(f"\n{'=' * 40}")
-                lines.append(f"{emoji} {level.upper()} ({len(level_cmds)} commands)")
-                lines.append("=" * 40)
-
-                for cmd in level_cmds:
-                    ts = (
-                        dt.fromtimestamp(cmd.timestamp / 1000).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if cmd.timestamp
-                        else "N/A"
-                    )
-                    lines.append(
-                        f"\n[{ts}] Score: {cmd.risk_score} - {cmd.risk_reason}"
-                    )
-                    lines.append(f"Session: {cmd.session_id}")
-                    lines.append(f"Command: {cmd.command}")
-                    lines.append("-" * 40)
-
-        # Add file reads section
-        lines.append("")
-        lines.append("")
-        lines.append("█" * 40)
-        lines.append("FILE READS")
-        lines.append("█" * 40)
-
-        # Group reads by risk level
-        for level in ["critical", "high", "medium", "low"]:
-            level_reads = [r for r in reads if r.risk_level == level]
-            if level_reads:
-                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
-                    level
-                ]
-                lines.append(f"\n{'=' * 40}")
-                lines.append(f"{emoji} {level.upper()} ({len(level_reads)} reads)")
-                lines.append("=" * 40)
-
-                for read in level_reads:
-                    ts = (
-                        dt.fromtimestamp(read.timestamp / 1000).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if read.timestamp
-                        else "N/A"
-                    )
-                    lines.append(
-                        f"\n[{ts}] Score: {read.risk_score} - {read.risk_reason}"
-                    )
-                    lines.append(f"Session: {read.session_id}")
-                    lines.append(f"File: {read.file_path}")
-                    lines.append("-" * 40)
-
-        # Add file writes section
-        lines.append("")
-        lines.append("")
-        lines.append("█" * 40)
-        lines.append("FILE WRITES/EDITS")
-        lines.append("█" * 40)
-
-        # Group writes by risk level
-        for level in ["critical", "high", "medium", "low"]:
-            level_writes = [w for w in writes if w.risk_level == level]
-            if level_writes:
-                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
-                    level
-                ]
-                lines.append(f"\n{'=' * 40}")
-                lines.append(f"{emoji} {level.upper()} ({len(level_writes)} writes)")
-                lines.append("=" * 40)
-
-                for write in level_writes:
-                    ts = (
-                        dt.fromtimestamp(write.timestamp / 1000).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if write.timestamp
-                        else "N/A"
-                    )
-                    lines.append(
-                        f"\n[{ts}] Score: {write.risk_score} - {write.risk_reason}"
-                    )
-                    lines.append(f"Session: {write.session_id}")
-                    lines.append(f"Operation: {write.operation}")
-                    lines.append(f"File: {write.file_path}")
-                    lines.append("-" * 40)
-
-        # Add webfetches section
-        lines.append("")
-        lines.append("")
-        lines.append("█" * 40)
-        lines.append("WEB FETCHES")
-        lines.append("█" * 40)
-
-        # Group fetches by risk level
-        for level in ["critical", "high", "medium", "low"]:
-            level_fetches = [f for f in fetches if f.risk_level == level]
-            if level_fetches:
-                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
-                    level
-                ]
-                lines.append(f"\n{'=' * 40}")
-                lines.append(f"{emoji} {level.upper()} ({len(level_fetches)} fetches)")
-                lines.append("=" * 40)
-
-                for fetch in level_fetches:
-                    ts = (
-                        dt.fromtimestamp(fetch.timestamp / 1000).strftime(
-                            "%Y-%m-%d %H:%M"
-                        )
-                        if fetch.timestamp
-                        else "N/A"
-                    )
-                    lines.append(
-                        f"\n[{ts}] Score: {fetch.risk_score} - {fetch.risk_reason}"
-                    )
-                    lines.append(f"Session: {fetch.session_id}")
-                    lines.append(f"URL: {fetch.url}")
-                    lines.append("-" * 40)
-
         with open(export_path, "w") as f:
-            f.write("\n".join(lines))
+            f.write(content)
 
         subprocess.run(["open", export_path])
         info(f"Security audit exported: {export_path}")

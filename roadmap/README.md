@@ -25,6 +25,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 10 | Notifications systeme macOS | [plan-10](./plan-10-system-notifications.md) | `feature/notifications` | - | Abandonne |
 | 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | v2.8.0 | Termine |
 | 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | v2.6.1 | Termine |
+| 13 | Refactoring code source | [plan-13](./plan-13-refactoring.md) | `feature/refactoring` | v2.9.0 | Termine |
 
 ## Priorite
 
@@ -47,6 +48,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Plan-13 termine - Refactoring modules security (database, risk_analyzer, reporter, terminal) v2.9.0 |
 | 2025-12-28 | Plan-11 termine - Module securite avec analyse commands, reads, writes, webfetches v2.8.0 |
 | 2025-12-28 | Plan-06 termine - Tooltips sur elements tronques v2.7.0 |
 | 2025-12-28 | Plan-10 abandonne - API OpenCode ne supporte pas la detection de permissions via SSE |

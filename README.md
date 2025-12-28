@@ -123,6 +123,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.9.0 | 2025-12-28 | Refactoring - Extract database, risk_analyzer, reporter, terminal modules |
 | v2.8.0 | 2025-12-28 | Security audit module - analyze commands, reads, writes, webfetches |
 | v2.7.0 | 2025-12-28 | Tooltips on truncated menu items |
 | v2.6.1 | 2025-12-28 | Preferences and menu fixes |
