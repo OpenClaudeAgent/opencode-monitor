@@ -14,7 +14,7 @@ import rumps
 from .models import State, SessionStatus, Usage
 from .monitor import fetch_all_instances
 from .usage import fetch_usage
-from .sounds import check_and_notify_completion
+
 from .settings import get_settings, save_settings
 from .logger import info, error, debug
 from .security import analyze_command, SecurityAlert, RiskLevel, get_level_emoji
@@ -117,15 +117,6 @@ class OpenCodeApp(rumps.App):
             refresh_menu.add(item)
         self._prefs_menu.add(refresh_menu)
 
-        # Sounds submenu
-        sounds_menu = rumps.MenuItem("Sounds")
-        self._completion_sound_item = rumps.MenuItem(
-            "Completion sound", callback=self._toggle_completion_sound
-        )
-        self._completion_sound_item.state = 1 if settings.sound_completion else 0
-        sounds_menu.add(self._completion_sound_item)
-        self._prefs_menu.add(sounds_menu)
-
         # Static items
         self._refresh_item = rumps.MenuItem("Refresh", callback=self._on_refresh)
         self._quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
@@ -155,16 +146,6 @@ class OpenCodeApp(rumps.App):
             info(f"Usage refresh interval set to {interval}s")
 
         return callback
-
-    def _toggle_completion_sound(self, sender):
-        """Toggle completion sound setting"""
-        settings = get_settings()
-        settings.sound_completion = not settings.sound_completion
-        save_settings()
-        sender.state = 1 if settings.sound_completion else 0
-        info(
-            f"Completion sound {'enabled' if settings.sound_completion else 'disabled'}"
-        )
 
     @rumps.timer(2)
     def _ui_refresh(self, _):
@@ -862,11 +843,6 @@ class OpenCodeApp(rumps.App):
 
                             if is_busy:
                                 current_busy_agents.add(agent_id)
-
-                            if was_busy and not is_busy:
-                                check_and_notify_completion(
-                                    agent_id, 0, 0, was_busy=True
-                                )
 
                     self._previous_busy_agents = current_busy_agents
 

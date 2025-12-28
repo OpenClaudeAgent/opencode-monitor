@@ -18,9 +18,6 @@ class Settings:
     # Usage API refresh interval in seconds
     usage_refresh_interval: int = 60
 
-    # Sound notifications
-    sound_completion: bool = True
-
     def save(self):
         """Save settings to config file"""
         os.makedirs(CONFIG_DIR, exist_ok=True)
