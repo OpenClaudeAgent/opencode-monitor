@@ -22,21 +22,26 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 7 | Detection permissions/stuck | [plan-07](./plan-07-permission-detection.md) | `feature/permissions` | - | En attente |
 | 8 | Panel de configuration | [plan-08](./plan-08-settings-panel.md) | `feature/settings` | - | En attente |
 | 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
+| 10 | Notifications systeme macOS | [plan-10](./plan-10-system-notifications.md) | `feature/notifications` | - | En attente |
 
 ## Priorite
 
-Les plans 06, 07, 08 sont des ameliorations pour l'application rumps native (v2.4.0+).
+Les plans 06, 07, 08, 10 sont des ameliorations pour l'application rumps native (v2.4.0+).
 
 Ordre suggere :
-1. **Plan 09** (Icones) - Amelioration visuelle rapide, pas de dependances
-2. **Plan 08** (Settings) - Permet de configurer les comportements, prerequis pour plan 07
+1. ~~**Plan 09** (Icones)~~ - Termine v2.5.0
+2. **Plan 08** (Settings) - Permet de configurer les comportements, prerequis pour plans 07 et 10
 3. **Plan 07** (Permissions) - Detection des agents stuck, depend de plan 08 pour la configuration
-4. **Plan 06** (Tooltips) - Amelioration UX independante
+4. **Plan 10** (Notifications systeme) - Notifications macOS natives, depend de plans 07 et 08
+5. **Plan 06** (Tooltips) - Amelioration UX independante
+
+**Note** : Le plan 10 peut etre implemente partiellement (notifications de completion) avant les plans 07/08, puis complete une fois ceux-ci termines.
 
 ## Historique
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Ajout plan-10 (notifications systeme macOS) |
 | 2025-12-28 | Plan-09 termine - Icones sub-agents minimalistes v2.5.0 |
 | 2025-12-28 | Ajout plan-09 (refinement des icones) |
 | 2025-12-28 | Ajout plans 06, 07, 08 (tooltips, permissions, settings) |
