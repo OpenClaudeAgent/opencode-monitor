@@ -298,9 +298,11 @@ For issues or questions:
 
 ## Changelog
 
-### v1.0.0
-- Initial release
-- Event daemon with SSE support
-- Usage tracking daemon
-- SwiftBar plugin with 2s refresh
-- Installation scripts
+| Version | Date | Description |
+|---------|------|-------------|
+| v2.3.0 | 2025-12-28 | Todos affiches sous chaque agent avec icones |
+| v2.2.0 | 2025-12-28 | Notifications sonores (permission/completion) |
+| v2.1.0 | 2025-12-28 | Tools affiches sous chaque agent |
+| v2.0.0 | 2025-12-28 | Backend Python async (~800ms vs 13s) |
+| v1.1.0 | 2025-12-28 | Outil debug et logging |
+| v1.0.0 | 2025-12-28 | Initial release |

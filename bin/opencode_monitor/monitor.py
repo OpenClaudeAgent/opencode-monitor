@@ -8,7 +8,7 @@ import os
 import time
 from typing import Optional
 
-from .models import Instance, Agent, Tool, SessionStatus, Todos, State
+from .models import Instance, Agent, Tool, SessionStatus, Todos, State, AgentTodos
 from .client import OpenCodeClient, check_opencode_port
 
 
@@ -105,22 +105,29 @@ def extract_tools_from_messages(messages: Optional[list]) -> tuple[list[Tool], i
     return tools, start_time
 
 
-def count_todos(todos: Optional[list]) -> tuple[int, int]:
-    """Count pending and in_progress todos"""
+def count_todos(todos: Optional[list]) -> tuple[int, int, str, str]:
+    """Count pending and in_progress todos, return labels"""
     pending = 0
     in_progress = 0
+    current_label = ""
+    next_label = ""
 
     if not todos or not isinstance(todos, list):
-        return pending, in_progress
+        return pending, in_progress, current_label, next_label
 
     for todo in todos:
         status = todo.get("status", "")
+        content = todo.get("content", "")
         if status == "pending":
             pending += 1
+            if not next_label:  # First pending
+                next_label = content
         elif status == "in_progress":
             in_progress += 1
+            if not current_label:  # First in_progress
+                current_label = content
 
-    return pending, in_progress
+    return pending, in_progress, current_label, next_label
 
 
 async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
@@ -170,10 +177,16 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
             if elapsed > 5000:
                 permission_pending = True
 
-        # Count todos
-        pending, in_progress = count_todos(todos)
+        # Count todos and get labels
+        pending, in_progress, current_label, next_label = count_todos(todos)
         total_pending += pending
         total_in_progress += in_progress
+        agent_todos = AgentTodos(
+            pending=pending,
+            in_progress=in_progress,
+            current_label=current_label,
+            next_label=next_label,
+        )
 
         agent = Agent(
             id=session_id,
@@ -185,6 +198,7 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
             else SessionStatus.IDLE,
             permission_pending=permission_pending,
             tools=tools,
+            todos=agent_todos,
         )
         agents.append(agent)
 

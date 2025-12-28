@@ -31,6 +31,28 @@ class Tool:
 
 
 @dataclass
+class AgentTodos:
+    """Todo counters and labels for a single agent"""
+
+    pending: int = 0
+    in_progress: int = 0
+    current_label: str = ""  # Label of in_progress todo
+    next_label: str = ""  # Label of first pending todo
+
+    def to_dict(self) -> dict:
+        return {
+            "pending": self.pending,
+            "in_progress": self.in_progress,
+            "current_label": self.current_label,
+            "next_label": self.next_label,
+        }
+
+    @property
+    def total(self) -> int:
+        return self.pending + self.in_progress
+
+
+@dataclass
 class Agent:
     """A session/agent within an OpenCode instance"""
 
@@ -41,6 +63,7 @@ class Agent:
     status: SessionStatus
     permission_pending: bool = False
     tools: list[Tool] = field(default_factory=list)
+    todos: AgentTodos = field(default_factory=AgentTodos)
 
     def to_dict(self) -> dict:
         return {
@@ -51,6 +74,7 @@ class Agent:
             "status": self.status.value,
             "permission_pending": self.permission_pending,
             "tools": [t.to_dict() for t in self.tools],
+            "todos": self.todos.to_dict(),
         }
 
 

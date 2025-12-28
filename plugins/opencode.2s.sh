@@ -260,22 +260,35 @@ else
                     echo "          $tool_icon $tool_name: $tool_arg | color=#888888 size=10 font=Menlo $click_action"
                 done
             fi
+            
+            # Show todos for this agent
+            agent_todos=$(echo "$agent" | jq -c '.todos // {}')
+            if [[ "$agent_todos" != "{}" && "$agent_todos" != "null" ]]; then
+                todos_pending=$(echo "$agent_todos" | jq -r '.pending // 0')
+                todos_in_progress=$(echo "$agent_todos" | jq -r '.in_progress // 0')
+                current_label=$(echo "$agent_todos" | jq -r '.current_label // ""')
+                next_label=$(echo "$agent_todos" | jq -r '.next_label // ""')
+                
+                # Show current (in_progress) todo with label
+                if [[ $todos_in_progress -gt 0 && -n "$current_label" ]]; then
+                    [[ ${#current_label} -gt 35 ]] && current_label="${current_label:0:32}..."
+                    echo "          🔄 $current_label | color=#2196F3 size=10 $click_action"
+                fi
+                
+                # Show next (pending) todo with label  
+                if [[ $todos_pending -gt 0 && -n "$next_label" ]]; then
+                    [[ ${#next_label} -gt 35 ]] && next_label="${next_label:0:32}..."
+                    if [[ $todos_pending -gt 1 ]]; then
+                        echo "          ⏳ $next_label (+$((todos_pending - 1))) | color=#FF9800 size=10 $click_action"
+                    else
+                        echo "          ⏳ $next_label | color=#FF9800 size=10 $click_action"
+                    fi
+                fi
+            fi
         done
     done
     
     echo "---"
-
-    # Todos section
-    if [[ $TODO_ACTIVE -gt 0 ]]; then
-        echo "Todos ($TODO_ACTIVE) | size=12 color=gray"
-        if [[ $TODO_IN_PROGRESS -gt 0 ]]; then
-            echo "  🔄 $TODO_IN_PROGRESS in progress | color=#2196F3 size=12"
-        fi
-        if [[ $TODO_PENDING -gt 0 ]]; then
-            echo "  ⏳ $TODO_PENDING pending | color=#FF9800 size=12"
-        fi
-        echo "---"
-    fi
 fi
 
 # Usage section

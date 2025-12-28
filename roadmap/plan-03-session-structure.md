@@ -84,11 +84,11 @@ Instance (port)
 
 ## Checklist de validation
 
-- [ ] Les tools sont affiches sous leur agent respectif
-- [ ] Les todos sont affiches sous leur agent respectif
-- [ ] La section "Tools" globale est supprimee
-- [ ] La section "Todos" globale est supprimee
-- [ ] L'usage API reste en section globale separee
-- [ ] Chaque agent montre clairement ses informations groupees
-- [ ] L'affichage reste lisible avec plusieurs agents actifs
-- [ ] Les clics fonctionnent correctement pour focus la bonne session
+- [x] Les tools sont affiches sous leur agent respectif
+- [x] Les todos sont affiches sous leur agent respectif
+- [x] La section "Tools" globale est supprimee
+- [x] La section "Todos" globale est supprimee
+- [x] L'usage API reste en section globale separee
+- [x] Chaque agent montre clairement ses informations groupees
+- [x] L'affichage reste lisible avec plusieurs agents actifs
+- [x] Les clics fonctionnent correctement pour focus la bonne session
