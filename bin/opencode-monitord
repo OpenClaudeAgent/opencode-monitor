@@ -1,0 +1,156 @@
+#!/usr/bin/env python3
+"""
+OpenCode Monitor Daemon
+Replaces opencode-eventd and opencode-usaged with a single Python daemon
+"""
+
+import asyncio
+import json
+import os
+import signal
+import sys
+import time
+from pathlib import Path
+
+# Add module to path
+sys.path.insert(0, str(Path(__file__).parent))
+
+from opencode_monitor.models import State, Todos
+from opencode_monitor.monitor import fetch_all_instances, count_todos
+from opencode_monitor.state import write_state, STATE_FILE
+from opencode_monitor.usage import update_usage
+from opencode_monitor.logger import info, error, debug
+
+# Configuration
+POLL_INTERVAL = 1  # seconds
+USAGE_INTERVAL = 300  # 5 minutes
+LOCK_FILE = "/tmp/opencode-monitor.lock"
+
+# Global state
+_running = True
+_last_usage_update = 0
+
+
+def setup_lock():
+    """Ensure single instance using lock file"""
+    if os.path.exists(LOCK_FILE):
+        # Check if process is still running
+        try:
+            with open(LOCK_FILE, "r") as f:
+                old_pid = int(f.read().strip())
+            # Check if process exists
+            os.kill(old_pid, 0)
+            # Process exists, exit
+            print(f"Another instance is running (PID {old_pid})", file=sys.stderr)
+            sys.exit(1)
+        except (ProcessLookupError, ValueError):
+            # Process doesn't exist, remove stale lock
+            os.remove(LOCK_FILE)
+    
+    # Create lock file
+    with open(LOCK_FILE, "w") as f:
+        f.write(str(os.getpid()))
+
+
+def cleanup_lock():
+    """Remove lock file on exit"""
+    try:
+        os.remove(LOCK_FILE)
+    except Exception:
+        pass
+
+
+def handle_signal(signum, frame):
+    """Handle shutdown signals"""
+    global _running
+    info("Received signal %d, shutting down...", signum)
+    _running = False
+
+
+async def update_usage_if_needed():
+    """Update usage data if interval has passed"""
+    global _last_usage_update
+    now = time.time()
+    
+    if now - _last_usage_update >= USAGE_INTERVAL:
+        debug("Updating usage data...")
+        try:
+            usage = update_usage()
+            if usage.error:
+                debug("Usage error: %s", usage.error)
+            else:
+                debug("Usage updated: 5h=%d%%, 7d=%d%%", 
+                      usage.five_hour.utilization, 
+                      usage.seven_day.utilization)
+        except Exception as e:
+            error("Usage update failed: %s", e)
+        _last_usage_update = now
+
+
+async def poll_loop():
+    """Main polling loop"""
+    global _running
+    
+    info("OpenCode Monitor started (polling every %ds)", POLL_INTERVAL)
+    
+    # Initial usage fetch
+    await update_usage_if_needed()
+    
+    while _running:
+        start_time = time.time()
+        
+        try:
+            # Fetch all instances
+            state = await fetch_all_instances()
+            
+            # Count todos across all agents
+            total_pending = 0
+            total_in_progress = 0
+            for instance in state.instances:
+                for agent in instance.agents:
+                    # TODO: We need to fetch todos per agent
+                    # For now, todos are counted elsewhere
+                    pass
+            
+            # Write state if changed
+            changed = write_state(state)
+            
+            elapsed = time.time() - start_time
+            
+            if changed:
+                info("State updated: %d instances, %d agents (%d busy) [%.0fms]",
+                     state.instance_count, state.agent_count, state.busy_count,
+                     elapsed * 1000)
+            else:
+                debug("No change [%.0fms]", elapsed * 1000)
+        
+        except Exception as e:
+            error("Poll error: %s", e)
+        
+        # Update usage if needed
+        await update_usage_if_needed()
+        
+        # Wait for next poll
+        elapsed = time.time() - start_time
+        sleep_time = max(0, POLL_INTERVAL - elapsed)
+        await asyncio.sleep(sleep_time)
+    
+    info("OpenCode Monitor stopped")
+
+
+def main():
+    """Main entry point"""
+    # Setup
+    setup_lock()
+    signal.signal(signal.SIGTERM, handle_signal)
+    signal.signal(signal.SIGINT, handle_signal)
+    
+    try:
+        # Run async loop
+        asyncio.run(poll_loop())
+    finally:
+        cleanup_lock()
+
+
+if __name__ == "__main__":
+    main()
