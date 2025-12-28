@@ -3,7 +3,7 @@ Terminal Focus - AppleScript to focus iTerm2 on a specific TTY
 """
 
 import subprocess
-from .logger import error
+from ..utils.logger import error
 
 
 def focus_iterm2(tty: str) -> bool:

@@ -10,7 +10,7 @@ from pathlib import Path
 
 import pytest
 
-from opencode_monitor.database import (
+from opencode_monitor.security.db import (
     SecurityDatabase,
     AuditedCommand,
     AuditedFileRead,

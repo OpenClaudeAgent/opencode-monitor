@@ -13,17 +13,16 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from .security import analyze_command
-from .database import (
+from .analyzer import analyze_command, get_risk_analyzer
+from .db import (
     SecurityDatabase,
     AuditedCommand,
     AuditedFileRead,
     AuditedFileWrite,
     AuditedWebFetch,
 )
-from .risk_analyzer import get_risk_analyzer
 from .reporter import SecurityReporter
-from .logger import info, error, debug
+from ..utils.logger import info, error, debug
 
 # Paths
 OPENCODE_STORAGE = Path.home() / ".local/share/opencode/storage/part"

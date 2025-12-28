@@ -7,7 +7,7 @@ based on their security sensitivity.
 
 import pytest
 
-from opencode_monitor.risk_analyzer import (
+from opencode_monitor.security.analyzer import (
     RiskAnalyzer,
     RiskResult,
     get_risk_analyzer,

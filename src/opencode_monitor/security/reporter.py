@@ -5,7 +5,7 @@ Security Reporter - Generate security audit reports
 from datetime import datetime
 from typing import Dict, Any, List
 
-from .database import AuditedCommand, AuditedFileRead, AuditedFileWrite, AuditedWebFetch
+from .db import AuditedCommand, AuditedFileRead, AuditedFileWrite, AuditedWebFetch
 
 
 class SecurityReporter:

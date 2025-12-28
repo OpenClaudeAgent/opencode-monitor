@@ -7,8 +7,8 @@ Tests verify that reports are correctly formatted with all data.
 import pytest
 from datetime import datetime
 
-from opencode_monitor.reporter import SecurityReporter
-from opencode_monitor.database import (
+from opencode_monitor.security.reporter import SecurityReporter
+from opencode_monitor.security.db import (
     AuditedCommand,
     AuditedFileRead,
     AuditedFileWrite,

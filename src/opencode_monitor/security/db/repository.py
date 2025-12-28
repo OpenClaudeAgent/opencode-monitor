@@ -1,79 +1,23 @@
 """
-Security Database - SQLite repository for security audit data
+Security Database Repository - SQLite operations for security audit data
 """
 
 import sqlite3
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 
-from .logger import debug, info
+from ...utils.logger import debug
+
+from .models import (
+    AuditedCommand,
+    AuditedFileRead,
+    AuditedFileWrite,
+    AuditedWebFetch,
+)
 
 # Paths
 CONFIG_DIR = Path.home() / ".config/opencode-monitor"
 DB_PATH = CONFIG_DIR / "security.db"
-
-
-@dataclass
-class AuditedCommand:
-    """A command that has been analyzed and stored"""
-
-    id: int
-    file_id: str
-    session_id: str
-    tool: str
-    command: str
-    risk_score: int
-    risk_level: str
-    risk_reason: str
-    timestamp: int
-    scanned_at: str
-
-
-@dataclass
-class AuditedFileRead:
-    """A file read operation that has been analyzed and stored"""
-
-    id: int
-    file_id: str
-    session_id: str
-    file_path: str
-    risk_score: int
-    risk_level: str
-    risk_reason: str
-    timestamp: int
-    scanned_at: str
-
-
-@dataclass
-class AuditedFileWrite:
-    """A file write/edit operation that has been analyzed and stored"""
-
-    id: int
-    file_id: str
-    session_id: str
-    file_path: str
-    operation: str
-    risk_score: int
-    risk_level: str
-    risk_reason: str
-    timestamp: int
-    scanned_at: str
-
-
-@dataclass
-class AuditedWebFetch:
-    """A webfetch operation that has been analyzed and stored"""
-
-    id: int
-    file_id: str
-    session_id: str
-    url: str
-    risk_score: int
-    risk_level: str
-    risk_reason: str
-    timestamp: int
-    scanned_at: str
 
 
 class SecurityDatabase:
