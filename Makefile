@@ -8,7 +8,8 @@
 
 .PHONY: help install uninstall reload reload-plugin reload-eventd reload-usaged \
         run-eventd run-usaged logs logs-eventd logs-usaged status clean \
-        sync-roadmap sync-from-roadmap roadmap
+        sync-roadmap sync-from-roadmap roadmap \
+        debug-record debug-analyze
 
 # Paths
 INSTALL_PATH := $(HOME)/.local/bin
@@ -36,6 +37,8 @@ help:
 	@echo "  make logs-eventd    Tail eventd logs"
 	@echo "  make logs-usaged    Tail usaged logs"
 	@echo "  make status         Show service status"
+	@echo "  make debug-record   Record OpenCode events for analysis"
+	@echo "  make debug-analyze  Analyze recorded events"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          Remove temp files"
@@ -111,6 +114,12 @@ status:
 	@echo ""
 	@echo "=== Current State ==="
 	@cat /tmp/opencode-state.json 2>/dev/null | jq -c '{connected, instances: .instance_count, agents: .agent_count, busy: .busy_count}' 2>/dev/null || echo "No state"
+
+debug-record:
+	@bash bin/opencode-debug record
+
+debug-analyze:
+	@bash bin/opencode-debug analyze
 
 # === Maintenance ===
 
