@@ -36,7 +36,12 @@ class Settings:
         try:
             with open(CONFIG_FILE, "r") as f:
                 data = json.load(f)
-            return cls(**data)
+
+            # Filter to only known fields (ignore obsolete settings)
+            valid_fields = {f.name for f in cls.__dataclass_fields__.values()}
+            filtered_data = {k: v for k, v in data.items() if k in valid_fields}
+
+            return cls(**filtered_data)
         except Exception:
             return cls()
 

@@ -42,8 +42,7 @@ class OpenCodeApp(rumps.App):
         self._needs_refresh = True
         self._port_names: dict[int, str] = {}  # Cache: port -> last known name
         self._PORT_NAMES_LIMIT = 50  # Max cached names before reset
-
-        # Build initial menu
+        # Build initial menu (stores static items as instance vars)
         self._build_static_menu()
 
         # Start background monitoring thread
@@ -53,13 +52,14 @@ class OpenCodeApp(rumps.App):
         self._monitor_thread.start()
 
     def _build_static_menu(self):
-        """Build the static parts of the menu (preferences, quit)"""
+        """Build the static menu items (stored as instance vars for reuse)"""
+        settings = get_settings()
+
         # Preferences submenu
-        prefs_menu = rumps.MenuItem("⚙️ Preferences")
+        self._prefs_menu = rumps.MenuItem("⚙️ Preferences")
 
         # Usage refresh submenu
         refresh_menu = rumps.MenuItem("Usage refresh")
-        settings = get_settings()
         for interval in self.USAGE_INTERVALS:
             label = f"{interval}s" if interval < 60 else f"{interval // 60}m"
             item = rumps.MenuItem(
@@ -67,26 +67,30 @@ class OpenCodeApp(rumps.App):
             )
             item.state = 1 if settings.usage_refresh_interval == interval else 0
             refresh_menu.add(item)
-        prefs_menu.add(refresh_menu)
+        self._prefs_menu.add(refresh_menu)
 
         # Sounds submenu
         sounds_menu = rumps.MenuItem("Sounds")
-        completion_item = rumps.MenuItem(
+        self._completion_sound_item = rumps.MenuItem(
             "Completion sound", callback=self._toggle_completion_sound
         )
-        completion_item.state = 1 if settings.sound_completion else 0
-        sounds_menu.add(completion_item)
-        prefs_menu.add(sounds_menu)
+        self._completion_sound_item.state = 1 if settings.sound_completion else 0
+        sounds_menu.add(self._completion_sound_item)
+        self._prefs_menu.add(sounds_menu)
 
-        # Add menu items
+        # Static items
+        self._refresh_item = rumps.MenuItem("Refresh", callback=self._on_refresh)
+        self._quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
+
+        # Initial menu
         self.menu = [
             rumps.MenuItem("Loading...", callback=None),
-            None,  # separator
-            rumps.MenuItem("Refresh", callback=self._on_refresh),
-            None,  # separator
-            prefs_menu,
-            None,  # separator
-            rumps.MenuItem("Quit", callback=rumps.quit_application),
+            None,
+            self._refresh_item,
+            None,
+            self._prefs_menu,
+            None,
+            self._quit_item,
         ]
 
     def _make_interval_callback(self, interval: int):
@@ -123,162 +127,161 @@ class OpenCodeApp(rumps.App):
             self._needs_refresh = False
 
     def _build_menu(self):
-        """Build the dynamic menu from current state"""
+        """Build the menu from current state - complete rebuild each time"""
         with self._state_lock:
             state = self._state
             usage = self._usage
 
-        # Clear existing dynamic menu items (keep Refresh, Preferences, Quit)
-        keys_to_remove = [
-            k for k in self.menu.keys() if k not in ("Refresh", "⚙️ Preferences", "Quit")
-        ]
-        for key in keys_to_remove:
-            if key is not None:  # Skip separators
-                del self.menu[key]
+        # Build dynamic items list
+        dynamic_items = []
 
         if state is None or not state.connected:
-            self.menu.insert_before("Refresh", rumps.MenuItem("No OpenCode instances"))
-            self.menu.insert_before("Refresh", None)
-            return
+            dynamic_items.append(rumps.MenuItem("No OpenCode instances"))
+        else:
+            # Clean up port name cache: remove ports no longer active
+            active_ports = {inst.port for inst in state.instances}
+            self._port_names = {
+                p: n for p, n in self._port_names.items() if p in active_ports
+            }
 
-        # Display each instance (port) with its agents
-        for instance in state.instances:
-            tty = instance.tty
+            # Display each instance (port) with its agents
+            for instance in state.instances:
+                tty = instance.tty
 
-            # Separate main agents from sub-agents
-            main_agents = [a for a in instance.agents if not a.is_subagent]
-            sub_agents_map = {}  # parent_id -> list of sub-agents
-            for a in instance.agents:
-                if a.is_subagent:
-                    if a.parent_id not in sub_agents_map:
-                        sub_agents_map[a.parent_id] = []
-                    sub_agents_map[a.parent_id].append(a)
+                # Separate main agents from sub-agents
+                main_agents = [a for a in instance.agents if not a.is_subagent]
+                sub_agents_map = {}  # parent_id -> list of sub-agents
+                for a in instance.agents:
+                    if a.is_subagent:
+                        if a.parent_id not in sub_agents_map:
+                            sub_agents_map[a.parent_id] = []
+                        sub_agents_map[a.parent_id].append(a)
 
-            if main_agents:
-                # Instance has agents - show agents and cache the name
-                # Use first main agent's name for the port cache
-                self._port_names[instance.port] = main_agents[0].title
+                if main_agents:
+                    # Instance has agents - show agents and cache the name
+                    self._port_names[instance.port] = main_agents[0].title
 
-                # Rotate cache if too large (remove oldest half)
-                if len(self._port_names) > self._PORT_NAMES_LIMIT:
-                    keys = list(self._port_names.keys())
-                    for k in keys[: len(keys) // 2]:
-                        del self._port_names[k]
+                    # Rotate cache if too large
+                    if len(self._port_names) > self._PORT_NAMES_LIMIT:
+                        keys = list(self._port_names.keys())
+                        for k in keys[: len(keys) // 2]:
+                            del self._port_names[k]
 
-                for agent in main_agents:
-                    self._add_agent_to_menu(agent, tty, indent=0)
-
-                    # Add sub-agents under this main agent
-                    for sub_agent in sub_agents_map.get(agent.id, []):
-                        self._add_agent_to_menu(sub_agent, tty, indent=1)
-            else:
-                # Instance has no busy agents - show instance as idle with cached name
-                cached_name = self._port_names.get(
-                    instance.port, f"Port {instance.port}"
-                )
-
-                def make_focus_cb(t):
-                    def cb(_):
-                        if t:
-                            self._focus_terminal(t)
-
-                    return cb
-
-                idle_item = rumps.MenuItem(
-                    f"⚪ {cached_name} (idle)", callback=make_focus_cb(tty)
-                )
-                self.menu.insert_before("Refresh", idle_item)
-
-        self.menu.insert_before("Refresh", None)  # separator
-
-        # Usage info (from memory)
-        if usage:
-            if usage.error:
-                self.menu.insert_before(
-                    "Refresh", rumps.MenuItem(f"⚠️ Usage: {usage.error}")
-                )
-            else:
-                five_h = usage.five_hour.utilization
-                seven_d = usage.seven_day.utilization
-
-                # Session (5h) color
-                if five_h >= 90:
-                    icon = "🔴"
-                elif five_h >= 70:
-                    icon = "🟠"
-                elif five_h >= 50:
-                    icon = "🟡"
+                    for agent in main_agents:
+                        dynamic_items.extend(
+                            self._build_agent_items(agent, tty, indent=0)
+                        )
+                        for sub_agent in sub_agents_map.get(agent.id, []):
+                            dynamic_items.extend(
+                                self._build_agent_items(sub_agent, tty, indent=1)
+                            )
                 else:
-                    icon = "🟢"
+                    # Instance idle - show with cached name or port number
+                    display_name = self._port_names.get(
+                        instance.port, f"Port {instance.port}"
+                    )
 
-                # Session reset time
-                session_reset = ""
-                if usage.five_hour.resets_at:
-                    try:
-                        reset_time = datetime.fromisoformat(
-                            usage.five_hour.resets_at.replace("Z", "+00:00")
+                    def make_focus_cb(t):
+                        def cb(_):
+                            if t:
+                                self._focus_terminal(t)
+
+                        return cb
+
+                    dynamic_items.append(
+                        rumps.MenuItem(
+                            f"⚪ {display_name} (idle)", callback=make_focus_cb(tty)
                         )
-                        now = datetime.now(reset_time.tzinfo)
-                        diff = reset_time - now
-                        minutes = int(diff.total_seconds() / 60)
-                        if minutes > 60:
-                            session_reset = f"{minutes // 60}h{minutes % 60}m"
-                        elif minutes > 0:
-                            session_reset = f"{minutes}m"
-                    except:
-                        pass
+                    )
 
-                # Weekly reset time (day + hour)
-                weekly_reset = ""
-                if usage.seven_day.resets_at:
-                    try:
-                        reset_time = datetime.fromisoformat(
-                            usage.seven_day.resets_at.replace("Z", "+00:00")
-                        )
-                        days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
-                        weekly_reset = (
-                            f"{days[reset_time.weekday()]} {reset_time.hour}h"
-                        )
-                    except:
-                        pass
+            # Usage info
+            if usage:
+                dynamic_items.append(None)  # separator
+                if usage.error:
+                    dynamic_items.append(rumps.MenuItem(f"⚠️ Usage: {usage.error}"))
+                else:
+                    five_h = usage.five_hour.utilization
+                    seven_d = usage.seven_day.utilization
 
-                # Session line
-                session_text = f"{icon} Session: {five_h}%"
-                if session_reset:
-                    session_text += f" (reset {session_reset})"
-                self.menu.insert_before("Refresh", rumps.MenuItem(session_text))
+                    if five_h >= 90:
+                        icon = "🔴"
+                    elif five_h >= 70:
+                        icon = "🟠"
+                    elif five_h >= 50:
+                        icon = "🟡"
+                    else:
+                        icon = "🟢"
 
-                # Weekly line
-                weekly_text = f"📅 Weekly: {seven_d}%"
-                if weekly_reset:
-                    weekly_text += f" (reset {weekly_reset})"
-                self.menu.insert_before("Refresh", rumps.MenuItem(weekly_text))
+                    session_reset = ""
+                    if usage.five_hour.resets_at:
+                        try:
+                            reset_time = datetime.fromisoformat(
+                                usage.five_hour.resets_at.replace("Z", "+00:00")
+                            )
+                            now = datetime.now(reset_time.tzinfo)
+                            diff = reset_time - now
+                            minutes = int(diff.total_seconds() / 60)
+                            if minutes > 60:
+                                session_reset = f"{minutes // 60}h{minutes % 60}m"
+                            elif minutes > 0:
+                                session_reset = f"{minutes}m"
+                        except:
+                            pass
 
-            # Link to Claude usage page
-            self.menu.insert_before(
-                "Refresh",
-                rumps.MenuItem(
-                    "📊 Open Claude Usage",
-                    callback=lambda _: subprocess.run(
-                        ["open", "https://claude.ai/settings/usage"]
-                    ),
-                ),
-            )
-            self.menu.insert_before("Refresh", None)
+                    weekly_reset = ""
+                    if usage.seven_day.resets_at:
+                        try:
+                            reset_time = datetime.fromisoformat(
+                                usage.seven_day.resets_at.replace("Z", "+00:00")
+                            )
+                            days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
+                            weekly_reset = (
+                                f"{days[reset_time.weekday()]} {reset_time.hour}h"
+                            )
+                        except:
+                            pass
 
-    def _add_agent_to_menu(self, agent, tty: str, indent: int = 0):
-        """Add an agent and its details to the menu"""
-        # Indentation prefix
+                    session_text = f"{icon} Session: {five_h}%"
+                    if session_reset:
+                        session_text += f" (reset {session_reset})"
+                    dynamic_items.append(rumps.MenuItem(session_text))
+
+                    weekly_text = f"📅 Weekly: {seven_d}%"
+                    if weekly_reset:
+                        weekly_text += f" (reset {weekly_reset})"
+                    dynamic_items.append(rumps.MenuItem(weekly_text))
+
+                dynamic_items.append(
+                    rumps.MenuItem(
+                        "📊 Open Claude Usage",
+                        callback=lambda _: subprocess.run(
+                            ["open", "https://claude.ai/settings/usage"]
+                        ),
+                    )
+                )
+
+        # Rebuild complete menu
+        self.menu.clear()
+        for item in dynamic_items:
+            self.menu.add(item)
+        self.menu.add(None)  # separator
+        self.menu.add(self._refresh_item)
+        self.menu.add(None)
+        self.menu.add(self._prefs_menu)
+        self.menu.add(None)
+        self.menu.add(self._quit_item)
+
+    def _build_agent_items(self, agent, tty: str, indent: int = 0) -> list:
+        """Build menu items for an agent and return them as a list"""
+        items = []
         prefix = "    " * indent
         sub_prefix = "    " * (indent + 1)
 
         # Agent icon
         if indent > 0:
-            # Sub-agent: minimal unicode, NOT clickable
             status_icon = "└ ●" if agent.status == SessionStatus.BUSY else "└ ○"
             callback = None
         else:
-            # Main agent: robot icon, CLICKABLE to focus terminal
             status_icon = "🤖"
 
             def make_focus_callback(tty_val):
@@ -290,39 +293,36 @@ class OpenCodeApp(rumps.App):
 
             callback = make_focus_callback(tty)
 
-        # Clean title (remove @tester subagent suffix for display)
+        # Clean title
         title = agent.title
         if "(@" in title:
             title = title.split("(@")[0].strip()
         if len(title) > 40:
             title = title[:37] + "..."
 
-        agent_item = rumps.MenuItem(f"{prefix}{status_icon} {title}", callback=callback)
-        self.menu.insert_before("Refresh", agent_item)
+        items.append(
+            rumps.MenuItem(f"{prefix}{status_icon} {title}", callback=callback)
+        )
 
-        # Tools (indented)
+        # Tools
         if agent.tools:
             for tool in agent.tools:
                 arg = tool.arg[:30] + "..." if len(tool.arg) > 30 else tool.arg
-                self.menu.insert_before(
-                    "Refresh", rumps.MenuItem(f"{sub_prefix}🔧 {tool.name}: {arg}")
-                )
+                items.append(rumps.MenuItem(f"{sub_prefix}🔧 {tool.name}: {arg}"))
 
-        # Todos (indented)
+        # Todos
         if agent.todos:
             if agent.todos.in_progress > 0 and agent.todos.current_label:
                 label = agent.todos.current_label[:35]
-                self.menu.insert_before(
-                    "Refresh", rumps.MenuItem(f"{sub_prefix}🔄 {label}")
-                )
+                items.append(rumps.MenuItem(f"{sub_prefix}🔄 {label}"))
 
             if agent.todos.pending > 0 and agent.todos.next_label:
                 label = agent.todos.next_label[:30]
                 if agent.todos.pending > 1:
                     label += f" (+{agent.todos.pending - 1})"
-                self.menu.insert_before(
-                    "Refresh", rumps.MenuItem(f"{sub_prefix}⏳ {label}")
-                )
+                items.append(rumps.MenuItem(f"{sub_prefix}⏳ {label}"))
+
+        return items
 
     def _update_title(self):
         """Update menu bar title based on state"""
