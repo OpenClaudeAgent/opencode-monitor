@@ -1,0 +1,59 @@
+"""
+Settings management for OpenCode Monitor
+"""
+
+import json
+import os
+from dataclasses import dataclass, field, asdict
+from typing import Optional
+
+CONFIG_DIR = os.path.expanduser("~/.config/opencode-monitor")
+CONFIG_FILE = os.path.join(CONFIG_DIR, "settings.json")
+
+
+@dataclass
+class Settings:
+    """Application settings"""
+
+    # Usage API refresh interval in seconds
+    usage_refresh_interval: int = 60
+
+    # Sound notifications
+    sound_completion: bool = True
+
+    def save(self):
+        """Save settings to config file"""
+        os.makedirs(CONFIG_DIR, exist_ok=True)
+        with open(CONFIG_FILE, "w") as f:
+            json.dump(asdict(self), f, indent=2)
+
+    @classmethod
+    def load(cls) -> "Settings":
+        """Load settings from config file, or return defaults"""
+        if not os.path.exists(CONFIG_FILE):
+            return cls()
+
+        try:
+            with open(CONFIG_FILE, "r") as f:
+                data = json.load(f)
+            return cls(**data)
+        except Exception:
+            return cls()
+
+
+# Global settings instance
+_settings: Optional[Settings] = None
+
+
+def get_settings() -> Settings:
+    """Get the global settings instance"""
+    global _settings
+    if _settings is None:
+        _settings = Settings.load()
+    return _settings
+
+
+def save_settings():
+    """Save the global settings"""
+    if _settings is not None:
+        _settings.save()

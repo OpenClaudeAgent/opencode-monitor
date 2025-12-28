@@ -15,6 +15,7 @@ from .models import State, SessionStatus, Usage
 from .monitor import fetch_all_instances
 from .usage import fetch_usage
 from .sounds import check_and_notify_completion
+from .settings import get_settings, save_settings
 from .logger import info, error, debug
 
 
@@ -22,13 +23,13 @@ class OpenCodeApp(rumps.App):
     """Main menu bar application"""
 
     POLL_INTERVAL = 2  # seconds
-    USAGE_INTERVAL = 60  # 1 minute
+    USAGE_INTERVALS = [30, 60, 120, 300, 600]  # Available options
 
     def __init__(self):
         super().__init__(
             name="OpenCode Monitor",
             title="🤖",
-            quit_button="Quit",
+            quit_button=None,  # We'll add our own quit with preferences before it
         )
 
         # State tracking
@@ -42,18 +43,76 @@ class OpenCodeApp(rumps.App):
         self._port_names: dict[int, str] = {}  # Cache: port -> last known name
         self._PORT_NAMES_LIMIT = 50  # Max cached names before reset
 
-        # Add menu items
-        self.menu = [
-            rumps.MenuItem("Loading...", callback=None),
-            None,  # separator
-            rumps.MenuItem("Refresh", callback=self._on_refresh),
-        ]
+        # Build initial menu
+        self._build_static_menu()
 
         # Start background monitoring thread
         self._monitor_thread = threading.Thread(
             target=self._run_monitor_loop, daemon=True
         )
         self._monitor_thread.start()
+
+    def _build_static_menu(self):
+        """Build the static parts of the menu (preferences, quit)"""
+        # Preferences submenu
+        prefs_menu = rumps.MenuItem("⚙️ Preferences")
+
+        # Usage refresh submenu
+        refresh_menu = rumps.MenuItem("Usage refresh")
+        settings = get_settings()
+        for interval in self.USAGE_INTERVALS:
+            label = f"{interval}s" if interval < 60 else f"{interval // 60}m"
+            item = rumps.MenuItem(
+                label, callback=self._make_interval_callback(interval)
+            )
+            item.state = 1 if settings.usage_refresh_interval == interval else 0
+            refresh_menu.add(item)
+        prefs_menu.add(refresh_menu)
+
+        # Sounds submenu
+        sounds_menu = rumps.MenuItem("Sounds")
+        completion_item = rumps.MenuItem(
+            "Completion sound", callback=self._toggle_completion_sound
+        )
+        completion_item.state = 1 if settings.sound_completion else 0
+        sounds_menu.add(completion_item)
+        prefs_menu.add(sounds_menu)
+
+        # Add menu items
+        self.menu = [
+            rumps.MenuItem("Loading...", callback=None),
+            None,  # separator
+            rumps.MenuItem("Refresh", callback=self._on_refresh),
+            None,  # separator
+            prefs_menu,
+            None,  # separator
+            rumps.MenuItem("Quit", callback=rumps.quit_application),
+        ]
+
+    def _make_interval_callback(self, interval: int):
+        """Create a callback for setting usage refresh interval"""
+
+        def callback(sender):
+            settings = get_settings()
+            settings.usage_refresh_interval = interval
+            save_settings()
+            # Update checkmarks
+            for item in sender.parent.values():
+                item.state = 0
+            sender.state = 1
+            info(f"Usage refresh interval set to {interval}s")
+
+        return callback
+
+    def _toggle_completion_sound(self, sender):
+        """Toggle completion sound setting"""
+        settings = get_settings()
+        settings.sound_completion = not settings.sound_completion
+        save_settings()
+        sender.state = 1 if settings.sound_completion else 0
+        info(
+            f"Completion sound {'enabled' if settings.sound_completion else 'disabled'}"
+        )
 
     @rumps.timer(2)
     def _ui_refresh(self, _):
@@ -64,15 +123,18 @@ class OpenCodeApp(rumps.App):
             self._needs_refresh = False
 
     def _build_menu(self):
-        """Build the menu from current state - flat tree structure"""
+        """Build the dynamic menu from current state"""
         with self._state_lock:
             state = self._state
             usage = self._usage
 
-        # Clear existing menu items except Refresh and Quit
-        keys_to_remove = [k for k in self.menu.keys() if k not in ("Refresh", "Quit")]
+        # Clear existing dynamic menu items (keep Refresh, Preferences, Quit)
+        keys_to_remove = [
+            k for k in self.menu.keys() if k not in ("Refresh", "⚙️ Preferences", "Quit")
+        ]
         for key in keys_to_remove:
-            del self.menu[key]
+            if key is not None:  # Skip separators
+                del self.menu[key]
 
         if state is None or not state.connected:
             self.menu.insert_before("Refresh", rumps.MenuItem("No OpenCode instances"))
@@ -385,9 +447,10 @@ class OpenCodeApp(rumps.App):
                 except Exception as e:
                     error(f"Monitor error: {e}")
 
-                # Update usage periodically
+                # Update usage periodically (use settings interval)
+                settings = get_settings()
                 now = time.time()
-                if now - self._last_usage_update >= self.USAGE_INTERVAL:
+                if now - self._last_usage_update >= settings.usage_refresh_interval:
                     try:
                         new_usage = fetch_usage()
                         with self._state_lock:

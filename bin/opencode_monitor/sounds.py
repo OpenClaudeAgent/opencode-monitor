@@ -5,6 +5,8 @@ Sound notifications for OpenCode Monitor
 import subprocess
 import os
 
+from .settings import get_settings
+
 # macOS system sounds
 SOUNDS = {
     "completion": "/System/Library/Sounds/Glass.aiff",
@@ -33,6 +35,11 @@ def check_and_notify_completion(
 ):
     """Check if we should play completion sound"""
     global _notified_completions
+
+    # Check settings
+    settings = get_settings()
+    if not settings.sound_completion:
+        return
 
     # Completion = was busy and now has 0 pending/in_progress todos
     all_done = pending == 0 and in_progress == 0
