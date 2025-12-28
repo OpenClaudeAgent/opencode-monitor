@@ -77,28 +77,28 @@ Afficher un tooltip natif macOS au survol des elements tronques, permettant a l'
 ## Checklist de validation
 
 ### Detection du troncage
-- [ ] Les elements tronques sont correctement identifies
-- [ ] Les elements non tronques n'ont pas de tooltip
-- [ ] La limite de troncage est coherente pour chaque type d'element
+- [x] Les elements tronques sont correctement identifies
+- [x] Les elements non tronques n'ont pas de tooltip
+- [x] La limite de troncage est coherente pour chaque type d'element
 
 ### Affichage tooltip
-- [ ] Le tooltip apparait au survol d'un element tronque
-- [ ] Le tooltip affiche le contenu complet
-- [ ] Le tooltip utilise le style natif macOS
-- [ ] Le tooltip disparait quand le curseur quitte l'element
+- [x] Le tooltip apparait au survol d'un element tronque
+- [x] Le tooltip affiche le contenu complet
+- [x] Le tooltip utilise le style natif macOS
+- [x] Le tooltip disparait quand le curseur quitte l'element
 
 ### Types d'elements
-- [ ] Tooltip fonctionne sur les noms d'outils tronques
-- [ ] Tooltip fonctionne sur les labels de todos tronques
-- [ ] Tooltip fonctionne sur les titres d'agents tronques
-- [ ] Tooltip fonctionne sur les arguments de commandes tronques
+- [x] Tooltip fonctionne sur les noms d'outils tronques
+- [x] Tooltip fonctionne sur les labels de todos tronques
+- [x] Tooltip fonctionne sur les titres d'agents tronques
+- [x] Tooltip fonctionne sur les arguments de commandes tronques
 
 ### Experience utilisateur
-- [ ] Le delai d'apparition est naturel (standard macOS)
-- [ ] Le tooltip ne gene pas la navigation dans le menu
-- [ ] Le contenu du tooltip est lisible et bien formate
-- [ ] Pas de tooltip superflu sur les elements non tronques
+- [x] Le delai d'apparition est naturel (standard macOS)
+- [x] Le tooltip ne gene pas la navigation dans le menu
+- [x] Le contenu du tooltip est lisible et bien formate
+- [x] Pas de tooltip superflu sur les elements non tronques
 
 ### Cas limites
-- [ ] Les textes tres longs sont geres proprement
-- [ ] Les elements dynamiques ont des tooltips a jour
+- [x] Les textes tres longs sont geres proprement
+- [x] Les elements dynamiques ont des tooltips a jour

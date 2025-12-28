@@ -18,7 +18,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 3 | Restructuration par session | [plan-03](./plan-03-session-structure.md) | `feature/session-structure` | v2.3.0 | Termine |
 | 4 | Refonte backend Python | [plan-04](./plan-04-python-backend.md) | `feature/python-backend` | v2.0.0 | Termine |
 | 5 | Migration vers rumps | [plan-05](./plan-05-rumps-migration.md) | `feature/rumps-migration` | v2.4.0 | Termine |
-| 6 | Tooltips elements tronques | [plan-06](./plan-06-tooltips-truncated.md) | `feature/tooltips` | - | En attente |
+| 6 | Tooltips elements tronques | [plan-06](./plan-06-tooltips-truncated.md) | `feature/tooltips` | v2.7.0 | Termine |
 | 7 | Detection permissions/stuck | [plan-07](./plan-07-permission-detection.md) | `feature/permissions` | - | Non realisable |
 | 8 | Panel de configuration | [plan-08](./plan-08-settings-panel.md) | `feature/settings` | v2.6.0 | Termine |
 | 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
@@ -36,7 +36,7 @@ Ordre suggere :
 3. ~~**Plan 07** (Permissions)~~ - **Non realisable** - Les API OpenCode ne permettent pas de detecter l'etat "waiting for permission" de maniere fiable
 4. ~~**Plan 12** (Debug preferences)~~ - Termine v2.6.1
 5. ~~**Plan 10** (Notifications systeme)~~ - **Abandonne** - Detection des permissions non fiable via API OpenCode
-6. **Plan 06** (Tooltips) - Amelioration UX independante
+6. ~~**Plan 06** (Tooltips)~~ - Termine v2.7.0
 7. **Plan 11** (Securite) - A revoir sans dependance aux notifications
 
 **Note Plan-07** : L'endpoint `/permission` d'OpenCode retourne toujours un tableau vide et les SSE events `permission.updated` ne sont pas emis. La seule detection possible (scan des tools avec `status: "pending"`) est trop peu fiable pour une UX correcte.
@@ -47,6 +47,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Plan-06 termine - Tooltips sur elements tronques v2.7.0 |
 | 2025-12-28 | Plan-10 abandonne - API OpenCode ne supporte pas la detection de permissions via SSE |
 | 2025-12-28 | Plan-12 termine - Fix preferences et menu v2.6.1 |
 | 2025-12-28 | Ajout plan-12 (debug systeme preferences) |

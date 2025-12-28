@@ -123,6 +123,8 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.7.0 | 2025-12-28 | Tooltips on truncated menu items |
+| v2.6.1 | 2025-12-28 | Preferences and menu fixes |
 | v2.6.0 | 2025-12-28 | Settings panel (usage refresh, sounds) |
 | v2.5.0 | 2025-12-28 | Minimal unicode icons for sub-agents |
 | v2.4.0 | 2025-12-28 | Migration to native rumps app |

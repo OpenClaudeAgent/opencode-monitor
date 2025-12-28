@@ -19,6 +19,43 @@ from .settings import get_settings, save_settings
 from .logger import info, error, debug
 
 
+# Truncation limits for menu items
+TITLE_MAX_LENGTH = 40
+TOOL_ARG_MAX_LENGTH = 30
+TODO_CURRENT_MAX_LENGTH = 35
+TODO_PENDING_MAX_LENGTH = 30
+
+
+def _truncate_with_tooltip(text: str, max_length: int, prefix: str = "", callback=None):
+    """Create a menu item, adding a tooltip if text exceeds max_length.
+
+    Args:
+        text: The full text to display
+        max_length: Maximum length before truncation
+        prefix: Prefix to prepend (icons, indentation)
+        callback: Optional click callback
+
+    Returns:
+        A rumps.MenuItem with tooltip set if text was truncated
+    """
+    is_truncated = len(text) > max_length
+
+    if is_truncated:
+        display_text = text[: max_length - 3] + "..."
+    else:
+        display_text = text
+
+    item = rumps.MenuItem(f"{prefix}{display_text}", callback=callback)
+
+    # Set native macOS tooltip only if truncated
+    # Note: _menuitem is rumps internal access to NSMenuItem.
+    # setToolTip_ is the PyObjC binding for Cocoa's setToolTip:
+    if is_truncated:
+        item._menuitem.setToolTip_(text)
+
+    return item
+
+
 class OpenCodeApp(rumps.App):
     """Main menu bar application"""
 
@@ -293,34 +330,57 @@ class OpenCodeApp(rumps.App):
 
             callback = make_focus_callback(tty)
 
-        # Clean title
+        # Clean title (remove @mention suffix if present)
         title = agent.title
         if "(@" in title:
             title = title.split("(@")[0].strip()
-        if len(title) > 40:
-            title = title[:37] + "..."
 
+        # Create agent item with tooltip if truncated
         items.append(
-            rumps.MenuItem(f"{prefix}{status_icon} {title}", callback=callback)
+            _truncate_with_tooltip(
+                title,
+                TITLE_MAX_LENGTH,
+                prefix=f"{prefix}{status_icon} ",
+                callback=callback,
+            )
         )
 
         # Tools
         if agent.tools:
             for tool in agent.tools:
-                arg = tool.arg[:30] + "..." if len(tool.arg) > 30 else tool.arg
-                items.append(rumps.MenuItem(f"{sub_prefix}🔧 {tool.name}: {arg}"))
+                full_tool_text = f"{tool.name}: {tool.arg}"
+                items.append(
+                    _truncate_with_tooltip(
+                        full_tool_text,
+                        TOOL_ARG_MAX_LENGTH,
+                        prefix=f"{sub_prefix}🔧 ",
+                    )
+                )
 
         # Todos
         if agent.todos:
             if agent.todos.in_progress > 0 and agent.todos.current_label:
-                label = agent.todos.current_label[:35]
-                items.append(rumps.MenuItem(f"{sub_prefix}🔄 {label}"))
+                items.append(
+                    _truncate_with_tooltip(
+                        agent.todos.current_label,
+                        TODO_CURRENT_MAX_LENGTH,
+                        prefix=f"{sub_prefix}🔄 ",
+                    )
+                )
 
             if agent.todos.pending > 0 and agent.todos.next_label:
-                label = agent.todos.next_label[:30]
-                if agent.todos.pending > 1:
-                    label += f" (+{agent.todos.pending - 1})"
-                items.append(rumps.MenuItem(f"{sub_prefix}⏳ {label}"))
+                # Add pending count suffix if more than one pending
+                suffix = (
+                    f" (+{agent.todos.pending - 1})" if agent.todos.pending > 1 else ""
+                )
+                full_label = agent.todos.next_label + suffix
+                items.append(
+                    _truncate_with_tooltip(
+                        full_label,
+                        TODO_PENDING_MAX_LENGTH,
+                        prefix=f"{sub_prefix}⏳ ",
+                    )
+                )
 
         return items
 
