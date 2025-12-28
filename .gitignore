@@ -21,3 +21,4 @@
 
 # Git worktrees
 worktrees/
+__pycache__/

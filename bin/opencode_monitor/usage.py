@@ -10,9 +10,9 @@ import urllib.error
 from typing import Optional
 
 from .models import Usage, UsagePeriod
+from .state import USAGE_FILE
 
 AUTH_FILE = os.path.expanduser("~/.local/share/opencode/auth.json")
-USAGE_FILE = "/tmp/opencode-usage.json"
 USAGE_API_URL = "https://api.anthropic.com/api/oauth/usage"
 
 

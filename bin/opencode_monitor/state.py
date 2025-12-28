@@ -5,10 +5,10 @@ State management and SwiftBar integration
 import json
 import hashlib
 import subprocess
-import os
 from typing import Optional
 
 from .models import State
+from .logger import error
 
 STATE_FILE = "/tmp/opencode-state.json"
 USAGE_FILE = "/tmp/opencode-usage.json"
@@ -39,6 +39,7 @@ def write_state(state: State) -> bool:
         with open(STATE_FILE, "w") as f:
             json.dump(state_dict, f)
     except Exception as e:
+        error("Failed to write state file: %s", e)
         return False
 
     _last_state_hash = new_hash

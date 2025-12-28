@@ -5,7 +5,6 @@ Structured logging for OpenCode Monitor
 import logging
 import os
 import sys
-from datetime import datetime
 
 LOG_FILE = "/tmp/opencode-monitor.log"
 DEBUG_ENV = "OPENCODE_DEBUG"

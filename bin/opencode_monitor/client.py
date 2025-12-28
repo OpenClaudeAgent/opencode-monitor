@@ -50,13 +50,13 @@ def _sync_get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
 
 async def get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
     """Async HTTP GET request"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _sync_get, url, timeout)
 
 
 async def get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
     """Async HTTP GET request returning parsed JSON"""
-    loop = asyncio.get_event_loop()
+    loop = asyncio.get_running_loop()
     return await loop.run_in_executor(_executor, _sync_get_json, url, timeout)
 
 

@@ -5,7 +5,6 @@ Replaces opencode-eventd and opencode-usaged with a single Python daemon
 """
 
 import asyncio
-import json
 import os
 import signal
 import sys
@@ -15,11 +14,12 @@ from pathlib import Path
 # Add module to path
 sys.path.insert(0, str(Path(__file__).parent))
 
-from opencode_monitor.models import State, Todos
+from opencode_monitor.models import State, Todos, SessionStatus
 from opencode_monitor.monitor import fetch_all_instances, count_todos
 from opencode_monitor.state import write_state, STATE_FILE
 from opencode_monitor.usage import update_usage
 from opencode_monitor.logger import info, error, debug
+from opencode_monitor.sounds import check_and_notify_permission, check_and_notify_completion
 
 # Configuration
 POLL_INTERVAL = 1  # seconds
@@ -29,6 +29,7 @@ LOCK_FILE = "/tmp/opencode-monitor.lock"
 # Global state
 _running = True
 _last_usage_update = 0
+_previous_busy_agents: set = set()  # Track which agents were busy
 
 
 def setup_lock():
@@ -89,7 +90,7 @@ async def update_usage_if_needed():
 
 async def poll_loop():
     """Main polling loop"""
-    global _running
+    global _running, _previous_busy_agents
     
     info("OpenCode Monitor started (polling every %ds)", POLL_INTERVAL)
     
@@ -103,14 +104,27 @@ async def poll_loop():
             # Fetch all instances
             state = await fetch_all_instances()
             
-            # Count todos across all agents
-            total_pending = 0
-            total_in_progress = 0
+            # Track current busy agents and check for sound notifications
+            current_busy_agents = set()
+            
             for instance in state.instances:
                 for agent in instance.agents:
-                    # TODO: We need to fetch todos per agent
-                    # For now, todos are counted elsewhere
-                    pass
+                    agent_id = agent.id
+                    is_busy = agent.status == SessionStatus.BUSY
+                    was_busy = agent_id in _previous_busy_agents
+                    
+                    if is_busy:
+                        current_busy_agents.add(agent_id)
+                    
+                    # Check permission notification
+                    check_and_notify_permission(agent_id, agent.permission_pending)
+                    
+                    # Check completion (agent was busy, now idle with no active todos)
+                    if was_busy and not is_busy:
+                        check_and_notify_completion(agent_id, 0, 0, was_busy=True)
+            
+            # Update tracking
+            _previous_busy_agents = current_busy_agents
             
             # Write state if changed
             changed = write_state(state)
