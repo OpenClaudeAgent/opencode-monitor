@@ -87,8 +87,8 @@ PERM_COUNT=$(jq -r '.permissions_pending // 0' "$STATE_FILE" 2>/dev/null)
 TODO_PENDING=$(jq -r '.todos.pending // 0' "$STATE_FILE" 2>/dev/null)
 TODO_IN_PROGRESS=$(jq -r '.todos.in_progress // 0' "$STATE_FILE" 2>/dev/null)
 TODO_ACTIVE=$((TODO_PENDING + TODO_IN_PROGRESS))
-TOOLS_RUNNING=$(jq -r '.tools_running // []' "$STATE_FILE" 2>/dev/null)
-TOOLS_COUNT=$(echo "$TOOLS_RUNNING" | jq 'length' 2>/dev/null || echo 0)
+# Count total tools across all agents
+TOOLS_COUNT=$(jq '[.instances[].agents[].tools // [] | length] | add // 0' "$STATE_FILE" 2>/dev/null)
 
 # === Read Usage State ===
 
@@ -206,6 +206,7 @@ else
             title=$(echo "$agent" | jq -r '.title')
             status=$(echo "$agent" | jq -r '.status')
             perm_pending=$(echo "$agent" | jq -r '.permission_pending // false')
+            agent_tools=$(echo "$agent" | jq -c '.tools // []')
             
             # Truncate if too long
             if [[ ${#title} -gt 40 ]]; then
@@ -232,19 +233,37 @@ else
             else
                 echo "      ▹ $display_title | color=gray size=11 $click_action"
             fi
+            
+            # Show running tools for this agent
+            if [[ "$agent_tools" != "[]" && "$agent_tools" != "null" ]]; then
+                echo "$agent_tools" | jq -c '.[]' 2>/dev/null | while read -r tool; do
+                    tool_name=$(echo "$tool" | jq -r '.name')
+                    tool_arg=$(echo "$tool" | jq -r '.arg // ""')
+                    
+                    # Truncate argument if too long
+                    if [[ ${#tool_arg} -gt 30 ]]; then
+                        tool_arg="${tool_arg:0:27}..."
+                    fi
+                    
+                    # Icon based on tool type
+                    case "$tool_name" in
+                        bash) tool_icon="$" ;;
+                        read) tool_icon=">" ;;
+                        write) tool_icon="<" ;;
+                        edit) tool_icon="~" ;;
+                        glob) tool_icon="*" ;;
+                        grep) tool_icon="?" ;;
+                        task) tool_icon="+" ;;
+                        *) tool_icon="⚙" ;;
+                    esac
+                    
+                    echo "          $tool_icon $tool_name: $tool_arg | color=#888888 size=10 font=Menlo $click_action"
+                done
+            fi
         done
     done
     
     echo "---"
-    
-    # Tools section
-    if [[ $TOOLS_COUNT -gt 0 ]]; then
-        echo "Tools ($TOOLS_COUNT) | size=12 color=gray"
-        echo "$TOOLS_RUNNING" | jq -r '.[]' 2>/dev/null | while read -r tool; do
-            echo "  ⚙️ $tool | color=#2196F3 size=12"
-        done
-        echo "---"
-    fi
 
     # Todos section
     if [[ $TODO_ACTIVE -gt 0 ]]; then

@@ -76,7 +76,7 @@ get_tty_for_port() {
 
 write_disconnected_state() {
     cat > "$STATE_FILE" <<EOF
-{"instances":[],"instance_count":0,"agent_count":0,"busy_count":0,"todos":{"pending":0,"in_progress":0},"permissions_pending":0,"tools_running":[],"updated":$(date +%s),"connected":false}
+{"instances":[],"instance_count":0,"agent_count":0,"busy_count":0,"todos":{"pending":0,"in_progress":0},"permissions_pending":0,"updated":$(date +%s),"connected":false}
 EOF
     maybe_refresh_swiftbar
 }
@@ -97,7 +97,6 @@ fetch_and_write_state() {
     local total_in_progress=0
     local stuck_tools=0
     local instances_json="["
-    local all_tools="[]"
     local first_instance=true
     
     for port in $ports; do
@@ -142,21 +141,43 @@ fetch_and_write_state() {
             local short_dir=$(basename "$full_dir" 2>/dev/null || echo "global")
             
             # Check if this session has a permission pending (tool running > 5s)
+            # Also capture running tools with their details
             local has_permission="false"
+            local session_tools="[]"
             if [[ "$ses_status" == "busy" ]]; then
                 local msg=$(curl -s "${url}/session/${ses_id}/message?limit=1" 2>/dev/null)
                 if [[ -n "$msg" && "$msg" != "null" ]]; then
                     local now_ms=$(($(date +%s) * 1000))
+                    
+                    # Check for stuck tools (permission pending)
                     local stuck=$(echo "$msg" | jq -r --argjson now "$now_ms" '.[0].parts[] | select(.type == "tool" and .state.status == "running" and (.state.time.start + 5000) < $now) | .tool' 2>/dev/null | head -1)
                     if [[ -n "$stuck" ]]; then
                         has_permission="true"
                         stuck_tools=$((stuck_tools + 1))
                     fi
+                    
+                    # Capture running tools with details for display
+                    # Format: [{name: "bash", arg: "git status"}, {name: "read", arg: "file.txt"}]
+                    session_tools=$(echo "$msg" | jq -c '[.[0].parts[] | select(.type == "tool" and .state.status == "running") | {
+                        name: .tool,
+                        arg: (
+                            if .tool == "bash" then (.state.input.command // .state.input.description // "")
+                            elif .tool == "read" then (.state.input.filePath // .state.input.file_path // .state.input.path // "")
+                            elif .tool == "write" then (.state.input.filePath // .state.input.file_path // .state.input.path // "")
+                            elif .tool == "edit" then (.state.input.filePath // .state.input.file_path // .state.input.path // "")
+                            elif .tool == "glob" then (.state.input.pattern // "")
+                            elif .tool == "grep" then (.state.input.pattern // "")
+                            elif .tool == "task" then (.state.input.description // .state.input.prompt // "")
+                            else (.state.input | tostring | .[0:50])
+                            end
+                        )
+                    }]' 2>/dev/null)
+                    [[ -z "$session_tools" || "$session_tools" == "null" ]] && session_tools="[]"
                 fi
             fi
             
             [[ "$first_agent" == "true" ]] && first_agent=false || agents_json="$agents_json,"
-            agents_json="$agents_json{\"id\":\"$ses_id\",\"title\":\"$title\",\"dir\":\"$short_dir\",\"full_dir\":\"$full_dir\",\"status\":\"$ses_status\",\"permission_pending\":$has_permission}"
+            agents_json="$agents_json{\"id\":\"$ses_id\",\"title\":\"$title\",\"dir\":\"$short_dir\",\"full_dir\":\"$full_dir\",\"status\":\"$ses_status\",\"permission_pending\":$has_permission,\"tools\":$session_tools}"
             
             # Get todos
             local todos=$(curl -s "${url}/session/${ses_id}/todo" 2>/dev/null)
@@ -165,17 +186,6 @@ fetch_and_write_state() {
                 local i=$(echo "$todos" | jq '[.[] | select(.status == "in_progress")] | length' 2>/dev/null || echo 0)
                 total_pending=$((total_pending + p))
                 total_in_progress=$((total_in_progress + i))
-            fi
-            
-            # Get running tools (permission detection moved above)
-            if [[ "$ses_status" == "busy" ]]; then
-                local msg=$(curl -s "${url}/session/${ses_id}/message?limit=1" 2>/dev/null)
-                if [[ -n "$msg" && "$msg" != "null" ]]; then
-                    local running=$(echo "$msg" | jq -c '[.[0].parts[] | select(.type == "tool" and .state.status == "running") | .tool] | unique' 2>/dev/null)
-                    if [[ -n "$running" && "$running" != "null" && "$running" != "[]" ]]; then
-                        all_tools=$(echo "[$all_tools, $running]" | jq -c 'flatten | unique' 2>/dev/null)
-                    fi
-                fi
             fi
         done <<< "$sessions"
         agents_json="$agents_json]"
@@ -218,7 +228,7 @@ fetch_and_write_state() {
     fi
     
     cat > "$STATE_FILE" <<EOF
-{"instances":$instances_json,"instance_count":$instance_count,"agent_count":$total_agents,"busy_count":$total_busy,"todos":{"pending":$total_pending,"in_progress":$total_in_progress},"permissions_pending":$detected_perms,"tools_running":$all_tools,"updated":$(date +%s),"connected":true}
+{"instances":$instances_json,"instance_count":$instance_count,"agent_count":$total_agents,"busy_count":$total_busy,"todos":{"pending":$total_pending,"in_progress":$total_in_progress},"permissions_pending":$detected_perms,"updated":$(date +%s),"connected":true}
 EOF
     
     log "State updated: $instance_count instances, $total_agents agents ($total_busy busy)"
