@@ -21,7 +21,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 6 | Tooltips elements tronques | [plan-06](./plan-06-tooltips-truncated.md) | `feature/tooltips` | - | En attente |
 | 7 | Detection permissions/stuck | [plan-07](./plan-07-permission-detection.md) | `feature/permissions` | - | En attente |
 | 8 | Panel de configuration | [plan-08](./plan-08-settings-panel.md) | `feature/settings` | - | En attente |
-| 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | - | En attente |
+| 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
 
 ## Priorite
 
@@ -37,6 +37,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Plan-09 termine - Icones sub-agents minimalistes v2.5.0 |
 | 2025-12-28 | Ajout plan-09 (refinement des icones) |
 | 2025-12-28 | Ajout plans 06, 07, 08 (tooltips, permissions, settings) |
 | 2025-12-28 | Plan-05 termine - Migration vers rumps v2.4.0 |
