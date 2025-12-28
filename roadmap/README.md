@@ -24,7 +24,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
 | 10 | Notifications systeme macOS | [plan-10](./plan-10-system-notifications.md) | `feature/notifications` | - | En attente |
 | 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | - | En attente |
-| 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | - | En attente |
+| 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | v2.6.1 | Termine |
 
 ## Priorite
 
@@ -34,7 +34,7 @@ Ordre suggere :
 1. ~~**Plan 09** (Icones)~~ - Termine v2.5.0
 2. ~~**Plan 08** (Settings)~~ - Termine v2.6.0
 3. ~~**Plan 07** (Permissions)~~ - **Non realisable** - Les API OpenCode ne permettent pas de detecter l'etat "waiting for permission" de maniere fiable
-4. **Plan 12** (Debug preferences) - Correction du systeme de preferences (sons ignores)
+4. ~~**Plan 12** (Debug preferences)~~ - Termine v2.6.1
 5. **Plan 10** (Notifications systeme) - Notifications macOS natives, accompagne les sons existants
 6. **Plan 06** (Tooltips) - Amelioration UX independante
 7. **Plan 11** (Securite) - Analyse des commandes, alertes. Beneficie de plan-10 pour les notifications
@@ -47,6 +47,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Plan-12 termine - Fix preferences et menu v2.6.1 |
 | 2025-12-28 | Ajout plan-12 (debug systeme preferences) |
 | 2025-12-28 | Plan-07 marque non realisable - API OpenCode ne supporte pas la detection des permissions |
 | 2025-12-28 | Mise a jour plan-10 - Integration notifications permissions simplifiee |
