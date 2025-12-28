@@ -23,7 +23,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 8 | Panel de configuration | [plan-08](./plan-08-settings-panel.md) | `feature/settings` | v2.6.0 | Termine |
 | 9 | Refinement des icones | [plan-09](./plan-09-icons-refinement.md) | `feature/icons` | v2.5.0 | Termine |
 | 10 | Notifications systeme macOS | [plan-10](./plan-10-system-notifications.md) | `feature/notifications` | - | Abandonne |
-| 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | - | En attente |
+| 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | v2.8.0 | Termine |
 | 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | v2.6.1 | Termine |
 
 ## Priorite
@@ -47,6 +47,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-28 | Plan-11 termine - Module securite avec analyse commands, reads, writes, webfetches v2.8.0 |
 | 2025-12-28 | Plan-06 termine - Tooltips sur elements tronques v2.7.0 |
 | 2025-12-28 | Plan-10 abandonne - API OpenCode ne supporte pas la detection de permissions via SSE |
 | 2025-12-28 | Plan-12 termine - Fix preferences et menu v2.6.1 |
