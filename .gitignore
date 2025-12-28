@@ -22,3 +22,8 @@
 # Git worktrees
 worktrees/
 __pycache__/
+
+# Coverage
+.coverage
+htmlcov/
+*.egg-info/
