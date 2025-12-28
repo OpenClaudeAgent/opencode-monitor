@@ -7,12 +7,10 @@ import os
 
 # macOS system sounds
 SOUNDS = {
-    "permission": "/System/Library/Sounds/Ping.aiff",
     "completion": "/System/Library/Sounds/Glass.aiff",
 }
 
 # Track notified events to avoid spam
-_notified_permissions: set[str] = set()  # session_ids with permission pending
 _notified_completions: set[str] = set()  # session_ids that completed
 
 
@@ -28,19 +26,6 @@ def play_sound(sound_type: str):
             )
         except Exception:
             pass
-
-
-def check_and_notify_permission(session_id: str, has_permission_pending: bool):
-    """Check if we should play permission sound"""
-    global _notified_permissions
-
-    if has_permission_pending:
-        if session_id not in _notified_permissions:
-            play_sound("permission")
-            _notified_permissions.add(session_id)
-    else:
-        # Permission resolved, remove from tracking
-        _notified_permissions.discard(session_id)
 
 
 def check_and_notify_completion(
@@ -63,6 +48,5 @@ def check_and_notify_completion(
 
 def reset_tracking():
     """Reset all tracking (useful for testing)"""
-    global _notified_permissions, _notified_completions
-    _notified_permissions.clear()
+    global _notified_completions
     _notified_completions.clear()

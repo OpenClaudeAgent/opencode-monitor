@@ -61,21 +61,28 @@ class Agent:
     dir: str  # Short directory name
     full_dir: str  # Full path
     status: SessionStatus
-    permission_pending: bool = False
     tools: list[Tool] = field(default_factory=list)
     todos: AgentTodos = field(default_factory=AgentTodos)
+    parent_id: Optional[str] = None  # ID of parent session (for sub-agents)
+
+    @property
+    def is_subagent(self) -> bool:
+        """Check if this is a sub-agent (has a parent)"""
+        return self.parent_id is not None
 
     def to_dict(self) -> dict:
-        return {
+        result = {
             "id": self.id,
             "title": self.title,
             "dir": self.dir,
             "full_dir": self.full_dir,
             "status": self.status.value,
-            "permission_pending": self.permission_pending,
             "tools": [t.to_dict() for t in self.tools],
             "todos": self.todos.to_dict(),
         }
+        if self.parent_id:
+            result["parent_id"] = self.parent_id
+        return result
 
 
 @dataclass
@@ -117,11 +124,10 @@ class Todos:
 
 @dataclass
 class State:
-    """Complete state for SwiftBar consumption"""
+    """Complete state for menu bar consumption"""
 
     instances: list[Instance] = field(default_factory=list)
     todos: Todos = field(default_factory=Todos)
-    permissions_pending: int = 0
     updated: int = field(default_factory=lambda: int(time.time()))
     connected: bool = False
 
@@ -144,7 +150,6 @@ class State:
             "agent_count": self.agent_count,
             "busy_count": self.busy_count,
             "todos": self.todos.to_dict(),
-            "permissions_pending": self.permissions_pending,
             "updated": self.updated,
             "connected": self.connected,
         }

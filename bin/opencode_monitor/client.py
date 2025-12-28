@@ -89,8 +89,12 @@ class OpenCodeClient:
         self.base_url = f"http://127.0.0.1:{port}"
 
     async def get_status(self) -> Optional[dict]:
-        """Get session status for all sessions"""
+        """Get session status for busy sessions only"""
         return await get_json(f"{self.base_url}/session/status")
+
+    async def get_all_sessions(self) -> Optional[list]:
+        """Get all sessions (including idle ones)"""
+        return await get_json(f"{self.base_url}/session")
 
     async def get_session_info(self, session_id: str) -> Optional[dict]:
         """Get info for a specific session"""

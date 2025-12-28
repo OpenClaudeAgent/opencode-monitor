@@ -5,7 +5,6 @@ Instance detection and monitoring for OpenCode
 import asyncio
 import subprocess
 import os
-import time
 from typing import Optional
 
 from .models import Instance, Agent, Tool, SessionStatus, Todos, State, AgentTodos
@@ -70,13 +69,12 @@ def get_tty_for_port(port: int) -> str:
     return ""
 
 
-def extract_tools_from_messages(messages: Optional[list]) -> tuple[list[Tool], int]:
+def extract_tools_from_messages(messages: Optional[list]) -> list[Tool]:
     """Extract running tools from message data"""
     tools = []
-    start_time = 0
 
     if not messages or not isinstance(messages, list) or len(messages) == 0:
-        return tools, start_time
+        return tools
 
     parts = messages[0].get("parts", [])
     for part in parts:
@@ -99,10 +97,7 @@ def extract_tools_from_messages(messages: Optional[list]) -> tuple[list[Tool], i
 
                 tools.append(Tool(name=tool_name, arg=arg))
 
-                if not start_time:
-                    start_time = state.get("time", {}).get("start", 0)
-
-    return tools, start_time
+    return tools
 
 
 def count_todos(todos: Optional[list]) -> tuple[int, int, str, str]:
@@ -136,19 +131,19 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
     """
     client = OpenCodeClient(port)
 
-    # Get session status
-    status = await client.get_status()
-    if not status:
-        return None, 0, 0
-
-    # Get TTY (sync call, but fast)
+    # Get TTY first (sync call, but fast) - instance exists if we can get TTY
     tty = get_tty_for_port(port)
 
-    # Fetch data for all sessions in parallel
-    session_ids = list(status.keys())
-    if not session_ids:
+    # Get busy sessions status
+    busy_status = await client.get_status()
+    busy_status = busy_status or {}
+
+    # If no busy sessions, return instance with no agents (but instance still exists!)
+    if not busy_status:
         return Instance(port=port, tty=tty, agents=[]), 0, 0
 
+    # Fetch data for busy sessions only
+    session_ids = list(busy_status.keys())
     session_data_tasks = [client.fetch_session_data(sid) for sid in session_ids]
     session_data_list = await asyncio.gather(*session_data_tasks)
 
@@ -157,7 +152,9 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
     total_in_progress = 0
 
     for session_id, session_data in zip(session_ids, session_data_list):
-        session_status = status.get(session_id, {}).get("type", "idle")
+        # All sessions here are busy (we only fetch busy ones)
+        session_status = busy_status.get(session_id, {}).get("type", "busy")
+
         info = session_data.get("info", {}) or {}
         messages = session_data.get("messages")
         todos = session_data.get("todos")
@@ -165,17 +162,10 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
         title = info.get("title", "Sans titre")
         full_dir = info.get("directory", "")
         short_dir = os.path.basename(full_dir) if full_dir else "global"
+        parent_id = info.get("parentID")  # Sub-agent parent reference
 
         # Extract tools
-        tools, tool_start_time = extract_tools_from_messages(messages)
-
-        # Check for permission pending (tool running > 5s)
-        permission_pending = False
-        if tools and tool_start_time:
-            now_ms = int(time.time() * 1000)
-            elapsed = now_ms - tool_start_time
-            if elapsed > 5000:
-                permission_pending = True
+        tools = extract_tools_from_messages(messages)
 
         # Count todos and get labels
         pending, in_progress, current_label, next_label = count_todos(todos)
@@ -196,9 +186,9 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int]:
             status=SessionStatus.BUSY
             if session_status == "busy"
             else SessionStatus.IDLE,
-            permission_pending=permission_pending,
             tools=tools,
             todos=agent_todos,
+            parent_id=parent_id,
         )
         agents.append(agent)
 
@@ -221,7 +211,6 @@ async def fetch_all_instances() -> State:
     instances = []
     total_pending = 0
     total_in_progress = 0
-    total_permissions = 0
 
     for instance, pending, in_progress in results:
         if instance is None:
@@ -230,16 +219,11 @@ async def fetch_all_instances() -> State:
         total_pending += pending
         total_in_progress += in_progress
 
-        for agent in instance.agents:
-            if agent.permission_pending:
-                total_permissions += 1
-
     if not instances:
         return State(connected=False)
 
     return State(
         instances=instances,
         todos=Todos(pending=total_pending, in_progress=total_in_progress),
-        permissions_pending=total_permissions,
         connected=True,
     )
