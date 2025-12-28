@@ -8,6 +8,7 @@ opencode-swiftbar-monitor/
 ├── 📄 DEVELOPMENT.md                     # Development guide
 ├── 📄 STRUCTURE.md                       # This file
 │
+├── 🚀 Makefile                           # Build/dev commands (make help)
 ├── 🚀 install.sh                         # Installation script
 ├── 🚀 uninstall.sh                       # Uninstallation script
 │
@@ -26,8 +27,6 @@ opencode-swiftbar-monitor/
 │   ├── model.json                        # Sample: LLM model config
 │   ├── opencode-state.json               # Sample: Daemon state output
 │   └── opencode-usage.json               # Sample: Usage statistics
-│
-├── 📁 docs/                              # (Future) Additional documentation
 │
 ├── .gitignore                            # Git ignore patterns
 ├── .gitattributes                        # Git attributes (line endings)
@@ -222,12 +221,6 @@ After installation:
 
 ├── 📁 tests/                  # Unit tests
 ├── 📁 ci/                     # CI/CD configuration
-├── 📁 docs/                   # Extended documentation
-│   ├── architecture.md
-│   ├── api-reference.md
-│   └── troubleshooting.md
-├── Makefile                   # Build automation
 ├── .github/
 │   └── workflows/             # GitHub Actions (if public)
-└── CHANGELOG.md               # Version history
 ```
