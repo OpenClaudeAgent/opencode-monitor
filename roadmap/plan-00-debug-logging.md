@@ -19,31 +19,47 @@ Creer un outil de developpement qui:
 3. Permet de comprendre exactement ce que l'API expose
 4. Sert de base pour ameliorer les demons existants
 
-## Sources de donnees a explorer
+## Sources de donnees disponibles
 
-### 1. API HTTP actuelle (utilisee par les demons)
+### API HTTP OpenCode (documentee)
 
-| Endpoint | Description | Fiabilite |
-|----------|-------------|-----------|
-| `/session/status` | Statut de toutes les sessions | A verifier |
-| `/session/{id}` | Details d'une session | A verifier |
-| `/session/{id}/message` | Messages d'une session | A verifier |
-| `/session/{id}/todo` | Todos d'une session | A verifier |
-| `/event` | Stream SSE d'evenements | Incomplet? |
+OpenCode expose un serveur HTTP sur chaque instance avec une API REST complete.
+Documentation officielle: https://opencode.ai/docs/server/
 
-### 2. MCP Server OpenCode (a explorer)
+| Endpoint | Description | Utilite |
+|----------|-------------|---------|
+| `GET /event` | Stream SSE temps reel | Evenements: session.status, message.part.updated, etc. |
+| `GET /session/status` | Statut de toutes les sessions | Map {sessionID: "busy"/"idle"} |
+| `GET /session/{id}` | Details d'une session | Titre, directory, etc. |
+| `GET /session/{id}/message?limit=N` | Messages avec leurs **parts** | Tools en cours, texte, etc. |
+| `GET /session/{id}/todo` | Todos de la session | Liste des todos avec statut |
+| `GET /session/{id}/diff` | Diffs de fichiers | Changements effectues |
+| `GET /global/health` | Sante du serveur | Version, etc. |
 
-OpenCode peut exposer un serveur MCP. A investiguer:
-- Comment l'activer?
-- Quelles donnees sont exposees?
-- Est-ce plus fiable que l'API HTTP?
+### Structure des messages (cle pour les tools)
 
-### 3. Fichiers locaux OpenCode
+```json
+{
+  "info": { "id": "msg_xxx", "role": "assistant", ... },
+  "parts": [
+    { "type": "text", "text": "..." },
+    { "type": "tool", "tool": "bash", "state": { 
+        "status": "running|completed|error",
+        "time": { "start": 1234567890 }
+      }
+    }
+  ]
+}
+```
 
-OpenCode stocke probablement des donnees localement:
-- `~/.local/share/opencode/` ?
-- Logs internes?
-- Base de donnees SQLite?
+### MCP Servers - NON PERTINENT
+
+Les MCP servers sont des outils externes qu'OpenCode CONSOMME (Sentry, GitHub, etc.).
+OpenCode ne s'expose PAS comme MCP server. Ce n'est pas une option pour notre monitoring.
+
+### SDK JavaScript
+
+Un SDK `@opencode-ai/sdk` existe pour Node.js mais l'API HTTP directe suffit pour nos scripts bash.
 
 ## Comportement attendu de l'outil de debug
 
@@ -87,12 +103,20 @@ Affiche un resume:
 
 ## Questions a resoudre
 
-1. Quels evenements SSE sont emis et quand?
+1. Quels evenements SSE sont emis et quand? (logger pour analyser)
 2. Les donnees des endpoints HTTP sont-elles coherentes avec les evenements?
 3. Y a-t-il des evenements manquants (ex: erreurs)?
 4. Comment detecter fiablement qu'une tache est terminee?
+   - Via `session.status` quand passe de busy a idle?
+   - Via les todos quand tous passent a completed?
 5. Comment detecter fiablement une erreur?
-6. Le MCP server est-il une meilleure option?
+   - Y a-t-il un champ `error` dans les parts?
+   - Y a-t-il un evenement SSE specifique?
+6. Les `parts` de type `tool` contiennent-elles assez d'info pour l'affichage?
+   - Nom du tool: oui (`tool` field)
+   - Arguments: a verifier
+   - Statut: oui (`state.status`)
+   - Duree: oui (`state.time.start`)
 
 ## Livrables
 
