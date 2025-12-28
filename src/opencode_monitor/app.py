@@ -17,6 +17,8 @@ from .usage import fetch_usage
 from .sounds import check_and_notify_completion
 from .settings import get_settings, save_settings
 from .logger import info, error, debug
+from .security import analyze_command, SecurityAlert, RiskLevel, get_level_emoji
+from .security_auditor import get_auditor, start_auditor
 
 
 # Truncation limits for menu items
@@ -79,6 +81,15 @@ class OpenCodeApp(rumps.App):
         self._needs_refresh = True
         self._port_names: dict[int, str] = {}  # Cache: port -> last known name
         self._PORT_NAMES_LIMIT = 50  # Max cached names before reset
+
+        # Security monitoring (legacy real-time, kept for compatibility)
+        self._security_alerts: list[SecurityAlert] = []
+        self._max_alerts = 20
+        self._has_critical_alert = False
+
+        # Start security auditor (background scanning)
+        start_auditor()
+
         # Build initial menu (stores static items as instance vars)
         self._build_static_menu()
 
@@ -301,6 +312,136 @@ class OpenCodeApp(rumps.App):
         self.menu.clear()
         for item in dynamic_items:
             self.menu.add(item)
+
+        # Security Audit section (from background auditor)
+        self.menu.add(None)  # separator
+
+        auditor = get_auditor()
+        stats = auditor.get_stats()
+        critical_count = stats.get("critical", 0) + stats.get("high", 0)
+
+        # Security menu title with alert indicator
+        if critical_count > 0:
+            security_title = f"🛡️ Security Audit ({critical_count} alerts)"
+            self._has_critical_alert = True
+        else:
+            security_title = "🛡️ Security Audit"
+            self._has_critical_alert = False
+
+        security_menu = rumps.MenuItem(security_title)
+
+        # Stats summary
+        total_cmds = stats.get("total_commands", 0)
+        total_reads = stats.get("total_reads", 0)
+        total_writes = stats.get("total_writes", 0)
+        total_fetches = stats.get("total_webfetches", 0)
+        security_menu.add(
+            rumps.MenuItem(
+                f"📊 {total_cmds} cmds, {total_reads} reads, {total_writes} writes, {total_fetches} fetches"
+            )
+        )
+        security_menu.add(
+            rumps.MenuItem(
+                f"💻 Commands: 🔴{stats.get('critical', 0)} 🟠{stats.get('high', 0)} 🟡{stats.get('medium', 0)}"
+            )
+        )
+        security_menu.add(
+            rumps.MenuItem(
+                f"📖 Reads: 🔴{stats.get('reads_critical', 0)} 🟠{stats.get('reads_high', 0)} 🟡{stats.get('reads_medium', 0)}"
+            )
+        )
+        security_menu.add(
+            rumps.MenuItem(
+                f"✏️ Writes: 🔴{stats.get('writes_critical', 0)} 🟠{stats.get('writes_high', 0)} 🟡{stats.get('writes_medium', 0)}"
+            )
+        )
+        security_menu.add(
+            rumps.MenuItem(
+                f"🌐 Fetches: 🔴{stats.get('webfetches_critical', 0)} 🟠{stats.get('webfetches_high', 0)} 🟡{stats.get('webfetches_medium', 0)}"
+            )
+        )
+        security_menu.add(None)  # separator
+
+        # Top critical/high commands
+        critical_cmds = auditor.get_critical_commands(5)
+        if critical_cmds:
+            security_menu.add(rumps.MenuItem("💻 ── Commands ──"))
+            for cmd in critical_cmds:
+                emoji = "🔴" if cmd.risk_level == "critical" else "🟠"
+                cmd_short = (
+                    cmd.command[:40] + "..." if len(cmd.command) > 40 else cmd.command
+                )
+                item = rumps.MenuItem(f"{emoji} {cmd_short}")
+                item._menuitem.setToolTip_(
+                    f"⚠️ {cmd.risk_reason}\nScore: {cmd.risk_score}/100\n\n{cmd.command}"
+                )
+                security_menu.add(item)
+
+        # Top sensitive reads
+        sensitive_reads = auditor.get_sensitive_reads(5)
+        if sensitive_reads:
+            security_menu.add(rumps.MenuItem("📖 ── File Reads ──"))
+            for read in sensitive_reads:
+                emoji = "🔴" if read.risk_level == "critical" else "🟠"
+                path_short = (
+                    "..." + read.file_path[-40:]
+                    if len(read.file_path) > 40
+                    else read.file_path
+                )
+                item = rumps.MenuItem(f"{emoji} {path_short}")
+                item._menuitem.setToolTip_(
+                    f"⚠️ {read.risk_reason}\nScore: {read.risk_score}/100\n\n{read.file_path}"
+                )
+                security_menu.add(item)
+
+        # Top sensitive writes
+        sensitive_writes = auditor.get_sensitive_writes(5)
+        if sensitive_writes:
+            security_menu.add(rumps.MenuItem("✏️ ── File Writes ──"))
+            for write in sensitive_writes:
+                emoji = "🔴" if write.risk_level == "critical" else "🟠"
+                path_short = (
+                    "..." + write.file_path[-40:]
+                    if len(write.file_path) > 40
+                    else write.file_path
+                )
+                item = rumps.MenuItem(f"{emoji} {path_short}")
+                item._menuitem.setToolTip_(
+                    f"⚠️ {write.risk_reason}\nScore: {write.risk_score}/100\nOperation: {write.operation}\n\n{write.file_path}"
+                )
+                security_menu.add(item)
+
+        # Top risky webfetches
+        risky_fetches = auditor.get_risky_webfetches(5)
+        if risky_fetches:
+            security_menu.add(rumps.MenuItem("🌐 ── Web Fetches ──"))
+            for fetch in risky_fetches:
+                emoji = "🔴" if fetch.risk_level == "critical" else "🟠"
+                url_short = fetch.url[:40] + "..." if len(fetch.url) > 40 else fetch.url
+                item = rumps.MenuItem(f"{emoji} {url_short}")
+                item._menuitem.setToolTip_(
+                    f"⚠️ {fetch.risk_reason}\nScore: {fetch.risk_score}/100\n\n{fetch.url}"
+                )
+                security_menu.add(item)
+
+        if (
+            not critical_cmds
+            and not sensitive_reads
+            and not sensitive_writes
+            and not risky_fetches
+        ):
+            security_menu.add(rumps.MenuItem("✅ No critical items"))
+
+        security_menu.add(None)
+        security_menu.add(
+            rumps.MenuItem("📋 View Full Report", callback=self._show_security_report)
+        )
+        security_menu.add(
+            rumps.MenuItem("📜 Export All Data", callback=self._export_all_commands)
+        )
+
+        self.menu.add(security_menu)
+
         self.menu.add(None)  # separator
         self.menu.add(self._refresh_item)
         self.menu.add(None)
@@ -345,17 +486,39 @@ class OpenCodeApp(rumps.App):
             )
         )
 
-        # Tools
+        # Tools (with security analysis)
         if agent.tools:
             for tool in agent.tools:
+                # Analyze command for security risks
+                alert = None
+                if tool.name.lower() in ("bash", "shell", "execute"):
+                    alert = analyze_command(tool.arg, tool.name)
+                    alert.agent_id = agent.id
+                    alert.agent_title = agent.title
+
+                    # Track high-risk alerts
+                    if alert.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                        self._add_security_alert(alert)
+
+                # Build display text with risk indicator
+                risk_emoji = get_level_emoji(alert.level) if alert else ""
+                tool_icon = "🔧" if not risk_emoji else risk_emoji
                 full_tool_text = f"{tool.name}: {tool.arg}"
-                items.append(
-                    _truncate_with_tooltip(
-                        full_tool_text,
-                        TOOL_ARG_MAX_LENGTH,
-                        prefix=f"{sub_prefix}🔧 ",
-                    )
+
+                item = _truncate_with_tooltip(
+                    full_tool_text,
+                    TOOL_ARG_MAX_LENGTH,
+                    prefix=f"{sub_prefix}{tool_icon} ",
                 )
+
+                # Add detailed tooltip for risky commands
+                if alert and alert.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                    tooltip = (
+                        f"⚠️ {alert.reason}\nScore: {alert.score}/100\n\n{tool.arg}"
+                    )
+                    item._menuitem.setToolTip_(tooltip)
+
+                items.append(item)
 
         # Todos
         if agent.todos:
@@ -459,6 +622,214 @@ class OpenCodeApp(rumps.App):
         """Manual refresh callback"""
         info("Manual refresh requested")
         self._needs_refresh = True
+
+    def _add_security_alert(self, alert: SecurityAlert):
+        """Add a security alert to the history"""
+        # Avoid duplicates (same command)
+        for existing in self._security_alerts:
+            if existing.command == alert.command:
+                return
+
+        self._security_alerts.insert(0, alert)
+
+        # Trim to max size
+        if len(self._security_alerts) > self._max_alerts:
+            self._security_alerts = self._security_alerts[: self._max_alerts]
+
+        # Set critical flag for title indicator
+        if alert.level == RiskLevel.CRITICAL:
+            self._has_critical_alert = True
+            info(f"🔴 CRITICAL: {alert.reason} - {alert.command[:50]}")
+        elif alert.level == RiskLevel.HIGH:
+            info(f"🟠 HIGH: {alert.reason} - {alert.command[:50]}")
+
+    def _clear_critical_flag(self, _):
+        """Clear the critical alert flag when user views history"""
+        self._has_critical_alert = False
+        self._needs_refresh = True
+
+    def _show_security_report(self, _):
+        """Generate and open security report"""
+        import tempfile
+        import os
+
+        auditor = get_auditor()
+        report = auditor.generate_report()
+
+        # Write to temp file and open
+        report_path = os.path.join(
+            tempfile.gettempdir(), "opencode_security_report.txt"
+        )
+        with open(report_path, "w") as f:
+            f.write(report)
+
+        # Open in default text editor
+        subprocess.run(["open", report_path])
+        info(f"Security report opened: {report_path}")
+
+    def _export_all_commands(self, _):
+        """Export complete security audit history to a file"""
+        import os
+        from datetime import datetime as dt
+
+        auditor = get_auditor()
+        commands = auditor.get_all_commands(limit=10000)
+        reads = auditor.get_all_reads(limit=10000)
+        writes = auditor.get_all_writes(limit=10000)
+        fetches = auditor.get_all_webfetches(limit=10000)
+
+        # Generate export file
+        export_dir = os.path.expanduser("~/.config/opencode-monitor")
+        timestamp = dt.now().strftime("%Y%m%d_%H%M%S")
+        export_path = os.path.join(export_dir, f"security_audit_{timestamp}.txt")
+
+        lines = [
+            "=" * 80,
+            "OPENCODE SECURITY AUDIT LOG",
+            f"Exported: {dt.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            f"Total commands: {len(commands)}",
+            f"Total file reads: {len(reads)}",
+            f"Total file writes: {len(writes)}",
+            f"Total webfetches: {len(fetches)}",
+            "=" * 80,
+            "",
+            "",
+            "█" * 40,
+            "BASH COMMANDS",
+            "█" * 40,
+        ]
+
+        # Group commands by risk level
+        for level in ["critical", "high", "medium", "low"]:
+            level_cmds = [c for c in commands if c.risk_level == level]
+            if level_cmds:
+                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
+                    level
+                ]
+                lines.append(f"\n{'=' * 40}")
+                lines.append(f"{emoji} {level.upper()} ({len(level_cmds)} commands)")
+                lines.append("=" * 40)
+
+                for cmd in level_cmds:
+                    ts = (
+                        dt.fromtimestamp(cmd.timestamp / 1000).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if cmd.timestamp
+                        else "N/A"
+                    )
+                    lines.append(
+                        f"\n[{ts}] Score: {cmd.risk_score} - {cmd.risk_reason}"
+                    )
+                    lines.append(f"Session: {cmd.session_id}")
+                    lines.append(f"Command: {cmd.command}")
+                    lines.append("-" * 40)
+
+        # Add file reads section
+        lines.append("")
+        lines.append("")
+        lines.append("█" * 40)
+        lines.append("FILE READS")
+        lines.append("█" * 40)
+
+        # Group reads by risk level
+        for level in ["critical", "high", "medium", "low"]:
+            level_reads = [r for r in reads if r.risk_level == level]
+            if level_reads:
+                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
+                    level
+                ]
+                lines.append(f"\n{'=' * 40}")
+                lines.append(f"{emoji} {level.upper()} ({len(level_reads)} reads)")
+                lines.append("=" * 40)
+
+                for read in level_reads:
+                    ts = (
+                        dt.fromtimestamp(read.timestamp / 1000).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if read.timestamp
+                        else "N/A"
+                    )
+                    lines.append(
+                        f"\n[{ts}] Score: {read.risk_score} - {read.risk_reason}"
+                    )
+                    lines.append(f"Session: {read.session_id}")
+                    lines.append(f"File: {read.file_path}")
+                    lines.append("-" * 40)
+
+        # Add file writes section
+        lines.append("")
+        lines.append("")
+        lines.append("█" * 40)
+        lines.append("FILE WRITES/EDITS")
+        lines.append("█" * 40)
+
+        # Group writes by risk level
+        for level in ["critical", "high", "medium", "low"]:
+            level_writes = [w for w in writes if w.risk_level == level]
+            if level_writes:
+                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
+                    level
+                ]
+                lines.append(f"\n{'=' * 40}")
+                lines.append(f"{emoji} {level.upper()} ({len(level_writes)} writes)")
+                lines.append("=" * 40)
+
+                for write in level_writes:
+                    ts = (
+                        dt.fromtimestamp(write.timestamp / 1000).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if write.timestamp
+                        else "N/A"
+                    )
+                    lines.append(
+                        f"\n[{ts}] Score: {write.risk_score} - {write.risk_reason}"
+                    )
+                    lines.append(f"Session: {write.session_id}")
+                    lines.append(f"Operation: {write.operation}")
+                    lines.append(f"File: {write.file_path}")
+                    lines.append("-" * 40)
+
+        # Add webfetches section
+        lines.append("")
+        lines.append("")
+        lines.append("█" * 40)
+        lines.append("WEB FETCHES")
+        lines.append("█" * 40)
+
+        # Group fetches by risk level
+        for level in ["critical", "high", "medium", "low"]:
+            level_fetches = [f for f in fetches if f.risk_level == level]
+            if level_fetches:
+                emoji = {"critical": "🔴", "high": "🟠", "medium": "🟡", "low": "🟢"}[
+                    level
+                ]
+                lines.append(f"\n{'=' * 40}")
+                lines.append(f"{emoji} {level.upper()} ({len(level_fetches)} fetches)")
+                lines.append("=" * 40)
+
+                for fetch in level_fetches:
+                    ts = (
+                        dt.fromtimestamp(fetch.timestamp / 1000).strftime(
+                            "%Y-%m-%d %H:%M"
+                        )
+                        if fetch.timestamp
+                        else "N/A"
+                    )
+                    lines.append(
+                        f"\n[{ts}] Score: {fetch.risk_score} - {fetch.risk_reason}"
+                    )
+                    lines.append(f"Session: {fetch.session_id}")
+                    lines.append(f"URL: {fetch.url}")
+                    lines.append("-" * 40)
+
+        with open(export_path, "w") as f:
+            f.write("\n".join(lines))
+
+        subprocess.run(["open", export_path])
+        info(f"Security audit exported: {export_path}")
 
     def _run_monitor_loop(self):
         """Background monitoring loop (runs in separate thread)"""
