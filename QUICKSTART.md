@@ -41,15 +41,15 @@ Quit
 ## 3. Features
 
 - **Click agent** → Focus its terminal in iTerm2
-- **⚙️ Preferences** → Configure refresh rate and sounds
+- **⚙️ Preferences** → Configure refresh rate
 - **📊 Open Claude Usage** → Open Claude usage page
+- **🛡️ Security Audit** → View security analysis of commands
 
 ## 4. Configure
 
 Click **⚙️ Preferences** to:
 
 - Set usage refresh interval (30s - 10m)
-- Enable/disable completion sounds
 
 ## 5. Stop
 
