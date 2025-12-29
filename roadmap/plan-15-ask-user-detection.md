@@ -185,7 +185,8 @@ Cette architecture permet d'ajouter facilement :
 
 ### Lien avec OpenFlow
 
-Le serveur MCP Notify est defini dans le projet **OpenFlow** :
+Le serveur MCP Notify est defini dans le projet **[OpenFlow](https://github.com/OpenClaudeAgent/open-flow)** :
+- Repo : https://github.com/OpenClaudeAgent/open-flow
 - Chemin : `servers/notify/server.py`
 - Config OpenCode : `~/.config/opencode/opencode.json` (section `mcp.notify`)
 
