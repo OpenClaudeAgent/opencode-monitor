@@ -27,7 +27,7 @@ Native macOS menu bar app to monitor OpenCode (Claude Code CLI) instances and Cl
 ```bash
 # Clone the repository
 git clone <repo-url>
-cd opencode-swiftbar-monitor
+cd opencode-monitor
 
 # Run the app
 make run
@@ -106,7 +106,7 @@ make coverage
 ### Project Structure
 
 ```
-opencode-swiftbar-monitor/
+opencode-monitor/
 ├── bin/
 │   └── opencode-menubar          # Entry point script
 ├── src/
@@ -154,7 +154,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 | v2.1.0 | 2025-12-28 | Tools displayed under each agent |
 | v2.0.0 | 2025-12-28 | Python async backend |
 | v1.1.0 | 2025-12-28 | Debug and logging tools |
-| v1.0.0 | 2025-12-28 | Initial release (SwiftBar) |
+| v1.0.0 | 2025-12-28 | Initial release |
 
 ## License
 

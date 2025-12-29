@@ -5,7 +5,7 @@ Get OpenCode Monitor running in 2 minutes.
 ## 1. Install
 
 ```bash
-cd opencode-swiftbar-monitor
+cd opencode-monitor
 make run
 ```
 

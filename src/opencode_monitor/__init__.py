@@ -1,5 +1,5 @@
 """
-OpenCode Monitor - Python backend for SwiftBar plugin
+OpenCode Monitor - Native macOS menu bar app for OpenCode
 """
 
 __version__ = "2.0.0"

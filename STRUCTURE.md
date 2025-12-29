@@ -1,7 +1,7 @@
 # Project Structure
 
 ```
-opencode-swiftbar-monitor/
+opencode-monitor/
 │
 ├── bin/
 │   └── opencode-menubar              # Entry point script
