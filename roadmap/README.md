@@ -29,6 +29,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 14 | Permission Detection (Heuristique) | [plan-14](./plan-14-permission-detection.md) | `feature/permission-heuristic` | v2.10.0 | Termine |
 | 15 | Detection MCP Notify ask_user | [plan-15](./plan-15-ask-user-detection.md) | `feature/ask-user-detection` | - | En attente |
 | 16 | Analytics et statistiques | [plan-16](./plan-16-analytics.md) | `feature/analytics` | - | En attente |
+| 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | - | En attente |
 
 ## Priorite
 
@@ -51,6 +52,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-29 | Ajout plan-17 (dashboard PyQt) - Interface graphique pour afficher monitoring, security, analytics |
 | 2025-12-29 | Ajout plan-16 (analytics et statistiques) - DuckDB, menu avec periodes, detection anomalies |
 | 2025-12-29 | Ajout plan-15 (detection MCP Notify ask_user) - Heuristique session idle + tool completed |
 | 2025-12-29 | Plan-14 termine - Detection permissions heuristique (icone cadenas, seuil configurable) v2.10.0 |
