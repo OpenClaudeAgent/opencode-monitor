@@ -517,6 +517,99 @@ class TestExtractToolsFromMessages:
         # Status is not "running", so no tool extracted
         assert result == []
 
+    def test_calculates_elapsed_ms_from_start_time(self):
+        """Calculate elapsed_ms from state.time.start"""
+        import time
+
+        # Use a start time 3 seconds in the past
+        start_time_ms = int((time.time() - 3) * 1000)
+        messages = [
+            {
+                "parts": [
+                    {
+                        "type": "tool",
+                        "tool": "bash",
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "sleep 10"},
+                            "time": {"start": start_time_ms},
+                        },
+                    }
+                ]
+            }
+        ]
+        result = extract_tools_from_messages(messages)
+        assert len(result) == 1
+        # elapsed_ms should be approximately 3000 (3 seconds)
+        # Allow 500ms tolerance for test execution time
+        assert 2500 <= result[0].elapsed_ms <= 4000
+
+    def test_elapsed_ms_is_zero_when_no_time_field(self):
+        """elapsed_ms is 0 when state has no time field"""
+        messages = [
+            {
+                "parts": [
+                    {
+                        "type": "tool",
+                        "tool": "bash",
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "ls"},
+                        },
+                    }
+                ]
+            }
+        ]
+        result = extract_tools_from_messages(messages)
+        assert len(result) == 1
+        assert result[0].elapsed_ms == 0
+
+    def test_elapsed_ms_is_zero_when_start_time_none(self):
+        """elapsed_ms is 0 when time.start is None"""
+        messages = [
+            {
+                "parts": [
+                    {
+                        "type": "tool",
+                        "tool": "bash",
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "ls"},
+                            "time": {"start": None},
+                        },
+                    }
+                ]
+            }
+        ]
+        result = extract_tools_from_messages(messages)
+        assert len(result) == 1
+        assert result[0].elapsed_ms == 0
+
+    def test_elapsed_ms_clamped_to_non_negative(self):
+        """elapsed_ms is clamped to 0 if start time is in the future"""
+        import time
+
+        # Use a start time 10 seconds in the future (should not happen, but defensive)
+        future_start_ms = int((time.time() + 10) * 1000)
+        messages = [
+            {
+                "parts": [
+                    {
+                        "type": "tool",
+                        "tool": "bash",
+                        "state": {
+                            "status": "running",
+                            "input": {"command": "ls"},
+                            "time": {"start": future_start_ms},
+                        },
+                    }
+                ]
+            }
+        ]
+        result = extract_tools_from_messages(messages)
+        assert len(result) == 1
+        assert result[0].elapsed_ms == 0
+
 
 # ===========================================================================
 # Tests for count_todos()

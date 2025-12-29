@@ -600,6 +600,242 @@ class TestUpdateTitle:
 
         assert app.title == "🤖"
 
+    def test_update_title_with_permission_pending(self, mock_dependencies):
+        """Should show lock emoji when a tool may need permission."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Create a tool that has been running for 10 seconds (> 5s threshold)
+        tool = Tool(name="bash", arg="ls -la", elapsed_ms=10000)
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+            tools=[tool],
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔒" in app.title
+
+    def test_update_title_without_permission_pending(self, mock_dependencies):
+        """Should NOT show lock emoji when no tool needs permission."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Create a tool that has been running for only 2 seconds (< 5s threshold)
+        tool = Tool(name="bash", arg="ls -la", elapsed_ms=2000)
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+            tools=[tool],
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔒" not in app.title
+
+    def test_update_title_with_permission_multiple_agents(self, mock_dependencies):
+        """Should show lock emoji when any tool across multiple agents needs permission."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Agent 1: tool below threshold (no permission needed)
+        tool1 = Tool(name="read", arg="/file.txt", elapsed_ms=1000)
+        agent1 = Agent(
+            id="1",
+            title="agent1",
+            dir=".",
+            full_dir="/test1",
+            status=SessionStatus.BUSY,
+            tools=[tool1],
+        )
+
+        # Agent 2: tool above threshold (permission may be needed)
+        tool2 = Tool(name="bash", arg="rm file", elapsed_ms=8000)
+        agent2 = Agent(
+            id="2",
+            title="agent2",
+            dir=".",
+            full_dir="/test2",
+            status=SessionStatus.BUSY,
+            tools=[tool2],
+        )
+
+        instance = Instance(port=1234, agents=[agent1, agent2])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔒" in app.title
+
+    def test_update_title_with_permission_multiple_instances(self, mock_dependencies):
+        """Should show lock emoji when any tool across multiple instances needs permission."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Instance 1: no permission needed
+        tool1 = Tool(name="read", arg="/file.txt", elapsed_ms=1000)
+        agent1 = Agent(
+            id="1",
+            title="agent1",
+            dir=".",
+            full_dir="/test1",
+            status=SessionStatus.IDLE,
+            tools=[tool1],
+        )
+        instance1 = Instance(port=1234, agents=[agent1])
+
+        # Instance 2: permission may be needed
+        tool2 = Tool(name="write", arg="/etc/config", elapsed_ms=15000)
+        agent2 = Agent(
+            id="2",
+            title="agent2",
+            dir=".",
+            full_dir="/test2",
+            status=SessionStatus.BUSY,
+            tools=[tool2],
+        )
+        instance2 = Instance(port=5678, agents=[agent2])
+
+        app._state = State(
+            instances=[instance1, instance2], todos=Todos(), connected=True
+        )
+
+        app._update_title()
+
+        assert "🔒" in app.title
+
+    def test_update_title_excluded_tool_no_permission(self, mock_dependencies):
+        """Should NOT show lock even if excluded tool (task) runs long."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Task tool is excluded from permission detection (it's a sub-agent)
+        tool = Tool(name="task", arg="do something", elapsed_ms=60000)
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+            tools=[tool],
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔒" not in app.title
+
+    def test_update_title_no_tools_no_permission(self, mock_dependencies):
+        """Should NOT show lock when agent has no tools."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Agent with no tools
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+            tools=[],
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔒" not in app.title
+
+    def test_update_title_permission_position_after_busy_count(self, mock_dependencies):
+        """Lock emoji should appear after busy count in title."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            Tool,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        tool = Tool(name="bash", arg="ls", elapsed_ms=10000)
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+            tools=[tool],
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        # Title should be like "🤖 1 🔒"
+        # Lock should come after busy count
+        assert app.title.index("1") < app.title.index("🔒")
+
 
 # =============================================================================
 # Test Focus Terminal

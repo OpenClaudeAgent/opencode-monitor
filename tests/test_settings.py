@@ -17,11 +17,17 @@ class TestSettings:
         """Settings should have correct default values"""
         s = Settings()
         assert s.usage_refresh_interval == 60
+        assert s.permission_threshold_seconds == 5
 
     def test_custom_values(self):
         """Settings can be initialized with custom values"""
         s = Settings(usage_refresh_interval=120)
         assert s.usage_refresh_interval == 120
+
+    def test_custom_permission_threshold(self):
+        """Settings can be initialized with custom permission_threshold_seconds"""
+        s = Settings(permission_threshold_seconds=10)
+        assert s.permission_threshold_seconds == 10
 
 
 class TestSettingsSave:
@@ -46,7 +52,10 @@ class TestSettingsSave:
             assert config_file.exists()
             with open(config_file) as f:
                 data = json.load(f)
-            assert data == {"usage_refresh_interval": 90}
+            assert data == {
+                "usage_refresh_interval": 90,
+                "permission_threshold_seconds": 5,  # default value
+            }
 
     def test_save_overwrites_existing_file(self, tmp_path):
         """save() should overwrite existing config file"""
@@ -64,7 +73,10 @@ class TestSettingsSave:
 
             with open(config_file) as f:
                 data = json.load(f)
-            assert data == {"usage_refresh_interval": 120}
+            assert data == {
+                "usage_refresh_interval": 120,
+                "permission_threshold_seconds": 5,  # default value
+            }
 
 
 class TestSettingsLoad:
@@ -86,6 +98,17 @@ class TestSettingsLoad:
         with patch.object(settings, "CONFIG_FILE", str(config_file)):
             s = Settings.load()
             assert s.usage_refresh_interval == 45
+
+    def test_load_reads_permission_threshold(self, tmp_path):
+        """load() should read permission_threshold_seconds from config file"""
+        config_file = tmp_path / "settings.json"
+        config_file.write_text(
+            '{"usage_refresh_interval": 60, "permission_threshold_seconds": 10}'
+        )
+
+        with patch.object(settings, "CONFIG_FILE", str(config_file)):
+            s = Settings.load()
+            assert s.permission_threshold_seconds == 10
 
     def test_load_filters_obsolete_fields(self, tmp_path):
         """load() should ignore unknown/obsolete fields in config file"""

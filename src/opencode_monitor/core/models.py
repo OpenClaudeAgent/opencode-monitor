@@ -25,9 +25,32 @@ class Tool:
 
     name: str
     arg: str = ""
+    elapsed_ms: int = 0  # Time since tool started running (milliseconds)
+
+    # Tools that naturally take long and should not trigger permission detection
+    EXCLUDED_TOOLS: frozenset[str] = frozenset({"task"})  # Sub-agents (immutable)
+
+    @property
+    def may_need_permission(self) -> bool:
+        """Heuristic: tool running > threshold may be waiting for permission.
+
+        Note: This is informational only, not 100% reliable.
+        """
+        from ..utils.settings import get_settings
+
+        threshold_ms = get_settings().permission_threshold_seconds * 1000
+        return (
+            self.elapsed_ms > threshold_ms
+            and self.name.lower() not in self.EXCLUDED_TOOLS
+        )
 
     def to_dict(self) -> dict:
-        return {"name": self.name, "arg": self.arg}
+        return {
+            "name": self.name,
+            "arg": self.arg,
+            "elapsed_ms": self.elapsed_ms,
+            "may_need_permission": self.may_need_permission,
+        }
 
 
 @dataclass

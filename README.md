@@ -144,6 +144,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |
 | v2.9.0 | 2025-12-28 | Refactoring - Extract database, risk_analyzer, reporter, terminal modules |
 | v2.8.0 | 2025-12-28 | Security audit module - analyze commands, reads, writes, webfetches |
 | v2.7.0 | 2025-12-28 | Tooltips on truncated menu items |

@@ -725,6 +725,144 @@ class TestBuildAgentItems:
         # Should only have the agent item
         assert len(items) == 1
 
+    # =========================================================================
+    # Permission detection tests (may_need_permission)
+    # =========================================================================
+
+    def test_tool_with_permission_icon(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Tool with may_need_permission=True should display lock icon."""
+        # elapsed_ms > 5000 triggers may_need_permission=True
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="Read", arg="somefile.txt", elapsed_ms=10000)],  # 10s
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        # First item is agent, second is tool
+        assert len(items) == 2
+        tool_item = items[1]
+        # Should have lock icon (🔒), not wrench (🔧)
+        assert "🔒" in tool_item.title
+        assert "🔧" not in tool_item.title
+
+    def test_tool_without_permission_icon(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Tool with may_need_permission=False should display wrench icon."""
+        # elapsed_ms <= 5000 means may_need_permission=False
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="Read", arg="somefile.txt", elapsed_ms=3000)],  # 3s
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        tool_item = items[1]
+        # Should have wrench icon (🔧), not lock (🔒)
+        assert "🔧" in tool_item.title
+        assert "🔒" not in tool_item.title
+
+    def test_permission_tooltip_duration_under_60s(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Permission tooltip should show duration in seconds when < 60s."""
+        # 10 seconds = 10000ms
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="Read", arg="test.txt", elapsed_ms=10000)],
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        tool_item = items[1]
+        # Check tooltip was set with correct format
+        tool_item._menuitem.setToolTip_.assert_called_once()
+        tooltip = tool_item._menuitem.setToolTip_.call_args[0][0]
+        assert "🔒 May be waiting for permission" in tooltip
+        assert "running 10s" in tooltip
+        assert "test.txt" in tooltip
+
+    def test_permission_tooltip_duration_over_60s(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Permission tooltip should show duration in Xm Ys format when >= 60s."""
+        # 90 seconds = 90000ms = 1m 30s
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="bash", arg="long-running-command", elapsed_ms=90000)],
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        tool_item = items[1]
+        # Check tooltip was set with minutes format
+        tool_item._menuitem.setToolTip_.assert_called_once()
+        tooltip = tool_item._menuitem.setToolTip_.call_args[0][0]
+        assert "🔒 May be waiting for permission" in tooltip
+        assert "running 1m 30s" in tooltip
+        assert "long-running-command" in tooltip
+
+    def test_permission_tooltip_exact_60s(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Permission tooltip at exactly 60s should use minutes format."""
+        # 60 seconds = 60000ms = 1m 0s
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="Write", arg="output.txt", elapsed_ms=60000)],
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        tool_item = items[1]
+        tooltip = tool_item._menuitem.setToolTip_.call_args[0][0]
+        assert "running 1m 0s" in tooltip
+
+    def test_permission_icon_overrides_security_icon(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Permission icon (🔒) should take precedence over security risk icon."""
+        # bash with dangerous command that also triggers permission detection
+        agent = Agent(
+            id="agent-x",
+            title="Test",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.BUSY,
+            tools=[Tool(name="bash", arg="rm -rf /", elapsed_ms=10000)],
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        tool_item = items[1]
+        # Permission icon should take precedence
+        assert "🔒" in tool_item.title
+        # Security alert callback should still be called
+        mock_alert_callback.assert_called()
+
 
 # =============================================================================
 # Tests for MenuBuilder.build_usage_items
