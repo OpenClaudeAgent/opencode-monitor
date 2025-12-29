@@ -1,5 +1,7 @@
 # OpenCode Monitor
 
+> **Note** : Ce projet est entièrement *vibe-codé* avec [OpenCode](https://github.com/sst/opencode) ❤️ et Claude Opus 4.5.
+
 Native macOS menu bar app to monitor OpenCode (Claude Code CLI) instances and Claude API usage.
 
 ## Features
