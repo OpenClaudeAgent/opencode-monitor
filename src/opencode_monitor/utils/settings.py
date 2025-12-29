@@ -18,6 +18,10 @@ class Settings:
     # Usage API refresh interval in seconds
     usage_refresh_interval: int = 60
 
+    # Permission detection threshold in seconds
+    # Tools running longer than this may be waiting for permission (heuristic)
+    permission_threshold_seconds: int = 5
+
     def save(self):
         """Save settings to config file"""
         os.makedirs(CONFIG_DIR, exist_ok=True)

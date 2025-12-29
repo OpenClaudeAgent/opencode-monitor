@@ -5,6 +5,7 @@ Instance detection and monitoring for OpenCode
 import asyncio
 import subprocess
 import os
+import time
 from typing import Optional
 
 from .models import Instance, Agent, Tool, SessionStatus, Todos, State, AgentTodos
@@ -70,13 +71,18 @@ def get_tty_for_port(port: int) -> str:
 
 
 def extract_tools_from_messages(messages: Optional[list]) -> list[Tool]:
-    """Extract running tools from message data"""
+    """Extract running tools from message data.
+
+    Also calculates elapsed_ms for permission detection heuristic.
+    """
     tools = []
 
     if not messages or not isinstance(messages, list) or len(messages) == 0:
         return tools
 
+    now_ms = int(time.time() * 1000)
     parts = messages[0].get("parts", [])
+
     for part in parts:
         if part.get("type") == "tool":
             state = part.get("state", {})
@@ -95,7 +101,13 @@ def extract_tools_from_messages(messages: Optional[list]) -> list[Tool]:
                     or ""
                 )
 
-                tools.append(Tool(name=tool_name, arg=arg))
+                # Calculate elapsed time for permission detection
+                start_time = state.get("time", {}).get("start")
+                elapsed_ms = 0
+                if start_time is not None:
+                    elapsed_ms = max(0, now_ms - start_time)
+
+                tools.append(Tool(name=tool_name, arg=arg, elapsed_ms=elapsed_ms))
 
     return tools
 

@@ -234,24 +234,25 @@ fi
 ## Checklist de validation
 
 ### Detection
-- [ ] Un tool `bash` running > 5s declenche `permission_pending = true`
-- [ ] Un tool `edit` running > 5s declenche `permission_pending = true`
-- [ ] Un tool running < 5s ne declenche PAS de permission
-- [ ] Le compteur global `permissions_pending` reflete le nombre de sessions en attente
+- [x] Un tool `bash` running > 5s declenche `may_need_permission = true`
+- [x] Un tool `edit` running > 5s declenche `may_need_permission = true`
+- [x] Un tool running < 5s ne declenche PAS de permission
+- [x] Tool `task` exclu de la detection (sub-agents longs)
+- [N/A] Le compteur global `permissions_pending` - Non implemente (decision: eviter confusion avec todos)
 
 ### Reset
-- [ ] Quand le tool passe a `completed`, permission reset a `false`
-- [ ] Quand la session passe a `idle`, permission reset a `false`
-- [ ] SSE event `permission.replied` reset le compteur (si recu)
+- [x] Quand le tool passe a `completed`, il n'apparait plus (detection automatique au prochain poll)
+- [x] Quand la session passe a `idle`, plus de tools running
+- [N/A] SSE event `permission.replied` - Non implemente (polling seul)
 
 ### Multi-instance
-- [ ] Plusieurs instances OpenCode avec permissions simultanees sont correctement comptees
-- [ ] Chaque session a son propre flag `permission_pending`
+- [x] Plusieurs instances OpenCode avec permissions simultanees sont correctement detectees
+- [x] Chaque tool a son propre flag `may_need_permission`
 
 ### Edge cases
-- [ ] Tool avec `start: null` (pending) ne trigger pas de faux positif
-- [ ] Reconnexion apres perte SSE recupere l'etat correct via polling
-- [ ] Pas de race condition entre SSE et polling
+- [x] Tool avec `start: null` (pending) ne trigger pas de faux positif (elapsed_ms = 0)
+- [x] Seuil configurable dans Settings (defaut 5s)
+- [x] Affichage lisible pour durees > 60s (format "1m 30s")
 
 ---
 

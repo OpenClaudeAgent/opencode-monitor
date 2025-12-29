@@ -208,7 +208,7 @@ class MenuBuilder:
             )
         )
 
-        # Tools with security analysis
+        # Tools with security analysis and permission detection
         if agent.tools:
             for tool in agent.tools:
                 alert = None
@@ -220,8 +220,15 @@ class MenuBuilder:
                     if alert.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
                         alert_callback(alert)
 
-                risk_emoji = get_level_emoji(alert.level) if alert else ""
-                tool_icon = "🔧" if not risk_emoji else risk_emoji
+                # Determine tool icon: permission > security > default
+                if tool.may_need_permission:
+                    tool_icon = "🔒"  # May be waiting for permission
+                elif alert:
+                    risk_emoji = get_level_emoji(alert.level)
+                    tool_icon = risk_emoji if risk_emoji else "🔧"
+                else:
+                    tool_icon = "🔧"
+
                 full_tool_text = f"{tool.name}: {tool.arg}"
 
                 item = truncate_with_tooltip(
@@ -230,7 +237,17 @@ class MenuBuilder:
                     prefix=f"{sub_prefix}{tool_icon} ",
                 )
 
-                if alert and alert.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
+                # Set tooltip based on state
+                if tool.may_need_permission:
+                    elapsed_sec = tool.elapsed_ms // 1000
+                    if elapsed_sec >= 60:
+                        mins, secs = divmod(elapsed_sec, 60)
+                        duration = f"{mins}m {secs}s"
+                    else:
+                        duration = f"{elapsed_sec}s"
+                    tooltip = f"🔒 May be waiting for permission (running {duration})\n\n{tool.arg}"
+                    item._menuitem.setToolTip_(tooltip)
+                elif alert and alert.level in (RiskLevel.HIGH, RiskLevel.CRITICAL):
                     tooltip = (
                         f"⚠️ {alert.reason}\nScore: {alert.score}/100\n\n{tool.arg}"
                     )
