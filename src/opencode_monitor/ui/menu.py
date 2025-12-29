@@ -179,10 +179,15 @@ class MenuBuilder:
 
         # Agent icon and callback
         if indent > 0:
+            # Sub-agent icons (never have ask_user)
             status_icon = "└ ●" if agent.status == SessionStatus.BUSY else "└ ○"
             callback = None
         else:
-            status_icon = "🤖"
+            # Main agent icons
+            if agent.has_pending_ask_user:
+                status_icon = "🔔"  # Awaiting user response (MCP Notify)
+            else:
+                status_icon = "🤖"
 
             def make_focus_cb(t):
                 def cb(_):
@@ -254,6 +259,18 @@ class MenuBuilder:
                     item._menuitem.setToolTip_(tooltip)
 
                 items.append(item)
+
+        # Pending ask_user (MCP Notify awaiting response)
+        if agent.has_pending_ask_user and agent.ask_user_title:
+            item = truncate_with_tooltip(
+                agent.ask_user_title,
+                TITLE_MAX_LENGTH,
+                prefix=f"{sub_prefix}❓ ",
+            )
+            item._menuitem.setToolTip_(
+                f"🔔 Awaiting user response\n\n{agent.ask_user_title}"
+            )
+            items.append(item)
 
         # Todos
         if agent.todos:

@@ -355,6 +355,67 @@ class TestMakeIntervalCallback:
         assert "600" in call_args
 
 
+class TestMakeAskTimeoutCallback:
+    """Tests for OpenCodeApp._make_ask_timeout_callback"""
+
+    def test_callback_updates_settings(self, mock_dependencies):
+        """Callback should update ask_user_timeout setting."""
+        app = create_app_with_mocks(mock_dependencies)
+
+        callback = app._make_ask_timeout_callback(3600)  # 1 hour
+
+        mock_sender = MagicMock()
+        mock_sender.parent.values.return_value = [MagicMock(), MagicMock()]
+
+        callback(mock_sender)
+
+        assert mock_dependencies["settings"].ask_user_timeout == 3600
+        mock_dependencies["save_settings"].assert_called_once()
+
+    def test_callback_sets_sender_state(self, mock_dependencies):
+        """Callback should set sender state to 1 (selected)."""
+        app = create_app_with_mocks(mock_dependencies)
+
+        callback = app._make_ask_timeout_callback(1800)
+
+        mock_sender = MagicMock()
+        mock_sender.parent.values.return_value = []
+
+        callback(mock_sender)
+
+        assert mock_sender.state == 1
+
+    def test_callback_logs_change_hours(self, mock_dependencies):
+        """Callback should log timeout in hours format."""
+        app = create_app_with_mocks(mock_dependencies)
+
+        callback = app._make_ask_timeout_callback(3600)  # 1 hour
+
+        mock_sender = MagicMock()
+        mock_sender.parent.values.return_value = []
+
+        callback(mock_sender)
+
+        mock_dependencies["info"].assert_called()
+        call_args = str(mock_dependencies["info"].call_args)
+        assert "1h" in call_args
+
+    def test_callback_logs_change_minutes(self, mock_dependencies):
+        """Callback should log timeout in minutes format for < 1h."""
+        app = create_app_with_mocks(mock_dependencies)
+
+        callback = app._make_ask_timeout_callback(1800)  # 30 minutes
+
+        mock_sender = MagicMock()
+        mock_sender.parent.values.return_value = []
+
+        callback(mock_sender)
+
+        mock_dependencies["info"].assert_called()
+        call_args = str(mock_dependencies["info"].call_args)
+        assert "30m" in call_args
+
+
 # =============================================================================
 # Test UI Refresh
 # =============================================================================
@@ -835,6 +896,99 @@ class TestUpdateTitle:
         # Title should be like "🤖 1 🔒"
         # Lock should come after busy count
         assert app.title.index("1") < app.title.index("🔒")
+
+    def test_update_title_with_pending_ask_user(self, mock_dependencies):
+        """Should show bell emoji when agent has pending ask_user."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Agent with pending ask_user
+        agent = Agent(
+            id="1",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.IDLE,
+            has_pending_ask_user=True,
+            ask_user_title="Validation requise",
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "🔔" in app.title
+
+
+# =============================================================================
+# Test Update Session Cache
+# =============================================================================
+
+
+class TestUpdateSessionCache:
+    """Tests for OpenCodeApp._update_session_cache"""
+
+    def test_removes_sessions_from_dead_ports(self, mock_dependencies):
+        """Should remove sessions when their port is no longer active."""
+        from opencode_monitor.core.models import State, Instance, Todos
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Add a session from port 1234
+        app._known_active_sessions = {"session_1": 1234, "session_2": 5678}
+
+        # New state only has port 5678 (port 1234 is dead)
+        instance = Instance(port=5678, agents=[])
+        new_state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_session_cache(new_state)
+
+        # session_1 should be removed (port 1234 is dead)
+        assert "session_1" not in app._known_active_sessions
+        # session_2 should still be there
+        assert "session_2" in app._known_active_sessions
+
+    def test_cache_limit_removes_oldest_entries(self, mock_dependencies):
+        """Should remove oldest entries when cache exceeds limit."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Fill cache beyond limit
+        app._known_active_sessions = {
+            f"old_session_{i}": 1234 for i in range(app._KNOWN_SESSIONS_LIMIT + 5)
+        }
+
+        # Create a new busy agent
+        agent = Agent(
+            id="new_busy_session",
+            title="test",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+        )
+        instance = Instance(port=1234, agents=[agent])
+        new_state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_session_cache(new_state)
+
+        # Cache should not exceed limit
+        assert len(app._known_active_sessions) <= app._KNOWN_SESSIONS_LIMIT
+        # New busy session should be in cache
+        assert "new_busy_session" in app._known_active_sessions
 
 
 # =============================================================================

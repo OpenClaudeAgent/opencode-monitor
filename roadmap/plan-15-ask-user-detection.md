@@ -135,25 +135,25 @@ if session_status == "idle":
 ## Checklist de validation
 
 ### Detection
-- [ ] Session idle avec notify_ask_user recent -> has_pending_ask_user = true
-- [ ] Session idle sans notify_ask_user -> has_pending_ask_user = false
-- [ ] Session busy -> has_pending_ask_user = false (toujours)
-- [ ] Extraction du titre de la question
+- [x] Session idle avec notify_ask_user recent -> has_pending_ask_user = true
+- [x] Session idle sans notify_ask_user -> has_pending_ask_user = false
+- [x] Session busy -> has_pending_ask_user = false (toujours)
+- [x] Extraction du titre de la question
 
 ### Affichage menu
-- [ ] Icone 🔔 a cote des agents avec ask_user en attente
-- [ ] Icone 🔔 dans le titre menubar si au moins un ask_user
-- [ ] Tooltip avec le titre de la question (optionnel)
+- [x] Icone 🔔 a cote des agents avec ask_user en attente
+- [x] Icone 🔔 dans le titre menubar si au moins un ask_user
+- [x] Tooltip avec le titre de la question (optionnel)
 
 ### Resolution
-- [ ] Quand l'utilisateur repond, la session passe en busy
-- [ ] L'indicateur 🔔 disparait automatiquement
-- [ ] Le titre menubar se met a jour
+- [x] Quand l'utilisateur repond, la session passe en busy
+- [x] L'indicateur 🔔 disparait automatiquement
+- [x] Le titre menubar se met a jour
 
 ### Edge cases
-- [ ] Plusieurs sessions avec ask_user simultanement
-- [ ] Session qui envoie plusieurs ask_user successifs
-- [ ] Session idle mais sans message recent
+- [x] Plusieurs sessions avec ask_user simultanement
+- [x] Session qui envoie plusieurs ask_user successifs
+- [x] Session idle mais sans message recent
 
 ---
 
@@ -217,7 +217,35 @@ Ajouter dans le README principal (pas de nouveau fichier) :
 ```
 
 ### Checklist documentation
-- [ ] Mettre a jour section Features dans README.md
-- [ ] Mettre a jour section Menu Bar Display avec 🔒 et 🔔
-- [ ] Ajouter exemples dans Menu Contents
-- [ ] Mentionner la dependance optionnelle a OpenFlow/MCP Notify
+- [x] Mettre a jour section Features dans README.md
+- [x] Mettre a jour section Menu Bar Display avec 🔒 et 🔔
+- [x] Ajouter exemples dans Menu Contents
+- [x] Mentionner la dependance optionnelle a OpenFlow/MCP Notify
+
+---
+
+## Bonus - Evolutions d'implementation
+
+### Scan fichiers disque (vs API)
+
+L'algorithme initial prevoyait d'utiliser l'API OpenCode (`GET /session/{id}/message`). L'implementation finale utilise le **scan direct des fichiers session** sur disque (`~/.local/share/opencode/storage/message/{session_id}/`).
+
+**Raisons du changement :**
+- Performance : evite des appels API supplementaires pour les sessions idle
+- Fiabilite : fonctionne meme si l'instance OpenCode n'est plus active
+- Detection zombie : permet de filtrer les sessions mortes via le cache de ports
+
+### Timeout configurable
+
+Un nouveau setting a ete ajoute dans `settings.py` :
+
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `ask_user_timeout` | 1800s (30min) | Duree avant de masquer une notification sans reponse |
+
+**Note** : La detection des sessions zombies (ports morts) est geree separement par le cache de ports dans `app.py`, qui ejecte les sessions en ~5-10s quand leur port meurt.
+
+### UI Preferences
+
+Le timeout est configurable via le menu **⚙️ Preferences** :
+- **🔔 Ask user timeout** : 5m / 15m / 30m / 1h

@@ -18,6 +18,7 @@ class TestSettings:
         s = Settings()
         assert s.usage_refresh_interval == 60
         assert s.permission_threshold_seconds == 5
+        assert s.ask_user_timeout == 1800  # 30 minutes
 
     def test_custom_values(self):
         """Settings can be initialized with custom values"""
@@ -28,6 +29,11 @@ class TestSettings:
         """Settings can be initialized with custom permission_threshold_seconds"""
         s = Settings(permission_threshold_seconds=10)
         assert s.permission_threshold_seconds == 10
+
+    def test_custom_ask_user_timeout(self):
+        """Settings can be initialized with custom ask_user timeout"""
+        s = Settings(ask_user_timeout=3600)
+        assert s.ask_user_timeout == 3600  # 1 hour
 
 
 class TestSettingsSave:
@@ -55,6 +61,7 @@ class TestSettingsSave:
             assert data == {
                 "usage_refresh_interval": 90,
                 "permission_threshold_seconds": 5,  # default value
+                "ask_user_timeout": 1800,  # default value (30 minutes)
             }
 
     def test_save_overwrites_existing_file(self, tmp_path):
@@ -76,6 +83,7 @@ class TestSettingsSave:
             assert data == {
                 "usage_refresh_interval": 120,
                 "permission_threshold_seconds": 5,  # default value
+                "ask_user_timeout": 1800,  # default value (30 minutes)
             }
 
 

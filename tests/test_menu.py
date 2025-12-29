@@ -863,6 +863,66 @@ class TestBuildAgentItems:
         # Security alert callback should still be called
         mock_alert_callback.assert_called()
 
+    def test_main_agent_with_pending_ask_user(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Main agent with pending ask_user should show bell emoji."""
+        agent = Agent(
+            id="agent-ask",
+            title="Agent Question",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.IDLE,
+            has_pending_ask_user=True,
+            ask_user_title="Validation requise",
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        # Main agent should have bell emoji
+        assert "🔔" in items[0].title
+        assert "Agent Question" in items[0].title
+
+    def test_agent_with_ask_user_title_displayed(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Agent with ask_user_title should display it with question mark prefix."""
+        agent = Agent(
+            id="agent-ask",
+            title="Agent Question",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.IDLE,
+            has_pending_ask_user=True,
+            ask_user_title="Merge sur main?",
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        # Should have the question title with ❓ prefix
+        titles = [item.title for item in items]
+        assert any("❓" in t and "Merge" in t for t in titles)
+
+    def test_agent_without_ask_user_title_no_question_item(
+        self, menu_builder, mock_focus_callback, mock_alert_callback
+    ):
+        """Agent with pending ask_user but no title should not show question item."""
+        agent = Agent(
+            id="agent-ask",
+            title="Agent Question",
+            dir="project",
+            full_dir="/home/user/project",
+            status=SessionStatus.IDLE,
+            has_pending_ask_user=True,
+            ask_user_title="",  # Empty title
+        )
+        items = menu_builder.build_agent_items(
+            agent, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
+        )
+        # Should NOT have question mark item
+        titles = [item.title for item in items]
+        assert not any("❓" in t for t in titles)
+
 
 # =============================================================================
 # Tests for MenuBuilder.build_usage_items

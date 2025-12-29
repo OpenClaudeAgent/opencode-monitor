@@ -22,6 +22,10 @@ class Settings:
     # Tools running longer than this may be waiting for permission (heuristic)
     permission_threshold_seconds: int = 5
 
+    # Ask user notification timeout in seconds
+    # How long to show 🔔 before dismissing (if user hasn't responded)
+    ask_user_timeout: int = 30 * 60  # 30 minutes
+
     def save(self):
         """Save settings to config file"""
         os.makedirs(CONFIG_DIR, exist_ok=True)

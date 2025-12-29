@@ -9,6 +9,8 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 - **Real-time monitoring** of OpenCode instances
 - **Agent hierarchy** with main agents and sub-agents
 - **Tools display** showing currently running tools
+- **Permission detection** 🔒 heuristic indicator for tools waiting approval
+- **MCP Notify tracking** 🔔 indicator when agent awaits user response
 - **Todos tracking** with progress indicators
 - **Claude API usage** (session + weekly)
 - **Security audit** with risk analysis of commands, file operations, and web fetches
@@ -42,11 +44,13 @@ Once running, the app appears in your menu bar with a 🤖 icon.
 ### Menu Bar Display
 
 ```
-🤖 2 ⏳3 🟢45%
+🤖 2 🔒 🔔 ⏳3 🟢45%
 ```
 
 - `🤖` - App icon
 - `2` - Number of busy agents
+- `🔒` - Permission may be pending (tool running > 5s)
+- `🔔` - Agent awaits user response (MCP Notify ask_user)
 - `⏳3` - Total pending todos
 - `🟢45%` - Claude API session usage
 
@@ -57,10 +61,13 @@ Click the icon to see:
 ```
 🤖 Agent Title                    ← Click to focus terminal
     🔧 bash: git status           ← Running tool
+    🔒 bash: npm install          ← May need permission (running 15s)
     🔄 Current task               ← In-progress todo
     ⏳ Next task (+2)             ← Pending todos
     └ ● Sub-agent                 ← Sub-agent (busy)
     └ ○ Sub-agent                 ← Sub-agent (idle)
+🔔 Agent Question                 ← Awaiting user response
+    ❓ Validation requise         ← Question title
 ---
 🟢 Session: 45% (reset 2h30m)
 📅 Weekly: 29% (reset Mon 0h)
@@ -78,8 +85,10 @@ Click the icon to see:
 Refresh
 ---
 ⚙️ Preferences ▸
-    Usage refresh ▸
+    🔄 Usage refresh ▸
         30s / 1m ✓ / 2m / 5m / 10m
+    🔔 Ask user timeout ▸
+        5m / 15m / 30m ✓ / 1h
 ---
 Quit
 ```
@@ -88,7 +97,8 @@ Quit
 
 Access via **⚙️ Preferences** in the menu:
 
-- **Usage refresh**: How often to fetch Claude API usage (30s - 10m)
+- **🔄 Usage refresh**: How often to fetch Claude API usage (30s - 10m)
+- **🔔 Ask user timeout**: How long to show 🔔 before dismissing (5m - 1h)
 
 Settings are saved to `~/.config/opencode-monitor/settings.json`
 
@@ -144,6 +154,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.11.0 | 2025-12-29 | MCP Notify ask_user detection - bell icon when agent awaits response |
 | v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |
 | v2.9.0 | 2025-12-28 | Refactoring - Extract database, risk_analyzer, reporter, terminal modules |
 | v2.8.0 | 2025-12-28 | Security audit module - analyze commands, reads, writes, webfetches |

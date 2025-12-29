@@ -731,6 +731,7 @@ class TestFetchInstance:
         """Return instance with empty agents when no busy sessions"""
         mock_client = AsyncMock()
         mock_client.get_status.return_value = {}
+        mock_client.get_all_sessions.return_value = []
 
         with patch(
             "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
@@ -738,7 +739,13 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value="ttys001"
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                (
+                    instance,
+                    pending,
+                    in_progress,
+                    idle_candidates,
+                    busy_ids,
+                ) = await fetch_instance(8080)
 
                 assert instance is not None
                 assert instance.port == 8080
@@ -746,12 +753,15 @@ class TestFetchInstance:
                 assert instance.agents == []
                 assert pending == 0
                 assert in_progress == 0
+                assert idle_candidates == []
+                assert busy_ids == set()
 
     @pytest.mark.asyncio
     async def test_returns_instance_with_no_agents_when_status_is_none(self):
         """Return instance with empty agents when status returns None"""
         mock_client = AsyncMock()
         mock_client.get_status.return_value = None
+        mock_client.get_all_sessions.return_value = []
 
         with patch(
             "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
@@ -759,7 +769,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert instance is not None
                 assert instance.port == 8080
@@ -772,6 +782,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": {"title": "Test Session", "directory": "/home/user/project"},
             "messages": [],
@@ -784,7 +795,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value="ttys001"
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, busy_ids = await fetch_instance(8080)
 
                 assert instance is not None
                 assert len(instance.agents) == 1
@@ -794,19 +805,17 @@ class TestFetchInstance:
                 assert instance.agents[0].status == SessionStatus.BUSY
                 assert pending == 1
                 assert in_progress == 0
+                assert "ses_123" in busy_ids
 
     @pytest.mark.asyncio
     async def test_handles_idle_session_status_type(self):
-        """Handle session with idle status type"""
+        """Handle session with idle status type - idle sessions no longer in busy_status"""
         mock_client = AsyncMock()
-        mock_client.get_status.return_value = {
-            "ses_123": {"type": "idle"},
-        }
-        mock_client.fetch_session_data.return_value = {
-            "info": {"title": "Idle Session", "directory": ""},
-            "messages": [],
-            "todos": [],
-        }
+        # Idle sessions are not in get_status (only busy sessions are)
+        mock_client.get_status.return_value = {}
+        mock_client.get_all_sessions.return_value = [
+            {"id": "ses_123", "title": "Idle Session", "directory": ""}
+        ]
 
         with patch(
             "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
@@ -814,9 +823,17 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                (
+                    instance,
+                    pending,
+                    in_progress,
+                    idle_candidates,
+                    _,
+                ) = await fetch_instance(8080)
 
-                assert instance.agents[0].status == SessionStatus.IDLE
+                # Idle sessions are returned as candidates for post-processing
+                assert len(idle_candidates) == 1
+                assert idle_candidates[0]["id"] == "ses_123"
 
     @pytest.mark.asyncio
     async def test_extracts_tools_from_messages(self):
@@ -825,6 +842,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": {"title": "Test", "directory": "/project"},
             "messages": [
@@ -850,7 +868,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert len(instance.agents[0].tools) == 1
                 assert instance.agents[0].tools[0].name == "bash"
@@ -863,6 +881,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": {"directory": "/project"},
             "messages": [],
@@ -875,7 +894,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert instance.agents[0].title == "Sans titre"
 
@@ -886,6 +905,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": {"title": "Test", "directory": ""},
             "messages": [],
@@ -898,7 +918,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert instance.agents[0].dir == "global"
 
@@ -909,6 +929,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": None,
             "messages": None,
@@ -921,7 +942,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert instance.agents[0].title == "Sans titre"
                 assert instance.agents[0].dir == "global"
@@ -933,6 +954,7 @@ class TestFetchInstance:
         mock_client.get_status.return_value = {
             "ses_123": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
         mock_client.fetch_session_data.return_value = {
             "info": {
                 "title": "Sub-agent",
@@ -949,7 +971,7 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
                 assert instance.agents[0].parent_id == "ses_parent"
                 assert instance.agents[0].is_subagent
@@ -962,6 +984,7 @@ class TestFetchInstance:
             "ses_1": {"type": "busy"},
             "ses_2": {"type": "busy"},
         }
+        mock_client.get_all_sessions.return_value = [{"id": "ses_1"}, {"id": "ses_2"}]
         mock_client.fetch_session_data.side_effect = [
             {
                 "info": {"title": "Session 1", "directory": "/proj1"},
@@ -981,11 +1004,13 @@ class TestFetchInstance:
             with patch(
                 "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
             ):
-                instance, pending, in_progress = await fetch_instance(8080)
+                instance, pending, in_progress, _, busy_ids = await fetch_instance(8080)
 
                 assert len(instance.agents) == 2
                 assert pending == 1
                 assert in_progress == 1
+                assert "ses_1" in busy_ids
+                assert "ses_2" in busy_ids
 
 
 # ===========================================================================
@@ -1030,7 +1055,8 @@ class TestFetchAllInstances:
             return [8080]
 
         async def mock_fetch(port):
-            return (mock_instance, 1, 0)
+            # Returns (instance, pending, in_progress, idle_candidates, busy_session_ids)
+            return (mock_instance, 1, 0, [], {"ses_1"})
 
         with patch(
             "opencode_monitor.core.monitor.find_opencode_ports",
@@ -1062,9 +1088,10 @@ class TestFetchAllInstances:
         async def mock_fetch(port):
             call_count[0] += 1
             if port == 8080:
-                return (instance1, 2, 1)
+                # Returns (instance, pending, in_progress, idle_candidates, busy_session_ids)
+                return (instance1, 2, 1, [], set())
             else:
-                return (instance2, 3, 2)
+                return (instance2, 3, 2, [], set())
 
         with patch(
             "opencode_monitor.core.monitor.find_opencode_ports",
@@ -1088,10 +1115,11 @@ class TestFetchAllInstances:
             return [8080, 9000]
 
         async def mock_fetch(port):
+            # Returns (instance, pending, in_progress, idle_candidates, busy_session_ids)
             if port == 8080:
-                return (valid_instance, 1, 0)
+                return (valid_instance, 1, 0, [], set())
             else:
-                return (None, 0, 0)
+                return (None, 0, 0, [], set())
 
         with patch(
             "opencode_monitor.core.monitor.find_opencode_ports",
@@ -1114,7 +1142,8 @@ class TestFetchAllInstances:
             return [8080, 9000]
 
         async def mock_fetch(port):
-            return (None, 0, 0)
+            # Returns (instance, pending, in_progress, idle_candidates, busy_session_ids)
+            return (None, 0, 0, [], set())
 
         with patch(
             "opencode_monitor.core.monitor.find_opencode_ports",
@@ -1140,12 +1169,13 @@ class TestFetchAllInstances:
             return [8080, 9000, 9001]
 
         async def mock_fetch(port):
+            # Returns (instance, pending, in_progress, idle_candidates, busy_session_ids)
             if port == 8080:
-                return (instance1, 0, 0)
+                return (instance1, 0, 0, [], set())
             elif port == 9000:
-                return (instance2, 0, 0)
+                return (instance2, 0, 0, [], set())
             else:
-                return (instance3, 0, 0)
+                return (instance3, 0, 0, [], set())
 
         with patch(
             "opencode_monitor.core.monitor.find_opencode_ports",
@@ -1162,3 +1192,1189 @@ class TestFetchAllInstances:
                 assert 8080 in ports
                 assert 9000 in ports
                 assert 9001 in ports
+
+    @pytest.mark.asyncio
+    async def test_filters_zombie_sessions_with_known_active_sessions(self):
+        """Filter out sessions that were never seen as BUSY when cache is provided"""
+        instance = Instance(port=8080, tty="", agents=[])
+
+        # Create an idle session that will be found via idle_candidates
+        idle_session = {"id": "zombie_session", "title": "Zombie", "directory": ""}
+
+        async def mock_find():
+            return [8080]
+
+        async def mock_fetch(port):
+            # Return instance with no agents but one idle candidate
+            return (instance, 0, 0, [idle_session], set())
+
+        # Mock disk check to say there's a pending ask_user
+        def mock_check_pending(session_id, storage_path=None):
+            from opencode_monitor.core.monitor import AskUserResult
+
+            return AskUserResult(has_pending=True, title="Test question")
+
+        with patch(
+            "opencode_monitor.core.monitor.find_opencode_ports",
+            side_effect=mock_find,
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.fetch_instance",
+                side_effect=mock_fetch,
+            ):
+                with patch(
+                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    side_effect=mock_check_pending,
+                ):
+                    # With known_active_sessions that doesn't include zombie_session
+                    state = await fetch_all_instances(
+                        known_active_sessions={"other_session"}
+                    )
+
+                    # zombie_session should be filtered out because it's not in known_active_sessions
+                    assert state.connected is True
+                    assert len(state.instances) == 1
+                    assert len(state.instances[0].agents) == 0
+
+    @pytest.mark.asyncio
+    async def test_includes_idle_session_with_pending_ask_user_when_in_cache(self):
+        """Include idle sessions with pending ask_user when they are in the cache"""
+        instance = Instance(port=8080, tty="", agents=[])
+
+        # Create an idle session that will be found via idle_candidates
+        idle_session = {
+            "id": "known_session",
+            "title": "Known Session",
+            "directory": "/project",
+        }
+
+        async def mock_find():
+            return [8080]
+
+        async def mock_fetch(port):
+            # Return instance with no agents but one idle candidate
+            return (instance, 0, 0, [idle_session], set())
+
+        # Mock disk check to say there's a pending ask_user
+        def mock_check_pending(session_id, storage_path=None):
+            from opencode_monitor.core.monitor import AskUserResult
+
+            return AskUserResult(has_pending=True, title="User input needed")
+
+        with patch(
+            "opencode_monitor.core.monitor.find_opencode_ports",
+            side_effect=mock_find,
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.fetch_instance",
+                side_effect=mock_fetch,
+            ):
+                with patch(
+                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    side_effect=mock_check_pending,
+                ):
+                    # With known_active_sessions that includes known_session
+                    state = await fetch_all_instances(
+                        known_active_sessions={"known_session"}
+                    )
+
+                    # known_session should be included because it's in the cache
+                    assert state.connected is True
+                    assert len(state.instances) == 1
+                    assert len(state.instances[0].agents) == 1
+                    agent = state.instances[0].agents[0]
+                    assert agent.id == "known_session"
+                    assert agent.has_pending_ask_user is True
+                    assert agent.ask_user_title == "User input needed"
+                    assert agent.status == SessionStatus.IDLE
+
+    @pytest.mark.asyncio
+    async def test_includes_all_idle_sessions_when_no_cache_provided(self):
+        """Include all idle sessions with pending ask_user when no cache is provided"""
+        instance = Instance(port=8080, tty="", agents=[])
+
+        # Create an idle session that will be found via idle_candidates
+        idle_session = {
+            "id": "any_session",
+            "title": "Any Session",
+            "directory": "/project",
+        }
+
+        async def mock_find():
+            return [8080]
+
+        async def mock_fetch(port):
+            # Return instance with no agents but one idle candidate
+            return (instance, 0, 0, [idle_session], set())
+
+        # Mock disk check to say there's a pending ask_user
+        def mock_check_pending(session_id, storage_path=None):
+            from opencode_monitor.core.monitor import AskUserResult
+
+            return AskUserResult(has_pending=True, title="Question")
+
+        with patch(
+            "opencode_monitor.core.monitor.find_opencode_ports",
+            side_effect=mock_find,
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.fetch_instance",
+                side_effect=mock_fetch,
+            ):
+                with patch(
+                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    side_effect=mock_check_pending,
+                ):
+                    # Without known_active_sessions (None)
+                    state = await fetch_all_instances(known_active_sessions=None)
+
+                    # any_session should be included because no cache filtering
+                    assert state.connected is True
+                    assert len(state.instances) == 1
+                    assert len(state.instances[0].agents) == 1
+
+    @pytest.mark.asyncio
+    async def test_deduplicates_agents_across_processing(self):
+        """Ensure agents are not duplicated when processing"""
+        busy_agent = Agent(
+            id="ses_1",
+            title="Busy Agent",
+            dir="project",
+            full_dir="/project",
+            status=SessionStatus.BUSY,
+            tools=[],
+        )
+        instance = Instance(port=8080, tty="", agents=[busy_agent])
+
+        # Create an idle candidate with the same ID as the busy agent
+        idle_session = {"id": "ses_1", "title": "Same Session", "directory": "/project"}
+
+        async def mock_find():
+            return [8080]
+
+        async def mock_fetch(port):
+            # Return instance with busy agent and same session as idle candidate
+            return (instance, 0, 0, [idle_session], {"ses_1"})
+
+        with patch(
+            "opencode_monitor.core.monitor.find_opencode_ports",
+            side_effect=mock_find,
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.fetch_instance",
+                side_effect=mock_fetch,
+            ):
+                state = await fetch_all_instances()
+
+                # Should only have one agent, not duplicated
+                assert len(state.instances[0].agents) == 1
+                assert state.instances[0].agents[0].id == "ses_1"
+
+
+# ===========================================================================
+# Tests for AskUserResult dataclass
+# ===========================================================================
+
+
+class TestAskUserResult:
+    """Tests for AskUserResult dataclass"""
+
+    def test_default_values(self):
+        """Test default values for AskUserResult"""
+        from opencode_monitor.core.monitor import AskUserResult
+
+        result = AskUserResult(has_pending=False)
+        assert result.has_pending is False
+        assert result.title == ""
+
+    def test_with_title(self):
+        """Test AskUserResult with custom title"""
+        from opencode_monitor.core.monitor import AskUserResult
+
+        result = AskUserResult(has_pending=True, title="User input needed")
+        assert result.has_pending is True
+        assert result.title == "User input needed"
+
+
+# ===========================================================================
+# Tests for _find_latest_notify_ask_user()
+# ===========================================================================
+
+
+class TestFindLatestNotifyAskUser:
+    """Tests for _find_latest_notify_ask_user() internal function"""
+
+    def test_returns_empty_when_no_message_files(self, tmp_path):
+        """Return empty results when message directory has no files"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time=0
+        )
+
+        assert timestamp == 0
+        assert title == ""
+        assert messages == []
+
+    def test_skips_files_older_than_cutoff(self, tmp_path):
+        """Skip message files older than cutoff time"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import os
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create a message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Set file modification time to the past
+        old_time = time.time() - 7200  # 2 hours ago
+        os.utime(msg_file, (old_time, old_time))
+
+        # Use cutoff time of 1 hour ago
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Should skip the old file
+        assert timestamp == 0
+        assert messages == []
+
+    def test_parses_recent_message_files(self, tmp_path):
+        """Parse message files newer than cutoff time"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create a recent message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Use cutoff time in the past
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Should include the message
+        assert len(messages) == 1
+        assert messages[0] == (1000, "msg_001", "assistant")
+
+    def test_handles_malformed_json(self, tmp_path):
+        """Handle malformed JSON files gracefully"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create a malformed message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text("not valid json {{{")
+
+        # Create a valid message file
+        msg_file2 = message_dir / "msg_002.json"
+        msg_file2.write_text(
+            '{"id": "msg_002", "time": {"created": 2000}, "role": "user"}'
+        )
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Should only include the valid message
+        assert len(messages) == 1
+        assert messages[0] == (2000, "msg_002", "user")
+
+    def test_finds_notify_ask_user_in_part_files(self, tmp_path):
+        """Find notify_ask_user tool calls in part files"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Create part directory and file with notify_ask_user
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": 1500},
+                "input": {"title": "Need user input"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        assert timestamp == 1500
+        assert title == "Need user input"
+
+    def test_finds_latest_notify_when_multiple_exist(self, tmp_path):
+        """Find the most recent notify_ask_user when multiple exist"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create message files
+        for i, created in [(1, 1000), (2, 2000)]:
+            msg_file = message_dir / f"msg_00{i}.json"
+            msg_file.write_text(
+                json.dumps(
+                    {
+                        "id": f"msg_00{i}",
+                        "time": {"created": created},
+                        "role": "assistant",
+                    }
+                )
+            )
+
+            msg_part_dir = part_dir / f"msg_00{i}"
+            msg_part_dir.mkdir(parents=True)
+
+            part_data = {
+                "type": "tool",
+                "tool": "notify_ask_user",
+                "state": {
+                    "status": "completed",
+                    "time": {"start": created + 100},
+                    "input": {"title": f"Question {i}"},
+                },
+            }
+            part_file = msg_part_dir / f"prt_00{i}.json"
+            part_file.write_text(json.dumps(part_data))
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Should find the most recent one
+        assert timestamp == 2100  # 2000 + 100
+        assert title == "Question 2"
+
+    def test_ignores_non_completed_notify(self, tmp_path):
+        """Ignore notify_ask_user that is not in completed status"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Create part with running status (not completed)
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "running",  # Not completed
+                "time": {"start": 1500},
+                "input": {"title": "Should be ignored"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        assert timestamp == 0  # Not found
+        assert title == ""
+
+    def test_ignores_other_tool_types(self, tmp_path):
+        """Ignore tool calls that are not notify_ask_user"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Create part with different tool
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+
+        part_data = {
+            "type": "tool",
+            "tool": "bash",  # Not notify_ask_user
+            "state": {
+                "status": "completed",
+                "time": {"start": 1500},
+                "input": {"command": "ls"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        assert timestamp == 0
+        assert title == ""
+
+
+# ===========================================================================
+# Tests for _has_activity_after_notify()
+# ===========================================================================
+
+
+class TestHasActivityAfterNotify:
+    """Tests for _has_activity_after_notify() internal function"""
+
+    def test_returns_false_when_no_messages_after_notify(self, tmp_path):
+        """Return False when no messages exist after notify timestamp"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Messages are all before the notify timestamp
+        recent_messages = [
+            (1000, "msg_001", "assistant"),
+            (1100, "msg_002", "assistant"),
+        ]
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is False
+
+    def test_returns_true_when_user_message_after_notify(self, tmp_path):
+        """Return True when user message exists after notify timestamp"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # User message after the notify
+        recent_messages = [
+            (1000, "msg_001", "assistant"),
+            (2500, "msg_002", "user"),  # After notify_timestamp=2000
+        ]
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is True
+
+    def test_returns_true_when_other_tool_call_after_notify(self, tmp_path):
+        """Return True when non-notify tool call exists after notify timestamp"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+        import json
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Assistant message after notify with a different tool call
+        recent_messages = [
+            (1000, "msg_001", "assistant"),
+            (2500, "msg_002", "assistant"),  # After notify_timestamp=2000
+        ]
+
+        # Create part file for msg_002 with a different tool
+        msg_part_dir = part_dir / "msg_002"
+        msg_part_dir.mkdir(parents=True)
+        part_data = {
+            "type": "tool",
+            "tool": "bash",  # Different tool, indicates agent resumed
+            "state": {"status": "completed"},
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is True
+
+    def test_ignores_notify_ask_user_tool_as_activity(self, tmp_path):
+        """Ignore notify_ask_user calls when checking for activity"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+        import json
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Assistant message after notify
+        recent_messages = [
+            (2500, "msg_002", "assistant"),  # After notify_timestamp=2000
+        ]
+
+        # Create part file for msg_002 with notify_ask_user (should be ignored)
+        msg_part_dir = part_dir / "msg_002"
+        msg_part_dir.mkdir(parents=True)
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",  # Same tool, should be ignored
+            "state": {"status": "completed"},
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is False  # No real activity detected
+
+    def test_handles_missing_part_directory(self, tmp_path):
+        """Handle case when part directory for message doesn't exist"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Assistant message after notify but no part directory
+        recent_messages = [
+            (2500, "msg_002", "assistant"),  # After notify_timestamp=2000
+        ]
+        # Don't create msg_002 part directory
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is False
+
+    def test_handles_malformed_part_json(self, tmp_path):
+        """Handle malformed JSON in part files gracefully"""
+        from opencode_monitor.core.monitor import _has_activity_after_notify
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        recent_messages = [
+            (2500, "msg_002", "assistant"),
+        ]
+
+        # Create malformed part file
+        msg_part_dir = part_dir / "msg_002"
+        msg_part_dir.mkdir(parents=True)
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text("not valid json")
+
+        result = _has_activity_after_notify(
+            notify_timestamp=2000,
+            recent_messages=recent_messages,
+            part_dir=part_dir,
+        )
+
+        assert result is False  # Gracefully handled
+
+
+# ===========================================================================
+# Tests for check_pending_ask_user_from_disk()
+# ===========================================================================
+
+
+class TestCheckPendingAskUserFromDisk:
+    """Tests for check_pending_ask_user_from_disk() function"""
+
+    def test_returns_false_when_message_directory_missing(self, tmp_path):
+        """Return has_pending=False when message directory doesn't exist"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+
+        # Don't create the message directory
+        result = check_pending_ask_user_from_disk(
+            session_id="nonexistent_session",
+            storage_path=tmp_path,
+        )
+
+        assert result.has_pending is False
+        assert result.title == ""
+
+    def test_returns_false_when_no_recent_notify(self, tmp_path):
+        """Return has_pending=False when no recent notify_ask_user found"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+
+        # Create empty message directory
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        result = check_pending_ask_user_from_disk(
+            session_id="session_1",
+            storage_path=tmp_path,
+        )
+
+        assert result.has_pending is False
+
+    def test_returns_true_when_pending_notify_found(self, tmp_path):
+        """Return has_pending=True when pending notify_ask_user found"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+        import json
+        import time
+
+        # Create message directory and file
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            json.dumps(
+                {
+                    "id": "msg_001",
+                    "time": {"created": int(time.time() * 1000)},  # Recent timestamp
+                    "role": "assistant",
+                }
+            )
+        )
+
+        # Create part with notify_ask_user
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": int(time.time() * 1000)},
+                "input": {"title": "Waiting for user"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        result = check_pending_ask_user_from_disk(
+            session_id="session_1",
+            storage_path=tmp_path,
+        )
+
+        assert result.has_pending is True
+        assert result.title == "Waiting for user"
+
+    def test_returns_false_when_user_responded_after_notify(self, tmp_path):
+        """Return has_pending=False when user responded after notify"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+        import json
+        import time
+
+        current_time = int(time.time() * 1000)
+
+        # Create message directory
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+
+        # Create assistant message with notify_ask_user
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            json.dumps(
+                {
+                    "id": "msg_001",
+                    "time": {"created": current_time - 5000},  # 5 seconds ago
+                    "role": "assistant",
+                }
+            )
+        )
+
+        # Create user response message (after the notify)
+        msg_file2 = message_dir / "msg_002.json"
+        msg_file2.write_text(
+            json.dumps(
+                {
+                    "id": "msg_002",
+                    "time": {
+                        "created": current_time - 2000
+                    },  # 2 seconds ago (after notify)
+                    "role": "user",
+                }
+            )
+        )
+
+        # Create part with notify_ask_user
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": current_time - 4000},  # 4 seconds ago
+                "input": {"title": "Question"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        result = check_pending_ask_user_from_disk(
+            session_id="session_1",
+            storage_path=tmp_path,
+        )
+
+        # User responded, so not pending
+        assert result.has_pending is False
+
+    def test_respects_timeout_setting(self, tmp_path):
+        """Notifications older than timeout are ignored"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+        from unittest.mock import patch, MagicMock
+        import json
+        import time
+        import os
+
+        # Create message directory
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+
+        # Create a notification from 45 minutes ago
+        forty_five_min_ago = time.time() - (45 * 60)
+        forty_five_min_ago_ms = int(forty_five_min_ago * 1000)
+
+        # Create message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            json.dumps(
+                {
+                    "id": "msg_001",
+                    "time": {"created": forty_five_min_ago_ms},
+                    "role": "assistant",
+                }
+            )
+        )
+        os.utime(msg_file, (forty_five_min_ago, forty_five_min_ago))
+
+        # Create part with notify_ask_user
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": forty_five_min_ago_ms},
+                "input": {"title": "Old question"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+        os.utime(part_file, (forty_five_min_ago, forty_five_min_ago))
+
+        # With default timeout of 30 minutes, 45-minute-old notification should be ignored
+        mock_settings = MagicMock()
+        mock_settings.ask_user_timeout = 30 * 60  # 30 minutes
+
+        with patch(
+            "opencode_monitor.core.monitor.get_settings", return_value=mock_settings
+        ):
+            result = check_pending_ask_user_from_disk(
+                session_id="session_1",
+                storage_path=tmp_path,
+            )
+
+        # 45 minutes ago is older than 30 minute timeout
+        assert result.has_pending is False
+
+        # With 1 hour timeout, should find it
+        mock_settings.ask_user_timeout = 60 * 60  # 1 hour
+
+        with patch(
+            "opencode_monitor.core.monitor.get_settings", return_value=mock_settings
+        ):
+            result = check_pending_ask_user_from_disk(
+                session_id="session_1",
+                storage_path=tmp_path,
+            )
+
+        # 45 minutes ago is within 1 hour timeout
+        assert result.has_pending is True
+
+    def test_handles_exception_gracefully(self, tmp_path):
+        """Handle exceptions during file scanning gracefully"""
+        from opencode_monitor.core.monitor import check_pending_ask_user_from_disk
+        from unittest.mock import patch
+
+        # Create message directory
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+
+        # Mock _find_latest_notify_ask_user to raise an exception
+        with patch(
+            "opencode_monitor.core.monitor._find_latest_notify_ask_user",
+            side_effect=Exception("File error"),
+        ):
+            result = check_pending_ask_user_from_disk(
+                session_id="session_1",
+                storage_path=tmp_path,
+            )
+
+            # Should return False on error
+            assert result.has_pending is False
+
+
+# ===========================================================================
+# Tests for fetch_instance() 5-tuple return and idle_candidates
+# ===========================================================================
+
+
+class TestFetchInstanceIdleCandidates:
+    """Tests for fetch_instance() returning idle candidates for ask_user detection"""
+
+    @pytest.mark.asyncio
+    async def test_returns_idle_candidates_for_post_processing(self):
+        """Return idle session candidates for post-processing"""
+        mock_client = AsyncMock()
+        mock_client.get_status.return_value = {}  # No busy sessions
+        mock_client.get_all_sessions.return_value = [
+            {"id": "idle_ses_1", "title": "Idle Session", "directory": "/project"},
+        ]
+
+        with patch(
+            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+            ):
+                (
+                    instance,
+                    pending,
+                    in_progress,
+                    idle_candidates,
+                    busy_ids,
+                ) = await fetch_instance(8080)
+
+                assert len(idle_candidates) == 1
+                assert idle_candidates[0]["id"] == "idle_ses_1"
+                assert busy_ids == set()
+
+    @pytest.mark.asyncio
+    async def test_excludes_subagents_from_idle_candidates(self):
+        """Exclude sub-agents (sessions with parentID) from idle candidates"""
+        mock_client = AsyncMock()
+        mock_client.get_status.return_value = {}  # No busy sessions
+        mock_client.get_all_sessions.return_value = [
+            {"id": "parent_session", "title": "Parent", "directory": "/project"},
+            {
+                "id": "subagent",
+                "title": "Sub-agent",
+                "directory": "/project",
+                "parentID": "parent_session",
+            },
+        ]
+
+        with patch(
+            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+            ):
+                (
+                    instance,
+                    pending,
+                    in_progress,
+                    idle_candidates,
+                    busy_ids,
+                ) = await fetch_instance(8080)
+
+                # Sub-agents should be excluded
+                assert len(idle_candidates) == 1
+                assert idle_candidates[0]["id"] == "parent_session"
+
+    @pytest.mark.asyncio
+    async def test_returns_busy_session_ids_set(self):
+        """Return set of busy session IDs for cross-checking"""
+        mock_client = AsyncMock()
+        mock_client.get_status.return_value = {
+            "busy_1": {"type": "busy"},
+            "busy_2": {"type": "busy"},
+        }
+        mock_client.get_all_sessions.return_value = [
+            {"id": "busy_1"},
+            {"id": "busy_2"},
+            {"id": "idle_1"},
+        ]
+        mock_client.fetch_session_data.return_value = {
+            "info": {"title": "Session", "directory": "/project"},
+            "messages": [],
+            "todos": [],
+        }
+
+        with patch(
+            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+            ):
+                (
+                    instance,
+                    pending,
+                    in_progress,
+                    idle_candidates,
+                    busy_ids,
+                ) = await fetch_instance(8080)
+
+                assert "busy_1" in busy_ids
+                assert "busy_2" in busy_ids
+                assert "idle_1" not in busy_ids
+
+
+# ===========================================================================
+# Additional edge case tests for full coverage
+# ===========================================================================
+
+
+class TestFindLatestNotifyAskUserEdgeCases:
+    """Additional edge case tests for _find_latest_notify_ask_user()"""
+
+    def test_skips_part_files_older_than_cutoff(self, tmp_path):
+        """Skip part files that are older than cutoff time"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import os
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create a recent message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Create part directory with an OLD part file
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": 1500},
+                "input": {"title": "Old question"},
+            },
+        }
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text(json.dumps(part_data))
+
+        # Set part file to be very old
+        old_time = time.time() - 7200  # 2 hours ago
+        os.utime(part_file, (old_time, old_time))
+
+        # Use cutoff time of 1 hour ago
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Message should be found, but notify should be skipped (part file too old)
+        assert len(messages) == 1
+        assert timestamp == 0  # No notify found because part file was too old
+        assert title == ""
+
+    def test_handles_malformed_part_json_in_find(self, tmp_path):
+        """Handle malformed JSON in part files during _find_latest_notify_ask_user"""
+        from opencode_monitor.core.monitor import _find_latest_notify_ask_user
+        import time
+        import json
+
+        message_dir = tmp_path / "message" / "session_1"
+        message_dir.mkdir(parents=True)
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+
+        # Create message file
+        msg_file = message_dir / "msg_001.json"
+        msg_file.write_text(
+            '{"id": "msg_001", "time": {"created": 1000}, "role": "assistant"}'
+        )
+
+        # Create part directory with malformed JSON
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+
+        # Write invalid JSON
+        part_file = msg_part_dir / "prt_001.json"
+        part_file.write_text("not valid json {{{")
+
+        # Also create a valid part file
+        part_data = {
+            "type": "tool",
+            "tool": "notify_ask_user",
+            "state": {
+                "status": "completed",
+                "time": {"start": 1500},
+                "input": {"title": "Valid question"},
+            },
+        }
+        part_file2 = msg_part_dir / "prt_002.json"
+        part_file2.write_text(json.dumps(part_data))
+
+        cutoff_time = time.time() - 3600
+
+        timestamp, title, messages = _find_latest_notify_ask_user(
+            message_dir, part_dir, cutoff_time
+        )
+
+        # Should find the valid part file and skip the malformed one
+        assert timestamp == 1500
+        assert title == "Valid question"
+
+
+class TestFetchAllInstancesEdgeCases:
+    """Additional edge case tests for fetch_all_instances()"""
+
+    @pytest.mark.asyncio
+    async def test_skips_duplicate_session_in_idle_candidates(self):
+        """Skip idle candidate if session already seen (deduplication)"""
+        # Create an instance where idle_candidates contains a duplicate
+        busy_agent = Agent(
+            id="ses_dup",
+            title="Busy Agent",
+            dir="project",
+            full_dir="/project",
+            status=SessionStatus.BUSY,
+            tools=[],
+        )
+        instance1 = Instance(port=8080, tty="", agents=[busy_agent])
+
+        # Session also appears in idle_candidates of second instance
+        idle_session = {"id": "ses_dup", "title": "Duplicate", "directory": "/project"}
+
+        async def mock_find():
+            return [8080, 9000]
+
+        call_count = [0]
+
+        async def mock_fetch(port):
+            call_count[0] += 1
+            if port == 8080:
+                # First instance has the session as busy
+                return (instance1, 0, 0, [], {"ses_dup"})
+            else:
+                # Second instance has the same session as idle candidate
+                return (
+                    Instance(port=9000, tty="", agents=[]),
+                    0,
+                    0,
+                    [idle_session],
+                    set(),
+                )
+
+        # Mock disk check (shouldn't be called for duplicate)
+        check_called = [False]
+
+        def mock_check_pending(session_id, storage_path=None):
+            check_called[0] = True
+            from opencode_monitor.core.monitor import AskUserResult
+
+            return AskUserResult(has_pending=True, title="Test")
+
+        with patch(
+            "opencode_monitor.core.monitor.find_opencode_ports",
+            side_effect=mock_find,
+        ):
+            with patch(
+                "opencode_monitor.core.monitor.fetch_instance",
+                side_effect=mock_fetch,
+            ):
+                with patch(
+                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    side_effect=mock_check_pending,
+                ):
+                    state = await fetch_all_instances()
+
+                    # Should only have one agent with id "ses_dup" (not duplicated)
+                    all_agent_ids = [
+                        agent.id
+                        for instance in state.instances
+                        for agent in instance.agents
+                    ]
+                    assert all_agent_ids.count("ses_dup") == 1
+                    # check_pending should NOT be called for duplicate session
+                    assert check_called[0] is False

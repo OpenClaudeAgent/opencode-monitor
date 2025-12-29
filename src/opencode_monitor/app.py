@@ -39,6 +39,8 @@ class OpenCodeApp(rumps.App):
 
     POLL_INTERVAL = 2  # seconds
     USAGE_INTERVALS = [30, 60, 120, 300, 600]  # Available options
+    # Ask user timeout options (in seconds) - how long to show 🔔 before dismissing
+    ASK_USER_TIMEOUTS = [300, 900, 1800, 3600]  # 5m, 15m, 30m, 1h
 
     def __init__(self):
         super().__init__(
@@ -57,6 +59,11 @@ class OpenCodeApp(rumps.App):
         self._needs_refresh = True
         self._port_names: dict[int, str] = {}
         self._PORT_NAMES_LIMIT = 50
+
+        # Cache of sessions we've seen as BUSY, with their port
+        # Format: {session_id: port} - allows invalidation when port dies
+        self._known_active_sessions: dict[str, int] = {}
+        self._KNOWN_SESSIONS_LIMIT = 200
 
         # Security monitoring
         self._security_alerts: list[SecurityAlert] = []
@@ -85,7 +92,11 @@ class OpenCodeApp(rumps.App):
         # Preferences submenu
         self._prefs_menu = rumps.MenuItem("⚙️ Preferences")
 
-        refresh_menu = rumps.MenuItem("Usage refresh")
+        # Usage refresh submenu
+        refresh_menu = rumps.MenuItem("🔄 Usage refresh")
+        refresh_menu._menuitem.setToolTip_(
+            "How often to fetch Claude API usage from Anthropic"
+        )
         for interval in self.USAGE_INTERVALS:
             label = f"{interval}s" if interval < 60 else f"{interval // 60}m"
             item = rumps.MenuItem(
@@ -94,6 +105,21 @@ class OpenCodeApp(rumps.App):
             item.state = 1 if settings.usage_refresh_interval == interval else 0
             refresh_menu.add(item)
         self._prefs_menu.add(refresh_menu)
+
+        # Ask user timeout submenu
+        ask_timeout_menu = rumps.MenuItem("🔔 Ask user timeout")
+        ask_timeout_menu._menuitem.setToolTip_(
+            "How long to show 🔔 before dismissing.\n"
+            "If you don't respond within this time, the notification is hidden."
+        )
+        for timeout in self.ASK_USER_TIMEOUTS:
+            label = f"{timeout // 60}m" if timeout < 3600 else f"{timeout // 3600}h"
+            item = rumps.MenuItem(
+                label, callback=self._make_ask_timeout_callback(timeout)
+            )
+            item.state = 1 if settings.ask_user_timeout == timeout else 0
+            ask_timeout_menu.add(item)
+        self._prefs_menu.add(ask_timeout_menu)
 
         # Static items
         self._refresh_item = rumps.MenuItem("Refresh", callback=self._on_refresh)
@@ -121,6 +147,21 @@ class OpenCodeApp(rumps.App):
                 item.state = 0
             sender.state = 1
             info(f"Usage refresh interval set to {interval}s")
+
+        return callback
+
+    def _make_ask_timeout_callback(self, timeout: int):
+        """Create a callback for setting ask_user timeout"""
+
+        def callback(sender):
+            settings = get_settings()
+            settings.ask_user_timeout = timeout
+            save_settings()
+            for item in sender.parent.values():
+                item.state = 0
+            sender.state = 1
+            label = f"{timeout // 60}m" if timeout < 3600 else f"{timeout // 3600}h"
+            info(f"Ask user timeout set to {label}")
 
         return callback
 
@@ -200,6 +241,10 @@ class OpenCodeApp(rumps.App):
         )
         if has_permission_pending:
             parts.append("🔒")
+
+        # Ask user pending indicator (MCP Notify)
+        if state.has_pending_ask_user:
+            parts.append("🔔")
 
         # Todos
         total_todos = state.todos.pending + state.todos.in_progress
@@ -292,6 +337,51 @@ class OpenCodeApp(rumps.App):
         subprocess.run(["open", export_path])
         info(f"Security audit exported: {export_path}")
 
+    def _update_session_cache(self, new_state: State) -> set[str]:
+        """Update the known active sessions cache based on new state.
+
+        - Removes sessions from dead ports (port no longer exists)
+        - Adds currently busy sessions to cache
+        - Limits cache size to prevent unbounded growth
+
+        Args:
+            new_state: The new application state
+
+        Returns:
+            Set of currently busy agent IDs
+        """
+        current_ports = {inst.port for inst in new_state.instances}
+
+        # Remove sessions from ports that no longer exist
+        dead_sessions = [
+            sid
+            for sid, port in self._known_active_sessions.items()
+            if port not in current_ports
+        ]
+        for sid in dead_sessions:
+            del self._known_active_sessions[sid]
+
+        # Collect currently busy sessions
+        current_busy_agents: set[str] = set()
+        for instance in new_state.instances:
+            for agent in instance.agents:
+                if agent.status == SessionStatus.BUSY:
+                    current_busy_agents.add(agent.id)
+                    self._known_active_sessions[agent.id] = instance.port
+
+        # Limit cache size (remove oldest entries, but keep currently busy)
+        if len(self._known_active_sessions) > self._KNOWN_SESSIONS_LIMIT:
+            excess = len(self._known_active_sessions) - self._KNOWN_SESSIONS_LIMIT
+            to_remove = [
+                sid
+                for sid in list(self._known_active_sessions.keys())[:excess]
+                if sid not in current_busy_agents
+            ]
+            for sid in to_remove:
+                del self._known_active_sessions[sid]
+
+        return current_busy_agents
+
     def _run_monitor_loop(self):
         """Background monitoring loop"""
         info("OpenCode Monitor started (rumps)")
@@ -304,18 +394,19 @@ class OpenCodeApp(rumps.App):
                 start_time = time.time()
 
                 try:
-                    new_state = loop.run_until_complete(fetch_all_instances())
+                    new_state = loop.run_until_complete(
+                        fetch_all_instances(
+                            known_active_sessions=set(
+                                self._known_active_sessions.keys()
+                            )
+                        )
+                    )
 
                     with self._state_lock:
                         self._state = new_state
 
-                    current_busy_agents = set()
-                    for instance in new_state.instances:
-                        for agent in instance.agents:
-                            if agent.status == SessionStatus.BUSY:
-                                current_busy_agents.add(agent.id)
-
-                    self._previous_busy_agents = current_busy_agents
+                    # Update session cache and track busy agents
+                    self._previous_busy_agents = self._update_session_cache(new_state)
                     self._needs_refresh = True
 
                     debug(f"State updated: {new_state.instance_count} instances")
