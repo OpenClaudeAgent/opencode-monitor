@@ -191,6 +191,16 @@ class OpenCodeApp(rumps.App):
         if state.busy_count > 0:
             parts.append(str(state.busy_count))
 
+        # Permission pending indicator
+        has_permission_pending = any(
+            tool.may_need_permission
+            for instance in state.instances
+            for agent in instance.agents
+            for tool in agent.tools
+        )
+        if has_permission_pending:
+            parts.append("🔒")
+
         # Todos
         total_todos = state.todos.pending + state.todos.in_progress
         if total_todos > 0:

@@ -249,6 +249,11 @@ fi
 - [x] Plusieurs instances OpenCode avec permissions simultanees sont correctement detectees
 - [x] Chaque tool a son propre flag `may_need_permission`
 
+### UI
+- [x] Icone 🔒 sur les tools en attente de permission (dans le menu)
+- [x] Icone 🔒 dans le titre de la barre de menu quand permission detectee
+- [x] Tooltip informatif avec duree (ex: "running 15s" ou "1m 30s")
+
 ### Edge cases
 - [x] Tool avec `start: null` (pending) ne trigger pas de faux positif (elapsed_ms = 0)
 - [x] Seuil configurable dans Settings (defaut 5s)
