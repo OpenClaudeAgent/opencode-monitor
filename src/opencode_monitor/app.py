@@ -232,6 +232,15 @@ class OpenCodeApp(rumps.App):
         if state.busy_count > 0:
             parts.append(str(state.busy_count))
 
+        # Idle instances count (instances with no main agents)
+        idle_instances = sum(
+            1
+            for inst in state.instances
+            if not any(not a.is_subagent for a in inst.agents)
+        )
+        if idle_instances > 0:
+            parts.append(f"💤 {idle_instances}")
+
         # Permission pending indicator
         has_permission_pending = any(
             tool.may_need_permission

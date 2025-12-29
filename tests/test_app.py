@@ -926,6 +926,105 @@ class TestUpdateTitle:
 
         assert "🔔" in app.title
 
+    def test_update_title_with_idle_instances(self, mock_dependencies):
+        """Should show sleep emoji when there are idle instances (no main agents)."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Create state with 1 busy instance and 2 idle instances
+        busy_agent = Agent(
+            id="busy-1",
+            title="Busy",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+        )
+        busy_instance = Instance(port=1234, agents=[busy_agent])
+        idle_instance1 = Instance(port=1235, agents=[])  # No agents = idle
+        idle_instance2 = Instance(port=1236, agents=[])  # No agents = idle
+
+        app._state = State(
+            instances=[busy_instance, idle_instance1, idle_instance2],
+            todos=Todos(),
+            connected=True,
+        )
+
+        app._update_title()
+
+        assert "💤 2" in app.title
+        assert "1" in app.title  # busy count
+
+    def test_update_title_idle_after_busy(self, mock_dependencies):
+        """Idle count should appear after busy count in title."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        busy_agent = Agent(
+            id="busy-1",
+            title="Busy",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+        )
+        busy_instance = Instance(port=1234, agents=[busy_agent])
+        idle_instance = Instance(port=1235, agents=[])  # No agents = idle
+
+        app._state = State(
+            instances=[busy_instance, idle_instance],
+            todos=Todos(),
+            connected=True,
+        )
+
+        app._update_title()
+
+        # Title should be like "🤖 1 💤 1"
+        # Idle count should come after busy count
+        title = app.title
+        busy_index = title.index("1")
+        idle_index = title.index("💤")
+        assert busy_index < idle_index
+
+    def test_update_title_no_idle_when_zero(self, mock_dependencies):
+        """Should NOT show idle emoji when all instances have agents."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Todos,
+        )
+
+        app = create_app_with_mocks(mock_dependencies)
+
+        # Only busy instance with agent
+        agent = Agent(
+            id="busy-1",
+            title="Busy",
+            dir=".",
+            full_dir="/test",
+            status=SessionStatus.BUSY,
+        )
+        instance = Instance(port=1234, agents=[agent])
+        app._state = State(instances=[instance], todos=Todos(), connected=True)
+
+        app._update_title()
+
+        assert "💤" not in app.title
+
 
 # =============================================================================
 # Test Update Session Cache

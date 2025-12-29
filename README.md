@@ -44,11 +44,12 @@ Once running, the app appears in your menu bar with a 🤖 icon.
 ### Menu Bar Display
 
 ```
-🤖 2 🔒 🔔 ⏳3 🟢45%
+🤖 2 💤 3 🔒 🔔 ⏳ 3 🟢 45%
 ```
 
 - `🤖` - App icon
 - `2` - Number of busy agents
+- `💤 3` - Number of idle instances
 - `🔒` - Permission may be pending (tool running > 5s)
 - `🔔` - Agent awaits user response (MCP Notify ask_user)
 - `⏳3` - Total pending todos
@@ -154,6 +155,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.12.0 | 2025-12-30 | Display idle session count in menu bar title |
 | v2.11.0 | 2025-12-29 | MCP Notify ask_user detection - bell icon when agent awaits response |
 | v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |
 | v2.9.0 | 2025-12-28 | Refactoring - Extract database, risk_analyzer, reporter, terminal modules |

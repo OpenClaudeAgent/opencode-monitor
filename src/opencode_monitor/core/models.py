@@ -128,6 +128,10 @@ class Instance:
     def busy_count(self) -> int:
         return sum(1 for a in self.agents if a.status == SessionStatus.BUSY)
 
+    @property
+    def idle_count(self) -> int:
+        return sum(1 for a in self.agents if a.status == SessionStatus.IDLE)
+
     def to_dict(self) -> dict:
         return {
             "port": self.port,
@@ -135,6 +139,7 @@ class Instance:
             "agents": [a.to_dict() for a in self.agents],
             "agent_count": self.agent_count,
             "busy_count": self.busy_count,
+            "idle_count": self.idle_count,
         }
 
 
@@ -171,6 +176,10 @@ class State:
         return sum(i.busy_count for i in self.instances)
 
     @property
+    def idle_count(self) -> int:
+        return sum(i.idle_count for i in self.instances)
+
+    @property
     def has_pending_ask_user(self) -> bool:
         """Check if any agent has a pending ask_user"""
         return any(
@@ -185,6 +194,7 @@ class State:
             "instance_count": self.instance_count,
             "agent_count": self.agent_count,
             "busy_count": self.busy_count,
+            "idle_count": self.idle_count,
             "has_pending_ask_user": self.has_pending_ask_user,
             "todos": self.todos.to_dict(),
             "updated": self.updated,

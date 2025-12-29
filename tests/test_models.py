@@ -414,6 +414,38 @@ class TestInstance:
         instance = Instance(port=3000, agents=agents)
         assert instance.busy_count == expected
 
+    @pytest.mark.parametrize(
+        "busy,idle,expected",
+        [
+            (0, 2, 2),  # All idle
+            (2, 1, 1),  # Some idle
+            (3, 0, 0),  # None idle
+        ],
+    )
+    def test_idle_count(self, busy, idle, expected):
+        """idle_count property."""
+        agents = [
+            Agent(
+                id=f"busy-{i}",
+                title="A",
+                dir="d",
+                full_dir="/d",
+                status=SessionStatus.BUSY,
+            )
+            for i in range(busy)
+        ] + [
+            Agent(
+                id=f"idle-{i}",
+                title="B",
+                dir="d",
+                full_dir="/d",
+                status=SessionStatus.IDLE,
+            )
+            for i in range(idle)
+        ]
+        instance = Instance(port=3000, agents=agents)
+        assert instance.idle_count == expected
+
     def test_to_dict(self):
         """to_dict method."""
         agent = Agent(
@@ -430,6 +462,7 @@ class TestInstance:
         assert result["tty"] == "/dev/ttys001"
         assert result["agent_count"] == 1
         assert result["busy_count"] == 1
+        assert result["idle_count"] == 0
         assert len(result["agents"]) == 1
         assert result["agents"][0]["id"] == "agent-1"
 
@@ -442,6 +475,38 @@ class TestInstance:
         assert result["agents"] == []
         assert result["agent_count"] == 0
         assert result["busy_count"] == 0
+        assert result["idle_count"] == 0
+
+    def test_to_dict_with_idle_agents(self):
+        """to_dict includes idle_count."""
+        agents = [
+            Agent(
+                id="busy-1",
+                title="Busy",
+                dir="d",
+                full_dir="/d",
+                status=SessionStatus.BUSY,
+            ),
+            Agent(
+                id="idle-1",
+                title="Idle1",
+                dir="d",
+                full_dir="/d",
+                status=SessionStatus.IDLE,
+            ),
+            Agent(
+                id="idle-2",
+                title="Idle2",
+                dir="d",
+                full_dir="/d",
+                status=SessionStatus.IDLE,
+            ),
+        ]
+        instance = Instance(port=3000, agents=agents)
+        result = instance.to_dict()
+
+        assert result["busy_count"] == 1
+        assert result["idle_count"] == 2
 
 
 # =============================================================================
@@ -537,17 +602,37 @@ class TestState:
         state = State(instances=instances)
         assert state.busy_count == 3
 
+    def test_idle_count_sums_all_instances(self):
+        """idle_count sums idle agents across all instances."""
+        agents1 = [
+            Agent(id="1", title="A", dir="d", full_dir="/d", status=SessionStatus.BUSY),
+            Agent(id="2", title="B", dir="d", full_dir="/d", status=SessionStatus.IDLE),
+        ]
+        agents2 = [
+            Agent(id="3", title="C", dir="d", full_dir="/d", status=SessionStatus.IDLE),
+            Agent(id="4", title="D", dir="d", full_dir="/d", status=SessionStatus.IDLE),
+        ]
+        instances = [
+            Instance(port=3000, agents=agents1),
+            Instance(port=3001, agents=agents2),
+        ]
+        state = State(instances=instances)
+        assert state.idle_count == 3
+
     @pytest.mark.parametrize(
-        "instances,expected_agent,expected_busy",
+        "instances,expected_agent,expected_busy,expected_idle",
         [
-            ([], 0, 0),  # Empty
+            ([], 0, 0, 0),  # Empty
         ],
     )
-    def test_empty_state_counts(self, instances, expected_agent, expected_busy):
+    def test_empty_state_counts(
+        self, instances, expected_agent, expected_busy, expected_idle
+    ):
         """Empty state has zero counts."""
         state = State(instances=instances)
         assert state.agent_count == expected_agent
         assert state.busy_count == expected_busy
+        assert state.idle_count == expected_idle
 
     def test_to_dict(self):
         """to_dict returns complete structure."""
@@ -571,11 +656,35 @@ class TestState:
         assert result["instance_count"] == 1
         assert result["agent_count"] == 1
         assert result["busy_count"] == 1
+        assert result["idle_count"] == 0
         assert result["todos"] == {"pending": 5, "in_progress": 2}
         assert result["updated"] == 1234567890
         assert result["connected"] is True
         assert len(result["instances"]) == 1
         assert result["instances"][0]["port"] == 3000
+
+    def test_to_dict_with_idle_agents(self):
+        """to_dict includes correct idle_count."""
+        busy_agent = Agent(
+            id="busy-1",
+            title="Busy",
+            dir="proj",
+            full_dir="/path/proj",
+            status=SessionStatus.BUSY,
+        )
+        idle_agent = Agent(
+            id="idle-1",
+            title="Idle",
+            dir="proj",
+            full_dir="/path/proj",
+            status=SessionStatus.IDLE,
+        )
+        instance = Instance(port=3000, agents=[busy_agent, idle_agent])
+        state = State(instances=[instance], connected=True)
+        result = state.to_dict()
+
+        assert result["busy_count"] == 1
+        assert result["idle_count"] == 1
 
 
 # =============================================================================
