@@ -87,6 +87,8 @@ class Agent:
     tools: list[Tool] = field(default_factory=list)
     todos: AgentTodos = field(default_factory=AgentTodos)
     parent_id: Optional[str] = None  # ID of parent session (for sub-agents)
+    has_pending_ask_user: bool = False  # MCP Notify ask_user awaiting response
+    ask_user_title: str = ""  # Title of the pending ask_user question
 
     @property
     def is_subagent(self) -> bool:
@@ -102,6 +104,8 @@ class Agent:
             "status": self.status.value,
             "tools": [t.to_dict() for t in self.tools],
             "todos": self.todos.to_dict(),
+            "has_pending_ask_user": self.has_pending_ask_user,
+            "ask_user_title": self.ask_user_title,
         }
         if self.parent_id:
             result["parent_id"] = self.parent_id
@@ -166,12 +170,22 @@ class State:
     def busy_count(self) -> int:
         return sum(i.busy_count for i in self.instances)
 
+    @property
+    def has_pending_ask_user(self) -> bool:
+        """Check if any agent has a pending ask_user"""
+        return any(
+            agent.has_pending_ask_user
+            for instance in self.instances
+            for agent in instance.agents
+        )
+
     def to_dict(self) -> dict:
         return {
             "instances": [i.to_dict() for i in self.instances],
             "instance_count": self.instance_count,
             "agent_count": self.agent_count,
             "busy_count": self.busy_count,
+            "has_pending_ask_user": self.has_pending_ask_user,
             "todos": self.todos.to_dict(),
             "updated": self.updated,
             "connected": self.connected,
