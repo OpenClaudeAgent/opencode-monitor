@@ -27,6 +27,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | v2.6.1 | Termine |
 | 13 | Refactoring code source | [plan-13](./plan-13-refactoring.md) | `feature/refactoring` | v2.9.0 | Termine |
 | 14 | Permission Detection (Heuristique) | [plan-14](./plan-14-permission-detection.md) | `feature/permission-heuristic` | v2.10.0 | Termine |
+| 15 | Detection MCP Notify ask_user | [plan-15](./plan-15-ask-user-detection.md) | `feature/ask-user-detection` | - | En attente |
 
 ## Priorite
 
@@ -49,6 +50,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-29 | Ajout plan-15 (detection MCP Notify ask_user) - Heuristique session idle + tool completed |
 | 2025-12-29 | Plan-14 termine - Detection permissions heuristique (icone cadenas, seuil configurable) v2.10.0 |
 | 2025-12-29 | Ajout plan-14 (permission detection via heuristique polling) - Nouvelle approche viable |
 | 2025-12-29 | Projet renomme opencode-monitor, branche main, tests 99% coverage (547 tests) |
