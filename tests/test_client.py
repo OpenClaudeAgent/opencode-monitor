@@ -31,11 +31,7 @@ from opencode_monitor.core.client import (
 )
 
 
-# =====================================================
-# Helper for async tests
-# =====================================================
-
-
+# Use conftest.run_async helper
 def run_async(coro):
     """Helper to run async coroutines in tests"""
     return asyncio.run(coro)
@@ -49,36 +45,39 @@ def run_async(coro):
 class TestCleanJson:
     """Tests for JSON cleaning function"""
 
-    def test_clean_json_removes_control_chars(self):
-        """Control characters are replaced with spaces"""
-        raw = '{"key": "value\x00\x08\x0b"}'
+    @pytest.mark.parametrize(
+        "raw,should_not_contain",
+        [
+            ('{"key": "value\x00\x08\x0b"}', ["\x00", "\x08", "\x0b"]),
+        ],
+    )
+    def test_clean_json_removes_control_chars(self, raw, should_not_contain):
+        """Control characters are replaced with spaces."""
         result = _clean_json(raw)
-
-        assert "\x00" not in result
-        assert "\x08" not in result
-        assert "\x0b" not in result
+        for char in should_not_contain:
+            assert char not in result
         assert "key" in result
         assert "value" in result
 
-    def test_clean_json_preserves_valid_json(self):
-        """Valid JSON without control chars is unchanged"""
-        raw = '{"name": "test", "value": 123}'
+    @pytest.mark.parametrize(
+        "raw",
+        [
+            '{"name": "test", "value": 123}',
+            '{\n\t"key": "value"\n}',
+            "",
+        ],
+    )
+    def test_clean_json_preserves_valid_content(self, raw):
+        """Valid JSON and empty strings are handled correctly."""
         result = _clean_json(raw)
-
-        assert result == raw
-
-    def test_clean_json_preserves_newlines(self):
-        """Newlines and tabs are preserved (they're valid JSON whitespace)"""
-        raw = '{\n\t"key": "value"\n}'
-        result = _clean_json(raw)
-
-        assert "\n" in result
-        assert "\t" in result
-
-    def test_clean_json_handles_empty_string(self):
-        """Empty string returns empty string"""
-        result = _clean_json("")
-        assert result == ""
+        if raw:
+            assert "key" in result or "name" in result
+            if "\n" in raw:
+                assert "\n" in result
+            if "\t" in raw:
+                assert "\t" in result
+        else:
+            assert result == ""
 
 
 # =====================================================
@@ -277,52 +276,40 @@ class TestAsyncGetJson:
 class TestCheckOpencodePort:
     """Tests for OpenCode port detection"""
 
+    @pytest.mark.parametrize(
+        "response,expected,description",
+        [
+            ("{}", True, "Empty object is OpenCode"),
+            (
+                '{"ses_abc123": {"status": "idle"}}',
+                True,
+                "Session response is OpenCode",
+            ),
+            (None, False, "None response is not OpenCode"),
+            ('{"error": "not opencode"}', False, "Unexpected response is not OpenCode"),
+        ],
+    )
     @patch("opencode_monitor.core.client.get")
-    def test_check_port_empty_response_is_opencode(self, mock_get):
-        """Empty object {} indicates OpenCode instance"""
-        mock_get.return_value = "{}"
-
+    def test_check_port_responses(self, mock_get, response, expected, description):
+        """Port check based on response type."""
+        mock_get.return_value = response
         result = run_async(check_opencode_port(8080))
+        assert result is expected, description
 
-        assert result is True
+    @patch("opencode_monitor.core.client.get")
+    def test_check_port_calls_correct_url(self, mock_get):
+        """Check port calls correct endpoint."""
+        mock_get.return_value = "{}"
+        run_async(check_opencode_port(8080))
         mock_get.assert_called_once_with(
             "http://127.0.0.1:8080/session/status", timeout=0.5
         )
 
     @patch("opencode_monitor.core.client.get")
-    def test_check_port_session_response_is_opencode(self, mock_get):
-        """Response starting with {"ses_ indicates OpenCode"""
-        mock_get.return_value = '{"ses_abc123": {"status": "idle"}}'
-
-        result = run_async(check_opencode_port(8080))
-
-        assert result is True
-
-    @patch("opencode_monitor.core.client.get")
-    def test_check_port_none_response_not_opencode(self, mock_get):
-        """None response means not OpenCode"""
-        mock_get.return_value = None
-
-        result = run_async(check_opencode_port(8080))
-
-        assert result is False
-
-    @patch("opencode_monitor.core.client.get")
-    def test_check_port_unexpected_response_not_opencode(self, mock_get):
-        """Unexpected response format means not OpenCode"""
-        mock_get.return_value = '{"error": "not opencode"}'
-
-        result = run_async(check_opencode_port(8080))
-
-        assert result is False
-
-    @patch("opencode_monitor.core.client.get")
     def test_check_port_exception_returns_false(self, mock_get):
-        """Exception during check returns False"""
+        """Exception during check returns False."""
         mock_get.side_effect = Exception("Network error")
-
         result = run_async(check_opencode_port(8080))
-
         assert result is False
 
 

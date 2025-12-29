@@ -741,45 +741,32 @@ class TestBuildUsageItems:
         assert len(items) == 1
         assert "API unavailable" in items[0].title
 
-    def test_usage_green_icon(self, menu_builder):
-        """Should show green icon for low usage (<50%)."""
+    @pytest.mark.parametrize(
+        "utilization,expected_emoji,description",
+        [
+            (30, chr(0x1F7E2), "green (<50%)"),
+            (49, chr(0x1F7E2), "green at boundary"),
+            (50, chr(0x1F7E1), "yellow (50-69%)"),
+            (55, chr(0x1F7E1), "yellow mid-range"),
+            (69, chr(0x1F7E1), "yellow at boundary"),
+            (70, chr(0x1F7E0), "orange (70-89%)"),
+            (75, chr(0x1F7E0), "orange mid-range"),
+            (89, chr(0x1F7E0), "orange at boundary"),
+            (90, chr(0x1F534), "red (>=90%)"),
+            (95, chr(0x1F534), "red mid-range"),
+            (100, chr(0x1F534), "red at max"),
+        ],
+    )
+    def test_usage_icon_by_level(
+        self, menu_builder, utilization, expected_emoji, description
+    ):
+        """Usage icon changes based on utilization level."""
         usage = Usage(
-            five_hour=UsagePeriod(utilization=30),
-            seven_day=UsagePeriod(utilization=40),
+            five_hour=UsagePeriod(utilization=utilization),
+            seven_day=UsagePeriod(utilization=50),
         )
         items = menu_builder.build_usage_items(usage)
-        session_item = items[0]
-        assert session_item.title.startswith(chr(0x1F7E2))  # green circle
-
-    def test_usage_yellow_icon(self, menu_builder):
-        """Should show yellow icon for medium usage (50-69%)."""
-        usage = Usage(
-            five_hour=UsagePeriod(utilization=55),
-            seven_day=UsagePeriod(utilization=60),
-        )
-        items = menu_builder.build_usage_items(usage)
-        session_item = items[0]
-        assert session_item.title.startswith(chr(0x1F7E1))  # yellow circle
-
-    def test_usage_orange_icon(self, menu_builder):
-        """Should show orange icon for high usage (70-89%)."""
-        usage = Usage(
-            five_hour=UsagePeriod(utilization=75),
-            seven_day=UsagePeriod(utilization=80),
-        )
-        items = menu_builder.build_usage_items(usage)
-        session_item = items[0]
-        assert session_item.title.startswith(chr(0x1F7E0))  # orange circle
-
-    def test_usage_red_icon(self, menu_builder):
-        """Should show red icon for critical usage (>=90%)."""
-        usage = Usage(
-            five_hour=UsagePeriod(utilization=95),
-            seven_day=UsagePeriod(utilization=90),
-        )
-        items = menu_builder.build_usage_items(usage)
-        session_item = items[0]
-        assert session_item.title.startswith(chr(0x1F534))  # red circle
+        assert items[0].title.startswith(expected_emoji), f"Failed for {description}"
 
     def test_session_reset_hours_minutes(self, menu_builder):
         """Should display reset time in hours and minutes."""
@@ -803,7 +790,6 @@ class TestBuildUsageItems:
         )
         items = menu_builder.build_usage_items(usage)
         session_item = items[0]
-        # Should contain minutes format
         assert "(reset" in session_item.title and "m)" in session_item.title
 
     def test_weekly_reset_display(self, menu_builder):
@@ -817,7 +803,6 @@ class TestBuildUsageItems:
         items = menu_builder.build_usage_items(usage)
         weekly_item = items[1]
         assert "Weekly" in weekly_item.title
-        # Should contain day abbreviation
         assert "(reset" in weekly_item.title
 
     def test_usage_includes_open_link(self, menu_builder):
@@ -832,25 +817,23 @@ class TestBuildUsageItems:
         assert "Open Claude Usage" in link_item.title
         assert link_item.callback is not None
 
-    def test_invalid_reset_time_handled(self, menu_builder):
-        """Should handle invalid reset time gracefully."""
+    @pytest.mark.parametrize(
+        "five_hour_reset,seven_day_reset",
+        [
+            ("invalid-date", "also-invalid"),
+            (None, None),
+        ],
+    )
+    def test_reset_time_edge_cases(
+        self, menu_builder, five_hour_reset, seven_day_reset
+    ):
+        """Should handle invalid or missing reset times gracefully."""
         usage = Usage(
-            five_hour=UsagePeriod(utilization=50, resets_at="invalid-date"),
-            seven_day=UsagePeriod(utilization=60, resets_at="also-invalid"),
+            five_hour=UsagePeriod(utilization=50, resets_at=five_hour_reset),
+            seven_day=UsagePeriod(utilization=60, resets_at=seven_day_reset),
         )
-        # Should not raise exception
         items = menu_builder.build_usage_items(usage)
         assert len(items) == 3
-
-    def test_no_reset_time(self, menu_builder):
-        """Should handle missing reset time."""
-        usage = Usage(
-            five_hour=UsagePeriod(utilization=50, resets_at=None),
-            seven_day=UsagePeriod(utilization=60, resets_at=None),
-        )
-        items = menu_builder.build_usage_items(usage)
-        session_item = items[0]
-        assert "(reset" not in session_item.title
 
 
 # =============================================================================
@@ -1260,24 +1243,4 @@ class TestEdgeCases:
         # Should have 3 levels of indentation (12 spaces)
         assert items[0].title.startswith("            ")
 
-    def test_usage_edge_values(self, menu_builder):
-        """Should handle edge usage values."""
-        # Test exactly at boundaries
-        for utilization, expected_emoji in [
-            (0, chr(0x1F7E2)),  # green at 0
-            (49, chr(0x1F7E2)),  # green at 49
-            (50, chr(0x1F7E1)),  # yellow at 50
-            (69, chr(0x1F7E1)),  # yellow at 69
-            (70, chr(0x1F7E0)),  # orange at 70
-            (89, chr(0x1F7E0)),  # orange at 89
-            (90, chr(0x1F534)),  # red at 90
-            (100, chr(0x1F534)),  # red at 100
-        ]:
-            usage = Usage(
-                five_hour=UsagePeriod(utilization=utilization),
-                seven_day=UsagePeriod(utilization=50),
-            )
-            items = menu_builder.build_usage_items(usage)
-            assert items[0].title.startswith(expected_emoji), (
-                f"Failed for {utilization}%"
-            )
+    # Note: Edge values for usage icons are now tested in TestBuildUsageItems.test_usage_icon_by_level

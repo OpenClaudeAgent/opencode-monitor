@@ -38,111 +38,86 @@ from opencode_monitor.security.db import (
 
 
 # =====================================================
+# Local Helpers (factorized patterns)
+# =====================================================
+
+
+def create_tool_content(tool: str, session_id: str = "sess-001", **input_args) -> dict:
+    """Factory to create tool file content."""
+    return {
+        "type": "tool",
+        "tool": tool,
+        "sessionID": session_id,
+        "state": {
+            "input": input_args,
+            "time": {"start": 1703001000000},
+        },
+    }
+
+
+def create_prt_file(storage: Path, msg_id: str, file_id: str, content: dict) -> Path:
+    """Helper to create a prt_*.json file in storage."""
+    msg_dir = storage / msg_id
+    msg_dir.mkdir(parents=True, exist_ok=True)
+    file_path = msg_dir / f"prt_{file_id}.json"
+    file_path.write_text(json.dumps(content))
+    return file_path
+
+
+# =====================================================
 # Fixtures
 # =====================================================
 
 
 @pytest.fixture
-def mock_db(tmp_path: Path) -> SecurityDatabase:
-    """Create a fresh test database"""
-    db_path = tmp_path / "test_security.db"
-    return SecurityDatabase(db_path=db_path)
-
-
-@pytest.fixture
-def mock_storage(tmp_path: Path):
-    """Create a mock OpenCode storage directory structure"""
+def mock_storage(tmp_path):
+    """Create a mock OpenCode storage directory structure."""
     storage = tmp_path / "opencode_storage"
     storage.mkdir(parents=True)
     return storage
 
 
 @pytest.fixture
-def sample_bash_file_content() -> dict:
-    """Sample bash command file content"""
-    return {
-        "type": "tool",
-        "tool": "bash",
-        "sessionID": "sess-001",
-        "state": {
-            "input": {"command": "rm -rf /tmp/test"},
-            "time": {"start": 1703001000000},
-        },
-    }
+def sample_bash_file_content():
+    """Sample bash command file content."""
+    return create_tool_content("bash", command="rm -rf /tmp/test")
 
 
 @pytest.fixture
-def sample_read_file_content() -> dict:
-    """Sample read tool file content"""
-    return {
-        "type": "tool",
-        "tool": "read",
-        "sessionID": "sess-002",
-        "state": {
-            "input": {"filePath": "/etc/passwd"},
-            "time": {"start": 1703002000000},
-        },
-    }
+def sample_read_file_content():
+    """Sample read tool file content."""
+    return create_tool_content("read", session_id="sess-002", filePath="/etc/passwd")
 
 
 @pytest.fixture
-def sample_write_file_content() -> dict:
-    """Sample write tool file content"""
-    return {
-        "type": "tool",
-        "tool": "write",
-        "sessionID": "sess-003",
-        "state": {
-            "input": {"filePath": "/home/user/.ssh/config"},
-            "time": {"start": 1703003000000},
-        },
-    }
+def sample_write_file_content():
+    """Sample write tool file content."""
+    return create_tool_content(
+        "write", session_id="sess-003", filePath="/home/user/.ssh/config"
+    )
 
 
 @pytest.fixture
-def sample_edit_file_content() -> dict:
-    """Sample edit tool file content"""
-    return {
-        "type": "tool",
-        "tool": "edit",
-        "sessionID": "sess-004",
-        "state": {
-            "input": {"filePath": "/etc/hosts"},
-            "time": {"start": 1703004000000},
-        },
-    }
+def sample_edit_file_content():
+    """Sample edit tool file content."""
+    return create_tool_content("edit", session_id="sess-004", filePath="/etc/hosts")
 
 
 @pytest.fixture
-def sample_webfetch_file_content() -> dict:
-    """Sample webfetch tool file content"""
-    return {
-        "type": "tool",
-        "tool": "webfetch",
-        "sessionID": "sess-005",
-        "state": {
-            "input": {"url": "https://pastebin.com/raw/abc123"},
-            "time": {"start": 1703005000000},
-        },
-    }
+def sample_webfetch_file_content():
+    """Sample webfetch tool file content."""
+    return create_tool_content(
+        "webfetch", session_id="sess-005", url="https://pastebin.com/raw/abc123"
+    )
 
 
 @pytest.fixture
-def sample_non_tool_content() -> dict:
-    """Sample non-tool file content (should be skipped)"""
+def sample_non_tool_content():
+    """Sample non-tool file content (should be skipped)."""
     return {
         "type": "message",
         "content": "This is a message, not a tool",
     }
-
-
-def create_prt_file(storage: Path, msg_id: str, file_id: str, content: dict) -> Path:
-    """Helper to create a prt_*.json file in storage"""
-    msg_dir = storage / msg_id
-    msg_dir.mkdir(parents=True, exist_ok=True)
-    file_path = msg_dir / f"prt_{file_id}.json"
-    file_path.write_text(json.dumps(content))
-    return file_path
 
 
 # =====================================================
