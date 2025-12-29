@@ -85,12 +85,11 @@ class MenuBuilder:
             items.append(rumps.MenuItem("No OpenCode instances"))
             return items
 
-        # Clean up port name cache
+        # Clean up port name cache (keep only active ports)
         active_ports = {inst.port for inst in state.instances}
-        self._port_names.clear()
-        for p, n in list(self._port_names.items()):
-            if p in active_ports:
-                self._port_names[p] = n
+        self._port_names = {
+            p: n for p, n in self._port_names.items() if p in active_ports
+        }
 
         # Build items for each instance
         for instance in state.instances:
