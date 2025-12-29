@@ -178,3 +178,45 @@ Cette architecture permet d'ajouter facilement :
 - D'autres types de notifications MCP
 - Un historique des ask_user
 - Des statistiques d'utilisation
+
+---
+
+## Documentation
+
+### Lien avec OpenFlow
+
+Le serveur MCP Notify est defini dans le projet **OpenFlow** :
+- Chemin : `servers/notify/server.py`
+- Config OpenCode : `~/.config/opencode/opencode.json` (section `mcp.notify`)
+
+OpenCode Monitor detecte les appels a ce serveur MCP via l'API OpenCode, sans modification du serveur Notify lui-meme.
+
+### Mise a jour README.md
+
+Ajouter dans le README principal (pas de nouveau fichier) :
+
+**Section Features** - Ajouter :
+```
+- **Permission detection** 🔒 heuristic indicator for tools waiting approval
+- **MCP Notify tracking** 🔔 indicator when agent awaits user response
+```
+
+**Section Menu Bar Display** - Mettre a jour :
+```
+🤖 2 🔒 🔔 ⏳3 🟢45%
+
+- 🔒 - Permission may be pending (tool running > 5s)
+- 🔔 - Agent awaits user response (MCP Notify ask_user)
+```
+
+**Section Menu Contents** - Ajouter exemples :
+```
+🔒 bash: npm install        ← May need permission (running 15s)
+🔔 Agent Question           ← Awaiting user response
+```
+
+### Checklist documentation
+- [ ] Mettre a jour section Features dans README.md
+- [ ] Mettre a jour section Menu Bar Display avec 🔒 et 🔔
+- [ ] Ajouter exemples dans Menu Contents
+- [ ] Mentionner la dependance optionnelle a OpenFlow/MCP Notify
