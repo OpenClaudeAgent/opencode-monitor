@@ -65,23 +65,91 @@ class TestTool:
         assert tool.name == "bash"
         assert tool.arg == ""
 
+    def test_default_elapsed_ms(self):
+        """Tool default elapsed_ms is 0."""
+        tool = Tool(name="bash")
+        assert tool.elapsed_ms == 0
+
     def test_with_arg(self):
         """Tool with custom arg."""
         tool = Tool(name="read", arg="/path/to/file.py")
         assert tool.name == "read"
         assert tool.arg == "/path/to/file.py"
 
+    def test_with_elapsed_ms(self):
+        """Tool with custom elapsed_ms."""
+        tool = Tool(name="bash", arg="ls", elapsed_ms=5000)
+        assert tool.elapsed_ms == 5000
+
     @pytest.mark.parametrize(
-        "name,arg,expected",
+        "name,arg,elapsed_ms,expected",
         [
-            ("write", "content.txt", {"name": "write", "arg": "content.txt"}),
-            ("bash", "", {"name": "bash", "arg": ""}),
+            (
+                "write",
+                "content.txt",
+                0,
+                {
+                    "name": "write",
+                    "arg": "content.txt",
+                    "elapsed_ms": 0,
+                    "may_need_permission": False,
+                },
+            ),
+            (
+                "bash",
+                "",
+                0,
+                {
+                    "name": "bash",
+                    "arg": "",
+                    "elapsed_ms": 0,
+                    "may_need_permission": False,
+                },
+            ),
+            (
+                "read",
+                "/file.py",
+                10000,
+                {
+                    "name": "read",
+                    "arg": "/file.py",
+                    "elapsed_ms": 10000,
+                    "may_need_permission": True,
+                },
+            ),
         ],
     )
-    def test_to_dict(self, name, arg, expected):
-        """Tool to_dict returns correct structure."""
-        tool = Tool(name=name, arg=arg) if arg else Tool(name=name)
+    def test_to_dict(self, name, arg, elapsed_ms, expected):
+        """Tool to_dict returns correct structure with elapsed_ms and may_need_permission."""
+        tool = Tool(name=name, arg=arg, elapsed_ms=elapsed_ms)
         assert tool.to_dict() == expected
+
+    def test_excluded_tools_contains_task(self):
+        """EXCLUDED_TOOLS contains 'task' for sub-agents."""
+        assert "task" in Tool.EXCLUDED_TOOLS
+
+    @pytest.mark.parametrize(
+        "tool_name,elapsed_ms,expected",
+        [
+            # Below threshold (5s = 5000ms) - should be False
+            ("bash", 0, False),
+            ("bash", 4999, False),
+            ("read", 5000, False),  # Exactly at threshold, not above
+            # Above threshold - should be True
+            ("bash", 5001, True),
+            ("read", 10000, True),
+            ("write", 6000, True),
+            # Excluded tools - always False regardless of elapsed_ms
+            ("task", 0, False),
+            ("task", 5001, False),
+            ("task", 100000, False),
+            ("Task", 10000, False),  # Case-insensitive check
+        ],
+    )
+    def test_may_need_permission(self, tool_name, elapsed_ms, expected):
+        """may_need_permission property based on elapsed_ms and exclusions."""
+        tool = Tool(name=tool_name, elapsed_ms=elapsed_ms)
+        assert tool.may_need_permission is expected
 
 
 # =============================================================================
@@ -208,7 +276,14 @@ class TestAgent:
         assert result["dir"] == "proj"
         assert result["full_dir"] == "/full/path/proj"
         assert result["status"] == "busy"
-        assert result["tools"] == [{"name": "bash", "arg": "ls -la"}]
+        assert result["tools"] == [
+            {
+                "name": "bash",
+                "arg": "ls -la",
+                "elapsed_ms": 0,
+                "may_need_permission": False,
+            }
+        ]
         assert result["todos"] == {
             "pending": 2,
             "in_progress": 1,
@@ -248,9 +323,24 @@ class TestAgent:
         result = agent.to_dict()
 
         assert len(result["tools"]) == 3
-        assert result["tools"][0] == {"name": "read", "arg": "file1.py"}
-        assert result["tools"][1] == {"name": "write", "arg": "file2.py"}
-        assert result["tools"][2] == {"name": "bash", "arg": "pytest"}
+        assert result["tools"][0] == {
+            "name": "read",
+            "arg": "file1.py",
+            "elapsed_ms": 0,
+            "may_need_permission": False,
+        }
+        assert result["tools"][1] == {
+            "name": "write",
+            "arg": "file2.py",
+            "elapsed_ms": 0,
+            "may_need_permission": False,
+        }
+        assert result["tools"][2] == {
+            "name": "bash",
+            "arg": "pytest",
+            "elapsed_ms": 0,
+            "may_need_permission": False,
+        }
 
 
 # =============================================================================
