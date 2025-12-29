@@ -26,6 +26,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 11 | Module securite / Analyse commandes | [plan-11](./plan-11-security-analysis.md) | `feature/security` | v2.8.0 | Termine |
 | 12 | Debug systeme preferences | [plan-12](./plan-12-preferences-debug.md) | `feature/preferences-debug` | v2.6.1 | Termine |
 | 13 | Refactoring code source | [plan-13](./plan-13-refactoring.md) | `feature/refactoring` | v2.9.0 | Termine |
+| 14 | Permission Detection (Heuristique) | [plan-14](./plan-14-permission-detection.md) | `feature/permission-heuristic` | - | En attente |
 
 ## Priorite
 
@@ -48,6 +49,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-29 | Ajout plan-14 (permission detection via heuristique polling) - Nouvelle approche viable |
 | 2025-12-29 | Projet renomme opencode-monitor, branche main, tests 99% coverage (547 tests) |
 | 2025-12-28 | Plan-13 termine - Refactoring modules security (database, risk_analyzer, reporter, terminal) v2.9.0 |
 | 2025-12-28 | Plan-11 termine - Module securite avec analyse commands, reads, writes, webfetches v2.8.0 |
