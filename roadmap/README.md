@@ -1,4 +1,4 @@
-# Roadmap - OpenCode SwiftBar Monitor
+# Roadmap - OpenCode Monitor
 
 Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 
@@ -48,6 +48,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-29 | Projet renomme opencode-monitor, branche main, tests 99% coverage (547 tests) |
 | 2025-12-28 | Plan-13 termine - Refactoring modules security (database, risk_analyzer, reporter, terminal) v2.9.0 |
 | 2025-12-28 | Plan-11 termine - Module securite avec analyse commands, reads, writes, webfetches v2.8.0 |
 | 2025-12-28 | Plan-06 termine - Tooltips sur elements tronques v2.7.0 |
