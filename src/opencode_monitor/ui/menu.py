@@ -142,7 +142,7 @@ class MenuBuilder:
 
                 items.append(
                     rumps.MenuItem(
-                        f"⚪ {display_name} (idle)", callback=make_focus_cb(tty)
+                        f"💤 {display_name} (idle)", callback=make_focus_cb(tty)
                     )
                 )
 
