@@ -33,6 +33,67 @@ def widget_parent(qapp):
 
 
 # =============================================================================
+# Utility Function Tests
+# =============================================================================
+
+
+class TestFormatTokens:
+    """Tests for format_tokens utility function."""
+
+    @pytest.mark.parametrize(
+        "count,expected",
+        [
+            (0, "0"),
+            (1, "1"),
+            (100, "100"),
+            (999, "999"),
+            (1000, "1K"),
+            (1500, "2K"),
+            (10000, "10K"),
+            (100000, "100K"),
+            (999999, "1000K"),
+            (1000000, "1.0M"),
+            (1500000, "1.5M"),
+            (10000000, "10.0M"),
+            (1234567890, "1234.6M"),
+        ],
+    )
+    def test_format_tokens(self, count, expected):
+        """format_tokens returns correct formatted string."""
+        from opencode_monitor.dashboard.styles import format_tokens
+
+        assert format_tokens(count) == expected
+
+
+class TestFormatDurationMs:
+    """Tests for format_duration_ms utility function."""
+
+    @pytest.mark.parametrize(
+        "elapsed_ms,expected",
+        [
+            (0, "0ms"),
+            (1, "1ms"),
+            (100, "100ms"),
+            (999, "999ms"),
+            (1000, "1s"),
+            (1500, "1s"),
+            (5000, "5s"),
+            (59999, "59s"),
+            (60000, "1m 0s"),
+            (61000, "1m 1s"),
+            (90000, "1m 30s"),
+            (120000, "2m 0s"),
+            (3661000, "61m 1s"),
+        ],
+    )
+    def test_format_duration_ms(self, elapsed_ms, expected):
+        """format_duration_ms returns correct formatted string."""
+        from opencode_monitor.dashboard.styles import format_duration_ms
+
+        assert format_duration_ms(elapsed_ms) == expected
+
+
+# =============================================================================
 # MetricCard Tests
 # =============================================================================
 
