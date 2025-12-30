@@ -246,7 +246,6 @@ QTableWidget::item {{
     padding: {SPACING["sm"]}px {SPACING["md"]}px;
     border: none;
     border-bottom: 1px solid {COLORS["border_subtle"]};
-    color: {COLORS["text_secondary"]};
 }}
 
 QTableWidget::item:selected {{

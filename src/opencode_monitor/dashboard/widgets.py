@@ -293,15 +293,15 @@ class MetricCard(QFrame):
             }}
         """)
 
-        self.setMinimumWidth(120)
-        self.setMaximumWidth(160)
-        self.setFixedHeight(80)
+        self.setMinimumWidth(130)
+        self.setMaximumWidth(170)
+        self.setFixedHeight(88)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["md"]
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
         )
-        layout.setSpacing(SPACING["xs"])
+        layout.setSpacing(SPACING["sm"])
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Value
@@ -508,6 +508,8 @@ class DataTable(QTableWidget):
                 value = item_data
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+                # Default text color for non-styled items
+                item.setForeground(QColor(COLORS["text_secondary"]))
 
             # Tooltip
             if full_values and col < len(full_values):
@@ -645,6 +647,7 @@ class SegmentedControl(QWidget):
             SegmentedControl {{
                 background-color: {COLORS["bg_elevated"]};
                 border: 1px solid {COLORS["border_default"]};
+                border-radius: 6px;
             }}
         """)
 
@@ -687,6 +690,7 @@ class SegmentedControl(QWidget):
                     background-color: {COLORS["accent_primary"]};
                     color: white;
                     border: none;
+                    border-radius: 4px;
                     font-size: {FONTS["size_sm"]}px;
                     font-weight: {FONTS["weight_medium"]};
                     padding: 0 {SPACING["md"]}px;
@@ -701,6 +705,7 @@ class SegmentedControl(QWidget):
                     background-color: transparent;
                     color: {COLORS["text_secondary"]};
                     border: none;
+                    border-radius: 4px;
                     font-size: {FONTS["size_sm"]}px;
                     font-weight: {FONTS["weight_normal"]};
                     padding: 0 {SPACING["md"]}px;
