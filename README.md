@@ -13,6 +13,7 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 - **MCP Notify tracking** 🔔 indicator when agent awaits user response
 - **Todos tracking** with progress indicators
 - **Claude API usage** (session + weekly)
+- **Analytics dashboard** with token usage statistics (by period, agent, tool, skill)
 - **Security audit** with risk analysis of commands, file operations, and web fetches
 - **Click to focus** iTerm2 on the agent's terminal
 - **Configurable settings** via menu
@@ -82,6 +83,12 @@ Click the icon to see:
     🌐 ── Web Fetches ──
     📋 View Full Report
     📜 Export All Data
+📊 Analytics ▸
+    📅 Last 24 hours
+    📅 Last 7 days
+    📅 Last 30 days
+    ─────────────
+    🔄 Refresh data
 ---
 Refresh
 ---
@@ -130,6 +137,11 @@ opencode-monitor/
 │       │   ├── models.py         # Data classes
 │       │   ├── monitor.py        # Instance detection
 │       │   └── usage.py          # Claude API usage
+│       ├── analytics/            # Usage analytics
+│       │   ├── db.py             # DuckDB storage
+│       │   ├── loader.py         # JSON data loader
+│       │   ├── queries.py        # Analytics queries
+│       │   └── report.py         # Report generation
 │       ├── security/             # Security audit
 │       │   ├── analyzer.py       # Risk analysis
 │       │   ├── auditor.py        # Background scanner
@@ -155,6 +167,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.13.0 | 2025-12-30 | Analytics dashboard - DuckDB, HTML reports with Plotly, delegation metrics |
 | v2.12.0 | 2025-12-30 | Display idle session count in menu bar title |
 | v2.11.0 | 2025-12-29 | MCP Notify ask_user detection - bell icon when agent awaits response |
 | v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |

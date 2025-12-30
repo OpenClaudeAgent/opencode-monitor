@@ -28,7 +28,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 13 | Refactoring code source | [plan-13](./plan-13-refactoring.md) | `feature/refactoring` | v2.9.0 | Termine |
 | 14 | Permission Detection (Heuristique) | [plan-14](./plan-14-permission-detection.md) | `feature/permission-heuristic` | v2.10.0 | Termine |
 | 15 | Detection MCP Notify ask_user | [plan-15](./plan-15-ask-user-detection.md) | `feature/ask-user-detection` | v2.11.0 | Termine |
-| 16 | Analytics et statistiques | [plan-16](./plan-16-analytics.md) | `feature/analytics` | - | En attente |
+| 16 | Analytics et statistiques | [plan-16](./plan-16-analytics.md) | `feature/analytics` | v2.13.0 | Termine |
 | 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | - | En attente |
 
 ## Priorite
@@ -52,7 +52,10 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-30 | Plan-16 termine - Analytics DuckDB avec rapport HTML, refresh auto, metriques delegations v2.13.0 |
+| 2025-12-30 | Refactoring analytics - Split report module (models, styles, charts, sections) |
 | 2025-12-29 | Plan-15 termine - Detection MCP Notify ask_user (icone cloche, scan fichiers session) v2.11.0 |
+| 2025-12-29 | Ajout plan-16 (analytics et statistiques) - DuckDB, menu avec periodes, detection anomalies |
 | 2025-12-29 | Ajout plan-15 (detection MCP Notify ask_user) - Heuristique session idle + tool completed |
 | 2025-12-29 | Plan-14 termine - Detection permissions heuristique (icone cadenas, seuil configurable) v2.10.0 |
 | 2025-12-29 | Ajout plan-14 (permission detection via heuristique polling) - Nouvelle approche viable |

@@ -136,12 +136,25 @@ def analytics_1d(self, _):
 
 ## Checklist de validation
 
-- [ ] Sous-menu "Analytics" present dans le menu principal
-- [ ] Option "Dernier jour" affiche les stats correctes
-- [ ] Option "7 derniers jours" affiche les stats correctes
-- [ ] Option "30 derniers jours" affiche les stats correctes
-- [ ] Les agents custom (executeur, roadmap, etc.) sont identifies
-- [ ] Les skills sont detectes via le tool "skill"
-- [ ] Les alertes s'affichent si anomalies detectees
-- [ ] "Rafraichir les donnees" reimporte les JSON
-- [ ] Performance acceptable (< 2s pour generer un rapport)
+- [x] Sous-menu "Analytics" present dans le menu principal
+- [x] Option "Dernier jour" affiche les stats correctes
+- [x] Option "7 derniers jours" affiche les stats correctes
+- [x] Option "30 derniers jours" affiche les stats correctes
+- [x] Les agents custom (executeur, roadmap, etc.) sont identifies
+- [x] Les skills sont detectes via le tool "skill"
+- [x] Les alertes s'affichent si anomalies detectees
+- [x] "Rafraichir les donnees" reimporte les JSON
+- [x] Performance acceptable (< 2s pour generer un rapport)
+
+## Specifications implementees
+
+- **Base DuckDB** : `~/.config/opencode-monitor/analytics.duckdb`
+- **Chargement optimise** : ~9s cold start (skip parts pour performance)
+- **Refresh automatique** : Au demarrage si donnees > 24h
+- **Rapport HTML** : Genere avec Plotly pour les graphiques
+- **Metriques** :
+  - Sessions, messages, tokens (input/output/cache)
+  - Delegation patterns et chaines d'agents
+  - Skills par agent
+  - Modeles utilises
+  - Activite par heure (heatmap)

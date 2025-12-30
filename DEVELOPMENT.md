@@ -48,6 +48,10 @@ OpenCode Monitor is a native macOS menu bar app built with [rumps](https://githu
 | `security/analyzer.py` | Risk analysis for commands/files/URLs |
 | `security/auditor.py` | Background security scanner |
 | `security/db/` | SQLite storage for audit data |
+| `analytics/db.py` | DuckDB database for analytics |
+| `analytics/loader.py` | OpenCode JSON data loader |
+| `analytics/queries.py` | Analytics queries (periods, agents, tools) |
+| `analytics/report.py` | Report generation |
 | `ui/menu.py` | Menu construction |
 | `utils/settings.py` | Preferences persistence |
 
@@ -160,6 +164,15 @@ from opencode_monitor.security.analyzer import analyze_command
 alert = analyze_command('rm -rf /')
 print(f'Score: {alert.score}, Level: {alert.level}')
 "
+
+# Test analytics
+uv run python3 -c "
+from opencode_monitor.analytics import AnalyticsDB, load_opencode_data, generate_report
+db = AnalyticsDB()
+load_opencode_data(db)
+report = generate_report(days=7, db=db)
+print(report.to_text())
+"
 ```
 
 ### Check Settings & Database
@@ -173,6 +186,15 @@ sqlite3 ~/.config/opencode-monitor/security.db "
 SELECT 'Commands:', COUNT(*) FROM commands;
 SELECT 'Reads:', COUNT(*) FROM file_reads;
 SELECT 'Writes:', COUNT(*) FROM file_writes;
+"
+
+# Analytics database stats
+uv run python3 -c "
+from opencode_monitor.analytics import AnalyticsDB
+db = AnalyticsDB()
+stats = db.get_stats()
+for table, count in stats.items():
+    print(f'{table}: {count}')
 "
 ```
 
@@ -205,6 +227,8 @@ uv run python3 bin/opencode-menubar 2>&1 | tee /tmp/opencode-debug.log
 Defined in `pyproject.toml`:
 
 - **rumps**: macOS menu bar framework
+- **aiohttp**: Async HTTP client
+- **duckdb**: Analytics database (fast columnar queries)
 - **pytest**: Testing framework
 - **pytest-cov**: Coverage reporting
 
