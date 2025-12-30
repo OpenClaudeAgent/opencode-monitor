@@ -29,6 +29,8 @@ from .ui.menu import (
 )
 from .security.reporter import SecurityReporter
 from .analytics import AnalyticsDB, load_opencode_data, generate_report
+from .analytics.collector import start_collector, get_collector
+from .dashboard import show_dashboard
 
 
 # Re-export for backwards compatibility with tests
@@ -77,11 +79,11 @@ class OpenCodeApp(rumps.App):
         # Start security auditor
         start_auditor()
 
+        # Start analytics collector (incremental background loading)
+        start_collector()
+
         # Build initial menu
         self._build_static_menu()
-
-        # Start analytics background refresh (once per day)
-        self._start_analytics_refresh()
 
         # Start background monitoring
         self._monitor_thread = threading.Thread(
@@ -97,7 +99,7 @@ class OpenCodeApp(rumps.App):
         self._prefs_menu = rumps.MenuItem("⚙️ Preferences")
 
         # Usage refresh submenu
-        refresh_menu = rumps.MenuItem("🔄 Usage refresh")
+        refresh_menu = rumps.MenuItem("⏱️ Usage refresh")
         refresh_menu._menuitem.setToolTip_(
             "How often to fetch Claude API usage from Anthropic"
         )
@@ -126,13 +128,17 @@ class OpenCodeApp(rumps.App):
         self._prefs_menu.add(ask_timeout_menu)
 
         # Static items
-        self._refresh_item = rumps.MenuItem("Refresh", callback=self._on_refresh)
+        self._dashboard_item = rumps.MenuItem(
+            "📊 Dashboard", callback=self._show_dashboard
+        )
+        self._refresh_item = rumps.MenuItem("🔄 Refresh", callback=self._on_refresh)
         self._quit_item = rumps.MenuItem("Quit", callback=rumps.quit_application)
 
         # Initial menu
         self.menu = [
             rumps.MenuItem("Loading...", callback=None),
             None,
+            self._dashboard_item,
             self._refresh_item,
             None,
             self._prefs_menu,
@@ -221,6 +227,7 @@ class OpenCodeApp(rumps.App):
 
         # Static items
         self.menu.add(None)
+        self.menu.add(self._dashboard_item)
         self.menu.add(self._refresh_item)
         self.menu.add(None)
         self.menu.add(self._prefs_menu)
@@ -297,6 +304,11 @@ class OpenCodeApp(rumps.App):
         """Manual refresh callback"""
         info("Manual refresh requested")
         self._needs_refresh = True
+
+    def _show_dashboard(self, _):
+        """Open the PyQt Dashboard window"""
+        info("Opening Dashboard...")
+        show_dashboard()
 
     def _add_security_alert(self, alert: SecurityAlert):
         """Add a security alert to the history"""

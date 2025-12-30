@@ -1,8 +1,12 @@
 """
 DuckDB database management for analytics.
+
+Uses a singleton pattern to ensure only one connection to the database,
+avoiding DuckDB lock conflicts.
 """
 
 import os
+import threading
 from pathlib import Path
 from typing import Optional
 
@@ -18,8 +22,25 @@ def get_db_path() -> Path:
     return config_dir / "analytics.duckdb"
 
 
+# Global singleton connection
+_db_instance: Optional["AnalyticsDB"] = None
+_db_lock = threading.Lock()
+
+
+def get_analytics_db() -> "AnalyticsDB":
+    """Get the singleton AnalyticsDB instance."""
+    global _db_instance
+    with _db_lock:
+        if _db_instance is None:
+            _db_instance = AnalyticsDB()
+        return _db_instance
+
+
 class AnalyticsDB:
-    """Manages the DuckDB database for analytics."""
+    """Manages the DuckDB database for analytics.
+
+    Use get_analytics_db() to get the singleton instance.
+    """
 
     def __init__(self, db_path: Optional[Path] = None):
         """Initialize the analytics database.
@@ -29,19 +50,27 @@ class AnalyticsDB:
         """
         self._db_path = db_path or get_db_path()
         self._conn: Optional[duckdb.DuckDBPyConnection] = None
+        self._lock = threading.Lock()
 
-    def connect(self) -> duckdb.DuckDBPyConnection:
-        """Get or create a database connection."""
-        if self._conn is None:
-            self._conn = duckdb.connect(str(self._db_path))
-            self._create_schema()
-        return self._conn
+    def connect(self, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+        """Get or create a database connection (thread-safe).
+
+        Args:
+            read_only: If True, open in read-only mode (allows concurrent access)
+        """
+        with self._lock:
+            if self._conn is None:
+                self._conn = duckdb.connect(str(self._db_path), read_only=read_only)
+                if not read_only:
+                    self._create_schema()
+            return self._conn
 
     def close(self) -> None:
         """Close the database connection."""
-        if self._conn:
-            self._conn.close()
-            self._conn = None
+        with self._lock:
+            if self._conn:
+                self._conn.close()
+                self._conn = None
 
     def _create_schema(self) -> None:
         """Create the database schema if it doesn't exist."""
@@ -96,7 +125,7 @@ class AnalyticsDB:
         # Skills tracking table
         conn.execute("""
             CREATE TABLE IF NOT EXISTS skills (
-                id INTEGER PRIMARY KEY,
+                id VARCHAR PRIMARY KEY,
                 message_id VARCHAR,
                 session_id VARCHAR,
                 skill_name VARCHAR,
