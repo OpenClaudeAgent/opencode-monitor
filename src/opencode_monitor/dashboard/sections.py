@@ -23,6 +23,7 @@ from .widgets import (
     PageHeader,
     EmptyState,
     SegmentedControl,
+    StatusBadge,
 )
 from .styles import COLORS, SPACING, COL_WIDTH, UI, format_tokens, format_duration_ms
 
@@ -138,7 +139,7 @@ class MonitoringSection(QWidget):
 
         self._tools_empty = EmptyState(
             icon="○",
-            title="No running tools",
+            title="No tools currently running",
             subtitle="Tools will appear here when executing",
         )
         self._tools_empty.hide()
@@ -174,22 +175,28 @@ class MonitoringSection(QWidget):
 
             for agent in agents_data:
                 status = agent.get("status", "idle")
-                status_class = "status-busy" if status == "busy" else "status-idle"
-                status_text = "● BUSY" if status == "busy" else "○ IDLE"
-
                 title = agent.get("title", "Unknown")
                 directory = agent.get("dir", "")
 
+                # Add row with placeholder for status (will be replaced by widget)
                 self._agents_table.add_row(
                     [
                         title,
                         directory,
-                        (status_text, status_class),
+                        "",  # Placeholder for status badge
                         str(len(agent.get("tools", []))),
                         str(agent.get("todos_total", 0)),
                     ],
                     full_values=[title, directory, "", "", ""],
                 )
+
+                # Replace status cell with StatusBadge widget
+                row = self._agents_table.rowCount() - 1
+                status_badge = StatusBadge(
+                    "BUSY" if status == "busy" else "IDLE",
+                    "success" if status == "busy" else "neutral",
+                )
+                self._agents_table.setCellWidget(row, 2, status_badge)
         else:
             self._agents_table.hide()
             self._agents_empty.show()

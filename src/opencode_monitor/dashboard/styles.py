@@ -149,10 +149,10 @@ UI = {
     # Sidebar
     "sidebar_width": 220,
     "nav_item_height": 48,
-    # Cards
-    "card_min_width": 160,
-    "card_min_height": 120,
-    "card_max_width": 220,
+    # Cards (compact but visible)
+    "card_min_width": 130,
+    "card_min_height": 90,
+    "card_max_width": 160,
     # Tables
     "row_height": 48,
     "header_height": 44,
