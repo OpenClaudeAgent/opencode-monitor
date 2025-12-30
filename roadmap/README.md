@@ -30,6 +30,8 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 15 | Detection MCP Notify ask_user | [plan-15](./plan-15-ask-user-detection.md) | `feature/ask-user-detection` | v2.11.0 | Termine |
 | 16 | Analytics et statistiques | [plan-16](./plan-16-analytics.md) | `feature/analytics` | v2.13.0 | Termine |
 | 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | - | En attente |
+| 18 | Hooks OpenCode (permissions) | [plan-18](./plan-18-opencode-hooks.md) | `feature/opencode-hooks` | - | En attente |
+| 19 | Heuristiques EDR | [plan-19](./plan-19-edr-heuristics.md) | `feature/edr-heuristics` | - | En attente |
 
 ## Priorite
 
@@ -52,6 +54,8 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-31 | Ajout plan-19 (heuristiques EDR) - Sequences, correlations, baseline, MITRE ATT&CK |
+| 2025-12-31 | Ajout plan-18 (hooks OpenCode) - POC detection permissions via plugin TypeScript |
 | 2025-12-30 | Plan-16 termine - Analytics DuckDB avec rapport HTML, refresh auto, metriques delegations v2.13.0 |
 | 2025-12-30 | Refactoring analytics - Split report module (models, styles, charts, sections) |
 | 2025-12-29 | Plan-15 termine - Detection MCP Notify ask_user (icone cloche, scan fichiers session) v2.11.0 |
