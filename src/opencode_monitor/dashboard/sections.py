@@ -1,11 +1,11 @@
 """
-Dashboard sections - Clean, minimal design.
+Dashboard sections - Modern, minimal design.
 
 Each section features:
-- Clear page header
-- Metric cards with accent colors
-- Clean data tables
-- Generous spacing
+- Clear page header with actions
+- Metric cards with centered values
+- Enhanced data tables
+- Generous spacing (8px based)
 """
 
 from PyQt6.QtWidgets import (
@@ -35,7 +35,7 @@ from .styles import COLORS, SPACING
 OPERATION_TYPE_COLORS = {
     # Commands
     "command": "type-command",
-    "bash": "type-command",
+    "bash": "type-bash",
     "shell": "type-command",
     # File operations
     "read": "type-read",
@@ -47,7 +47,7 @@ OPERATION_TYPE_COLORS = {
     "glob": "type-glob",
     "grep": "type-grep",
     # Skills
-    "skill": "type-webfetch",
+    "skill": "type-skill",
     # Task management
     "todoread": "type-read",
     "todowrite": "type-write",
@@ -70,7 +70,7 @@ class MonitoringSection(QWidget):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["3xl"], SPACING["2xl"], SPACING["3xl"], SPACING["2xl"]
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
         )
         layout.setSpacing(0)
 
@@ -86,10 +86,10 @@ class MonitoringSection(QWidget):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, SPACING["lg"], 0)
-        content_layout.setSpacing(SPACING["2xl"])
+        content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
+        content_layout.setSpacing(SPACING["xl"])
 
-        # Metrics
+        # Metrics Row (5 cards)
         self._metrics = MetricsRow()
         self._metrics.add_metric("instances", "0", "Instances", "primary")
         self._metrics.add_metric("agents", "0", "Agents", "primary")
@@ -101,7 +101,7 @@ class MonitoringSection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Active Agents
+        # Active Agents Section
         content_layout.addWidget(
             SectionHeader("Active Agents", "Currently running sessions")
         )
@@ -109,8 +109,8 @@ class MonitoringSection(QWidget):
         self._agents_table = DataTable(
             ["Agent", "Directory", "Status", "Tools", "Todos"]
         )
-        self._agents_table.setColumnWidth(0, 260)
-        self._agents_table.setColumnWidth(1, 220)
+        self._agents_table.setColumnWidth(0, 280)
+        self._agents_table.setColumnWidth(1, 240)
         self._agents_table.setColumnWidth(2, 100)
         self._agents_table.setColumnWidth(3, 80)
         content_layout.addWidget(self._agents_table)
@@ -125,15 +125,15 @@ class MonitoringSection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Running Tools
+        # Running Tools Section
         content_layout.addWidget(
             SectionHeader("Running Tools", "Tools currently executing")
         )
 
         self._tools_table = DataTable(["Tool", "Agent", "Arguments", "Duration"])
-        self._tools_table.setColumnWidth(0, 120)
-        self._tools_table.setColumnWidth(1, 180)
-        self._tools_table.setColumnWidth(2, 360)
+        self._tools_table.setColumnWidth(0, 140)
+        self._tools_table.setColumnWidth(1, 200)
+        self._tools_table.setColumnWidth(2, 380)
         content_layout.addWidget(self._tools_table)
 
         self._tools_empty = EmptyState(
@@ -245,7 +245,7 @@ class SecuritySection(QWidget):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["3xl"], SPACING["2xl"], SPACING["3xl"], SPACING["2xl"]
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
         )
         layout.setSpacing(0)
 
@@ -259,10 +259,10 @@ class SecuritySection(QWidget):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, SPACING["lg"], 0)
-        content_layout.setSpacing(SPACING["2xl"])
+        content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
+        content_layout.setSpacing(SPACING["xl"])
 
-        # Metrics
+        # Security Metrics (5 cards with risk colors)
         self._metrics = MetricsRow()
         self._metrics.add_metric("total", "0", "Analyzed", "primary")
         self._metrics.add_metric("critical", "0", "Critical", "error")
@@ -274,14 +274,14 @@ class SecuritySection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Critical Alerts
+        # Critical Alerts Section
         content_layout.addWidget(
-            SectionHeader("Critical Alerts", "High-risk operations")
+            SectionHeader("Critical Alerts", "High-risk operations requiring attention")
         )
 
         self._critical_table = DataTable(["Type", "Details", "Risk", "Reason"])
-        self._critical_table.setColumnWidth(0, 100)
-        self._critical_table.setColumnWidth(1, 360)
+        self._critical_table.setColumnWidth(0, 120)
+        self._critical_table.setColumnWidth(1, 380)
         self._critical_table.setColumnWidth(2, 100)
         content_layout.addWidget(self._critical_table)
 
@@ -295,27 +295,27 @@ class SecuritySection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Recent Commands
+        # Recent Commands Section
         content_layout.addWidget(
-            SectionHeader("Recent Commands", "Last analyzed commands")
+            SectionHeader("Recent Commands", "Last analyzed shell commands")
         )
 
         self._commands_table = DataTable(["Command", "Risk", "Score", "Reason"])
-        self._commands_table.setColumnWidth(0, 400)
+        self._commands_table.setColumnWidth(0, 420)
         self._commands_table.setColumnWidth(1, 100)
         self._commands_table.setColumnWidth(2, 80)
         content_layout.addWidget(self._commands_table)
 
         content_layout.addWidget(Separator())
 
-        # File Operations
+        # File Operations Section
         content_layout.addWidget(
-            SectionHeader("File Operations", "Recent reads and writes")
+            SectionHeader("File Operations", "Recent file reads and writes")
         )
 
         self._files_table = DataTable(["Operation", "Path", "Risk", "Score"])
         self._files_table.setColumnWidth(0, 100)
-        self._files_table.setColumnWidth(1, 420)
+        self._files_table.setColumnWidth(1, 440)
         self._files_table.setColumnWidth(2, 100)
         content_layout.addWidget(self._files_table)
 
@@ -431,9 +431,9 @@ class AnalyticsSection(QWidget):
     period_changed = pyqtSignal(int)
 
     PERIODS = [
-        ("Last 24 hours", 1),
-        ("Last 7 days", 7),
-        ("Last 30 days", 30),
+        ("24h", 1),
+        ("7d", 7),
+        ("30d", 30),
     ]
 
     def __init__(self, parent: QWidget | None = None):
@@ -444,7 +444,7 @@ class AnalyticsSection(QWidget):
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["3xl"], SPACING["2xl"], SPACING["3xl"], SPACING["2xl"]
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
         )
         layout.setSpacing(0)
 
@@ -467,10 +467,10 @@ class AnalyticsSection(QWidget):
 
         content = QWidget()
         content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, SPACING["lg"], 0)
-        content_layout.setSpacing(SPACING["2xl"])
+        content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
+        content_layout.setSpacing(SPACING["xl"])
 
-        # Metrics
+        # Usage Metrics (4 cards)
         self._metrics = MetricsRow()
         self._metrics.add_metric("sessions", "0", "Sessions", "primary")
         self._metrics.add_metric("messages", "0", "Messages", "primary")
@@ -481,13 +481,13 @@ class AnalyticsSection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Agent Usage
+        # Agent Usage Section
         content_layout.addWidget(
             SectionHeader("Agent Usage", "Token consumption by agent")
         )
 
         self._agents_table = DataTable(["Agent", "Messages", "Tokens", "Share"])
-        self._agents_table.setColumnWidth(0, 360)
+        self._agents_table.setColumnWidth(0, 380)
         self._agents_table.setColumnWidth(1, 120)
         self._agents_table.setColumnWidth(2, 120)
         content_layout.addWidget(self._agents_table)
@@ -502,7 +502,7 @@ class AnalyticsSection(QWidget):
 
         content_layout.addWidget(Separator())
 
-        # Top Tools
+        # Top Tools Section
         content_layout.addWidget(
             SectionHeader("Top Tools", "Most frequently used tools")
         )
@@ -510,18 +510,18 @@ class AnalyticsSection(QWidget):
         self._tools_table = DataTable(
             ["Tool", "Invocations", "Failures", "Failure Rate"]
         )
-        self._tools_table.setColumnWidth(0, 200)
+        self._tools_table.setColumnWidth(0, 220)
         self._tools_table.setColumnWidth(1, 120)
         self._tools_table.setColumnWidth(2, 100)
         content_layout.addWidget(self._tools_table)
 
         content_layout.addWidget(Separator())
 
-        # Skills
+        # Skills Section
         content_layout.addWidget(SectionHeader("Skills Loaded", "Custom skills used"))
 
         self._skills_table = DataTable(["Skill", "Load Count"])
-        self._skills_table.setColumnWidth(0, 380)
+        self._skills_table.setColumnWidth(0, 400)
         content_layout.addWidget(self._skills_table)
 
         content_layout.addStretch()
@@ -572,7 +572,7 @@ class AnalyticsSection(QWidget):
             self._agents_table.hide()
             self._agents_empty.show()
 
-        # Tools
+        # Tools with type badges
         self._tools_table.clear_data()
         for tool in tools[:10]:
             invocations = tool.get("invocations", 0)

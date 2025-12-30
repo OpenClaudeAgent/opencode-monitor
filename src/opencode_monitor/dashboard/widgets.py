@@ -1,11 +1,12 @@
 """
-Dashboard widgets - Clean, minimal design.
+Dashboard widgets - Modern, minimal design.
 
 Design principles:
-- Sharp edges, no rounded corners
+- Soft rounded corners
 - Clear visual hierarchy
-- Minimal decoration
+- Generous spacing
 - Strong typography
+- Semantic colors
 """
 
 from PyQt6.QtWidgets import (
@@ -19,12 +20,12 @@ from PyQt6.QtWidgets import (
     QWidget,
     QPushButton,
     QSizePolicy,
-    QProgressBar,
+    QGraphicsDropShadowEffect,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
-from .styles import COLORS, SPACING, FONTS, ICONS
+from .styles import COLORS, SPACING, FONTS, RADIUS, ICONS
 
 
 # ============================================================
@@ -44,7 +45,7 @@ class NavItem(QPushButton):
         super().__init__(parent)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(44)
+        self.setMinimumHeight(48)
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(SPACING["lg"], 0, SPACING["lg"], 0)
@@ -52,7 +53,7 @@ class NavItem(QPushButton):
 
         # Icon
         self._icon = QLabel(icon)
-        self._icon.setFixedWidth(20)
+        self._icon.setFixedWidth(24)
         self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
         layout.addWidget(self._icon)
 
@@ -71,7 +72,8 @@ class NavItem(QPushButton):
                 QPushButton {{
                     background-color: {COLORS["sidebar_active"]};
                     border: none;
-                    border-left: 2px solid {COLORS["sidebar_active_border"]};
+                    border-left: 3px solid {COLORS["sidebar_active_border"]};
+                    border-radius: 0;
                     text-align: left;
                 }}
             """)
@@ -88,7 +90,8 @@ class NavItem(QPushButton):
                 QPushButton {{
                     background-color: transparent;
                     border: none;
-                    border-left: 2px solid transparent;
+                    border-left: 3px solid transparent;
+                    border-radius: 0;
                     text-align: left;
                 }}
                 QPushButton:hover {{
@@ -111,7 +114,7 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("sidebar")
-        self.setFixedWidth(200)
+        self.setFixedWidth(220)
 
         self.setStyleSheet(f"""
             QFrame#sidebar {{
@@ -131,14 +134,15 @@ class Sidebar(QFrame):
         logo_layout.setSpacing(SPACING["sm"])
 
         logo_icon = QLabel("⬡")
-        logo_icon.setStyleSheet(f"font-size: 20px; color: {COLORS['accent_primary']};")
+        logo_icon.setStyleSheet(f"font-size: 24px; color: {COLORS['accent_primary']};")
         logo_layout.addWidget(logo_icon)
 
         logo_text = QLabel("OpenCode")
         logo_text.setStyleSheet(f"""
-            font-size: {FONTS["size_lg"]}px;
+            font-size: {FONTS["size_xl"]}px;
             font-weight: {FONTS["weight_bold"]};
             color: {COLORS["text_primary"]};
+            letter-spacing: -0.5px;
         """)
         logo_layout.addWidget(logo_text)
         logo_layout.addStretch()
@@ -178,12 +182,12 @@ class Sidebar(QFrame):
         status_layout.setSpacing(SPACING["sm"])
 
         self._status_dot = QLabel("●")
-        self._status_dot.setStyleSheet(f"font-size: 8px; color: {COLORS['success']};")
+        self._status_dot.setStyleSheet(f"font-size: 10px; color: {COLORS['success']};")
         status_layout.addWidget(self._status_dot)
 
         self._status_text = QLabel("Live")
         self._status_text.setStyleSheet(f"""
-            font-size: {FONTS["size_xs"]}px;
+            font-size: {FONTS["size_sm"]}px;
             color: {COLORS["text_muted"]};
         """)
         status_layout.addWidget(self._status_text)
@@ -201,7 +205,7 @@ class Sidebar(QFrame):
 
     def set_status(self, active: bool, text: str = "") -> None:
         color = COLORS["success"] if active else COLORS["text_muted"]
-        self._status_dot.setStyleSheet(f"font-size: 8px; color: {color};")
+        self._status_dot.setStyleSheet(f"font-size: 10px; color: {color};")
         if text:
             self._status_text.setText(text)
 
@@ -212,7 +216,7 @@ class Sidebar(QFrame):
 
 
 class PageHeader(QWidget):
-    """Page header with title and actions."""
+    """Page header with title, subtitle and actions."""
 
     def __init__(
         self,
@@ -223,7 +227,7 @@ class PageHeader(QWidget):
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, SPACING["xl"])
+        layout.setContentsMargins(0, 0, 0, SPACING["lg"])
         layout.setSpacing(SPACING["xs"])
 
         # Title row
@@ -232,10 +236,10 @@ class PageHeader(QWidget):
 
         self._title = QLabel(title)
         self._title.setStyleSheet(f"""
-            font-size: {FONTS["size_2xl"]}px;
-            font-weight: {FONTS["weight_bold"]};
+            font-size: {FONTS["size_xl"]}px;
+            font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
-            letter-spacing: -0.5px;
+            letter-spacing: -0.3px;
         """)
         title_row.addWidget(self._title)
         title_row.addStretch()
@@ -249,7 +253,7 @@ class PageHeader(QWidget):
         if subtitle:
             self._subtitle = QLabel(subtitle)
             self._subtitle.setStyleSheet(f"""
-                font-size: {FONTS["size_sm"]}px;
+                font-size: {FONTS["size_base"]}px;
                 color: {COLORS["text_muted"]};
             """)
             layout.addWidget(self._subtitle)
@@ -259,18 +263,18 @@ class PageHeader(QWidget):
 
 
 # ============================================================
-# METRIC CARDS
+# METRIC CARDS (Centered, with shadow)
 # ============================================================
 
 
 class MetricCard(QFrame):
-    """Compact metric display."""
+    """Centered metric card with subtle shadow."""
 
     ACCENT_MAP = {
         "primary": COLORS["accent_primary"],
-        "success": COLORS["success"],
-        "warning": COLORS["warning"],
-        "error": COLORS["error"],
+        "success": COLORS["accent_success"],
+        "warning": COLORS["accent_warning"],
+        "error": COLORS["accent_error"],
         "muted": COLORS["text_muted"],
     }
 
@@ -283,43 +287,58 @@ class MetricCard(QFrame):
     ):
         super().__init__(parent)
         self._accent = accent
-        accent_color = self.ACCENT_MAP.get(accent, COLORS["text_muted"])
+        self._accent_color = self.ACCENT_MAP.get(accent, COLORS["text_muted"])
 
+        # Card styling with rounded corners
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-top: 2px solid {accent_color};
+                border: 1px solid {COLORS["border_subtle"]};
+                border-radius: {RADIUS["md"]}px;
             }}
         """)
 
-        self.setMinimumWidth(130)
-        self.setMaximumWidth(170)
-        self.setFixedHeight(88)
+        # Dimensions
+        self.setMinimumWidth(140)
+        self.setMinimumHeight(100)
+        self.setMaximumWidth(180)
 
+        # Shadow effect
+        shadow = QGraphicsDropShadowEffect(self)
+        shadow.setBlurRadius(16)
+        shadow.setXOffset(0)
+        shadow.setYOffset(4)
+        shadow.setColor(QColor(0, 0, 0, 80))
+        self.setGraphicsEffect(shadow)
+
+        # Layout - truly centered
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
+            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
         )
         layout.setSpacing(SPACING["sm"])
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Value
+        # Value (large, colored if accent)
         self._value_label = QLabel(value)
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        value_color = (
+            self._accent_color if accent != "muted" else COLORS["text_primary"]
+        )
         self._value_label.setStyleSheet(f"""
-            font-size: {FONTS["size_2xl"]}px;
+            font-size: {FONTS["size_3xl"]}px;
             font-weight: {FONTS["weight_bold"]};
-            color: {COLORS["text_primary"]};
+            color: {value_color};
+            letter-spacing: -1px;
         """)
         layout.addWidget(self._value_label)
 
-        # Label
+        # Label (uppercase, muted)
         self._label = QLabel(label.upper())
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(f"""
             font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_medium"]};
+            font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_muted"]};
             letter-spacing: 0.5px;
         """)
@@ -330,7 +349,7 @@ class MetricCard(QFrame):
 
 
 class MetricsRow(QWidget):
-    """Row of metric cards."""
+    """Row of metric cards with proper spacing."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -360,12 +379,86 @@ class MetricsRow(QWidget):
 
 
 # ============================================================
-# STATUS BADGE
+# BADGES (Risk and Type)
 # ============================================================
 
 
+class Badge(QLabel):
+    """Base badge with pill style."""
+
+    def __init__(
+        self,
+        text: str,
+        bg_color: str,
+        text_color: str,
+        parent: QWidget | None = None,
+    ):
+        super().__init__(text.upper(), parent)
+        self.setStyleSheet(f"""
+            padding: {SPACING["xs"]}px {SPACING["sm"] + 4}px;
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_bold"]};
+            background-color: {bg_color};
+            color: {text_color};
+            border-radius: {RADIUS["sm"]}px;
+            letter-spacing: 0.3px;
+        """)
+
+
+class RiskBadge(Badge):
+    """Badge for risk levels."""
+
+    VARIANTS = {
+        "critical": (COLORS["risk_critical_bg"], COLORS["risk_critical"]),
+        "high": (COLORS["risk_high_bg"], COLORS["risk_high"]),
+        "medium": (COLORS["risk_medium_bg"], COLORS["risk_medium"]),
+        "low": (COLORS["risk_low_bg"], COLORS["risk_low"]),
+    }
+
+    def __init__(
+        self,
+        level: str,
+        parent: QWidget | None = None,
+    ):
+        level_lower = level.lower()
+        bg, fg = self.VARIANTS.get(
+            level_lower, (COLORS["bg_elevated"], COLORS["text_secondary"])
+        )
+        super().__init__(level, bg, fg, parent)
+
+
+class TypeBadge(Badge):
+    """Badge for operation types."""
+
+    TYPE_MAP = {
+        "command": ("type_command_bg", "type_command"),
+        "bash": ("type_bash_bg", "type_bash"),
+        "read": ("type_read_bg", "type_read"),
+        "write": ("type_write_bg", "type_write"),
+        "edit": ("type_edit_bg", "type_edit"),
+        "webfetch": ("type_webfetch_bg", "type_webfetch"),
+        "web_fetch": ("type_webfetch_bg", "type_webfetch"),
+        "glob": ("type_glob_bg", "type_glob"),
+        "grep": ("type_grep_bg", "type_grep"),
+        "skill": ("type_skill_bg", "type_skill"),
+    }
+
+    def __init__(
+        self,
+        op_type: str,
+        parent: QWidget | None = None,
+    ):
+        type_lower = op_type.lower()
+        bg_key, fg_key = self.TYPE_MAP.get(
+            type_lower, ("bg_elevated", "text_secondary")
+        )
+        bg = COLORS.get(bg_key, COLORS["bg_elevated"])
+        fg = COLORS.get(fg_key, COLORS["text_secondary"])
+        super().__init__(op_type, bg, fg, parent)
+
+
 class StatusBadge(QLabel):
-    """Minimal status badge."""
+    """Status badge (busy/idle)."""
 
     VARIANTS = {
         "success": (COLORS["success_muted"], COLORS["success"]),
@@ -373,10 +466,10 @@ class StatusBadge(QLabel):
         "error": (COLORS["error_muted"], COLORS["error"]),
         "info": (COLORS["info_muted"], COLORS["info"]),
         "neutral": (COLORS["bg_elevated"], COLORS["text_secondary"]),
-        "critical": (COLORS["error_muted"], COLORS["risk_critical"]),
-        "high": (COLORS["warning_muted"], COLORS["risk_high"]),
-        "medium": (COLORS["warning_muted"], COLORS["risk_medium"]),
-        "low": (COLORS["success_muted"], COLORS["risk_low"]),
+        "critical": (COLORS["risk_critical_bg"], COLORS["risk_critical"]),
+        "high": (COLORS["risk_high_bg"], COLORS["risk_high"]),
+        "medium": (COLORS["risk_medium_bg"], COLORS["risk_medium"]),
+        "low": (COLORS["risk_low_bg"], COLORS["risk_low"]),
     }
 
     def __init__(
@@ -391,23 +484,123 @@ class StatusBadge(QLabel):
     def set_variant(self, variant: str) -> None:
         bg, fg = self.VARIANTS.get(variant, self.VARIANTS["neutral"])
         self.setStyleSheet(f"""
-            padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+            padding: {SPACING["xs"]}px {SPACING["sm"] + 4}px;
             font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_semibold"]};
+            font-weight: {FONTS["weight_bold"]};
             background-color: {bg};
             color: {fg};
+            border-radius: {RADIUS["sm"]}px;
         """)
 
 
 # ============================================================
-# DATA TABLE
+# SEGMENTED CONTROL (Modern tabs)
+# ============================================================
+
+
+class SegmentedControl(QWidget):
+    """Modern segmented control for period selection."""
+
+    selection_changed = pyqtSignal(int)
+
+    def __init__(
+        self,
+        options: list[str],
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._options = options
+        self._current_index = 0
+        self._buttons: list[QPushButton] = []
+
+        # Container styling
+        self.setStyleSheet(f"""
+            QWidget {{
+                background-color: {COLORS["bg_elevated"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["sm"]}px;
+            }}
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(3, 3, 3, 3)
+        layout.setSpacing(2)
+
+        for i, option in enumerate(options):
+            btn = QPushButton(option)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(28)
+            btn.setMinimumWidth(80)
+            btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
+            self._buttons.append(btn)
+            layout.addWidget(btn)
+            self._update_button_style(btn, i == 0)
+
+        if self._buttons:
+            self._buttons[0].setChecked(True)
+
+    def _on_button_clicked(self, index: int) -> None:
+        if index == self._current_index:
+            self._buttons[index].setChecked(True)
+            return
+
+        self._current_index = index
+        for i, btn in enumerate(self._buttons):
+            btn.setChecked(i == index)
+            self._update_button_style(btn, i == index)
+        self.selection_changed.emit(index)
+
+    def _update_button_style(self, btn: QPushButton, selected: bool) -> None:
+        if selected:
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS["accent_primary"]};
+                    color: white;
+                    border: none;
+                    border-radius: {RADIUS["sm"] - 2}px;
+                    font-size: {FONTS["size_sm"]}px;
+                    font-weight: {FONTS["weight_medium"]};
+                    padding: 0 {SPACING["md"]}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS["accent_primary_hover"]};
+                }}
+            """)
+        else:
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {COLORS["text_muted"]};
+                    border: none;
+                    border-radius: {RADIUS["sm"] - 2}px;
+                    font-size: {FONTS["size_sm"]}px;
+                    font-weight: {FONTS["weight_normal"]};
+                    padding: 0 {SPACING["md"]}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS["bg_hover"]};
+                    color: {COLORS["text_primary"]};
+                }}
+            """)
+
+    def set_current_index(self, index: int) -> None:
+        if 0 <= index < len(self._buttons):
+            self._on_button_clicked(index)
+
+    def current_index(self) -> int:
+        return self._current_index
+
+
+# ============================================================
+# DATA TABLE (Enhanced)
 # ============================================================
 
 
 class DataTable(QTableWidget):
-    """Clean data table."""
+    """Enhanced data table with better styling."""
 
-    ROW_HEIGHT = 44
+    ROW_HEIGHT = 48
     HEADER_HEIGHT = 44
 
     def __init__(
@@ -424,14 +617,20 @@ class DataTable(QTableWidget):
         self.setColumnCount(len(headers))
         self.setHorizontalHeaderLabels(headers)
 
-        self.setAlternatingRowColors(False)
+        self.setAlternatingRowColors(True)
         self.setShowGrid(False)
         self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
         self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
 
         self.setSortingEnabled(True)
 
-        # Hide row numbers and configure vertical header
+        # Alternating row colors
+        palette = self.palette()
+        palette.setColor(palette.ColorRole.Base, QColor(COLORS["bg_surface"]))
+        palette.setColor(palette.ColorRole.AlternateBase, QColor(COLORS["bg_elevated"]))
+        self.setPalette(palette)
+
+        # Hide row numbers
         v_header = self.verticalHeader()
         if v_header is not None:
             v_header.setVisible(False)
@@ -445,7 +644,7 @@ class DataTable(QTableWidget):
             header.setStretchLastSection(True)
             header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
             header.setDefaultSectionSize(150)
-            header.setMinimumSectionSize(60)
+            header.setMinimumSectionSize(80)
             header.setFixedHeight(self.HEADER_HEIGHT)
             header.setSortIndicatorShown(False)
             header.sortIndicatorChanged.connect(self._on_sort_changed)
@@ -481,6 +680,7 @@ class DataTable(QTableWidget):
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
+                # Color mapping for variants
                 color_map = {
                     # Status colors
                     "status-busy": COLORS["success"],
@@ -492,6 +692,7 @@ class DataTable(QTableWidget):
                     "risk-low": COLORS["risk_low"],
                     # Operation types
                     "type-command": COLORS["type_command"],
+                    "type-bash": COLORS["type_bash"],
                     "type-read": COLORS["type_read"],
                     "type-write": COLORS["type_write"],
                     "type-edit": COLORS["type_edit"],
@@ -508,7 +709,6 @@ class DataTable(QTableWidget):
                 value = item_data
                 item = QTableWidgetItem(value)
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-                # Default text color for non-styled items
                 item.setForeground(QColor(COLORS["text_secondary"]))
 
             # Tooltip
@@ -547,7 +747,7 @@ class DataTable(QTableWidget):
 
 
 class SectionHeader(QWidget):
-    """Section header with title."""
+    """Section header with title and optional subtitle."""
 
     def __init__(
         self,
@@ -557,38 +757,56 @@ class SectionHeader(QWidget):
     ):
         super().__init__(parent)
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["sm"], 0, SPACING["lg"])
-        layout.setSpacing(SPACING["xs"])
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, SPACING["lg"])
+        layout.setSpacing(0)
+
+        # Left side: title and subtitle
+        left_layout = QVBoxLayout()
+        left_layout.setSpacing(SPACING["xs"])
 
         self._title = QLabel(title)
         self._title.setStyleSheet(f"""
-            font-size: {FONTS["size_md"]}px;
+            font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
         """)
-        layout.addWidget(self._title)
+        left_layout.addWidget(self._title)
 
         if subtitle:
             self._subtitle = QLabel(subtitle)
             self._subtitle.setStyleSheet(f"""
-                font-size: {FONTS["size_sm"]}px;
+                font-size: {FONTS["size_base"]}px;
                 color: {COLORS["text_muted"]};
             """)
-            layout.addWidget(self._subtitle)
+            left_layout.addWidget(self._subtitle)
+
+        layout.addLayout(left_layout)
+        layout.addStretch()
+
+        # Right side: for actions
+        self._actions_layout = QHBoxLayout()
+        self._actions_layout.setSpacing(SPACING["sm"])
+        layout.addLayout(self._actions_layout)
+
+    def add_action(self, widget: QWidget) -> None:
+        self._actions_layout.addWidget(widget)
 
 
 class Separator(QFrame):
-    """Horizontal separator."""
+    """Horizontal separator with generous margin."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setFixedHeight(1)
-        self.setStyleSheet(f"background-color: {COLORS['border_subtle']};")
+        self.setStyleSheet(f"""
+            background-color: {COLORS["border_subtle"]};
+            margin: {SPACING["lg"]}px 0;
+        """)
 
 
 class Card(QFrame):
-    """Simple card container."""
+    """Card container with rounded corners."""
 
     def __init__(
         self,
@@ -601,6 +819,7 @@ class Card(QFrame):
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
                 border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
             }}
         """)
 
@@ -624,113 +843,12 @@ class Card(QFrame):
 
 
 # ============================================================
-# SEGMENTED CONTROL
-# ============================================================
-
-
-class SegmentedControl(QWidget):
-    """Elegant segmented control for period selection."""
-
-    selection_changed = pyqtSignal(int)
-
-    def __init__(
-        self,
-        options: list[str],
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
-        self._options = options
-        self._current_index = 0
-        self._buttons: list[QPushButton] = []
-
-        self.setStyleSheet(f"""
-            SegmentedControl {{
-                background-color: {COLORS["bg_elevated"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-radius: 6px;
-            }}
-        """)
-
-        layout = QHBoxLayout(self)
-        layout.setContentsMargins(
-            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
-        )
-        layout.setSpacing(0)
-
-        for i, option in enumerate(options):
-            btn = QPushButton(option)
-            btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            btn.setCheckable(True)
-            btn.setMinimumHeight(28)
-            btn.setMinimumWidth(90)
-            btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
-            self._buttons.append(btn)
-            layout.addWidget(btn)
-            self._update_button_style(btn, i == 0)
-
-        if self._buttons:
-            self._buttons[0].setChecked(True)
-
-    def _on_button_clicked(self, index: int) -> None:
-        if index == self._current_index:
-            # Keep it checked
-            self._buttons[index].setChecked(True)
-            return
-
-        self._current_index = index
-        for i, btn in enumerate(self._buttons):
-            btn.setChecked(i == index)
-            self._update_button_style(btn, i == index)
-        self.selection_changed.emit(index)
-
-    def _update_button_style(self, btn: QPushButton, selected: bool) -> None:
-        if selected:
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: {COLORS["accent_primary"]};
-                    color: white;
-                    border: none;
-                    border-radius: 4px;
-                    font-size: {FONTS["size_sm"]}px;
-                    font-weight: {FONTS["weight_medium"]};
-                    padding: 0 {SPACING["md"]}px;
-                }}
-                QPushButton:hover {{
-                    background-color: {COLORS["accent_primary_hover"]};
-                }}
-            """)
-        else:
-            btn.setStyleSheet(f"""
-                QPushButton {{
-                    background-color: transparent;
-                    color: {COLORS["text_secondary"]};
-                    border: none;
-                    border-radius: 4px;
-                    font-size: {FONTS["size_sm"]}px;
-                    font-weight: {FONTS["weight_normal"]};
-                    padding: 0 {SPACING["md"]}px;
-                }}
-                QPushButton:hover {{
-                    background-color: {COLORS["bg_hover"]};
-                    color: {COLORS["text_primary"]};
-                }}
-            """)
-
-    def set_current_index(self, index: int) -> None:
-        if 0 <= index < len(self._buttons):
-            self._on_button_clicked(index)
-
-    def current_index(self) -> int:
-        return self._current_index
-
-
-# ============================================================
 # EMPTY STATE
 # ============================================================
 
 
 class EmptyState(QWidget):
-    """Empty state placeholder."""
+    """Empty state placeholder with icon."""
 
     def __init__(
         self,
@@ -743,13 +861,14 @@ class EmptyState(QWidget):
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["2xl"], SPACING["2xl"], SPACING["2xl"], SPACING["2xl"]
+            SPACING["2xl"], SPACING["xl"], SPACING["2xl"], SPACING["xl"]
         )
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.setSpacing(SPACING["sm"])
 
         icon_label = QLabel(icon)
         icon_label.setStyleSheet(f"""
-            font-size: 32px;
+            font-size: 36px;
             color: {COLORS["text_muted"]};
         """)
         icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -767,7 +886,7 @@ class EmptyState(QWidget):
         if subtitle:
             subtitle_label = QLabel(subtitle)
             subtitle_label.setStyleSheet(f"""
-                font-size: {FONTS["size_sm"]}px;
+                font-size: {FONTS["size_base"]}px;
                 color: {COLORS["text_muted"]};
             """)
             subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)

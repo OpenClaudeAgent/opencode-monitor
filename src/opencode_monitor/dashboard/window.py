@@ -81,7 +81,7 @@ class DashboardWindow(QMainWindow):
 
         # Set as application icon
         app = QApplication.instance()
-        if app and hasattr(app, "setWindowIcon"):
+        if isinstance(app, QApplication):
             app.setWindowIcon(icon)
 
     def _setup_ui(self) -> None:
