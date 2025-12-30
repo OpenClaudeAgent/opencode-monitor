@@ -462,18 +462,18 @@ class TypeBadge(Badge):
 
 
 class StatusBadge(QLabel):
-    """Status badge (busy/idle)."""
+    """Status indicator with dot + text (no background)."""
 
     VARIANTS = {
-        "success": (COLORS["success_muted"], COLORS["success"]),
-        "warning": (COLORS["warning_muted"], COLORS["warning"]),
-        "error": (COLORS["error_muted"], COLORS["error"]),
-        "info": (COLORS["info_muted"], COLORS["info"]),
-        "neutral": (COLORS["bg_elevated"], COLORS["text_secondary"]),
-        "critical": (COLORS["risk_critical_bg"], COLORS["risk_critical"]),
-        "high": (COLORS["risk_high_bg"], COLORS["risk_high"]),
-        "medium": (COLORS["risk_medium_bg"], COLORS["risk_medium"]),
-        "low": (COLORS["risk_low_bg"], COLORS["risk_low"]),
+        "success": COLORS["success"],
+        "warning": COLORS["warning"],
+        "error": COLORS["error"],
+        "info": COLORS["info"],
+        "neutral": COLORS["text_muted"],
+        "critical": COLORS["risk_critical"],
+        "high": COLORS["risk_high"],
+        "medium": COLORS["risk_medium"],
+        "low": COLORS["risk_low"],
     }
 
     def __init__(
@@ -482,18 +482,20 @@ class StatusBadge(QLabel):
         variant: str = "neutral",
         parent: QWidget | None = None,
     ):
-        super().__init__(text, parent)
+        super().__init__(parent)
+        self._text = text
         self.set_variant(variant)
 
     def set_variant(self, variant: str) -> None:
-        bg, fg = self.VARIANTS.get(variant, self.VARIANTS["neutral"])
+        color = self.VARIANTS.get(variant, self.VARIANTS["neutral"])
+        # Display as: ● TEXT (dot + text, colored, no background)
+        self.setText(f"● {self._text}")
         self.setStyleSheet(f"""
-            padding: {SPACING["xs"]}px {SPACING["sm"] + 4}px;
+            padding: {SPACING["xs"]}px {SPACING["sm"]}px;
             font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_bold"]};
-            background-color: {bg};
-            color: {fg};
-            border-radius: {RADIUS["sm"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {color};
+            background: transparent;
         """)
 
 
