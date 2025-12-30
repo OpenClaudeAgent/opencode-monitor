@@ -8,7 +8,17 @@ A modern dashboard with sidebar navigation featuring:
 """
 
 from .window import DashboardWindow, show_dashboard
-from .styles import COLORS, SPACING, RADIUS, FONTS, ICONS, get_stylesheet
+from .styles import (
+    COLORS,
+    SPACING,
+    RADIUS,
+    FONTS,
+    ICONS,
+    UI,
+    get_stylesheet,
+    format_tokens,
+    format_duration_ms,
+)
 from .widgets import (
     # Navigation
     Sidebar,
@@ -33,13 +43,17 @@ __all__ = [
     # Main entry points
     "DashboardWindow",
     "show_dashboard",
-    # Styles
+    # Styles & Constants
     "COLORS",
     "SPACING",
     "RADIUS",
     "FONTS",
     "ICONS",
+    "UI",
     "get_stylesheet",
+    # Utilities
+    "format_tokens",
+    "format_duration_ms",
     # Navigation
     "Sidebar",
     "NavItem",

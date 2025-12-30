@@ -24,7 +24,7 @@ from .widgets import (
     EmptyState,
     SegmentedControl,
 )
-from .styles import COLORS, SPACING
+from .styles import COLORS, SPACING, UI, format_tokens, format_duration_ms
 
 
 # ============================================================
@@ -202,14 +202,7 @@ class MonitoringSection(QWidget):
             self._tools_empty.hide()
 
             for tool in tools_data:
-                elapsed = tool.get("elapsed_ms", 0)
-                if elapsed >= 60000:
-                    duration = f"{elapsed // 60000}m {(elapsed % 60000) // 1000}s"
-                elif elapsed >= 1000:
-                    duration = f"{elapsed // 1000}s"
-                else:
-                    duration = f"{elapsed}ms"
-
+                duration = format_duration_ms(tool.get("elapsed_ms", 0))
                 tool_name = tool.get("name", "")
                 tool_variant = get_operation_variant(tool_name)
                 arg = tool.get("arg", "")
@@ -281,8 +274,8 @@ class SecuritySection(QWidget):
 
         self._critical_table = DataTable(["Type", "Details", "Risk", "Reason"])
         self._critical_table.setColumnWidth(0, 120)
-        self._critical_table.setColumnWidth(1, 380)
-        self._critical_table.setColumnWidth(2, 100)
+        self._critical_table.setColumnWidth(1, 340)
+        self._critical_table.setColumnWidth(2, 110)
         content_layout.addWidget(self._critical_table)
 
         self._critical_empty = EmptyState(
@@ -301,8 +294,8 @@ class SecuritySection(QWidget):
         )
 
         self._commands_table = DataTable(["Command", "Risk", "Score", "Reason"])
-        self._commands_table.setColumnWidth(0, 420)
-        self._commands_table.setColumnWidth(1, 100)
+        self._commands_table.setColumnWidth(0, 400)
+        self._commands_table.setColumnWidth(1, 110)
         self._commands_table.setColumnWidth(2, 80)
         content_layout.addWidget(self._commands_table)
 
@@ -314,9 +307,9 @@ class SecuritySection(QWidget):
         )
 
         self._files_table = DataTable(["Operation", "Path", "Risk", "Score"])
-        self._files_table.setColumnWidth(0, 100)
-        self._files_table.setColumnWidth(1, 440)
-        self._files_table.setColumnWidth(2, 100)
+        self._files_table.setColumnWidth(0, 110)
+        self._files_table.setColumnWidth(1, 420)
+        self._files_table.setColumnWidth(2, 110)
         content_layout.addWidget(self._files_table)
 
         content_layout.addStretch()
@@ -349,7 +342,7 @@ class SecuritySection(QWidget):
                 self._critical_table.show()
                 self._critical_empty.hide()
 
-                for item in sorted_items[:20]:
+                for item in sorted_items[: UI["table_row_limit"]]:
                     risk = item.get("risk", "low").lower()
                     risk_class = f"risk-{risk}"
                     details = item.get("details", "")
@@ -382,7 +375,7 @@ class SecuritySection(QWidget):
 
         # Commands
         self._commands_table.clear_data()
-        for cmd in commands[:20]:
+        for cmd in commands[: UI["table_row_limit"]]:
             risk = cmd.get("risk", "low").lower()
             risk_class = f"risk-{risk}"
             command = cmd.get("command", "")
@@ -400,7 +393,7 @@ class SecuritySection(QWidget):
 
         # Files
         self._files_table.clear_data()
-        for f in files[:20]:
+        for f in files[: UI["table_row_limit"]]:
             risk = f.get("risk", "low").lower()
             risk_class = f"risk-{risk}"
             path = f.get("path", "")
@@ -552,7 +545,7 @@ class AnalyticsSection(QWidget):
             self._agents_empty.hide()
 
             total_tokens = sum(a.get("tokens", 0) for a in agents)
-            for agent in agents[:10]:
+            for agent in agents[: UI["top_items_limit"]]:
                 tokens_val = agent.get("tokens", 0)
                 share = (
                     f"{tokens_val / total_tokens * 100:.1f}%"

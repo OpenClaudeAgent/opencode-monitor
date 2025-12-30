@@ -298,10 +298,10 @@ class MetricCard(QFrame):
             }}
         """)
 
-        # Dimensions
-        self.setMinimumWidth(140)
-        self.setMinimumHeight(100)
-        self.setMaximumWidth(180)
+        # Dimensions - generous sizing for large numbers
+        self.setMinimumWidth(160)
+        self.setMinimumHeight(120)
+        self.setMaximumWidth(220)
 
         # Shadow effect
         shadow = QGraphicsDropShadowEffect(self)
@@ -311,10 +311,10 @@ class MetricCard(QFrame):
         shadow.setColor(QColor(0, 0, 0, 80))
         self.setGraphicsEffect(shadow)
 
-        # Layout - truly centered
+        # Layout - truly centered with generous padding
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
         )
         layout.setSpacing(SPACING["sm"])
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
@@ -326,10 +326,10 @@ class MetricCard(QFrame):
             self._accent_color if accent != "muted" else COLORS["text_primary"]
         )
         self._value_label.setStyleSheet(f"""
-            font-size: {FONTS["size_3xl"]}px;
+            font-size: {FONTS["size_2xl"]}px;
             font-weight: {FONTS["weight_bold"]};
             color: {value_color};
-            letter-spacing: -1px;
+            letter-spacing: -0.5px;
         """)
         layout.addWidget(self._value_label)
 
