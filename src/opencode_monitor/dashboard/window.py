@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt
 from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont
 
-from .styles import get_stylesheet, COLORS, SPACING
+from .styles import get_stylesheet, COLORS, SPACING, UI, format_tokens
 from .widgets import Sidebar
 from .sections import MonitoringSection, SecuritySection, AnalyticsSection
 
@@ -53,8 +53,8 @@ class DashboardWindow(QMainWindow):
     def _setup_window(self) -> None:
         """Configure window properties."""
         self.setWindowTitle("OpenCode Monitor")
-        self.setMinimumSize(1000, 700)
-        self.resize(1200, 800)
+        self.setMinimumSize(UI["window_min_width"], UI["window_min_height"])
+        self.resize(UI["window_default_width"], UI["window_default_height"])
 
         # Create app icon
         self._set_app_icon()
@@ -64,7 +64,7 @@ class DashboardWindow(QMainWindow):
 
     def _set_app_icon(self) -> None:
         """Create and set a custom app icon."""
-        size = 128
+        size = UI["app_icon_size"]
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
 
@@ -149,10 +149,10 @@ class DashboardWindow(QMainWindow):
         # Initial data load
         self._refresh_all_data()
 
-        # Refresh every 2 seconds
+        # Periodic refresh
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._refresh_all_data)
-        self._refresh_timer.start(2000)
+        self._refresh_timer.start(UI["refresh_interval_ms"])
 
     def _refresh_all_data(self) -> None:
         """Refresh all section data in background threads."""
@@ -242,16 +242,19 @@ class DashboardWindow(QMainWindow):
 
             auditor = get_auditor()
             stats = auditor.get_stats()
-            commands = auditor.get_all_commands(limit=20)
-            reads = auditor.get_all_reads(limit=10)
-            writes = auditor.get_all_writes(limit=10)
+            row_limit = UI["table_row_limit"]
+            top_limit = UI["top_items_limit"]
+
+            commands = auditor.get_all_commands(limit=row_limit)
+            reads = auditor.get_all_reads(limit=top_limit)
+            writes = auditor.get_all_writes(limit=top_limit)
 
             # Get critical/high items
-            critical_cmds = auditor.get_critical_commands(limit=15)
-            high_cmds = auditor.get_commands_by_level("high", limit=15)
-            sensitive_reads = auditor.get_sensitive_reads(limit=10)
-            sensitive_writes = auditor.get_sensitive_writes(limit=10)
-            risky_fetches = auditor.get_risky_webfetches(limit=10)
+            critical_cmds = auditor.get_critical_commands(limit=row_limit)
+            high_cmds = auditor.get_commands_by_level("high", limit=row_limit)
+            sensitive_reads = auditor.get_sensitive_reads(limit=top_limit)
+            sensitive_writes = auditor.get_sensitive_writes(limit=top_limit)
+            risky_fetches = auditor.get_risky_webfetches(limit=top_limit)
 
             # Build critical items list
             critical_items = []
@@ -336,7 +339,7 @@ class DashboardWindow(QMainWindow):
             data = {
                 "stats": stats,
                 "commands": cmds,
-                "files": files[:20],
+                "files": files[:row_limit],
                 "critical_items": critical_items,
             }
 
@@ -359,46 +362,36 @@ class DashboardWindow(QMainWindow):
             days = self._analytics.get_current_period()
             stats = queries.get_period_stats(days=days)
 
-            # Format tokens
-            total_tokens = stats.tokens.total
-            if total_tokens >= 1_000_000:
-                tokens_str = f"{total_tokens / 1_000_000:.1f}M"
-            elif total_tokens >= 1_000:
-                tokens_str = f"{total_tokens / 1_000:.0f}K"
-            else:
-                tokens_str = str(total_tokens)
-
+            tokens_str = format_tokens(stats.tokens.total)
             cache_hit = f"{stats.tokens.cache_hit_ratio:.0f}%"
 
             # Convert dataclasses to dicts
-            agents = []
-            for a in stats.agents[:10]:
-                agents.append(
-                    {
-                        "agent": a.agent,
-                        "messages": a.message_count,
-                        "tokens": a.tokens.total,
-                    }
-                )
+            limit = UI["top_items_limit"]
+            agents = [
+                {
+                    "agent": a.agent,
+                    "messages": a.message_count,
+                    "tokens": a.tokens.total,
+                }
+                for a in stats.agents[:limit]
+            ]
 
-            tools = []
-            for t in stats.tools[:10]:
-                tools.append(
-                    {
-                        "tool_name": t.tool_name,
-                        "invocations": t.invocations,
-                        "failures": t.failures,
-                    }
-                )
+            tools = [
+                {
+                    "tool_name": t.tool_name,
+                    "invocations": t.invocations,
+                    "failures": t.failures,
+                }
+                for t in stats.tools[:limit]
+            ]
 
-            skills = []
-            for s in stats.skills[:10]:
-                skills.append(
-                    {
-                        "skill_name": s.skill_name,
-                        "load_count": s.load_count,
-                    }
-                )
+            skills = [
+                {
+                    "skill_name": s.skill_name,
+                    "load_count": s.load_count,
+                }
+                for s in stats.skills[:limit]
+            ]
 
             data = {
                 "sessions": stats.session_count,

@@ -557,7 +557,7 @@ class AnalyticsSection(QWidget):
                     [
                         agent.get("agent", ""),
                         str(agent.get("messages", 0)),
-                        self._format_tokens(tokens_val),
+                        format_tokens(tokens_val),
                         share,
                     ]
                 )
@@ -567,7 +567,7 @@ class AnalyticsSection(QWidget):
 
         # Tools with type badges
         self._tools_table.clear_data()
-        for tool in tools[:10]:
+        for tool in tools[: UI["top_items_limit"]]:
             invocations = tool.get("invocations", 0)
             failures = tool.get("failures", 0)
             rate = f"{failures / invocations * 100:.1f}%" if invocations > 0 else "0%"
@@ -585,7 +585,7 @@ class AnalyticsSection(QWidget):
 
         # Skills
         self._skills_table.clear_data()
-        for skill in skills[:10]:
+        for skill in skills[: UI["top_items_limit"]]:
             self._skills_table.add_row(
                 [
                     skill.get("skill_name", ""),
@@ -600,12 +600,5 @@ class AnalyticsSection(QWidget):
             self.period_changed.emit(days)
 
     def get_current_period(self) -> int:
+        """Get the currently selected period in days."""
         return self._current_days
-
-    @staticmethod
-    def _format_tokens(count: int) -> str:
-        if count >= 1_000_000:
-            return f"{count / 1_000_000:.1f}M"
-        elif count >= 1_000:
-            return f"{count / 1_000:.0f}K"
-        return str(count)
