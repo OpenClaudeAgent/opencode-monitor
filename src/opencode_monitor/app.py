@@ -28,6 +28,7 @@ from .ui.menu import (
     TODO_PENDING_MAX_LENGTH,
 )
 from .security.reporter import SecurityReporter
+from .analytics import AnalyticsDB, load_opencode_data, generate_report
 
 
 # Re-export for backwards compatibility with tests
@@ -71,6 +72,9 @@ class OpenCodeApp(rumps.App):
 
         # Build initial menu
         self._build_static_menu()
+
+        # Start analytics background refresh (once per day)
+        self._start_analytics_refresh()
 
         # Start background monitoring
         self._monitor_thread = threading.Thread(
@@ -166,6 +170,13 @@ class OpenCodeApp(rumps.App):
         self._has_critical_alert = critical_count > 0
 
         self.menu.add(security_menu)
+
+        # Analytics menu
+        analytics_menu = self._menu_builder.build_analytics_menu(
+            analytics_callback=self._show_analytics,
+            refresh_callback=self._refresh_analytics,
+        )
+        self.menu.add(analytics_menu)
 
         # Static items
         self.menu.add(None)
@@ -291,6 +302,90 @@ class OpenCodeApp(rumps.App):
 
         subprocess.run(["open", export_path])
         info(f"Security audit exported: {export_path}")
+
+    def _show_analytics(self, days: int):
+        """Show analytics report for the specified period (runs in background)."""
+
+        def run_in_background():
+            import tempfile
+            import os
+
+            try:
+                info(f"[Analytics] Starting for {days} days...")
+
+                # Create a fresh DB connection for this thread
+                info("[Analytics] Creating DB connection...")
+                db = AnalyticsDB()
+
+                # Load data on first access (check if DB has data)
+                info("[Analytics] Checking DB stats...")
+                stats = db.get_stats()
+                info(f"[Analytics] Current stats: {stats}")
+
+                if stats.get("messages", 0) == 0:
+                    info("[Analytics] Loading OpenCode data...")
+                    load_opencode_data(db, clear_first=True)
+                    info("[Analytics] Data loaded!")
+
+                info("[Analytics] Generating report...")
+                report = generate_report(days, db=db, refresh_data=False)
+                info("[Analytics] Converting to HTML...")
+                report_html = report.to_html()
+                info(f"[Analytics] HTML generated: {len(report_html)} bytes")
+
+                report_path = os.path.join(
+                    tempfile.gettempdir(), f"opencode_analytics_{days}d.html"
+                )
+                with open(report_path, "w") as f:
+                    f.write(report_html)
+
+                info(f"[Analytics] Opening {report_path}...")
+                subprocess.run(["open", report_path])
+                info(f"[Analytics] Done!")
+                db.close()
+            except Exception as e:
+                error(f"[Analytics] Error: {e}")
+                import traceback
+
+                error(traceback.format_exc())
+
+        thread = threading.Thread(target=run_in_background, daemon=True)
+        thread.start()
+
+    def _refresh_analytics(self, _):
+        """Refresh analytics data from OpenCode storage (runs in background)."""
+
+        def run_in_background():
+            try:
+                info("Refreshing OpenCode analytics data (background)...")
+                db = AnalyticsDB()
+                load_opencode_data(db, clear_first=True)
+                db.close()
+                info("Analytics data refreshed")
+            except Exception as e:
+                error(f"Analytics refresh error: {e}")
+
+        thread = threading.Thread(target=run_in_background, daemon=True)
+        thread.start()
+
+    def _start_analytics_refresh(self):
+        """Start background analytics refresh if data is stale (>24h old)."""
+
+        def check_and_refresh():
+            try:
+                db = AnalyticsDB()
+                if db.needs_refresh(max_age_hours=24):
+                    info("[Analytics] Data is stale, refreshing in background...")
+                    load_opencode_data(db, clear_first=True)
+                    info("[Analytics] Background refresh complete")
+                else:
+                    debug("[Analytics] Data is fresh, skipping refresh")
+                db.close()
+            except Exception as e:
+                error(f"[Analytics] Background refresh error: {e}")
+
+        thread = threading.Thread(target=check_and_refresh, daemon=True)
+        thread.start()
 
     def _run_monitor_loop(self):
         """Background monitoring loop"""

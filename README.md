@@ -11,6 +11,7 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 - **Tools display** showing currently running tools
 - **Todos tracking** with progress indicators
 - **Claude API usage** (session + weekly)
+- **Analytics dashboard** with token usage statistics (by period, agent, tool, skill)
 - **Security audit** with risk analysis of commands, file operations, and web fetches
 - **Click to focus** iTerm2 on the agent's terminal
 - **Configurable settings** via menu
@@ -74,6 +75,12 @@ Click the icon to see:
     🌐 ── Web Fetches ──
     📋 View Full Report
     📜 Export All Data
+📊 Analytics ▸
+    📅 Last 24 hours
+    📅 Last 7 days
+    📅 Last 30 days
+    ─────────────
+    🔄 Refresh data
 ---
 Refresh
 ---
@@ -119,6 +126,11 @@ opencode-monitor/
 │       │   ├── models.py         # Data classes
 │       │   ├── monitor.py        # Instance detection
 │       │   └── usage.py          # Claude API usage
+│       ├── analytics/            # Usage analytics
+│       │   ├── db.py             # DuckDB storage
+│       │   ├── loader.py         # JSON data loader
+│       │   ├── queries.py        # Analytics queries
+│       │   └── report.py         # Report generation
 │       ├── security/             # Security audit
 │       │   ├── analyzer.py       # Risk analysis
 │       │   ├── auditor.py        # Background scanner
@@ -144,6 +156,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.11.0 | 2025-12-30 | Analytics dashboard - DuckDB, HTML reports with Plotly, delegation metrics |
 | v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |
 | v2.9.0 | 2025-12-28 | Refactoring - Extract database, risk_analyzer, reporter, terminal modules |
 | v2.8.0 | 2025-12-28 | Security audit module - analyze commands, reads, writes, webfetches |

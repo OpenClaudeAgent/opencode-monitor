@@ -492,3 +492,34 @@ class MenuBuilder:
             and not risky_fetches
         ):
             menu.add(rumps.MenuItem("✅ No critical items"))
+
+    def build_analytics_menu(
+        self,
+        analytics_callback: Callable[[int], None],
+        refresh_callback: Callable,
+    ) -> rumps.MenuItem:
+        """Build the analytics submenu.
+
+        Args:
+            analytics_callback: Callback for viewing analytics (takes days param)
+            refresh_callback: Callback for refreshing data
+
+        Returns:
+            rumps.MenuItem with analytics submenu
+        """
+        menu = rumps.MenuItem("📊 Analytics")
+
+        # Period options
+        def make_period_callback(days: int):
+            def callback(_):
+                analytics_callback(days)
+
+            return callback
+
+        menu.add(rumps.MenuItem("📅 Last 24 hours", callback=make_period_callback(1)))
+        menu.add(rumps.MenuItem("📅 Last 7 days", callback=make_period_callback(7)))
+        menu.add(rumps.MenuItem("📅 Last 30 days", callback=make_period_callback(30)))
+        menu.add(None)  # separator
+        menu.add(rumps.MenuItem("🔄 Refresh data", callback=refresh_callback))
+
+        return menu
