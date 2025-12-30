@@ -360,7 +360,7 @@ class MenuBuilder:
         items.append(rumps.MenuItem(f"📅 Weekly: {seven_d}%{weekly_reset}"))
         items.append(
             rumps.MenuItem(
-                "📊 Open Claude Usage",
+                "🌐 Open Claude Usage",
                 callback=lambda _: __import__("subprocess").run(
                     ["open", "https://console.anthropic.com/settings/usage"]
                 ),
@@ -404,7 +404,7 @@ class MenuBuilder:
 
         menu.add(
             rumps.MenuItem(
-                f"📊 {total_cmds} cmds, {total_reads} reads, {total_writes} writes, {total_fetches} fetches"
+                f"🔢 {total_cmds} cmds, {total_reads} reads, {total_writes} writes, {total_fetches} fetches"
             )
         )
         menu.add(
@@ -434,7 +434,7 @@ class MenuBuilder:
 
         menu.add(None)
         menu.add(rumps.MenuItem("📋 View Full Report", callback=report_callback))
-        menu.add(rumps.MenuItem("📜 Export All Data", callback=export_callback))
+        menu.add(rumps.MenuItem("📤 Export All Data", callback=export_callback))
 
         return menu
 
@@ -524,7 +524,7 @@ class MenuBuilder:
         Returns:
             rumps.MenuItem with analytics submenu
         """
-        menu = rumps.MenuItem("📊 Analytics")
+        menu = rumps.MenuItem("📈 OpenCode Analytics")
 
         # Period options
         def make_period_callback(days: int):
@@ -537,6 +537,6 @@ class MenuBuilder:
         menu.add(rumps.MenuItem("📅 Last 7 days", callback=make_period_callback(7)))
         menu.add(rumps.MenuItem("📅 Last 30 days", callback=make_period_callback(30)))
         menu.add(None)  # separator
-        menu.add(rumps.MenuItem("🔄 Refresh data", callback=refresh_callback))
+        menu.add(rumps.MenuItem("🔃 Refresh data", callback=refresh_callback))
 
         return menu
