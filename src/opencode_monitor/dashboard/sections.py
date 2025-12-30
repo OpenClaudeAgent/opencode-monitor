@@ -24,7 +24,7 @@ from .widgets import (
     EmptyState,
     SegmentedControl,
 )
-from .styles import COLORS, SPACING, UI, format_tokens, format_duration_ms
+from .styles import COLORS, SPACING, COL_WIDTH, UI, format_tokens, format_duration_ms
 
 
 # ============================================================
@@ -109,10 +109,10 @@ class MonitoringSection(QWidget):
         self._agents_table = DataTable(
             ["Agent", "Directory", "Status", "Tools", "Todos"]
         )
-        self._agents_table.setColumnWidth(0, 280)
-        self._agents_table.setColumnWidth(1, 240)
-        self._agents_table.setColumnWidth(2, 100)
-        self._agents_table.setColumnWidth(3, 80)
+        self._agents_table.setColumnWidth(0, COL_WIDTH["name_long"])  # Agent name
+        self._agents_table.setColumnWidth(1, COL_WIDTH["path"])  # Directory
+        self._agents_table.setColumnWidth(2, COL_WIDTH["status"])  # Status (BUSY/IDLE)
+        self._agents_table.setColumnWidth(3, COL_WIDTH["number_tiny"])  # Tools count
         content_layout.addWidget(self._agents_table)
 
         self._agents_empty = EmptyState(
@@ -131,9 +131,9 @@ class MonitoringSection(QWidget):
         )
 
         self._tools_table = DataTable(["Tool", "Agent", "Arguments", "Duration"])
-        self._tools_table.setColumnWidth(0, 140)
-        self._tools_table.setColumnWidth(1, 200)
-        self._tools_table.setColumnWidth(2, 380)
+        self._tools_table.setColumnWidth(0, COL_WIDTH["type"])  # Tool type
+        self._tools_table.setColumnWidth(1, COL_WIDTH["name_short"])  # Agent name
+        self._tools_table.setColumnWidth(2, COL_WIDTH["path"])  # Arguments
         content_layout.addWidget(self._tools_table)
 
         self._tools_empty = EmptyState(
@@ -273,9 +273,9 @@ class SecuritySection(QWidget):
         )
 
         self._critical_table = DataTable(["Type", "Details", "Risk", "Reason"])
-        self._critical_table.setColumnWidth(0, 120)
-        self._critical_table.setColumnWidth(1, 340)
-        self._critical_table.setColumnWidth(2, 110)
+        self._critical_table.setColumnWidth(0, COL_WIDTH["type"])  # Operation type
+        self._critical_table.setColumnWidth(1, COL_WIDTH["path"])  # Details/path
+        self._critical_table.setColumnWidth(2, COL_WIDTH["risk"])  # Risk level
         content_layout.addWidget(self._critical_table)
 
         self._critical_empty = EmptyState(
@@ -294,8 +294,9 @@ class SecuritySection(QWidget):
         )
 
         self._commands_table = DataTable(["Command", "Risk", "Score", "Reason"])
-        self._commands_table.setColumnWidth(0, 400)
-        self._commands_table.setColumnWidth(1, 110)
+        self._commands_table.setColumnWidth(0, COL_WIDTH["path"])  # Command (long text)
+        self._commands_table.setColumnWidth(1, COL_WIDTH["risk"])  # Risk level
+        self._commands_table.setColumnWidth(2, COL_WIDTH["number_tiny"])  # Score
         self._commands_table.setColumnWidth(2, 80)
         content_layout.addWidget(self._commands_table)
 
@@ -307,9 +308,10 @@ class SecuritySection(QWidget):
         )
 
         self._files_table = DataTable(["Operation", "Path", "Risk", "Score"])
-        self._files_table.setColumnWidth(0, 110)
-        self._files_table.setColumnWidth(1, 420)
-        self._files_table.setColumnWidth(2, 110)
+        self._files_table.setColumnWidth(0, COL_WIDTH["type"])  # Operation type
+        self._files_table.setColumnWidth(1, COL_WIDTH["path"])  # File path
+        self._files_table.setColumnWidth(2, COL_WIDTH["risk"])  # Risk level
+        self._files_table.setColumnWidth(3, COL_WIDTH["number_tiny"])  # Score
         content_layout.addWidget(self._files_table)
 
         content_layout.addStretch()
@@ -480,9 +482,14 @@ class AnalyticsSection(QWidget):
         )
 
         self._agents_table = DataTable(["Agent", "Messages", "Tokens", "Share"])
-        self._agents_table.setColumnWidth(0, 380)
-        self._agents_table.setColumnWidth(1, 120)
-        self._agents_table.setColumnWidth(2, 120)
+        self._agents_table.setColumnWidth(0, COL_WIDTH["path"])  # Agent name (long)
+        self._agents_table.setColumnWidth(
+            1, COL_WIDTH["number_small"]
+        )  # Messages count
+        self._agents_table.setColumnWidth(
+            2, COL_WIDTH["number_medium"]
+        )  # Tokens (formatted)
+        self._agents_table.setColumnWidth(3, COL_WIDTH["percentage"])  # Share %
         content_layout.addWidget(self._agents_table)
 
         self._agents_empty = EmptyState(
@@ -503,9 +510,10 @@ class AnalyticsSection(QWidget):
         self._tools_table = DataTable(
             ["Tool", "Invocations", "Failures", "Failure Rate"]
         )
-        self._tools_table.setColumnWidth(0, 220)
-        self._tools_table.setColumnWidth(1, 120)
-        self._tools_table.setColumnWidth(2, 100)
+        self._tools_table.setColumnWidth(0, COL_WIDTH["name_short"])  # Tool name
+        self._tools_table.setColumnWidth(1, COL_WIDTH["number_small"])  # Invocations
+        self._tools_table.setColumnWidth(2, COL_WIDTH["number_tiny"])  # Failures
+        self._tools_table.setColumnWidth(3, COL_WIDTH["percentage"])  # Failure rate
         content_layout.addWidget(self._tools_table)
 
         content_layout.addWidget(Separator())
@@ -514,7 +522,8 @@ class AnalyticsSection(QWidget):
         content_layout.addWidget(SectionHeader("Skills Loaded", "Custom skills used"))
 
         self._skills_table = DataTable(["Skill", "Load Count"])
-        self._skills_table.setColumnWidth(0, 400)
+        self._skills_table.setColumnWidth(0, COL_WIDTH["path"])  # Skill name
+        self._skills_table.setColumnWidth(1, COL_WIDTH["number_small"])  # Load count
         content_layout.addWidget(self._skills_table)
 
         content_layout.addStretch()

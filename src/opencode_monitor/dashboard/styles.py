@@ -167,6 +167,29 @@ UI = {
 }
 
 # ============================================================
+# COLUMN WIDTHS (based on data type)
+# ============================================================
+
+COL_WIDTH = {
+    # Text columns
+    "name_short": 180,  # Tool names, short agent names
+    "name_long": 280,  # Full agent names, descriptions
+    "path": 320,  # File paths, directories
+    # Numeric columns
+    "number_tiny": 60,  # Single digit or small numbers (0-99)
+    "number_small": 80,  # Small numbers (0-9999)
+    "number_medium": 100,  # Medium numbers with formatting (10K, 1.2M)
+    # Status/Type columns
+    "status": 80,  # BUSY, IDLE
+    "risk": 90,  # LOW, MEDIUM, HIGH, CRITICAL
+    "type": 100,  # COMMAND, READ, WRITE, etc.
+    # Other
+    "duration": 90,  # 1m 30s, 500ms
+    "percentage": 80,  # 48.2%, 100%
+    "reason": 200,  # Short explanations
+}
+
+# ============================================================
 # ICONS (Simple Unicode)
 # ============================================================
 

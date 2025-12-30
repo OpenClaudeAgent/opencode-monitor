@@ -289,11 +289,11 @@ class MetricCard(QFrame):
         self._accent = accent
         self._accent_color = self.ACCENT_MAP.get(accent, COLORS["text_muted"])
 
-        # Card styling with rounded corners
+        # Card styling - no border, just shadow for elevation
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_subtle"]};
+                border: none;
                 border-radius: {RADIUS["md"]}px;
             }}
         """)
@@ -319,7 +319,7 @@ class MetricCard(QFrame):
         layout.setSpacing(SPACING["sm"])
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Value (large, colored if accent)
+        # Value (large, colored if accent) - NO border
         self._value_label = QLabel(value)
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         value_color = (
@@ -330,10 +330,12 @@ class MetricCard(QFrame):
             font-weight: {FONTS["weight_bold"]};
             color: {value_color};
             letter-spacing: -0.5px;
+            border: none;
+            background: transparent;
         """)
         layout.addWidget(self._value_label)
 
-        # Label (uppercase, muted)
+        # Label (uppercase, muted) - NO border
         self._label = QLabel(label.upper())
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(f"""
@@ -341,6 +343,8 @@ class MetricCard(QFrame):
             font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_muted"]};
             letter-spacing: 0.5px;
+            border: none;
+            background: transparent;
         """)
         layout.addWidget(self._label)
 
@@ -671,6 +675,9 @@ class DataTable(QTableWidget):
         data: list[str | tuple[str, str]],
         full_values: list[str] | None = None,
     ) -> None:
+        # Disable sorting while adding rows to prevent data corruption
+        self.setSortingEnabled(False)
+
         row = self.rowCount()
         self.insertRow(row)
 
@@ -729,9 +736,14 @@ class DataTable(QTableWidget):
 
         self._update_height()
 
+        # Re-enable sorting after adding row
+        self.setSortingEnabled(True)
+
     def clear_data(self) -> None:
+        self.setSortingEnabled(False)
         self.setRowCount(0)
         self._update_height()
+        self.setSortingEnabled(True)
 
     def _update_height(self) -> None:
         row_count = self.rowCount()
