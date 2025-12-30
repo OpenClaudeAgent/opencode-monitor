@@ -3,6 +3,11 @@ Security Auditor - Background scanner for OpenCode command history
 
 Scans OpenCode storage files, analyzes commands for security risks,
 and stores results in a local SQLite database for audit purposes.
+
+Enhanced with EDR-like heuristics:
+- Kill chain detection (sequence analysis)
+- Multi-event correlation
+- MITRE ATT&CK mapping
 """
 
 import hashlib
@@ -22,6 +27,8 @@ from .db import (
     AuditedWebFetch,
 )
 from .reporter import SecurityReporter
+from .sequences import SequenceAnalyzer, SequenceMatch, create_event_from_audit_data
+from .correlator import EventCorrelator, Correlation
 from ..utils.logger import info, error, debug
 
 # Paths
@@ -32,7 +39,13 @@ SCAN_INTERVAL = 30  # seconds between incremental scans
 
 
 class SecurityAuditor:
-    """Background scanner for OpenCode command security analysis"""
+    """Background scanner for OpenCode command security analysis
+
+    Enhanced with EDR-like heuristics:
+    - SequenceAnalyzer: Detects kill chain patterns
+    - EventCorrelator: Correlates related events
+    - MITRE ATT&CK: Techniques tagged on all alerts
+    """
 
     def __init__(self):
         self._running = False
@@ -45,9 +58,26 @@ class SecurityAuditor:
         self._analyzer = get_risk_analyzer()
         self._reporter = SecurityReporter()
 
+        # EDR components
+        self._sequence_analyzer = SequenceAnalyzer(
+            buffer_size=100,
+            default_window_seconds=300.0,  # 5 minutes
+        )
+        self._event_correlator = EventCorrelator(
+            buffer_size=200,
+            default_window_seconds=300.0,
+        )
+
+        # Detected sequences and correlations (recent)
+        self._recent_sequences: List[SequenceMatch] = []
+        self._recent_correlations: List[Correlation] = []
+        self._max_recent = 50
+
         # Load cached stats
         self._stats = self._db.get_stats()
         self._stats["last_scan"] = None
+        self._stats["sequences_detected"] = 0
+        self._stats["correlations_detected"] = 0
         self._scanned_ids = self._db.get_all_scanned_ids()
 
         info(f"Loaded {len(self._scanned_ids)} scanned file IDs from database")
@@ -152,6 +182,92 @@ class SecurityAuditor:
         if key in self._stats:
             self._stats[key] += 1
 
+    def _process_edr_analysis(
+        self,
+        tool: str,
+        target: str,
+        session_id: str,
+        timestamp: Optional[float],
+        risk_score: int,
+    ) -> Dict[str, Any]:
+        """
+        Process event through EDR analyzers (sequence + correlation).
+
+        Returns dict with:
+        - sequences: List of detected kill chains
+        - correlations: List of detected correlations
+        - sequence_score_bonus: Additional score from sequences
+        - correlation_score_bonus: Additional score from correlations
+        - mitre_from_edr: MITRE techniques from EDR analysis
+        """
+        # Convert timestamp from milliseconds if needed
+        ts = (
+            timestamp / 1000.0
+            if timestamp and timestamp > 1e10
+            else timestamp or time.time()
+        )
+
+        # Create security event
+        event = create_event_from_audit_data(
+            tool=tool,
+            target=target,
+            session_id=session_id,
+            timestamp=ts,
+            risk_score=risk_score,
+        )
+
+        # Analyze with sequence analyzer
+        sequences = self._sequence_analyzer.add_event(event)
+
+        # Check for mass deletion
+        mass_del = self._sequence_analyzer.check_mass_deletion(session_id)
+        if mass_del:
+            sequences.append(mass_del)
+
+        # Analyze with event correlator
+        correlations = self._event_correlator.add_event(event)
+
+        # Collect results
+        sequence_score_bonus = sum(s.score_bonus for s in sequences)
+        correlation_score_bonus = sum(c.score_modifier for c in correlations)
+
+        mitre_from_edr: List[str] = []
+        for seq in sequences:
+            if seq.mitre_technique and seq.mitre_technique not in mitre_from_edr:
+                mitre_from_edr.append(seq.mitre_technique)
+        for corr in correlations:
+            if corr.mitre_technique and corr.mitre_technique not in mitre_from_edr:
+                mitre_from_edr.append(corr.mitre_technique)
+
+        # Store recent detections
+        with self._lock:
+            for seq in sequences:
+                self._recent_sequences.append(seq)
+                self._stats["sequences_detected"] = (
+                    self._stats.get("sequences_detected", 0) + 1
+                )
+            for corr in correlations:
+                self._recent_correlations.append(corr)
+                self._stats["correlations_detected"] = (
+                    self._stats.get("correlations_detected", 0) + 1
+                )
+
+            # Trim to max recent
+            if len(self._recent_sequences) > self._max_recent:
+                self._recent_sequences = self._recent_sequences[-self._max_recent :]
+            if len(self._recent_correlations) > self._max_recent:
+                self._recent_correlations = self._recent_correlations[
+                    -self._max_recent :
+                ]
+
+        return {
+            "sequences": sequences,
+            "correlations": correlations,
+            "sequence_score_bonus": sequence_score_bonus,
+            "correlation_score_bonus": correlation_score_bonus,
+            "mitre_from_edr": mitre_from_edr,
+        }
+
     def _process_file(self, prt_file: Path) -> Optional[Dict[str, Any]]:
         """Process a single part file"""
         try:
@@ -178,14 +294,41 @@ class SecurityAuditor:
                 if not command:
                     return None
                 alert = analyze_command(command, tool)
+
+                # EDR analysis
+                edr = self._process_edr_analysis(
+                    tool=tool,
+                    target=command,
+                    session_id=base_data["session_id"],
+                    timestamp=base_data["timestamp"],
+                    risk_score=alert.score,
+                )
+
+                # Combine MITRE techniques
+                all_mitre = list(alert.mitre_techniques)
+                for tech in edr["mitre_from_edr"]:
+                    if tech not in all_mitre:
+                        all_mitre.append(tech)
+
+                # Apply EDR score bonuses (capped at 100)
+                final_score = min(
+                    100,
+                    alert.score
+                    + edr["sequence_score_bonus"]
+                    + edr["correlation_score_bonus"],
+                )
+
                 return {
                     **base_data,
                     "type": "command",
                     "tool": tool,
                     "command": command,
-                    "risk_score": alert.score,
+                    "risk_score": final_score,
                     "risk_level": alert.level.value,
                     "risk_reason": alert.reason,
+                    "mitre_techniques": all_mitre,
+                    "edr_sequences": len(edr["sequences"]),
+                    "edr_correlations": len(edr["correlations"]),
                 }
 
             elif tool == "read":
@@ -193,13 +336,36 @@ class SecurityAuditor:
                 if not file_path:
                     return None
                 result = self._analyzer.analyze_file_path(file_path)
+
+                # EDR analysis
+                edr = self._process_edr_analysis(
+                    tool=tool,
+                    target=file_path,
+                    session_id=base_data["session_id"],
+                    timestamp=base_data["timestamp"],
+                    risk_score=result.score,
+                )
+
+                all_mitre = list(result.mitre_techniques)
+                for tech in edr["mitre_from_edr"]:
+                    if tech not in all_mitre:
+                        all_mitre.append(tech)
+
+                final_score = min(
+                    100,
+                    result.score
+                    + edr["sequence_score_bonus"]
+                    + edr["correlation_score_bonus"],
+                )
+
                 return {
                     **base_data,
                     "type": "read",
                     "file_path": file_path,
-                    "risk_score": result.score,
+                    "risk_score": final_score,
                     "risk_level": result.level,
                     "risk_reason": result.reason,
+                    "mitre_techniques": all_mitre,
                 }
 
             elif tool in ("write", "edit"):
@@ -207,14 +373,37 @@ class SecurityAuditor:
                 if not file_path:
                     return None
                 result = self._analyzer.analyze_file_path(file_path, write_mode=True)
+
+                # EDR analysis
+                edr = self._process_edr_analysis(
+                    tool=tool,
+                    target=file_path,
+                    session_id=base_data["session_id"],
+                    timestamp=base_data["timestamp"],
+                    risk_score=result.score,
+                )
+
+                all_mitre = list(result.mitre_techniques)
+                for tech in edr["mitre_from_edr"]:
+                    if tech not in all_mitre:
+                        all_mitre.append(tech)
+
+                final_score = min(
+                    100,
+                    result.score
+                    + edr["sequence_score_bonus"]
+                    + edr["correlation_score_bonus"],
+                )
+
                 return {
                     **base_data,
                     "type": "write",
                     "file_path": file_path,
                     "operation": tool,
-                    "risk_score": result.score,
+                    "risk_score": final_score,
                     "risk_level": result.level,
                     "risk_reason": result.reason,
+                    "mitre_techniques": all_mitre,
                 }
 
             elif tool == "webfetch":
@@ -222,13 +411,36 @@ class SecurityAuditor:
                 if not url:
                     return None
                 result = self._analyzer.analyze_url(url)
+
+                # EDR analysis
+                edr = self._process_edr_analysis(
+                    tool=tool,
+                    target=url,
+                    session_id=base_data["session_id"],
+                    timestamp=base_data["timestamp"],
+                    risk_score=result.score,
+                )
+
+                all_mitre = list(result.mitre_techniques)
+                for tech in edr["mitre_from_edr"]:
+                    if tech not in all_mitre:
+                        all_mitre.append(tech)
+
+                final_score = min(
+                    100,
+                    result.score
+                    + edr["sequence_score_bonus"]
+                    + edr["correlation_score_bonus"],
+                )
+
                 return {
                     **base_data,
                     "type": "webfetch",
                     "url": url,
-                    "risk_score": result.score,
+                    "risk_score": final_score,
                     "risk_level": result.level,
                     "risk_reason": result.reason,
+                    "mitre_techniques": all_mitre,
                 }
 
             return None
@@ -293,6 +505,50 @@ class SecurityAuditor:
             sensitive_writes=self.get_sensitive_writes(10),
             risky_fetches=self.get_risky_webfetches(10),
         )
+
+    # ===== EDR API =====
+
+    def get_recent_sequences(self) -> List[SequenceMatch]:
+        """Get recently detected kill chain sequences"""
+        with self._lock:
+            return self._recent_sequences.copy()
+
+    def get_recent_correlations(self) -> List[Correlation]:
+        """Get recently detected event correlations"""
+        with self._lock:
+            return self._recent_correlations.copy()
+
+    def get_session_events(self, session_id: str) -> List[Dict[str, Any]]:
+        """Get all tracked events for a session"""
+        sequence_events = self._sequence_analyzer.get_session_buffer(session_id)
+        return [
+            {
+                "type": e.event_type.value,
+                "target": e.target,
+                "timestamp": e.timestamp,
+                "risk_score": e.risk_score,
+            }
+            for e in sequence_events
+        ]
+
+    def get_edr_stats(self) -> Dict[str, Any]:
+        """Get EDR-specific statistics"""
+        with self._lock:
+            return {
+                "sequences_detected": self._stats.get("sequences_detected", 0),
+                "correlations_detected": self._stats.get("correlations_detected", 0),
+                "active_sessions": len(self._sequence_analyzer.get_active_sessions()),
+                "recent_sequences": len(self._recent_sequences),
+                "recent_correlations": len(self._recent_correlations),
+            }
+
+    def clear_edr_buffers(self) -> None:
+        """Clear all EDR analyzer buffers (useful for testing)"""
+        self._sequence_analyzer.clear_all()
+        self._event_correlator.clear_all()
+        with self._lock:
+            self._recent_sequences.clear()
+            self._recent_correlations.clear()
 
 
 # Global instance
