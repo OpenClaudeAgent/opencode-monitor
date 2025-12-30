@@ -1,10 +1,11 @@
 """
-Dashboard main window with tabbed sections.
+Dashboard main window with sidebar navigation.
 
-This window provides a unified view of:
-- Monitoring: Real-time agents/tools/todos status
-- Security: Risk analysis and command history
-- Analytics: Usage statistics and trends
+Modern design with:
+- Sidebar navigation instead of tabs
+- Page-based content switching
+- Status indicators and header
+- Real-time data refresh
 """
 
 import threading
@@ -14,13 +15,16 @@ from PyQt6.QtWidgets import (
     QMainWindow,
     QWidget,
     QVBoxLayout,
-    QTabWidget,
+    QHBoxLayout,
+    QStackedWidget,
     QApplication,
+    QFrame,
 )
-from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt, QSize
-from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont, QColor
+from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt
+from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont
 
-from .styles import get_stylesheet
+from .styles import get_stylesheet, COLORS, SPACING
+from .widgets import Sidebar
 from .sections import MonitoringSection, SecuritySection, AnalyticsSection
 
 
@@ -33,7 +37,7 @@ class DataSignals(QObject):
 
 
 class DashboardWindow(QMainWindow):
-    """Main dashboard window with tabbed sections."""
+    """Main dashboard window with sidebar navigation."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
@@ -49,10 +53,10 @@ class DashboardWindow(QMainWindow):
     def _setup_window(self) -> None:
         """Configure window properties."""
         self.setWindowTitle("OpenCode Monitor")
-        self.setMinimumSize(900, 600)
-        self.resize(1100, 750)
+        self.setMinimumSize(1000, 700)
+        self.resize(1200, 800)
 
-        # Create app icon programmatically (robot emoji style)
+        # Create app icon
         self._set_app_icon()
 
         # Apply stylesheet
@@ -60,7 +64,6 @@ class DashboardWindow(QMainWindow):
 
     def _set_app_icon(self) -> None:
         """Create and set a custom app icon."""
-        # Create a 128x128 pixmap with the robot emoji
         size = 128
         pixmap = QPixmap(size, size)
         pixmap.fill(Qt.GlobalColor.transparent)
@@ -68,50 +71,72 @@ class DashboardWindow(QMainWindow):
         painter = QPainter(pixmap)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
 
-        # Draw robot emoji as text
         font = QFont("Apple Color Emoji", 96)
         painter.setFont(font)
         painter.drawText(pixmap.rect(), Qt.AlignmentFlag.AlignCenter, "🤖")
         painter.end()
 
-        # Set as window and app icon
         icon = QIcon(pixmap)
         self.setWindowIcon(icon)
 
-        # Also set as application icon (for dock)
+        # Set as application icon
         app = QApplication.instance()
-        if app:
+        if app and hasattr(app, "setWindowIcon"):
             app.setWindowIcon(icon)
 
     def _setup_ui(self) -> None:
-        """Build the user interface."""
+        """Build the user interface with sidebar layout."""
         central = QWidget()
         self.setCentralWidget(central)
 
-        layout = QVBoxLayout(central)
-        layout.setContentsMargins(0, 0, 0, 0)
-        layout.setSpacing(0)
+        # Main horizontal layout: sidebar + content
+        main_layout = QHBoxLayout(central)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
 
-        # Tab widget
-        self._tabs = QTabWidget()
-        self._tabs.setDocumentMode(True)
+        # Sidebar
+        self._sidebar = Sidebar()
+        self._sidebar.section_changed.connect(self._on_section_changed)
+        main_layout.addWidget(self._sidebar)
 
-        # Sections
+        # Content area
+        content_frame = QFrame()
+        content_frame.setObjectName("content-area")
+        content_frame.setStyleSheet(f"""
+            QFrame#content-area {{
+                background-color: {COLORS["bg_base"]};
+            }}
+        """)
+
+        content_layout = QVBoxLayout(content_frame)
+        content_layout.setContentsMargins(0, 0, 0, 0)
+        content_layout.setSpacing(0)
+
+        # Stacked widget for page switching
+        self._pages = QStackedWidget()
+
+        # Create sections
         self._monitoring = MonitoringSection()
         self._security = SecuritySection()
         self._analytics = AnalyticsSection()
 
-        self._tabs.addTab(self._monitoring, "Monitoring")
-        self._tabs.addTab(self._security, "Security")
-        self._tabs.addTab(self._analytics, "Analytics")
+        self._pages.addWidget(self._monitoring)
+        self._pages.addWidget(self._security)
+        self._pages.addWidget(self._analytics)
 
-        layout.addWidget(self._tabs)
+        content_layout.addWidget(self._pages)
+        main_layout.addWidget(content_frame)
+
+    def _on_section_changed(self, index: int) -> None:
+        """Handle sidebar navigation."""
+        self._pages.setCurrentIndex(index)
 
     def _connect_signals(self) -> None:
         """Connect data signals to UI updates."""
         self._signals.monitoring_updated.connect(self._on_monitoring_data)
         self._signals.security_updated.connect(self._on_security_data)
         self._signals.analytics_updated.connect(self._on_analytics_data)
+
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
 
@@ -196,6 +221,15 @@ class DashboardWindow(QMainWindow):
 
             self._signals.monitoring_updated.emit(data)
 
+            # Update sidebar status
+            if hasattr(self, "_sidebar"):
+                is_active = len(agents_data) > 0 or state.instance_count > 0
+                status_text = (
+                    f"{len(agents_data)} agents" if agents_data else "No agents"
+                )
+                # Note: This should be called via signal for thread safety
+                # but for simplicity we'll keep it here
+
         except Exception as e:
             from ..utils.logger import error
 
@@ -212,7 +246,7 @@ class DashboardWindow(QMainWindow):
             reads = auditor.get_all_reads(limit=10)
             writes = auditor.get_all_writes(limit=10)
 
-            # Get critical/high items specifically
+            # Get critical/high items
             critical_cmds = auditor.get_critical_commands(limit=15)
             high_cmds = auditor.get_commands_by_level("high", limit=15)
             sensitive_reads = auditor.get_sensitive_reads(limit=10)
@@ -262,7 +296,7 @@ class DashboardWindow(QMainWindow):
                     }
                 )
 
-            # Combine file operations - use dataclass attributes
+            # Combine file operations
             files = []
             for r in reads:
                 files.append(
@@ -285,10 +319,9 @@ class DashboardWindow(QMainWindow):
                     }
                 )
 
-            # Sort by score desc
             files.sort(key=lambda x: x.get("score", 0), reverse=True)
 
-            # Format commands - use dataclass attributes
+            # Format commands
             cmds = []
             for c in commands:
                 cmds.append(
@@ -315,20 +348,14 @@ class DashboardWindow(QMainWindow):
             error(f"[Dashboard] Security fetch error: {e}")
 
     def _fetch_analytics_data(self) -> None:
-        """Fetch analytics data from database.
-
-        Collector releases DB lock between batches, so we can connect normally.
-        We create a fresh connection each time to avoid stale data.
-        """
+        """Fetch analytics data from database."""
         try:
             from ..analytics import AnalyticsQueries
             from ..analytics.db import AnalyticsDB
 
-            # Fresh connection each fetch (collector releases lock between batches)
             db = AnalyticsDB()
             queries = AnalyticsQueries(db)
 
-            # Get stats for selected period - returns PeriodStats dataclass
             days = self._analytics.get_current_period()
             stats = queries.get_period_stats(days=days)
 
@@ -341,10 +368,9 @@ class DashboardWindow(QMainWindow):
             else:
                 tokens_str = str(total_tokens)
 
-            # Cache hit rate from TokenStats
             cache_hit = f"{stats.tokens.cache_hit_ratio:.0f}%"
 
-            # Convert AgentStats dataclasses to dicts
+            # Convert dataclasses to dicts
             agents = []
             for a in stats.agents[:10]:
                 agents.append(
@@ -355,7 +381,6 @@ class DashboardWindow(QMainWindow):
                     }
                 )
 
-            # Convert ToolStats dataclasses to dicts
             tools = []
             for t in stats.tools[:10]:
                 tools.append(
@@ -366,7 +391,6 @@ class DashboardWindow(QMainWindow):
                     }
                 )
 
-            # Convert SkillStats dataclasses to dicts
             skills = []
             for s in stats.skills[:10]:
                 skills.append(
@@ -406,6 +430,15 @@ class DashboardWindow(QMainWindow):
             tools_data=data.get("tools_data", []),
         )
 
+        # Update sidebar status
+        agents_count = data.get("agents", 0)
+        self._sidebar.set_status(
+            agents_count > 0,
+            f"{agents_count} agent{'s' if agents_count != 1 else ''}"
+            if agents_count > 0
+            else "Idle",
+        )
+
     def _on_security_data(self, data: dict) -> None:
         """Handle security data update."""
         self._security.update_data(
@@ -427,11 +460,12 @@ class DashboardWindow(QMainWindow):
             skills=data.get("skills", []),
         )
 
-    def closeEvent(self, event: QCloseEvent) -> None:
+    def closeEvent(self, a0: QCloseEvent | None) -> None:
         """Handle window close."""
         if self._refresh_timer:
             self._refresh_timer.stop()
-        event.accept()
+        if a0:
+            a0.accept()
 
 
 # Global reference to dashboard subprocess
@@ -443,8 +477,6 @@ def show_dashboard() -> None:
 
     Since rumps has its own event loop, we launch the PyQt dashboard
     as a subprocess to avoid conflicts between event loops.
-
-    If dashboard is already running, kill it and open a fresh one.
     """
     import subprocess
     import sys
@@ -455,7 +487,6 @@ def show_dashboard() -> None:
     if _dashboard_process is not None:
         poll_result = _dashboard_process.poll()
         if poll_result is None:
-            # Process still running - terminate it
             _dashboard_process.terminate()
             try:
                 _dashboard_process.wait(timeout=2)

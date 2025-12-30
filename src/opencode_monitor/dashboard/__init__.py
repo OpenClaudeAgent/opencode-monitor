@@ -1,15 +1,32 @@
 """
 OpenCode Monitor Dashboard - PyQt6 visualization interface.
 
-Provides a tabbed dashboard with:
+A modern dashboard with sidebar navigation featuring:
 - Monitoring: Real-time agents, tools, and todos status
 - Security: Risk analysis and command history
 - Analytics: Usage statistics and trends
 """
 
 from .window import DashboardWindow, show_dashboard
-from .styles import COLORS, SPACING, RADIUS, get_stylesheet
-from .widgets import Card, MetricCard, MetricsRow, DataTable, SectionHeader, Separator
+from .styles import COLORS, SPACING, RADIUS, FONTS, ICONS, get_stylesheet
+from .widgets import (
+    # Navigation
+    Sidebar,
+    NavItem,
+    # Layout
+    PageHeader,
+    SectionHeader,
+    Separator,
+    Card,
+    # Metrics
+    MetricCard,
+    MetricsRow,
+    # Tables
+    DataTable,
+    # Status
+    StatusBadge,
+    EmptyState,
+)
 from .sections import MonitoringSection, SecuritySection, AnalyticsSection
 
 __all__ = [
@@ -20,14 +37,25 @@ __all__ = [
     "COLORS",
     "SPACING",
     "RADIUS",
+    "FONTS",
+    "ICONS",
     "get_stylesheet",
-    # Widgets
-    "Card",
-    "MetricCard",
-    "MetricsRow",
-    "DataTable",
+    # Navigation
+    "Sidebar",
+    "NavItem",
+    # Layout
+    "PageHeader",
     "SectionHeader",
     "Separator",
+    "Card",
+    # Metrics
+    "MetricCard",
+    "MetricsRow",
+    # Tables
+    "DataTable",
+    # Status
+    "StatusBadge",
+    "EmptyState",
     # Sections
     "MonitoringSection",
     "SecuritySection",

@@ -1,49 +1,122 @@
 """
-Dashboard styles - QSS stylesheet based on UI Design Principles.
+Dashboard styles - Clean, minimal design system.
 
-Design System:
-- 8px spacing scale (xs:4, sm:8, md:16, lg:24, xl:32)
-- Dark theme with blue tint
-- Tinted grays (never pure gray)
-- Consistent border radius (sm:6, md:10, lg:14)
+Design Philosophy:
+- Dark theme with refined neutral palette
+- Sharp edges, no rounded corners
+- Minimal decoration, maximum clarity
+- Strong typography hierarchy
+- Subtle borders, no heavy shadows
 """
 
-# Color palette
+# ============================================================
+# COLOR PALETTE - Neutral & Clean
+# ============================================================
+
 COLORS = {
-    # Background surfaces
-    "bg_base": "#12121a",
-    "bg_surface": "#1a1a2e",
-    "bg_elevated": "#1e2140",
-    "bg_hover": "#252850",
-    # Text
-    "text_primary": "#f0f0f5",
-    "text_secondary": "#a8a8c0",  # Improved contrast ratio ~5:1
-    "text_muted": "#707088",
-    # Accents
-    "accent_primary": "#636EFA",
-    "accent_success": "#00CC96",
-    "accent_warning": "#FFA15A",
-    "accent_error": "#EF553B",
-    # Borders
-    "border_subtle": "rgba(100, 110, 250, 0.15)",
-    "border_default": "rgba(100, 110, 250, 0.25)",
+    # Background layers (neutral grays)
+    "bg_base": "#0c0c0c",  # Near black
+    "bg_surface": "#161616",  # Card/panel background
+    "bg_elevated": "#1e1e1e",  # Elevated elements
+    "bg_hover": "#262626",  # Hover states
+    "bg_active": "#2e2e2e",  # Active/pressed states
+    # Text hierarchy (high contrast)
+    "text_primary": "#f4f4f4",  # Primary text
+    "text_secondary": "#8c8c8c",  # Secondary text
+    "text_muted": "#5c5c5c",  # Muted/disabled text
+    "text_inverse": "#0c0c0c",  # Text on light backgrounds
+    # Accent (single blue tone)
+    "accent_primary": "#2563eb",  # Blue 600
+    "accent_primary_hover": "#3b82f6",  # Blue 500
+    "accent_primary_muted": "rgba(37, 99, 235, 0.15)",
+    # Semantic colors (clear, distinct)
+    "success": "#22c55e",  # Green 500
+    "success_muted": "rgba(34, 197, 94, 0.15)",
+    "warning": "#eab308",  # Yellow 500
+    "warning_muted": "rgba(234, 179, 8, 0.15)",
+    "error": "#ef4444",  # Red 500
+    "error_muted": "rgba(239, 68, 68, 0.15)",
+    "info": "#3b82f6",  # Blue 500
+    "info_muted": "rgba(59, 130, 246, 0.15)",
+    # Risk levels
+    "risk_critical": "#dc2626",  # Red 600
+    "risk_high": "#ea580c",  # Orange 600
+    "risk_medium": "#ca8a04",  # Yellow 600
+    "risk_low": "#16a34a",  # Green 600
+    # Borders (minimal)
+    "border_subtle": "#1e1e1e",
+    "border_default": "#2a2a2a",
+    "border_strong": "#3a3a3a",
+    # Sidebar
+    "sidebar_bg": "#111111",
+    "sidebar_hover": "rgba(255, 255, 255, 0.04)",
+    "sidebar_active": "rgba(37, 99, 235, 0.12)",
+    "sidebar_active_border": "#2563eb",
 }
 
-# Spacing scale (8px base)
+# ============================================================
+# SPACING SYSTEM (4px base)
+# ============================================================
+
 SPACING = {
     "xs": 4,
     "sm": 8,
-    "md": 16,
-    "lg": 24,
-    "xl": 32,
-    "2xl": 48,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "2xl": 32,
+    "3xl": 48,
+    "4xl": 64,
 }
 
-# Border radius
+# ============================================================
+# BORDER RADIUS - Minimal (mostly 0)
+# ============================================================
+
 RADIUS = {
-    "sm": 6,
-    "md": 10,
-    "lg": 14,
+    "none": 0,
+    "xs": 2,
+    "sm": 3,
+    "md": 4,
+    "lg": 6,
+}
+
+# ============================================================
+# TYPOGRAPHY
+# ============================================================
+
+FONTS = {
+    "family": "'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
+    "mono": "Menlo, Monaco, 'Courier New', monospace",
+    "size_xs": 11,
+    "size_sm": 12,
+    "size_base": 13,
+    "size_md": 14,
+    "size_lg": 15,
+    "size_xl": 18,
+    "size_2xl": 20,
+    "size_3xl": 26,
+    "weight_normal": 400,
+    "weight_medium": 500,
+    "weight_semibold": 600,
+    "weight_bold": 700,
+}
+
+# ============================================================
+# ICONS (Simple Unicode)
+# ============================================================
+
+ICONS = {
+    "monitoring": "●",
+    "security": "◆",
+    "analytics": "■",
+    "status_active": "●",
+    "status_idle": "○",
+    "arrow_up": "↑",
+    "arrow_down": "↓",
+    "check": "✓",
+    "warning": "!",
+    "error": "×",
 }
 
 
@@ -51,14 +124,18 @@ def get_stylesheet() -> str:
     """Get the complete QSS stylesheet for the dashboard."""
     return f"""
 /* ========================================
-   Global Styles
+   Global Reset & Base
    ======================================== */
 
+* {{
+    outline: none;
+}}
+
 QWidget {{
-    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    font-size: 14px;
+    font-family: {FONTS["family"]};
+    font-size: {FONTS["size_base"]}px;
     color: {COLORS["text_primary"]};
-    background-color: {COLORS["bg_base"]};
+    background-color: transparent;
 }}
 
 /* ========================================
@@ -70,46 +147,12 @@ QMainWindow {{
 }}
 
 /* ========================================
-   Tab Widget
+   Sidebar
    ======================================== */
 
-QTabWidget::pane {{
-    border: none;
-    background-color: {COLORS["bg_base"]};
-    margin-top: -1px;
-}}
-
-QTabWidget::tab-bar {{
-    alignment: left;
-}}
-
-QTabBar {{
-    background-color: {COLORS["bg_surface"]};
-    border-bottom: 1px solid {COLORS["border_default"]};
-}}
-
-QTabBar::tab {{
-    background-color: transparent;
-    color: {COLORS["text_secondary"]};
-    padding: {SPACING["md"]}px {SPACING["xl"]}px;
-    margin: 0;
-    border: none;
-    border-bottom: 3px solid transparent;
-    font-weight: 500;
-    font-size: 14px;
-    min-width: 120px;
-}}
-
-QTabBar::tab:selected {{
-    background-color: transparent;
-    color: {COLORS["accent_primary"]};
-    border-bottom: 3px solid {COLORS["accent_primary"]};
-    font-weight: 600;
-}}
-
-QTabBar::tab:hover:!selected {{
-    color: {COLORS["text_primary"]};
-    background-color: rgba(99, 110, 250, 0.08);
+QFrame#sidebar {{
+    background-color: {COLORS["sidebar_bg"]};
+    border-right: 1px solid {COLORS["border_default"]};
 }}
 
 /* ========================================
@@ -126,108 +169,45 @@ QScrollArea > QWidget > QWidget {{
 }}
 
 QScrollBar:vertical {{
-    background-color: {COLORS["bg_surface"]};
-    width: 10px;
-    border-radius: 5px;
-    margin: 2px;
+    background-color: transparent;
+    width: 8px;
+    margin: 0;
 }}
 
 QScrollBar::handle:vertical {{
-    background-color: {COLORS["bg_elevated"]};
-    border-radius: 5px;
-    min-height: 30px;
+    background-color: {COLORS["border_strong"]};
+    min-height: 40px;
 }}
 
 QScrollBar::handle:vertical:hover {{
-    background-color: {COLORS["accent_primary"]};
+    background-color: {COLORS["text_muted"]};
 }}
 
 QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
     height: 0px;
 }}
 
+QScrollBar::add-page:vertical, QScrollBar::sub-page:vertical {{
+    background: none;
+}}
+
 QScrollBar:horizontal {{
-    background-color: {COLORS["bg_surface"]};
-    height: 10px;
-    border-radius: 5px;
-    margin: 2px;
+    background-color: transparent;
+    height: 8px;
+    margin: 0;
 }}
 
 QScrollBar::handle:horizontal {{
-    background-color: {COLORS["bg_elevated"]};
-    border-radius: 5px;
-    min-width: 30px;
+    background-color: {COLORS["border_strong"]};
+    min-width: 40px;
 }}
 
 QScrollBar::handle:horizontal:hover {{
-    background-color: {COLORS["accent_primary"]};
+    background-color: {COLORS["text_muted"]};
 }}
 
 QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {{
     width: 0px;
-}}
-
-/* ========================================
-   Labels
-   ======================================== */
-
-QLabel {{
-    color: {COLORS["text_primary"]};
-    background-color: transparent;
-}}
-
-QLabel[class="title"] {{
-    font-size: 24px;
-    font-weight: 600;
-    color: {COLORS["text_primary"]};
-}}
-
-QLabel[class="subtitle"] {{
-    font-size: 14px;
-    color: {COLORS["text_secondary"]};
-}}
-
-QLabel[class="section-title"] {{
-    font-size: 20px;
-    font-weight: 600;
-    color: {COLORS["text_primary"]};
-    padding-top: {SPACING["xs"]}px;
-    padding-bottom: {SPACING["sm"]}px;
-}}
-
-QLabel[class="card-value"] {{
-    font-size: 36px;
-    font-weight: 700;
-    color: {COLORS["accent_primary"]};
-    line-height: 1.2;
-}}
-
-QLabel[class="card-label"] {{
-    font-size: 12px;
-    font-weight: 500;
-    color: {COLORS["text_secondary"]};
-    text-transform: uppercase;
-    letter-spacing: 0.5px;
-}}
-
-/* ========================================
-   Frames / Cards
-   ======================================== */
-
-QFrame[class="card"] {{
-    background-color: {COLORS["bg_surface"]};
-    border-radius: {RADIUS["md"]}px;
-    border: 1px solid {COLORS["border_subtle"]};
-    padding: {SPACING["lg"]}px;
-}}
-
-QFrame[class="card"]:hover {{
-    border-color: {COLORS["border_default"]};
-}}
-
-QFrame[class="section"] {{
-    background-color: transparent;
-    border: none;
 }}
 
 /* ========================================
@@ -236,58 +216,48 @@ QFrame[class="section"] {{
 
 QTableWidget {{
     background-color: {COLORS["bg_surface"]};
-    border: 1px solid {COLORS["border_subtle"]};
-    border-radius: {RADIUS["md"]}px;
-    gridline-color: {COLORS["border_subtle"]};
+    border: 1px solid {COLORS["border_default"]};
+    gridline-color: transparent;
     selection-background-color: {COLORS["bg_hover"]};
+    outline: none;
+}}
+
+QTableWidget QTableCornerButton::section {{
+    background-color: {COLORS["bg_elevated"]};
+    border: none;
 }}
 
 QTableWidget::item {{
     padding: {SPACING["sm"]}px {SPACING["md"]}px;
+    border: none;
     border-bottom: 1px solid {COLORS["border_subtle"]};
+    color: {COLORS["text_secondary"]};
 }}
 
 QTableWidget::item:selected {{
-    background-color: {COLORS["bg_hover"]};
+    background-color: {COLORS["sidebar_active"]};
     color: {COLORS["text_primary"]};
 }}
 
-QTableWidget::item:alternate {{
-    background-color: rgba(30, 33, 64, 0.5);
-}}
-
 QHeaderView {{
-    background-color: {COLORS["bg_elevated"]};
+    background-color: transparent;
 }}
 
 QHeaderView::section {{
     background-color: {COLORS["bg_elevated"]};
-    color: {COLORS["text_secondary"]};
-    padding: 12px {SPACING["md"]}px;
+    color: {COLORS["text_muted"]};
+    padding: {SPACING["md"]}px {SPACING["lg"]}px;
     border: none;
-    border-right: 1px solid {COLORS["border_default"]};
     border-bottom: 1px solid {COLORS["border_default"]};
-    font-weight: 600;
-    font-size: 11px;
+    font-weight: {FONTS["weight_semibold"]};
+    font-size: {FONTS["size_xs"]}px;
     text-transform: uppercase;
     letter-spacing: 0.5px;
 }}
 
-QHeaderView::section:last {{
-    border-right: none;
-}}
-
 QHeaderView::section:hover {{
     background-color: {COLORS["bg_hover"]};
-    color: {COLORS["text_primary"]};
-}}
-
-QHeaderView::section:first {{
-    border-top-left-radius: {RADIUS["md"]}px;
-}}
-
-QHeaderView::section:last {{
-    border-top-right-radius: {RADIUS["md"]}px;
+    color: {COLORS["text_secondary"]};
 }}
 
 /* ========================================
@@ -298,18 +268,18 @@ QPushButton {{
     background-color: {COLORS["accent_primary"]};
     color: white;
     border: none;
-    border-radius: {RADIUS["sm"]}px;
-    padding: {SPACING["sm"]}px {SPACING["md"]}px;
-    font-weight: 500;
+    padding: {SPACING["sm"]}px {SPACING["lg"]}px;
+    font-weight: {FONTS["weight_medium"]};
+    font-size: {FONTS["size_sm"]}px;
     min-height: 32px;
 }}
 
 QPushButton:hover {{
-    background-color: #7580fc;
+    background-color: {COLORS["accent_primary_hover"]};
 }}
 
 QPushButton:pressed {{
-    background-color: #5058d8;
+    background-color: #1d4ed8;
 }}
 
 QPushButton:disabled {{
@@ -317,149 +287,72 @@ QPushButton:disabled {{
     color: {COLORS["text_muted"]};
 }}
 
-QPushButton[class="secondary"] {{
-    background-color: transparent;
-    color: {COLORS["accent_primary"]};
-    border: 1px solid {COLORS["accent_primary"]};
-}}
-
-QPushButton[class="secondary"]:hover {{
-    background-color: rgba(99, 110, 250, 0.1);
-}}
-
 /* ========================================
-   Progress Bars
-   ======================================== */
-
-QProgressBar {{
-    background-color: {COLORS["bg_elevated"]};
-    border: none;
-    border-radius: {RADIUS["sm"]}px;
-    height: 8px;
-    text-align: center;
-}}
-
-QProgressBar::chunk {{
-    background-color: {COLORS["accent_primary"]};
-    border-radius: {RADIUS["sm"]}px;
-}}
-
-/* ========================================
-   Separators
-   ======================================== */
-
-QFrame[class="separator"] {{
-    background-color: {COLORS["border_subtle"]};
-    max-height: 1px;
-    margin: {SPACING["md"]}px 0px;
-}}
-
-/* ========================================
-   Status indicators
-   ======================================== */
-
-QLabel[class="status-busy"] {{
-    color: {COLORS["accent_success"]};
-    font-weight: 600;
-}}
-
-QLabel[class="status-idle"] {{
-    color: {COLORS["text_muted"]};
-    font-weight: 600;
-}}
-
-QLabel[class="risk-critical"] {{
-    color: {COLORS["accent_error"]};
-    font-weight: 600;
-}}
-
-QLabel[class="risk-high"] {{
-    color: {COLORS["accent_warning"]};
-    font-weight: 600;
-}}
-
-QLabel[class="risk-medium"] {{
-    color: #e6b800;
-    font-weight: 600;
-}}
-
-QLabel[class="risk-low"] {{
-    color: {COLORS["accent_success"]};
-    font-weight: 600;
-}}
-
-/* ========================================
-   ComboBox (Dropdowns)
+   ComboBox
    ======================================== */
 
 QComboBox {{
     background-color: {COLORS["bg_elevated"]};
     color: {COLORS["text_primary"]};
     border: 1px solid {COLORS["border_default"]};
-    border-radius: {RADIUS["sm"]}px;
     padding: {SPACING["sm"]}px {SPACING["md"]}px;
-    padding-right: 32px;
+    padding-right: 28px;
     min-width: 140px;
     min-height: 32px;
-    font-size: 13px;
-    font-weight: 500;
+    font-size: {FONTS["size_sm"]}px;
 }}
 
 QComboBox:hover {{
-    border-color: {COLORS["accent_primary"]};
-    background-color: {COLORS["bg_hover"]};
+    border-color: {COLORS["border_strong"]};
 }}
 
 QComboBox:focus {{
     border-color: {COLORS["accent_primary"]};
-    outline: none;
 }}
 
 QComboBox::drop-down {{
     subcontrol-origin: padding;
     subcontrol-position: center right;
-    width: 28px;
+    width: 24px;
     border: none;
-    background-color: transparent;
 }}
 
 QComboBox::down-arrow {{
-    /* Unicode chevron via border trick */
     width: 0;
     height: 0;
-    border-left: 5px solid transparent;
-    border-right: 5px solid transparent;
-    border-top: 6px solid {COLORS["text_secondary"]};
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-top: 5px solid {COLORS["text_muted"]};
     margin-right: 8px;
-}}
-
-QComboBox:hover::down-arrow {{
-    border-top-color: {COLORS["accent_primary"]};
 }}
 
 QComboBox QAbstractItemView {{
     background-color: {COLORS["bg_surface"]};
     border: 1px solid {COLORS["border_default"]};
-    border-radius: {RADIUS["sm"]}px;
     selection-background-color: {COLORS["bg_hover"]};
     selection-color: {COLORS["text_primary"]};
     outline: none;
     padding: {SPACING["xs"]}px;
-    margin-top: 4px;
 }}
 
 QComboBox QAbstractItemView::item {{
     padding: {SPACING["sm"]}px {SPACING["md"]}px;
     min-height: 32px;
-    border-radius: {RADIUS["sm"]}px;
 }}
 
 QComboBox QAbstractItemView::item:hover {{
     background-color: {COLORS["bg_hover"]};
 }}
 
-QComboBox QAbstractItemView::item:selected {{
-    background-color: rgba(99, 110, 250, 0.2);
-    color: {COLORS["accent_primary"]};
+/* ========================================
+   Tooltips
+   ======================================== */
+
+QToolTip {{
+    background-color: {COLORS["bg_elevated"]};
+    color: {COLORS["text_primary"]};
+    border: 1px solid {COLORS["border_default"]};
+    padding: {SPACING["sm"]}px {SPACING["md"]}px;
+    font-size: {FONTS["size_sm"]}px;
 }}
 """

@@ -1,10 +1,11 @@
 """
-Reusable dashboard widgets.
+Dashboard widgets - Clean, minimal design.
 
-Design principles applied:
-- Consistent spacing (8px scale)
-- Cards with subtle borders and shadows
+Design principles:
+- Sharp edges, no rounded corners
 - Clear visual hierarchy
+- Minimal decoration
+- Strong typography
 """
 
 from PyQt6.QtWidgets import (
@@ -12,301 +13,206 @@ from PyQt6.QtWidgets import (
     QLabel,
     QVBoxLayout,
     QHBoxLayout,
-    QGridLayout,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
     QWidget,
-    QGraphicsDropShadowEffect,
+    QPushButton,
+    QSizePolicy,
+    QProgressBar,
 )
-from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QColor
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor, QFont
 
-from .styles import COLORS, SPACING, RADIUS
-
-
-class Card(QFrame):
-    """A card container with title and content."""
-
-    def __init__(
-        self,
-        title: str = "",
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
-        self.setProperty("class", "card")
-
-        # Add drop shadow for elevation
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 40))
-        self.setGraphicsEffect(shadow)
-
-        self._layout = QVBoxLayout(self)
-        self._layout.setContentsMargins(
-            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
-        )
-        self._layout.setSpacing(SPACING["md"])
-
-        if title:
-            title_label = QLabel(title)
-            title_label.setProperty("class", "section-title")
-            self._layout.addWidget(title_label)
-
-    def add_widget(self, widget: QWidget) -> None:
-        """Add a widget to the card content."""
-        self._layout.addWidget(widget)
-
-    def add_layout(self, layout: QVBoxLayout | QHBoxLayout | QGridLayout) -> None:
-        """Add a layout to the card content."""
-        self._layout.addLayout(layout)
+from .styles import COLORS, SPACING, FONTS, ICONS
 
 
-class MetricCard(QFrame):
-    """A card displaying a single metric with value and label."""
+# ============================================================
+# SIDEBAR NAVIGATION
+# ============================================================
+
+
+class NavItem(QPushButton):
+    """Sidebar navigation item."""
 
     def __init__(
         self,
-        value: str,
-        label: str,
-        color: str | None = None,
+        icon: str,
+        text: str,
         parent: QWidget | None = None,
     ):
         super().__init__(parent)
-        self.setProperty("class", "card")
-        self.setMinimumWidth(160)  # Wider to prevent text cutoff
+        self.setCheckable(True)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setMinimumHeight(44)
 
-        # Add drop shadow for elevation
-        shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(20)
-        shadow.setOffset(0, 4)
-        shadow.setColor(QColor(0, 0, 0, 40))
-        self.setGraphicsEffect(shadow)
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(SPACING["lg"], 0, SPACING["lg"], 0)
+        layout.setSpacing(SPACING["md"])
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
-        )
-        layout.setSpacing(SPACING["md"])  # More breathing room
-        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        # Icon
+        self._icon = QLabel(icon)
+        self._icon.setFixedWidth(20)
+        self._icon.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(self._icon)
 
-        # Value
-        self._value_label = QLabel(value)
-        self._value_label.setProperty("class", "card-value")
-        self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        if color:
-            self._value_label.setStyleSheet(f"color: {color};")
-        layout.addWidget(self._value_label)
+        # Text
+        self._text = QLabel(text)
+        layout.addWidget(self._text)
+        layout.addStretch()
 
-        # Label
-        self._label = QLabel(label)
-        self._label.setProperty("class", "card-label")
-        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        layout.addWidget(self._label)
+        self._update_style()
+        self.toggled.connect(self._update_style)
 
-    def set_value(self, value: str) -> None:
-        """Update the metric value."""
-        self._value_label.setText(value)
+    def _update_style(self) -> None:
+        """Update style based on state."""
+        if self.isChecked():
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS["sidebar_active"]};
+                    border: none;
+                    border-left: 2px solid {COLORS["sidebar_active_border"]};
+                    text-align: left;
+                }}
+            """)
+            self._icon.setStyleSheet(
+                f"color: {COLORS['accent_primary']}; font-size: 14px;"
+            )
+            self._text.setStyleSheet(f"""
+                color: {COLORS["text_primary"]};
+                font-size: {FONTS["size_md"]}px;
+                font-weight: {FONTS["weight_medium"]};
+            """)
+        else:
+            self.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    border: none;
+                    border-left: 2px solid transparent;
+                    text-align: left;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS["sidebar_hover"]};
+                }}
+            """)
+            self._icon.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 14px;")
+            self._text.setStyleSheet(f"""
+                color: {COLORS["text_secondary"]};
+                font-size: {FONTS["size_md"]}px;
+                font-weight: {FONTS["weight_normal"]};
+            """)
 
 
-class MetricsRow(QWidget):
-    """A row of metric cards."""
+class Sidebar(QFrame):
+    """Sidebar navigation panel."""
+
+    section_changed = pyqtSignal(int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self.setObjectName("sidebar")
+        self.setFixedWidth(200)
 
-        self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(SPACING["md"])
-        self._cards: dict[str, MetricCard] = {}
+        self.setStyleSheet(f"""
+            QFrame#sidebar {{
+                background-color: {COLORS["sidebar_bg"]};
+                border-right: 1px solid {COLORS["border_default"]};
+            }}
+        """)
 
-    def add_metric(
-        self,
-        key: str,
-        value: str,
-        label: str,
-        color: str | None = None,
-    ) -> MetricCard:
-        """Add a metric card to the row."""
-        card = MetricCard(value, label, color)
-        self._cards[key] = card
-        self._layout.addWidget(card)
-        return card
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["xl"], 0, SPACING["lg"])
+        layout.setSpacing(0)
 
-    def update_metric(self, key: str, value: str) -> None:
-        """Update a metric value by key."""
-        if key in self._cards:
-            self._cards[key].set_value(value)
+        # Logo
+        logo_container = QWidget()
+        logo_layout = QHBoxLayout(logo_container)
+        logo_layout.setContentsMargins(SPACING["lg"], 0, SPACING["lg"], SPACING["2xl"])
+        logo_layout.setSpacing(SPACING["sm"])
 
-    def add_stretch(self) -> None:
-        """Add stretch to push cards to the left."""
-        self._layout.addStretch()
+        logo_icon = QLabel("⬡")
+        logo_icon.setStyleSheet(f"font-size: 20px; color: {COLORS['accent_primary']};")
+        logo_layout.addWidget(logo_icon)
 
+        logo_text = QLabel("OpenCode")
+        logo_text.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_bold"]};
+            color: {COLORS["text_primary"]};
+        """)
+        logo_layout.addWidget(logo_text)
+        logo_layout.addStretch()
+        layout.addWidget(logo_container)
 
-class DataTable(QTableWidget):
-    """A styled data table with consistent visual appearance.
+        # Section label
+        section_label = QLabel("NAVIGATION")
+        section_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_muted"]};
+            padding: 0 {SPACING["lg"]}px {SPACING["sm"]}px;
+            letter-spacing: 1px;
+        """)
+        layout.addWidget(section_label)
 
-    Height calculation follows the 8px spacing system:
-    - Header: 40px (aligned to 8px grid)
-    - Rows: 40px (aligned to 8px grid)
-    - Border: 4px (xs spacing for borders)
+        # Nav items
+        self._nav_items: list[NavItem] = []
+        nav_data = [
+            (ICONS["monitoring"], "Monitoring"),
+            (ICONS["security"], "Security"),
+            (ICONS["analytics"], "Analytics"),
+        ]
 
-    All tables display a minimum of MIN_VISIBLE_ROWS rows for visual consistency.
-    """
+        for i, (icon, text) in enumerate(nav_data):
+            item = NavItem(icon, text)
+            item.clicked.connect(lambda checked, idx=i: self._on_item_clicked(idx))
+            self._nav_items.append(item)
+            layout.addWidget(item)
 
-    # Heights aligned to 8px spacing system
-    ROW_HEIGHT = 40
-    HEADER_HEIGHT = 40
-    TABLE_BORDER = SPACING["xs"]  # 4px for borders
+        layout.addStretch()
 
-    # Minimum visible rows for visual consistency across all tables
-    MIN_VISIBLE_ROWS = 5
+        # Status
+        status_container = QWidget()
+        status_layout = QHBoxLayout(status_container)
+        status_layout.setContentsMargins(SPACING["lg"], SPACING["md"], SPACING["lg"], 0)
+        status_layout.setSpacing(SPACING["sm"])
 
-    def __init__(
-        self,
-        headers: list[str],
-        parent: QWidget | None = None,
-    ):
-        super().__init__(parent)
+        self._status_dot = QLabel("●")
+        self._status_dot.setStyleSheet(f"font-size: 8px; color: {COLORS['success']};")
+        status_layout.addWidget(self._status_dot)
 
-        # Store original headers for sort indicator
-        self._original_headers = headers.copy()
-        self._current_sort_column = -1
-        self._current_sort_order = Qt.SortOrder.AscendingOrder
+        self._status_text = QLabel("Live")
+        self._status_text.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        status_layout.addWidget(self._status_text)
+        status_layout.addStretch()
+        layout.addWidget(status_container)
 
-        self.setColumnCount(len(headers))
-        self.setHorizontalHeaderLabels(headers)
+        # Select first by default
+        if self._nav_items:
+            self._nav_items[0].setChecked(True)
 
-        # Style
-        self.setAlternatingRowColors(True)
-        self.setShowGrid(False)
-        self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
-        self.verticalHeader().setVisible(False)
+    def _on_item_clicked(self, index: int) -> None:
+        for i, item in enumerate(self._nav_items):
+            item.setChecked(i == index)
+        self.section_changed.emit(index)
 
-        # Enable sorting by clicking column headers
-        self.setSortingEnabled(True)
-
-        # Set explicit row height to match our calculations
-        self.verticalHeader().setDefaultSectionSize(self.ROW_HEIGHT)
-
-        # Disable internal scrolling - let parent scroll
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-
-        # Header - Interactive mode allows user to resize columns
-        header = self.horizontalHeader()
-        header.setStretchLastSection(True)  # Last column takes remaining space
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setDefaultSectionSize(150)
-        header.setMinimumSectionSize(50)  # Minimum column width
-        header.setFixedHeight(self.HEADER_HEIGHT)  # Explicit header height
-        header.setSortIndicatorShown(
-            False
-        )  # Hide native indicator, use our Unicode arrows
-
-        # Connect sort indicator change to update header text with arrow
-        header.sortIndicatorChanged.connect(self._on_sort_changed)
-
-        # Initial height with minimum rows for consistency
-        initial_height = (
-            self.HEADER_HEIGHT
-            + self.MIN_VISIBLE_ROWS * self.ROW_HEIGHT
-            + self.TABLE_BORDER
-        )
-        self.setFixedHeight(initial_height)
-
-    def _on_sort_changed(self, column: int, order: Qt.SortOrder) -> None:
-        """Update header text with sort arrow indicator."""
-        # Reset all headers to original text
-        for i, text in enumerate(self._original_headers):
-            self.horizontalHeaderItem(i).setText(text)
-
-        # Add arrow to sorted column
-        if column >= 0 and column < len(self._original_headers):
-            arrow = " ▲" if order == Qt.SortOrder.AscendingOrder else " ▼"
-            original = self._original_headers[column]
-            item = self.horizontalHeaderItem(column)
-            if item:
-                item.setText(f"{original}{arrow}")
-
-        self._current_sort_column = column
-        self._current_sort_order = order
-
-    def add_row(
-        self, data: list[str | tuple[str, str]], full_values: list[str] | None = None
-    ) -> None:
-        """Add a row of data with optional tooltips.
-
-        Args:
-            data: List of values or tuples of (value, style_class)
-            full_values: Optional list of full (non-truncated) values for tooltips
-        """
-        row = self.rowCount()
-        self.insertRow(row)
-
-        for col, item_data in enumerate(data):
-            if isinstance(item_data, tuple):
-                value, style_class = item_data
-            else:
-                value, style_class = item_data, None
-
-            item = QTableWidgetItem(value)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
-
-            # Set tooltip - use full value if provided, otherwise use displayed value
-            if full_values and col < len(full_values):
-                tooltip = full_values[col]
-            else:
-                tooltip = value
-            # Only set tooltip if content might be truncated
-            if tooltip and len(tooltip) > 30:
-                item.setToolTip(tooltip)
-
-            if style_class:
-                if style_class == "risk-critical":
-                    item.setForeground(QColor(COLORS["accent_error"]))
-                elif style_class == "risk-high":
-                    item.setForeground(QColor(COLORS["accent_warning"]))
-                elif style_class == "risk-medium":
-                    item.setForeground(QColor("#e6b800"))
-                elif style_class == "risk-low":
-                    item.setForeground(QColor(COLORS["accent_success"]))
-                elif style_class == "status-busy":
-                    item.setForeground(QColor(COLORS["accent_success"]))
-                elif style_class == "status-idle":
-                    item.setForeground(QColor(COLORS["text_muted"]))
-
-            self.setItem(row, col, item)
-
-        # Update table height to fit content
-        self._update_height()
-
-    def clear_data(self) -> None:
-        """Clear all rows but keep headers."""
-        self.setRowCount(0)
-        self._update_height()
-
-    def _update_height(self) -> None:
-        """Update table height based on row count.
-
-        Follows 8px spacing system:
-        - Header: 40px
-        - Each row: 40px
-        - Border: 4px (TABLE_BORDER)
-
-        Uses MIN_VISIBLE_ROWS to ensure visual consistency across all tables.
-        """
-        row_count = self.rowCount()
-        # Use at least MIN_VISIBLE_ROWS for consistent visual appearance
-        visible_rows = max(row_count, self.MIN_VISIBLE_ROWS)
-        height = self.HEADER_HEIGHT + visible_rows * self.ROW_HEIGHT + self.TABLE_BORDER
-        self.setFixedHeight(height)
+    def set_status(self, active: bool, text: str = "") -> None:
+        color = COLORS["success"] if active else COLORS["text_muted"]
+        self._status_dot.setStyleSheet(f"font-size: 8px; color: {color};")
+        if text:
+            self._status_text.setText(text)
 
 
-class SectionHeader(QWidget):
-    """A section header with title and optional subtitle."""
+# ============================================================
+# PAGE HEADER
+# ============================================================
+
+
+class PageHeader(QWidget):
+    """Page header with title and actions."""
 
     def __init__(
         self,
@@ -317,33 +223,436 @@ class SectionHeader(QWidget):
         super().__init__(parent)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, 0, 0, SPACING["md"])
+        layout.setContentsMargins(0, 0, 0, SPACING["xl"])
         layout.setSpacing(SPACING["xs"])
 
-        # Title
-        title_label = QLabel(title)
-        title_label.setProperty("class", "section-title")
-        layout.addWidget(title_label)
+        # Title row
+        title_row = QHBoxLayout()
+        title_row.setSpacing(SPACING["lg"])
 
-        # Subtitle (always create, hide if empty)
-        self._subtitle_label = QLabel(subtitle)
-        self._subtitle_label.setProperty("class", "subtitle")
+        self._title = QLabel(title)
+        self._title.setStyleSheet(f"""
+            font-size: {FONTS["size_2xl"]}px;
+            font-weight: {FONTS["weight_bold"]};
+            color: {COLORS["text_primary"]};
+            letter-spacing: -0.5px;
+        """)
+        title_row.addWidget(self._title)
+        title_row.addStretch()
+
+        self._actions_layout = QHBoxLayout()
+        self._actions_layout.setSpacing(SPACING["sm"])
+        title_row.addLayout(self._actions_layout)
+
+        layout.addLayout(title_row)
+
         if subtitle:
-            layout.addWidget(self._subtitle_label)
-        else:
-            self._subtitle_label.hide()
+            self._subtitle = QLabel(subtitle)
+            self._subtitle.setStyleSheet(f"""
+                font-size: {FONTS["size_sm"]}px;
+                color: {COLORS["text_muted"]};
+            """)
+            layout.addWidget(self._subtitle)
 
-    def set_subtitle(self, text: str) -> None:
-        """Update the subtitle text."""
-        self._subtitle_label.setText(text)
-        if text and self._subtitle_label.isHidden():
-            self._subtitle_label.show()
+    def add_action(self, widget: QWidget) -> None:
+        self._actions_layout.addWidget(widget)
 
 
-class Separator(QFrame):
-    """A horizontal separator line."""
+# ============================================================
+# METRIC CARDS
+# ============================================================
+
+
+class MetricCard(QFrame):
+    """Compact metric display."""
+
+    ACCENT_MAP = {
+        "primary": COLORS["accent_primary"],
+        "success": COLORS["success"],
+        "warning": COLORS["warning"],
+        "error": COLORS["error"],
+        "muted": COLORS["text_muted"],
+    }
+
+    def __init__(
+        self,
+        value: str,
+        label: str,
+        accent: str = "primary",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._accent = accent
+        accent_color = self.ACCENT_MAP.get(accent, COLORS["text_muted"])
+
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-top: 2px solid {accent_color};
+            }}
+        """)
+
+        self.setMinimumWidth(130)
+        self.setMaximumWidth(170)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
+        )
+        layout.setSpacing(SPACING["sm"])
+
+        # Value
+        self._value_label = QLabel(value)
+        self._value_label.setStyleSheet(f"""
+            font-size: {FONTS["size_3xl"]}px;
+            font-weight: {FONTS["weight_bold"]};
+            color: {COLORS["text_primary"]};
+            letter-spacing: -1px;
+        """)
+        layout.addWidget(self._value_label)
+
+        # Label
+        self._label = QLabel(label.upper())
+        self._label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_medium"]};
+            color: {COLORS["text_muted"]};
+            letter-spacing: 0.5px;
+        """)
+        layout.addWidget(self._label)
+
+    def set_value(self, value: str) -> None:
+        self._value_label.setText(value)
+
+
+class MetricsRow(QWidget):
+    """Row of metric cards."""
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self.setProperty("class", "separator")
+        self._layout = QHBoxLayout(self)
+        self._layout.setContentsMargins(0, 0, 0, 0)
+        self._layout.setSpacing(SPACING["lg"])
+        self._cards: dict[str, MetricCard] = {}
+
+    def add_metric(
+        self,
+        key: str,
+        value: str,
+        label: str,
+        accent: str = "primary",
+    ) -> MetricCard:
+        card = MetricCard(value, label, accent)
+        self._cards[key] = card
+        self._layout.addWidget(card)
+        return card
+
+    def update_metric(self, key: str, value: str) -> None:
+        if key in self._cards:
+            self._cards[key].set_value(value)
+
+    def add_stretch(self) -> None:
+        self._layout.addStretch()
+
+
+# ============================================================
+# STATUS BADGE
+# ============================================================
+
+
+class StatusBadge(QLabel):
+    """Minimal status badge."""
+
+    VARIANTS = {
+        "success": (COLORS["success_muted"], COLORS["success"]),
+        "warning": (COLORS["warning_muted"], COLORS["warning"]),
+        "error": (COLORS["error_muted"], COLORS["error"]),
+        "info": (COLORS["info_muted"], COLORS["info"]),
+        "neutral": (COLORS["bg_elevated"], COLORS["text_secondary"]),
+        "critical": (COLORS["error_muted"], COLORS["risk_critical"]),
+        "high": (COLORS["warning_muted"], COLORS["risk_high"]),
+        "medium": (COLORS["warning_muted"], COLORS["risk_medium"]),
+        "low": (COLORS["success_muted"], COLORS["risk_low"]),
+    }
+
+    def __init__(
+        self,
+        text: str,
+        variant: str = "neutral",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(text, parent)
+        self.set_variant(variant)
+
+    def set_variant(self, variant: str) -> None:
+        bg, fg = self.VARIANTS.get(variant, self.VARIANTS["neutral"])
+        self.setStyleSheet(f"""
+            padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            background-color: {bg};
+            color: {fg};
+        """)
+
+
+# ============================================================
+# DATA TABLE
+# ============================================================
+
+
+class DataTable(QTableWidget):
+    """Clean data table."""
+
+    ROW_HEIGHT = 44
+    HEADER_HEIGHT = 44
+
+    def __init__(
+        self,
+        headers: list[str],
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+
+        self._original_headers = headers.copy()
+        self._current_sort_column = -1
+        self._current_sort_order = Qt.SortOrder.AscendingOrder
+
+        self.setColumnCount(len(headers))
+        self.setHorizontalHeaderLabels(headers)
+
+        self.setAlternatingRowColors(False)
+        self.setShowGrid(False)
+        self.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self.setSelectionMode(QTableWidget.SelectionMode.SingleSelection)
+
+        self.setSortingEnabled(True)
+
+        # Hide row numbers and configure vertical header
+        v_header = self.verticalHeader()
+        if v_header is not None:
+            v_header.setVisible(False)
+            v_header.setDefaultSectionSize(self.ROW_HEIGHT)
+
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        header = self.horizontalHeader()
+        if header:
+            header.setStretchLastSection(True)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            header.setDefaultSectionSize(150)
+            header.setMinimumSectionSize(60)
+            header.setFixedHeight(self.HEADER_HEIGHT)
+            header.setSortIndicatorShown(False)
+            header.sortIndicatorChanged.connect(self._on_sort_changed)
+
+        self.setFixedHeight(self.HEADER_HEIGHT + 2)
+
+    def _on_sort_changed(self, column: int, order: Qt.SortOrder) -> None:
+        for i, text in enumerate(self._original_headers):
+            item = self.horizontalHeaderItem(i)
+            if item:
+                item.setText(text)
+
+        if 0 <= column < len(self._original_headers):
+            arrow = " ↑" if order == Qt.SortOrder.AscendingOrder else " ↓"
+            item = self.horizontalHeaderItem(column)
+            if item:
+                item.setText(f"{self._original_headers[column]}{arrow}")
+
+        self._current_sort_column = column
+        self._current_sort_order = order
+
+    def add_row(
+        self,
+        data: list[str | tuple[str, str]],
+        full_values: list[str] | None = None,
+    ) -> None:
+        row = self.rowCount()
+        self.insertRow(row)
+
+        for col, item_data in enumerate(data):
+            if isinstance(item_data, tuple):
+                value, variant = item_data
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+                color_map = {
+                    "status-busy": COLORS["success"],
+                    "status-idle": COLORS["text_muted"],
+                    "risk-critical": COLORS["risk_critical"],
+                    "risk-high": COLORS["risk_high"],
+                    "risk-medium": COLORS["risk_medium"],
+                    "risk-low": COLORS["risk_low"],
+                }
+                if variant in color_map:
+                    item.setForeground(QColor(color_map[variant]))
+                    font = item.font()
+                    font.setWeight(QFont.Weight.DemiBold)
+                    item.setFont(font)
+            else:
+                value = item_data
+                item = QTableWidgetItem(value)
+                item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
+
+            # Tooltip
+            if full_values and col < len(full_values):
+                tooltip = full_values[col]
+            else:
+                tooltip = (
+                    value
+                    if isinstance(item_data, str)
+                    else item_data[0]
+                    if isinstance(item_data, tuple)
+                    else ""
+                )
+            if tooltip and len(tooltip) > 30:
+                item.setToolTip(tooltip)
+
+            self.setItem(row, col, item)
+
+        self._update_height()
+
+    def clear_data(self) -> None:
+        self.setRowCount(0)
+        self._update_height()
+
+    def _update_height(self) -> None:
+        row_count = self.rowCount()
+        header = self.horizontalHeader()
+        header_height = header.height() if header else self.HEADER_HEIGHT
+        content_height = row_count * self.ROW_HEIGHT
+        self.setFixedHeight(header_height + content_height + 2)
+
+
+# ============================================================
+# SECTION COMPONENTS
+# ============================================================
+
+
+class SectionHeader(QWidget):
+    """Section header with title."""
+
+    def __init__(
+        self,
+        title: str,
+        subtitle: str = "",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["sm"], 0, SPACING["lg"])
+        layout.setSpacing(SPACING["xs"])
+
+        self._title = QLabel(title)
+        self._title.setStyleSheet(f"""
+            font-size: {FONTS["size_md"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+        layout.addWidget(self._title)
+
+        if subtitle:
+            self._subtitle = QLabel(subtitle)
+            self._subtitle.setStyleSheet(f"""
+                font-size: {FONTS["size_sm"]}px;
+                color: {COLORS["text_muted"]};
+            """)
+            layout.addWidget(self._subtitle)
+
+
+class Separator(QFrame):
+    """Horizontal separator."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
         self.setFixedHeight(1)
+        self.setStyleSheet(f"background-color: {COLORS['border_subtle']};")
+
+
+class Card(QFrame):
+    """Simple card container."""
+
+    def __init__(
+        self,
+        title: str = "",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+            }}
+        """)
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(
+            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
+        )
+        self._layout.setSpacing(SPACING["md"])
+
+        if title:
+            title_label = QLabel(title)
+            title_label.setStyleSheet(f"""
+                font-size: {FONTS["size_md"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                color: {COLORS["text_primary"]};
+            """)
+            self._layout.addWidget(title_label)
+
+    def add_widget(self, widget: QWidget) -> None:
+        self._layout.addWidget(widget)
+
+
+# ============================================================
+# EMPTY STATE
+# ============================================================
+
+
+class EmptyState(QWidget):
+    """Empty state placeholder."""
+
+    def __init__(
+        self,
+        icon: str = "○",
+        title: str = "No data",
+        subtitle: str = "",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            SPACING["2xl"], SPACING["2xl"], SPACING["2xl"], SPACING["2xl"]
+        )
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
+
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet(f"""
+            font-size: 32px;
+            color: {COLORS["text_muted"]};
+        """)
+        icon_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(icon_label)
+
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"""
+            font-size: {FONTS["size_md"]}px;
+            font-weight: {FONTS["weight_medium"]};
+            color: {COLORS["text_secondary"]};
+        """)
+        title_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        layout.addWidget(title_label)
+
+        if subtitle:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setStyleSheet(f"""
+                font-size: {FONTS["size_sm"]}px;
+                color: {COLORS["text_muted"]};
+            """)
+            subtitle_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+            layout.addWidget(subtitle_label)
