@@ -180,9 +180,9 @@ COL_WIDTH = {
     "number_small": 80,  # Small numbers (0-9999)
     "number_medium": 100,  # Medium numbers with formatting (10K, 1.2M)
     # Status/Type columns
-    "status": 80,  # BUSY, IDLE
-    "risk": 90,  # LOW, MEDIUM, HIGH, CRITICAL
-    "type": 100,  # COMMAND, READ, WRITE, etc.
+    "status": 100,  # BUSY, IDLE (badge)
+    "risk": 110,  # LOW, MEDIUM, HIGH, CRITICAL (badge)
+    "type": 120,  # COMMAND, READ, WRITE, etc. (badge)
     # Other
     "duration": 90,  # 1m 30s, 500ms
     "percentage": 80,  # 48.2%, 100%
