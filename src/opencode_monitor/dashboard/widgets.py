@@ -293,29 +293,29 @@ class MetricCard(QFrame):
             }}
         """)
 
-        self.setMinimumWidth(130)
-        self.setMaximumWidth(170)
+        self.setMinimumWidth(110)
+        self.setMaximumWidth(140)
+        self.setFixedHeight(72)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
-        layout.setSpacing(SPACING["sm"])
+        layout.setSpacing(2)
 
         # Value
         self._value_label = QLabel(value)
         self._value_label.setStyleSheet(f"""
-            font-size: {FONTS["size_3xl"]}px;
+            font-size: {FONTS["size_2xl"]}px;
             font-weight: {FONTS["weight_bold"]};
             color: {COLORS["text_primary"]};
-            letter-spacing: -1px;
         """)
         layout.addWidget(self._value_label)
 
         # Label
         self._label = QLabel(label.upper())
         self._label.setStyleSheet(f"""
-            font-size: {FONTS["size_xs"]}px;
+            font-size: 10px;
             font-weight: {FONTS["weight_medium"]};
             color: {COLORS["text_muted"]};
             letter-spacing: 0.5px;
