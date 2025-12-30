@@ -188,6 +188,9 @@ class DataTable(QTableWidget):
         # Enable sorting by clicking column headers
         self.setSortingEnabled(True)
 
+        # Set explicit row height to match our calculations
+        self.verticalHeader().setDefaultSectionSize(self.ROW_HEIGHT)
+
         # Disable internal scrolling - let parent scroll
         self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
@@ -198,6 +201,7 @@ class DataTable(QTableWidget):
         header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
         header.setDefaultSectionSize(150)
         header.setMinimumSectionSize(50)  # Minimum column width
+        header.setFixedHeight(self.HEADER_HEIGHT)  # Explicit header height
         header.setSortIndicatorShown(
             False
         )  # Hide native indicator, use our Unicode arrows

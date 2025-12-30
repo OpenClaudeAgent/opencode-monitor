@@ -434,17 +434,37 @@ class DashboardWindow(QMainWindow):
         event.accept()
 
 
+# Global reference to dashboard subprocess
+_dashboard_process = None
+
+
 def show_dashboard() -> None:
     """Show the dashboard window in a separate process.
 
     Since rumps has its own event loop, we launch the PyQt dashboard
     as a subprocess to avoid conflicts between event loops.
+
+    If dashboard is already running, kill it and open a fresh one.
     """
     import subprocess
     import sys
 
+    global _dashboard_process
+
+    # Kill existing dashboard if running
+    if _dashboard_process is not None:
+        poll_result = _dashboard_process.poll()
+        if poll_result is None:
+            # Process still running - terminate it
+            _dashboard_process.terminate()
+            try:
+                _dashboard_process.wait(timeout=2)
+            except subprocess.TimeoutExpired:
+                _dashboard_process.kill()
+        _dashboard_process = None
+
     # Launch dashboard as a separate process
-    subprocess.Popen(
+    _dashboard_process = subprocess.Popen(
         [sys.executable, "-m", "opencode_monitor.dashboard"],
         start_new_session=True,
     )
