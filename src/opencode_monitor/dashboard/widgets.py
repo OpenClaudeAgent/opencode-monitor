@@ -293,18 +293,20 @@ class MetricCard(QFrame):
             }}
         """)
 
-        self.setMinimumWidth(110)
-        self.setMaximumWidth(140)
-        self.setFixedHeight(72)
+        self.setMinimumWidth(120)
+        self.setMaximumWidth(160)
+        self.setFixedHeight(80)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["md"]
         )
-        layout.setSpacing(2)
+        layout.setSpacing(SPACING["xs"])
+        layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
         # Value
         self._value_label = QLabel(value)
+        self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._value_label.setStyleSheet(f"""
             font-size: {FONTS["size_2xl"]}px;
             font-weight: {FONTS["weight_bold"]};
@@ -314,8 +316,9 @@ class MetricCard(QFrame):
 
         # Label
         self._label = QLabel(label.upper())
+        self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(f"""
-            font-size: 10px;
+            font-size: {FONTS["size_xs"]}px;
             font-weight: {FONTS["weight_medium"]};
             color: {COLORS["text_muted"]};
             letter-spacing: 0.5px;
@@ -332,8 +335,8 @@ class MetricsRow(QWidget):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._layout = QHBoxLayout(self)
-        self._layout.setContentsMargins(0, 0, 0, 0)
-        self._layout.setSpacing(SPACING["lg"])
+        self._layout.setContentsMargins(0, SPACING["sm"], 0, SPACING["sm"])
+        self._layout.setSpacing(SPACING["md"])
         self._cards: dict[str, MetricCard] = {}
 
     def add_metric(
@@ -479,12 +482,22 @@ class DataTable(QTableWidget):
                 item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsEditable)
 
                 color_map = {
+                    # Status colors
                     "status-busy": COLORS["success"],
                     "status-idle": COLORS["text_muted"],
+                    # Risk levels
                     "risk-critical": COLORS["risk_critical"],
                     "risk-high": COLORS["risk_high"],
                     "risk-medium": COLORS["risk_medium"],
                     "risk-low": COLORS["risk_low"],
+                    # Operation types
+                    "type-command": COLORS["type_command"],
+                    "type-read": COLORS["type_read"],
+                    "type-write": COLORS["type_write"],
+                    "type-edit": COLORS["type_edit"],
+                    "type-webfetch": COLORS["type_webfetch"],
+                    "type-glob": COLORS["type_glob"],
+                    "type-grep": COLORS["type_grep"],
                 }
                 if variant in color_map:
                     item.setForeground(QColor(color_map[variant]))
@@ -606,6 +619,104 @@ class Card(QFrame):
 
     def add_widget(self, widget: QWidget) -> None:
         self._layout.addWidget(widget)
+
+
+# ============================================================
+# SEGMENTED CONTROL
+# ============================================================
+
+
+class SegmentedControl(QWidget):
+    """Elegant segmented control for period selection."""
+
+    selection_changed = pyqtSignal(int)
+
+    def __init__(
+        self,
+        options: list[str],
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._options = options
+        self._current_index = 0
+        self._buttons: list[QPushButton] = []
+
+        self.setStyleSheet(f"""
+            SegmentedControl {{
+                background-color: {COLORS["bg_elevated"]};
+                border: 1px solid {COLORS["border_default"]};
+            }}
+        """)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        )
+        layout.setSpacing(0)
+
+        for i, option in enumerate(options):
+            btn = QPushButton(option)
+            btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            btn.setCheckable(True)
+            btn.setMinimumHeight(28)
+            btn.setMinimumWidth(90)
+            btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
+            self._buttons.append(btn)
+            layout.addWidget(btn)
+            self._update_button_style(btn, i == 0)
+
+        if self._buttons:
+            self._buttons[0].setChecked(True)
+
+    def _on_button_clicked(self, index: int) -> None:
+        if index == self._current_index:
+            # Keep it checked
+            self._buttons[index].setChecked(True)
+            return
+
+        self._current_index = index
+        for i, btn in enumerate(self._buttons):
+            btn.setChecked(i == index)
+            self._update_button_style(btn, i == index)
+        self.selection_changed.emit(index)
+
+    def _update_button_style(self, btn: QPushButton, selected: bool) -> None:
+        if selected:
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {COLORS["accent_primary"]};
+                    color: white;
+                    border: none;
+                    font-size: {FONTS["size_sm"]}px;
+                    font-weight: {FONTS["weight_medium"]};
+                    padding: 0 {SPACING["md"]}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS["accent_primary_hover"]};
+                }}
+            """)
+        else:
+            btn.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: transparent;
+                    color: {COLORS["text_secondary"]};
+                    border: none;
+                    font-size: {FONTS["size_sm"]}px;
+                    font-weight: {FONTS["weight_normal"]};
+                    padding: 0 {SPACING["md"]}px;
+                }}
+                QPushButton:hover {{
+                    background-color: {COLORS["bg_hover"]};
+                    color: {COLORS["text_primary"]};
+                }}
+            """)
+
+    def set_current_index(self, index: int) -> None:
+        if 0 <= index < len(self._buttons):
+            self._on_button_clicked(index)
+
+    def current_index(self) -> int:
+        return self._current_index
 
 
 # ============================================================

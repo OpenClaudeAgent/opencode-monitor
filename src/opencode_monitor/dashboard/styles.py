@@ -43,6 +43,21 @@ COLORS = {
     "risk_high": "#ea580c",  # Orange 600
     "risk_medium": "#ca8a04",  # Yellow 600
     "risk_low": "#16a34a",  # Green 600
+    # Operation types (colorful distinction)
+    "type_command": "#a855f7",  # Purple 500 - Shell commands
+    "type_command_bg": "rgba(168, 85, 247, 0.15)",
+    "type_read": "#3b82f6",  # Blue 500 - Read operations
+    "type_read_bg": "rgba(59, 130, 246, 0.15)",
+    "type_write": "#f97316",  # Orange 500 - Write operations
+    "type_write_bg": "rgba(249, 115, 22, 0.15)",
+    "type_edit": "#eab308",  # Yellow 500 - Edit operations
+    "type_edit_bg": "rgba(234, 179, 8, 0.15)",
+    "type_webfetch": "#06b6d4",  # Cyan 500 - Web fetch
+    "type_webfetch_bg": "rgba(6, 182, 212, 0.15)",
+    "type_glob": "#ec4899",  # Pink 500 - Glob search
+    "type_glob_bg": "rgba(236, 72, 153, 0.15)",
+    "type_grep": "#10b981",  # Emerald 500 - Grep search
+    "type_grep_bg": "rgba(16, 185, 129, 0.15)",
     # Borders (minimal)
     "border_subtle": "#1e1e1e",
     "border_default": "#2a2a2a",

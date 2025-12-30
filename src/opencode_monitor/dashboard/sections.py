@@ -12,7 +12,6 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QScrollArea,
-    QComboBox,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
@@ -23,8 +22,42 @@ from .widgets import (
     Separator,
     PageHeader,
     EmptyState,
+    SegmentedControl,
 )
 from .styles import COLORS, SPACING
+
+
+# ============================================================
+# COLOR MAPS FOR VISUAL DISTINCTION
+# ============================================================
+
+# Map operation types to color variants
+OPERATION_TYPE_COLORS = {
+    # Commands
+    "command": "type-command",
+    "bash": "type-command",
+    "shell": "type-command",
+    # File operations
+    "read": "type-read",
+    "write": "type-write",
+    "edit": "type-edit",
+    # Search & fetch
+    "webfetch": "type-webfetch",
+    "web_fetch": "type-webfetch",
+    "glob": "type-glob",
+    "grep": "type-grep",
+    # Skills
+    "skill": "type-webfetch",
+    # Task management
+    "todoread": "type-read",
+    "todowrite": "type-write",
+}
+
+
+def get_operation_variant(operation: str) -> str:
+    """Get the color variant for an operation type."""
+    op_lower = operation.lower()
+    return OPERATION_TYPE_COLORS.get(op_lower, "")
 
 
 class MonitoringSection(QWidget):
@@ -177,16 +210,21 @@ class MonitoringSection(QWidget):
                 else:
                     duration = f"{elapsed}ms"
 
+                tool_name = tool.get("name", "")
+                tool_variant = get_operation_variant(tool_name)
                 arg = tool.get("arg", "")
+
                 self._tools_table.add_row(
                     [
-                        tool.get("name", ""),
+                        (tool_name.upper(), tool_variant)
+                        if tool_variant
+                        else tool_name,
                         tool.get("agent", ""),
                         arg,
                         duration,
                     ],
                     full_values=[
-                        tool.get("name", ""),
+                        tool_name,
                         tool.get("agent", ""),
                         arg,
                         duration,
@@ -316,16 +354,20 @@ class SecuritySection(QWidget):
                     risk_class = f"risk-{risk}"
                     details = item.get("details", "")
                     reason = item.get("reason", "")
+                    item_type = item.get("type", "")
+                    type_variant = get_operation_variant(item_type)
 
                     self._critical_table.add_row(
                         [
-                            item.get("type", ""),
+                            (item_type.upper(), type_variant)
+                            if type_variant
+                            else item_type.upper(),
                             details,
                             (risk.upper(), risk_class),
                             reason,
                         ],
                         full_values=[
-                            item.get("type", ""),
+                            item_type.upper(),
                             details,
                             risk.upper(),
                             reason,
@@ -362,16 +404,20 @@ class SecuritySection(QWidget):
             risk = f.get("risk", "low").lower()
             risk_class = f"risk-{risk}"
             path = f.get("path", "")
+            operation = f.get("operation", "")
+            op_variant = get_operation_variant(operation)
 
             self._files_table.add_row(
                 [
-                    f.get("operation", ""),
+                    (operation.upper(), op_variant)
+                    if op_variant
+                    else operation.upper(),
                     path,
                     (risk.upper(), risk_class),
                     str(f.get("score", 0)),
                 ],
                 full_values=[
-                    f.get("operation", ""),
+                    operation.upper(),
                     path,
                     risk.upper(),
                     str(f.get("score", 0)),
@@ -405,13 +451,12 @@ class AnalyticsSection(QWidget):
         # Header with period selector
         header = PageHeader("Analytics", "Usage statistics and metrics")
 
-        self._period_combo = QComboBox()
-        self._period_combo.setMinimumWidth(160)
-        for label, _ in self.PERIODS:
-            self._period_combo.addItem(label)
-        self._period_combo.setCurrentIndex(1)
-        self._period_combo.currentIndexChanged.connect(self._on_period_changed)
-        header.add_action(self._period_combo)
+        # Segmented control for period selection
+        period_labels = [label for label, _ in self.PERIODS]
+        self._period_control = SegmentedControl(period_labels)
+        self._period_control.set_current_index(1)  # Default to 7 days
+        self._period_control.selection_changed.connect(self._on_period_changed)
+        header.add_action(self._period_control)
 
         layout.addWidget(header)
 
@@ -533,10 +578,12 @@ class AnalyticsSection(QWidget):
             invocations = tool.get("invocations", 0)
             failures = tool.get("failures", 0)
             rate = f"{failures / invocations * 100:.1f}%" if invocations > 0 else "0%"
+            tool_name = tool.get("tool_name", "")
+            tool_variant = get_operation_variant(tool_name)
 
             self._tools_table.add_row(
                 [
-                    tool.get("tool_name", ""),
+                    (tool_name, tool_variant) if tool_variant else tool_name,
                     str(invocations),
                     str(failures),
                     rate,
