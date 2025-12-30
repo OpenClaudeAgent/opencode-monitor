@@ -25,7 +25,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QColor, QFont
 
-from .styles import COLORS, SPACING, FONTS, RADIUS, ICONS
+from .styles import COLORS, SPACING, FONTS, RADIUS, ICONS, UI
 
 
 # ============================================================
@@ -45,7 +45,7 @@ class NavItem(QPushButton):
         super().__init__(parent)
         self.setCheckable(True)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setMinimumHeight(48)
+        self.setMinimumHeight(UI["nav_item_height"])
 
         layout = QHBoxLayout(self)
         layout.setContentsMargins(SPACING["lg"], 0, SPACING["lg"], 0)
@@ -114,7 +114,7 @@ class Sidebar(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("sidebar")
-        self.setFixedWidth(220)
+        self.setFixedWidth(UI["sidebar_width"])
 
         self.setStyleSheet(f"""
             QFrame#sidebar {{
@@ -299,9 +299,9 @@ class MetricCard(QFrame):
         """)
 
         # Dimensions - generous sizing for large numbers
-        self.setMinimumWidth(160)
-        self.setMinimumHeight(120)
-        self.setMaximumWidth(220)
+        self.setMinimumWidth(UI["card_min_width"])
+        self.setMinimumHeight(UI["card_min_height"])
+        self.setMaximumWidth(UI["card_max_width"])
 
         # Shadow effect
         shadow = QGraphicsDropShadowEffect(self)
@@ -600,8 +600,8 @@ class SegmentedControl(QWidget):
 class DataTable(QTableWidget):
     """Enhanced data table with better styling."""
 
-    ROW_HEIGHT = 48
-    HEADER_HEIGHT = 44
+    ROW_HEIGHT = UI["row_height"]
+    HEADER_HEIGHT = UI["header_height"]
 
     def __init__(
         self,
