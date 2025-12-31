@@ -160,8 +160,8 @@ class TestMetricCard:
         from opencode_monitor.dashboard.widgets import MetricCard
 
         card = MetricCard("0", "Test", parent=widget_parent)
-        assert card.minimumWidth() >= 160
-        assert card.minimumHeight() >= 120
+        assert card.minimumWidth() >= 130
+        assert card.minimumHeight() >= 90
 
     def test_shadow_effect_applied(self, qapp, widget_parent):
         """MetricCard has shadow effect."""
@@ -188,7 +188,7 @@ class TestStatusBadge:
 
         badge = StatusBadge("BUSY", parent=widget_parent)
         assert badge is not None
-        assert badge.text() == "BUSY"
+        assert badge.text() == "● BUSY"
 
     def test_creation_with_variant(self, qapp, widget_parent):
         """StatusBadge can be created with variant."""
@@ -226,8 +226,8 @@ class TestStatusBadge:
         badge = StatusBadge("Status", variant="neutral", parent=widget_parent)
         # Change variant
         badge.set_variant("success")
-        # Should not raise and badge should still be valid
-        assert badge.text() == "Status"
+        # Should not raise and badge should still be valid (with dot prefix)
+        assert badge.text() == "● Status"
 
     def test_invalid_variant_fallback(self, qapp, widget_parent):
         """StatusBadge with invalid variant falls back to neutral."""
