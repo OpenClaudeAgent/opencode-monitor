@@ -142,7 +142,7 @@ class AnalyticsCollector:
                 f"{len(self._scanned_messages)} messages, {len(self._scanned_parts)} parts, "
                 f"{len(self._scanned_todos)} todos, {len(self._scanned_projects)} projects"
             )
-        except Exception as e:
+        except Exception as e:  # Intentional catch-all: DB init must not crash app
             error(f"[AnalyticsCollector] Failed to load scanned IDs: {e}")
         finally:
             if db:
@@ -207,7 +207,9 @@ class AnalyticsCollector:
 
             self._observer.start()
             info("[AnalyticsCollector] Filesystem watcher started")
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: watcher is optional, app should continue
             error(f"[AnalyticsCollector] Failed to start watcher: {e}")
 
     def _queue_file(self, file_type: str, path: Path) -> None:
@@ -233,7 +235,9 @@ class AnalyticsCollector:
                     break
                 try:
                     self._process_single_file(file_type, path)
-                except Exception as e:
+                except (
+                    Exception
+                ) as e:  # Intentional catch-all: one file failure shouldn't stop batch
                     debug(f"[AnalyticsCollector] Error processing {path}: {e}")
 
     def _process_single_file(self, file_type: str, path: Path, conn=None) -> bool:
@@ -301,7 +305,9 @@ class AnalyticsCollector:
                 self._scanned_projects.add(file_id)
                 self._stats["projects"] += 1
             return True
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: individual insert failures shouldn't crash
             debug(f"[AnalyticsCollector] Insert error: {e}")
             return False
         finally:
@@ -401,7 +407,9 @@ class AnalyticsCollector:
             with self._lock:
                 self._stats["last_reconciliation"] = datetime.now().isoformat()
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: reconciliation must not crash collector
             error(f"[AnalyticsCollector] Reconciliation error: {e}")
         finally:
             if db:
@@ -634,7 +642,7 @@ class AnalyticsCollector:
             ).fetchone()
             if row:
                 parent_agent = row[0]
-        except Exception:
+        except Exception:  # Intentional catch-all: parent_agent is optional metadata
             pass
 
         conn.execute(

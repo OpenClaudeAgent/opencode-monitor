@@ -49,7 +49,7 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
         count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         info(f"Loaded {count} sessions")
         return count
-    except Exception as e:
+    except Exception as e:  # Intentional catch-all: DuckDB can raise various errors
         error(f"Session load failed: {e}")
         return 0
 
@@ -93,7 +93,7 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
         count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         info(f"Loaded {count} messages")
         return count
-    except Exception as e:
+    except Exception as e:  # Intentional catch-all: DuckDB can raise various errors
         error(f"Message load failed: {e}")
         return 0
 
@@ -131,7 +131,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
         count = conn.execute("SELECT COUNT(*) FROM parts").fetchone()[0]
         info(f"Loaded {count} parts")
         return count
-    except Exception as e:
+    except Exception as e:  # Intentional catch-all: DuckDB can raise various errors
         error(f"Parts load failed: {e}")
         return 0
 
@@ -205,7 +205,8 @@ def load_skills(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
                     s["loaded_at"],
                 ],
             )
-        except Exception:
+        except Exception as e:  # Intentional catch-all: skip individual insert failures
+            debug(f"Skill insert failed for {s.get('skill_name', 'unknown')}: {e}")
             continue
 
     count = conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
@@ -287,7 +288,8 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
                     d["created_at"],
                 ],
             )
-        except Exception:
+        except Exception as e:  # Intentional catch-all: skip individual insert failures
+            debug(f"Delegation insert failed for {d.get('id', 'unknown')}: {e}")
             continue
 
     count = conn.execute("SELECT COUNT(*) FROM delegations").fetchone()[0]
