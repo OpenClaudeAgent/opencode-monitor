@@ -44,6 +44,8 @@ class DashboardWindow(QMainWindow):
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
+        # Track when agents started waiting for ask_user (agent_id -> timestamp_ms)
+        self._waiting_since: dict[str, int] = {}
 
         self._setup_window()
         self._setup_ui()
@@ -164,6 +166,7 @@ class DashboardWindow(QMainWindow):
         """Fetch monitoring data from core module."""
         try:
             import asyncio
+            import time
             from ..core.monitor import fetch_all_instances
             from ..core.models import SessionStatus
 
@@ -171,13 +174,19 @@ class DashboardWindow(QMainWindow):
             state = loop.run_until_complete(fetch_all_instances())
             loop.close()
 
+            current_time_ms = int(time.time() * 1000)
+
             # Build data dict
             agents_data = []
             tools_data = []
+            waiting_data = []
             busy_count = 0
             waiting_count = 0  # Sessions with pending ask_user
             idle_instances = 0  # Instances with no busy agents
             total_todos = 0
+
+            # Track which agents are currently waiting
+            current_waiting_ids: set[str] = set()
 
             for instance in state.instances:
                 # Count idle instances (instances where no agent is busy)
@@ -192,6 +201,21 @@ class DashboardWindow(QMainWindow):
                     # Count agents waiting for user response
                     if agent.has_pending_ask_user:
                         waiting_count += 1
+                        current_waiting_ids.add(agent.id)
+
+                        # Track when agent started waiting
+                        if agent.id not in self._waiting_since:
+                            self._waiting_since[agent.id] = current_time_ms
+
+                        waiting_ms = current_time_ms - self._waiting_since[agent.id]
+                        waiting_data.append(
+                            {
+                                "title": agent.title or f"Agent {agent.id[:8]}",
+                                "question": agent.ask_user_title or "Waiting...",
+                                "dir": agent.dir or "",
+                                "waiting_ms": waiting_ms,
+                            }
+                        )
 
                     todos_total = agent.todos.pending + agent.todos.in_progress
                     total_todos += todos_total
@@ -216,6 +240,11 @@ class DashboardWindow(QMainWindow):
                             }
                         )
 
+            # Clean up agents that are no longer waiting
+            for agent_id in list(self._waiting_since.keys()):
+                if agent_id not in current_waiting_ids:
+                    del self._waiting_since[agent_id]
+
             data = {
                 "instances": state.instance_count,
                 "agents": len(agents_data),
@@ -225,6 +254,7 @@ class DashboardWindow(QMainWindow):
                 "todos": total_todos,
                 "agents_data": agents_data,
                 "tools_data": tools_data,
+                "waiting_data": waiting_data,
             }
 
             self._signals.monitoring_updated.emit(data)
@@ -430,6 +460,7 @@ class DashboardWindow(QMainWindow):
             todos=data.get("todos", 0),
             agents_data=data.get("agents_data", []),
             tools_data=data.get("tools_data", []),
+            waiting_data=data.get("waiting_data", []),
         )
 
         # Update sidebar status

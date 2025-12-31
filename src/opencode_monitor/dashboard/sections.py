@@ -146,6 +146,28 @@ class MonitoringSection(QWidget):
         self._tools_empty.hide()
         content_layout.addWidget(self._tools_empty)
 
+        content_layout.addWidget(Separator())
+
+        # Waiting for Response Section
+        content_layout.addWidget(
+            SectionHeader("Waiting for Response", "Agents waiting for user input")
+        )
+
+        self._waiting_table = DataTable(["Agent", "Question", "Directory", "Waiting"])
+        self._waiting_table.setColumnWidth(0, COL_WIDTH["name_long"])  # Agent name
+        self._waiting_table.setColumnWidth(1, COL_WIDTH["path"])  # Question title
+        self._waiting_table.setColumnWidth(2, COL_WIDTH["path"])  # Directory
+        self._waiting_table.setColumnWidth(3, COL_WIDTH["duration"])  # Waiting duration
+        content_layout.addWidget(self._waiting_table)
+
+        self._waiting_empty = EmptyState(
+            icon="✓",
+            title="No agents waiting",
+            subtitle="Agents will appear here when asking for user input",
+        )
+        self._waiting_empty.hide()
+        content_layout.addWidget(self._waiting_empty)
+
         content_layout.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -160,6 +182,7 @@ class MonitoringSection(QWidget):
         todos: int,
         agents_data: list[dict],
         tools_data: list[dict],
+        waiting_data: list[dict] | None = None,
     ) -> None:
         """Update monitoring data."""
         self._metrics.update_metric("instances", str(instances))
@@ -236,6 +259,36 @@ class MonitoringSection(QWidget):
         else:
             self._tools_table.hide()
             self._tools_empty.show()
+
+        # Waiting for Response table
+        self._waiting_table.clear_data()
+
+        if waiting_data:
+            self._waiting_table.show()
+            self._waiting_empty.hide()
+
+            for agent in waiting_data:
+                title = agent.get("title", "Unknown")
+                question = agent.get("question", "")
+                directory = agent.get("dir", "")
+                waiting_ms = agent.get("waiting_ms", 0)
+                duration = format_duration_ms(waiting_ms)
+
+                # Use warning variant if waiting > 5 minutes (300000ms)
+                duration_variant = "risk-high" if waiting_ms > 300000 else ""
+
+                self._waiting_table.add_row(
+                    [
+                        title,
+                        question,
+                        directory,
+                        (duration, duration_variant) if duration_variant else duration,
+                    ],
+                    full_values=[title, question, directory, duration],
+                )
+        else:
+            self._waiting_table.hide()
+            self._waiting_empty.show()
 
 
 class SecuritySection(QWidget):
