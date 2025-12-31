@@ -327,8 +327,8 @@ class SecurityAuditor:
                     "risk_level": alert.level.value,
                     "risk_reason": alert.reason,
                     "mitre_techniques": all_mitre,
-                    "edr_sequences": len(edr["sequences"]),
-                    "edr_correlations": len(edr["correlations"]),
+                    "edr_sequence_bonus": edr["sequence_score_bonus"],
+                    "edr_correlation_bonus": edr["correlation_score_bonus"],
                 }
 
             elif tool == "read":
@@ -366,6 +366,8 @@ class SecurityAuditor:
                     "risk_level": result.level,
                     "risk_reason": result.reason,
                     "mitre_techniques": all_mitre,
+                    "edr_sequence_bonus": edr["sequence_score_bonus"],
+                    "edr_correlation_bonus": edr["correlation_score_bonus"],
                 }
 
             elif tool in ("write", "edit"):
@@ -404,6 +406,8 @@ class SecurityAuditor:
                     "risk_level": result.level,
                     "risk_reason": result.reason,
                     "mitre_techniques": all_mitre,
+                    "edr_sequence_bonus": edr["sequence_score_bonus"],
+                    "edr_correlation_bonus": edr["correlation_score_bonus"],
                 }
 
             elif tool == "webfetch":
@@ -441,6 +445,8 @@ class SecurityAuditor:
                     "risk_level": result.level,
                     "risk_reason": result.reason,
                     "mitre_techniques": all_mitre,
+                    "edr_sequence_bonus": edr["sequence_score_bonus"],
+                    "edr_correlation_bonus": edr["correlation_score_bonus"],
                 }
 
             return None

@@ -2,6 +2,7 @@
 Security Database Repository - SQLite operations for security audit data
 """
 
+import json
 import sqlite3
 from pathlib import Path
 from typing import List, Dict, Any
@@ -51,7 +52,10 @@ class SecurityDatabase:
                 risk_level TEXT NOT NULL,
                 risk_reason TEXT,
                 command_timestamp INTEGER,
-                scanned_at TEXT NOT NULL
+                scanned_at TEXT NOT NULL,
+                mitre_techniques TEXT DEFAULT '[]',
+                edr_sequence_bonus INTEGER DEFAULT 0,
+                edr_correlation_bonus INTEGER DEFAULT 0
             )
         """)
 
@@ -67,7 +71,10 @@ class SecurityDatabase:
                 risk_level TEXT NOT NULL,
                 risk_reason TEXT,
                 read_timestamp INTEGER,
-                scanned_at TEXT NOT NULL
+                scanned_at TEXT NOT NULL,
+                mitre_techniques TEXT DEFAULT '[]',
+                edr_sequence_bonus INTEGER DEFAULT 0,
+                edr_correlation_bonus INTEGER DEFAULT 0
             )
         """)
 
@@ -84,7 +91,10 @@ class SecurityDatabase:
                 risk_level TEXT NOT NULL,
                 risk_reason TEXT,
                 write_timestamp INTEGER,
-                scanned_at TEXT NOT NULL
+                scanned_at TEXT NOT NULL,
+                mitre_techniques TEXT DEFAULT '[]',
+                edr_sequence_bonus INTEGER DEFAULT 0,
+                edr_correlation_bonus INTEGER DEFAULT 0
             )
         """)
 
@@ -100,7 +110,10 @@ class SecurityDatabase:
                 risk_level TEXT NOT NULL,
                 risk_reason TEXT,
                 fetch_timestamp INTEGER,
-                scanned_at TEXT NOT NULL
+                scanned_at TEXT NOT NULL,
+                mitre_techniques TEXT DEFAULT '[]',
+                edr_sequence_bonus INTEGER DEFAULT 0,
+                edr_correlation_bonus INTEGER DEFAULT 0
             )
         """)
 
@@ -143,9 +156,55 @@ class SecurityDatabase:
 
         cursor.execute("INSERT OR IGNORE INTO scan_stats (id) VALUES (1)")
 
+        # Migrate existing tables - add EDR/MITRE columns if missing
+        self._migrate_edr_columns(cursor)
+
         conn.commit()
         conn.close()
         debug("Security database initialized")
+
+    def _migrate_edr_columns(self, cursor: sqlite3.Cursor):
+        """Add EDR/MITRE columns to existing tables if they don't exist"""
+        tables_columns = {
+            "commands": [
+                "mitre_techniques",
+                "edr_sequence_bonus",
+                "edr_correlation_bonus",
+            ],
+            "file_reads": [
+                "mitre_techniques",
+                "edr_sequence_bonus",
+                "edr_correlation_bonus",
+            ],
+            "file_writes": [
+                "mitre_techniques",
+                "edr_sequence_bonus",
+                "edr_correlation_bonus",
+            ],
+            "webfetches": [
+                "mitre_techniques",
+                "edr_sequence_bonus",
+                "edr_correlation_bonus",
+            ],
+        }
+
+        for table, columns in tables_columns.items():
+            # Get existing columns
+            cursor.execute(f"PRAGMA table_info({table})")
+            existing_cols = {row[1] for row in cursor.fetchall()}
+
+            # Add missing columns
+            for col in columns:
+                if col not in existing_cols:
+                    if col == "mitre_techniques":
+                        cursor.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT '[]'"
+                        )
+                    else:
+                        cursor.execute(
+                            f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0"
+                        )
+                    debug(f"Migrated: Added {col} to {table}")
 
     # ===== Insert Methods =====
 
@@ -154,12 +213,17 @@ class SecurityDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Serialize MITRE techniques to JSON
+            mitre = data.get("mitre_techniques", [])
+            mitre_json = json.dumps(mitre) if isinstance(mitre, list) else "[]"
+
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO commands 
                 (file_id, content_hash, session_id, tool, command, 
-                 risk_score, risk_level, risk_reason, command_timestamp, scanned_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
+                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data["file_id"],
@@ -172,6 +236,9 @@ class SecurityDatabase:
                     data["risk_reason"],
                     data["timestamp"],
                     data["scanned_at"],
+                    mitre_json,
+                    data.get("edr_sequence_bonus", 0),
+                    data.get("edr_correlation_bonus", 0),
                 ),
             )
             conn.commit()
@@ -184,12 +251,17 @@ class SecurityDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Serialize MITRE techniques to JSON
+            mitre = data.get("mitre_techniques", [])
+            mitre_json = json.dumps(mitre) if isinstance(mitre, list) else "[]"
+
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO file_reads 
                 (file_id, content_hash, session_id, file_path, 
-                 risk_score, risk_level, risk_reason, read_timestamp, scanned_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
+                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data["file_id"],
@@ -201,6 +273,9 @@ class SecurityDatabase:
                     data["risk_reason"],
                     data["timestamp"],
                     data["scanned_at"],
+                    mitre_json,
+                    data.get("edr_sequence_bonus", 0),
+                    data.get("edr_correlation_bonus", 0),
                 ),
             )
             conn.commit()
@@ -213,12 +288,17 @@ class SecurityDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Serialize MITRE techniques to JSON
+            mitre = data.get("mitre_techniques", [])
+            mitre_json = json.dumps(mitre) if isinstance(mitre, list) else "[]"
+
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO file_writes 
                 (file_id, content_hash, session_id, file_path, operation,
-                 risk_score, risk_level, risk_reason, write_timestamp, scanned_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
+                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data["file_id"],
@@ -231,6 +311,9 @@ class SecurityDatabase:
                     data["risk_reason"],
                     data["timestamp"],
                     data["scanned_at"],
+                    mitre_json,
+                    data.get("edr_sequence_bonus", 0),
+                    data.get("edr_correlation_bonus", 0),
                 ),
             )
             conn.commit()
@@ -243,12 +326,17 @@ class SecurityDatabase:
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Serialize MITRE techniques to JSON
+            mitre = data.get("mitre_techniques", [])
+            mitre_json = json.dumps(mitre) if isinstance(mitre, list) else "[]"
+
             cursor.execute(
                 """
                 INSERT OR IGNORE INTO webfetches 
                 (file_id, content_hash, session_id, url,
-                 risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
+                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
                 (
                     data["file_id"],
@@ -260,6 +348,9 @@ class SecurityDatabase:
                     data["risk_reason"],
                     data["timestamp"],
                     data["scanned_at"],
+                    mitre_json,
+                    data.get("edr_sequence_bonus", 0),
+                    data.get("edr_correlation_bonus", 0),
                 ),
             )
             conn.commit()
@@ -343,6 +434,31 @@ class SecurityDatabase:
         cursor.execute("SELECT COUNT(*) FROM webfetches")
         stats["total_webfetches"] = cursor.fetchone()[0]
 
+        # EDR stats - count records with sequence/correlation bonuses
+        stats["edr_sequences"] = 0
+        stats["edr_correlations"] = 0
+        stats["mitre_tagged"] = 0
+
+        for table in ["commands", "file_reads", "file_writes", "webfetches"]:
+            try:
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE edr_sequence_bonus > 0"
+                )
+                stats["edr_sequences"] += cursor.fetchone()[0]
+
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE edr_correlation_bonus > 0"
+                )
+                stats["edr_correlations"] += cursor.fetchone()[0]
+
+                cursor.execute(
+                    f"SELECT COUNT(*) FROM {table} WHERE mitre_techniques != '[]' AND mitre_techniques IS NOT NULL"
+                )
+                stats["mitre_tagged"] += cursor.fetchone()[0]
+            except sqlite3.OperationalError:
+                # Columns may not exist in older schemas
+                pass
+
         conn.close()
         return stats
 
@@ -374,7 +490,10 @@ class SecurityDatabase:
         cursor.execute(
             f"""
             SELECT id, file_id, session_id, tool, command, 
-                   risk_score, risk_level, risk_reason, command_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM commands WHERE risk_level IN ({placeholders})
             ORDER BY risk_score DESC, command_timestamp DESC LIMIT ?
         """,
@@ -394,7 +513,10 @@ class SecurityDatabase:
         cursor.execute(
             """
             SELECT id, file_id, session_id, tool, command, 
-                   risk_score, risk_level, risk_reason, command_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM commands ORDER BY command_timestamp DESC LIMIT ? OFFSET ?
         """,
             (limit, offset),
@@ -413,7 +535,10 @@ class SecurityDatabase:
         cursor.execute(
             f"""
             SELECT id, file_id, session_id, file_path, 
-                   risk_score, risk_level, risk_reason, read_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM file_reads WHERE risk_level IN ({placeholders})
             ORDER BY risk_score DESC, read_timestamp DESC LIMIT ?
         """,
@@ -430,7 +555,10 @@ class SecurityDatabase:
         cursor.execute(
             """
             SELECT id, file_id, session_id, file_path, 
-                   risk_score, risk_level, risk_reason, read_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM file_reads ORDER BY read_timestamp DESC LIMIT ?
         """,
             (limit,),
@@ -449,7 +577,10 @@ class SecurityDatabase:
         cursor.execute(
             f"""
             SELECT id, file_id, session_id, file_path, operation,
-                   risk_score, risk_level, risk_reason, write_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM file_writes WHERE risk_level IN ({placeholders})
             ORDER BY risk_score DESC, write_timestamp DESC LIMIT ?
         """,
@@ -466,7 +597,10 @@ class SecurityDatabase:
         cursor.execute(
             """
             SELECT id, file_id, session_id, file_path, operation,
-                   risk_score, risk_level, risk_reason, write_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM file_writes ORDER BY write_timestamp DESC LIMIT ?
         """,
             (limit,),
@@ -485,7 +619,10 @@ class SecurityDatabase:
         cursor.execute(
             f"""
             SELECT id, file_id, session_id, url,
-                   risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM webfetches WHERE risk_level IN ({placeholders})
             ORDER BY risk_score DESC, fetch_timestamp DESC LIMIT ?
         """,
@@ -502,7 +639,10 @@ class SecurityDatabase:
         cursor.execute(
             """
             SELECT id, file_id, session_id, url,
-                   risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at
+                   risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
+                   COALESCE(mitre_techniques, '[]'), 
+                   COALESCE(edr_sequence_bonus, 0), 
+                   COALESCE(edr_correlation_bonus, 0)
             FROM webfetches ORDER BY fetch_timestamp DESC LIMIT ?
         """,
             (limit,),

@@ -19,6 +19,9 @@ class AuditedCommand:
     risk_reason: str
     timestamp: int
     scanned_at: str
+    mitre_techniques: str = ""  # JSON array of MITRE technique IDs
+    edr_sequence_bonus: int = 0
+    edr_correlation_bonus: int = 0
 
 
 @dataclass
@@ -34,6 +37,9 @@ class AuditedFileRead:
     risk_reason: str
     timestamp: int
     scanned_at: str
+    mitre_techniques: str = ""  # JSON array of MITRE technique IDs
+    edr_sequence_bonus: int = 0
+    edr_correlation_bonus: int = 0
 
 
 @dataclass
@@ -50,6 +56,9 @@ class AuditedFileWrite:
     risk_reason: str
     timestamp: int
     scanned_at: str
+    mitre_techniques: str = ""  # JSON array of MITRE technique IDs
+    edr_sequence_bonus: int = 0
+    edr_correlation_bonus: int = 0
 
 
 @dataclass
@@ -65,3 +74,6 @@ class AuditedWebFetch:
     risk_reason: str
     timestamp: int
     scanned_at: str
+    mitre_techniques: str = ""  # JSON array of MITRE technique IDs
+    edr_sequence_bonus: int = 0
+    edr_correlation_bonus: int = 0

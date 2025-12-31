@@ -2,6 +2,7 @@
 Menu Builder - Constructs rumps menu items for OpenCode Monitor
 """
 
+import json
 from datetime import datetime
 from typing import Optional, Callable, Any
 
@@ -427,6 +428,24 @@ class MenuBuilder:
                 f"🌐 Fetches: 🔴{stats.get('webfetches_critical', 0)} 🟠{stats.get('webfetches_high', 0)} 🟡{stats.get('webfetches_medium', 0)}"
             )
         )
+
+        # EDR/MITRE stats
+        edr_sequences = stats.get("edr_sequences", 0)
+        edr_correlations = stats.get("edr_correlations", 0)
+        mitre_tagged = stats.get("mitre_tagged", 0)
+
+        if edr_sequences > 0 or edr_correlations > 0 or mitre_tagged > 0:
+            menu.add(None)  # separator
+            menu.add(rumps.MenuItem("🔍 ── EDR Heuristics ──"))
+            if edr_sequences > 0:
+                menu.add(rumps.MenuItem(f"⛓️ Kill chains detected: {edr_sequences}"))
+            if edr_correlations > 0:
+                menu.add(
+                    rumps.MenuItem(f"🔗 Correlations detected: {edr_correlations}")
+                )
+            if mitre_tagged > 0:
+                menu.add(rumps.MenuItem(f"🎯 MITRE tagged events: {mitre_tagged}"))
+
         menu.add(None)
 
         # Top critical/high items
@@ -437,6 +456,16 @@ class MenuBuilder:
         menu.add(rumps.MenuItem("📜 Export All Data", callback=export_callback))
 
         return menu
+
+    def _format_mitre_techniques(self, mitre_json: str) -> str:
+        """Format MITRE techniques for display"""
+        try:
+            techniques = json.loads(mitre_json) if mitre_json else []
+            if techniques:
+                return f"MITRE: {', '.join(techniques)}"
+        except (json.JSONDecodeError, TypeError):
+            pass
+        return ""
 
     def _add_critical_items(self, menu: rumps.MenuItem, auditor) -> None:
         """Add critical/high risk items to security menu."""
@@ -450,9 +479,29 @@ class MenuBuilder:
                     cmd.command[:40] + "..." if len(cmd.command) > 40 else cmd.command
                 )
                 item = rumps.MenuItem(f"{emoji} {cmd_short}")
-                item._menuitem.setToolTip_(
-                    f"⚠️ {cmd.risk_reason}\nScore: {cmd.risk_score}/100\n\n{cmd.command}"
-                )
+
+                # Build tooltip with MITRE info
+                mitre_techniques = getattr(cmd, "mitre_techniques", "") or ""
+                mitre_info = self._format_mitre_techniques(mitre_techniques)
+                edr_info = ""
+                try:
+                    edr_seq = int(getattr(cmd, "edr_sequence_bonus", 0) or 0)
+                    edr_corr = int(getattr(cmd, "edr_correlation_bonus", 0) or 0)
+                    if edr_seq > 0 or edr_corr > 0:
+                        edr_info = (
+                            f"\n⛓️ Sequence: +{edr_seq} | 🔗 Correlation: +{edr_corr}"
+                        )
+                except (TypeError, ValueError):
+                    pass
+
+                tooltip = f"⚠️ {cmd.risk_reason}\nScore: {cmd.risk_score}/100"
+                if mitre_info:
+                    tooltip += f"\n🎯 {mitre_info}"
+                if edr_info:
+                    tooltip += edr_info
+                tooltip += f"\n\n{cmd.command}"
+
+                item._menuitem.setToolTip_(tooltip)
                 menu.add(item)
 
         # File reads
@@ -467,9 +516,15 @@ class MenuBuilder:
                     else read.file_path
                 )
                 item = rumps.MenuItem(f"{emoji} {path_short}")
-                item._menuitem.setToolTip_(
-                    f"⚠️ {read.risk_reason}\nScore: {read.risk_score}/100\n\n{read.file_path}"
-                )
+
+                mitre_techniques = getattr(read, "mitre_techniques", "") or ""
+                mitre_info = self._format_mitre_techniques(mitre_techniques)
+                tooltip = f"⚠️ {read.risk_reason}\nScore: {read.risk_score}/100"
+                if mitre_info:
+                    tooltip += f"\n🎯 {mitre_info}"
+                tooltip += f"\n\n{read.file_path}"
+
+                item._menuitem.setToolTip_(tooltip)
                 menu.add(item)
 
         # File writes
@@ -484,9 +539,15 @@ class MenuBuilder:
                     else write.file_path
                 )
                 item = rumps.MenuItem(f"{emoji} {path_short}")
-                item._menuitem.setToolTip_(
-                    f"⚠️ {write.risk_reason}\nScore: {write.risk_score}/100\nOperation: {write.operation}\n\n{write.file_path}"
-                )
+
+                mitre_techniques = getattr(write, "mitre_techniques", "") or ""
+                mitre_info = self._format_mitre_techniques(mitre_techniques)
+                tooltip = f"⚠️ {write.risk_reason}\nScore: {write.risk_score}/100\nOperation: {write.operation}"
+                if mitre_info:
+                    tooltip += f"\n🎯 {mitre_info}"
+                tooltip += f"\n\n{write.file_path}"
+
+                item._menuitem.setToolTip_(tooltip)
                 menu.add(item)
 
         # Webfetches
@@ -497,9 +558,15 @@ class MenuBuilder:
                 emoji = "🔴" if fetch.risk_level == "critical" else "🟠"
                 url_short = fetch.url[:40] + "..." if len(fetch.url) > 40 else fetch.url
                 item = rumps.MenuItem(f"{emoji} {url_short}")
-                item._menuitem.setToolTip_(
-                    f"⚠️ {fetch.risk_reason}\nScore: {fetch.risk_score}/100\n\n{fetch.url}"
-                )
+
+                mitre_techniques = getattr(fetch, "mitre_techniques", "") or ""
+                mitre_info = self._format_mitre_techniques(mitre_techniques)
+                tooltip = f"⚠️ {fetch.risk_reason}\nScore: {fetch.risk_score}/100"
+                if mitre_info:
+                    tooltip += f"\n🎯 {mitre_info}"
+                tooltip += f"\n\n{fetch.url}"
+
+                item._menuitem.setToolTip_(tooltip)
                 menu.add(item)
 
         if (
