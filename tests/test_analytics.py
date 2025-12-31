@@ -160,15 +160,18 @@ class TestCollectorInserts:
         }
 
         collector._insert_session(conn, data)
-        result = conn.execute("SELECT * FROM sessions WHERE id = 'ses_test'").fetchone()
+        result = conn.execute(
+            "SELECT parent_id, version, additions, deletions, files_changed "
+            "FROM sessions WHERE id = 'ses_test'"
+        ).fetchone()
 
         assert result is not None
         # Verify new fields: parent_id, version, additions, deletions, files_changed
-        assert result[4] == "ses_parent"  # parent_id
-        assert result[5] == "1.0.0"  # version
-        assert result[6] == 100  # additions
-        assert result[7] == 50  # deletions
-        assert result[8] == 5  # files_changed
+        assert result[0] == "ses_parent"  # parent_id
+        assert result[1] == "1.0.0"  # version
+        assert result[2] == 100  # additions
+        assert result[3] == 50  # deletions
+        assert result[4] == 5  # files_changed
 
     def test_insert_message_with_cost(
         self, db: AnalyticsDB, collector: AnalyticsCollector
