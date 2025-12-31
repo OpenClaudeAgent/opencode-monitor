@@ -90,11 +90,12 @@ class MonitoringSection(QWidget):
         content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
         content_layout.setSpacing(SPACING["xl"])
 
-        # Metrics Row (5 cards)
+        # Metrics Row (6 cards)
         self._metrics = MetricsRow()
         self._metrics.add_metric("instances", "0", "Instances", "primary")
         self._metrics.add_metric("agents", "0", "Agents", "primary")
         self._metrics.add_metric("busy", "0", "Busy", "success")
+        self._metrics.add_metric("waiting", "0", "Waiting", "warning")
         self._metrics.add_metric("idle", "0", "Idle", "muted")
         self._metrics.add_metric("todos", "0", "Todos", "warning")
         self._metrics.add_stretch()
@@ -154,6 +155,7 @@ class MonitoringSection(QWidget):
         instances: int,
         agents: int,
         busy: int,
+        waiting: int,
         idle: int,
         todos: int,
         agents_data: list[dict],
@@ -163,6 +165,7 @@ class MonitoringSection(QWidget):
         self._metrics.update_metric("instances", str(instances))
         self._metrics.update_metric("agents", str(agents))
         self._metrics.update_metric("busy", str(busy))
+        self._metrics.update_metric("waiting", str(waiting))
         self._metrics.update_metric("idle", str(idle))
         self._metrics.update_metric("todos", str(todos))
 

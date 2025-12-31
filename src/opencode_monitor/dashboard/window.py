@@ -175,16 +175,23 @@ class DashboardWindow(QMainWindow):
             agents_data = []
             tools_data = []
             busy_count = 0
-            idle_count = 0
+            waiting_count = 0  # Sessions with pending ask_user
+            idle_instances = 0  # Instances with no busy agents
             total_todos = 0
 
             for instance in state.instances:
+                # Count idle instances (instances where no agent is busy)
+                if instance.busy_count == 0:
+                    idle_instances += 1
+
                 for agent in instance.agents:
                     is_busy = agent.status == SessionStatus.BUSY
                     if is_busy:
                         busy_count += 1
-                    else:
-                        idle_count += 1
+
+                    # Count agents waiting for user response
+                    if agent.has_pending_ask_user:
+                        waiting_count += 1
 
                     todos_total = agent.todos.pending + agent.todos.in_progress
                     total_todos += todos_total
@@ -213,7 +220,8 @@ class DashboardWindow(QMainWindow):
                 "instances": state.instance_count,
                 "agents": len(agents_data),
                 "busy": busy_count,
-                "idle": idle_count,
+                "waiting": waiting_count,
+                "idle": idle_instances,
                 "todos": total_todos,
                 "agents_data": agents_data,
                 "tools_data": tools_data,
@@ -417,6 +425,7 @@ class DashboardWindow(QMainWindow):
             instances=data.get("instances", 0),
             agents=data.get("agents", 0),
             busy=data.get("busy", 0),
+            waiting=data.get("waiting", 0),
             idle=data.get("idle", 0),
             todos=data.get("todos", 0),
             agents_data=data.get("agents_data", []),
