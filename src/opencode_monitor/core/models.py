@@ -89,6 +89,12 @@ class Agent:
     parent_id: Optional[str] = None  # ID of parent session (for sub-agents)
     has_pending_ask_user: bool = False  # MCP Notify ask_user awaiting response
     ask_user_title: str = ""  # Title of the pending ask_user question
+    ask_user_question: str = ""  # Full question text
+    ask_user_options: list[str] = field(default_factory=list)  # Response options
+    ask_user_repo: str = ""  # Repository name
+    ask_user_agent: str = ""  # Agent name from notification
+    ask_user_branch: str = ""  # Branch name
+    ask_user_urgency: str = "normal"  # Urgency level (normal/high)
 
     @property
     def is_subagent(self) -> bool:
@@ -106,6 +112,12 @@ class Agent:
             "todos": self.todos.to_dict(),
             "has_pending_ask_user": self.has_pending_ask_user,
             "ask_user_title": self.ask_user_title,
+            "ask_user_question": self.ask_user_question,
+            "ask_user_options": self.ask_user_options,
+            "ask_user_repo": self.ask_user_repo,
+            "ask_user_agent": self.ask_user_agent,
+            "ask_user_branch": self.ask_user_branch,
+            "ask_user_urgency": self.ask_user_urgency,
         }
         if self.parent_id:
             result["parent_id"] = self.parent_id

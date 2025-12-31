@@ -1413,12 +1413,12 @@ class TestFindLatestNotifyAskUser:
         part_dir = tmp_path / "part"
         part_dir.mkdir(parents=True)
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time=0
         )
 
         assert timestamp == 0
-        assert title == ""
+        assert notify_input == {}
         assert messages == []
 
     def test_skips_files_older_than_cutoff(self, tmp_path):
@@ -1445,7 +1445,7 @@ class TestFindLatestNotifyAskUser:
         # Use cutoff time of 1 hour ago
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
@@ -1472,7 +1472,7 @@ class TestFindLatestNotifyAskUser:
         # Use cutoff time in the past
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
@@ -1502,7 +1502,7 @@ class TestFindLatestNotifyAskUser:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
@@ -1545,12 +1545,12 @@ class TestFindLatestNotifyAskUser:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         assert timestamp == 1500
-        assert title == "Need user input"
+        assert notify_input.get("title") == "Need user input"
 
     def test_finds_latest_notify_when_multiple_exist(self, tmp_path):
         """Find the most recent notify_ask_user when multiple exist"""
@@ -1593,13 +1593,13 @@ class TestFindLatestNotifyAskUser:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         # Should find the most recent one
         assert timestamp == 2100  # 2000 + 100
-        assert title == "Question 2"
+        assert notify_input.get("title") == "Question 2"
 
     def test_ignores_non_completed_notify(self, tmp_path):
         """Ignore notify_ask_user that is not in completed status"""
@@ -1636,12 +1636,12 @@ class TestFindLatestNotifyAskUser:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         assert timestamp == 0  # Not found
-        assert title == ""
+        assert notify_input == {}
 
     def test_ignores_other_tool_types(self, tmp_path):
         """Ignore tool calls that are not notify_ask_user"""
@@ -1678,12 +1678,12 @@ class TestFindLatestNotifyAskUser:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         assert timestamp == 0
-        assert title == ""
+        assert notify_input == {}
 
 
 # ===========================================================================
@@ -2248,14 +2248,14 @@ class TestFindLatestNotifyAskUserEdgeCases:
         # Use cutoff time of 1 hour ago
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         # Message should be found, but notify should be skipped (part file too old)
         assert len(messages) == 1
         assert timestamp == 0  # No notify found because part file was too old
-        assert title == ""
+        assert notify_input == {}
 
     def test_handles_malformed_part_json_in_find(self, tmp_path):
         """Handle malformed JSON in part files during _find_latest_notify_ask_user"""
@@ -2297,13 +2297,13 @@ class TestFindLatestNotifyAskUserEdgeCases:
 
         cutoff_time = time.time() - 3600
 
-        timestamp, title, messages = _find_latest_notify_ask_user(
+        timestamp, notify_input, messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
 
         # Should find the valid part file and skip the malformed one
         assert timestamp == 1500
-        assert title == "Valid question"
+        assert notify_input.get("title") == "Valid question"
 
 
 class TestFetchAllInstancesEdgeCases:

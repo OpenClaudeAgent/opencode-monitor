@@ -208,12 +208,30 @@ class DashboardWindow(QMainWindow):
                             self._waiting_since[agent.id] = current_time_ms
 
                         waiting_ms = current_time_ms - self._waiting_since[agent.id]
+
+                        # Build context string: "agent @ branch" or "repo @ branch" or just "repo"
+                        context_parts = []
+                        if agent.ask_user_agent:
+                            context_parts.append(agent.ask_user_agent)
+                        elif agent.ask_user_repo:
+                            context_parts.append(agent.ask_user_repo)
+                        if agent.ask_user_branch:
+                            context_parts.append(agent.ask_user_branch)
+                        context = " @ ".join(context_parts) if context_parts else ""
+
                         waiting_data.append(
                             {
-                                "title": agent.title or f"Agent {agent.id[:8]}",
-                                "question": agent.ask_user_title or "Waiting...",
-                                "dir": agent.dir or "",
+                                "title": agent.ask_user_title
+                                or agent.title
+                                or f"Agent {agent.id[:8]}",
+                                "question": agent.ask_user_question
+                                or "Waiting for response...",
+                                "options": " | ".join(agent.ask_user_options)
+                                if agent.ask_user_options
+                                else "",
+                                "context": context,
                                 "waiting_ms": waiting_ms,
+                                "urgency": agent.ask_user_urgency,
                             }
                         )
 
