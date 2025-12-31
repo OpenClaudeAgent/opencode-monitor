@@ -78,19 +78,24 @@ class AnalyticsDB:
         if not conn:
             return
 
-        # Sessions table
+        # Sessions table (enriched)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id VARCHAR PRIMARY KEY,
                 project_id VARCHAR,
                 directory VARCHAR,
                 title VARCHAR,
+                parent_id VARCHAR,
+                version VARCHAR,
+                additions INTEGER DEFAULT 0,
+                deletions INTEGER DEFAULT 0,
+                files_changed INTEGER DEFAULT 0,
                 created_at TIMESTAMP,
                 updated_at TIMESTAMP
             )
         """)
 
-        # Messages table with token metrics
+        # Messages table with token metrics (enriched)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id VARCHAR PRIMARY KEY,
@@ -100,6 +105,10 @@ class AnalyticsDB:
                 agent VARCHAR,
                 model_id VARCHAR,
                 provider_id VARCHAR,
+                mode VARCHAR,
+                cost DECIMAL(10,6) DEFAULT 0,
+                finish_reason VARCHAR,
+                working_dir VARCHAR,
                 tokens_input INTEGER DEFAULT 0,
                 tokens_output INTEGER DEFAULT 0,
                 tokens_reasoning INTEGER DEFAULT 0,
@@ -110,15 +119,19 @@ class AnalyticsDB:
             )
         """)
 
-        # Parts table for tool calls
+        # Parts table for tool calls (enriched)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS parts (
                 id VARCHAR PRIMARY KEY,
+                session_id VARCHAR,
                 message_id VARCHAR,
                 part_type VARCHAR,
                 tool_name VARCHAR,
                 tool_status VARCHAR,
-                created_at TIMESTAMP
+                call_id VARCHAR,
+                created_at TIMESTAMP,
+                ended_at TIMESTAMP,
+                duration_ms INTEGER
             )
         """)
 
@@ -143,6 +156,31 @@ class AnalyticsDB:
                 child_agent VARCHAR,
                 child_session_id VARCHAR,
                 created_at TIMESTAMP
+            )
+        """)
+
+        # Todos table (NEW)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS todos (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR,
+                content VARCHAR,
+                status VARCHAR,
+                priority VARCHAR,
+                position INTEGER,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+
+        # Projects table (NEW)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id VARCHAR PRIMARY KEY,
+                worktree VARCHAR,
+                vcs VARCHAR,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
             )
         """)
 
@@ -172,6 +210,24 @@ class AnalyticsDB:
             ON delegations(parent_agent)
         """)
 
+        # Indexes for new tables
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_session
+            ON todos(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_status
+            ON todos(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_projects_worktree
+            ON projects(worktree)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_session
+            ON parts(session_id)
+        """)
+
         debug("Analytics database schema created")
 
     def clear_data(self) -> None:
@@ -182,6 +238,8 @@ class AnalyticsDB:
         conn.execute("DELETE FROM parts")
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM todos")
+        conn.execute("DELETE FROM projects")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -189,7 +247,15 @@ class AnalyticsDB:
         conn = self.connect()
         result = {}
 
-        for table in ["sessions", "messages", "parts", "skills", "delegations"]:
+        for table in [
+            "sessions",
+            "messages",
+            "parts",
+            "skills",
+            "delegations",
+            "todos",
+            "projects",
+        ]:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
             result[table] = count[0] if count else 0
 
@@ -211,8 +277,60 @@ class AnalyticsDB:
             return 0
         except Exception:
             return 0
-        except Exception:
-            return 0
+
+    def migrate_schema(self) -> None:
+        """Migrate existing database to add new columns.
+
+        This is safe to call multiple times - it checks if columns exist
+        before adding them.
+        """
+        conn = self.connect()
+
+        # Helper to check if column exists
+        def column_exists(table: str, column: str) -> bool:
+            try:
+                result = conn.execute(
+                    f"SELECT * FROM information_schema.columns "
+                    f"WHERE table_name = '{table}' AND column_name = '{column}'"
+                ).fetchone()
+                return result is not None
+            except Exception:
+                return False
+
+        # Helper to add column if not exists
+        def add_column(
+            table: str, column: str, col_type: str, default: str = ""
+        ) -> None:
+            if not column_exists(table, column):
+                default_clause = f" DEFAULT {default}" if default else ""
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
+                    )
+                    debug(f"Added column {table}.{column}")
+                except Exception as e:
+                    debug(f"Failed to add column {table}.{column}: {e}")
+
+        # Sessions - new columns
+        add_column("sessions", "parent_id", "VARCHAR")
+        add_column("sessions", "version", "VARCHAR")
+        add_column("sessions", "additions", "INTEGER", "0")
+        add_column("sessions", "deletions", "INTEGER", "0")
+        add_column("sessions", "files_changed", "INTEGER", "0")
+
+        # Messages - new columns
+        add_column("messages", "mode", "VARCHAR")
+        add_column("messages", "cost", "DECIMAL(10,6)", "0")
+        add_column("messages", "finish_reason", "VARCHAR")
+        add_column("messages", "working_dir", "VARCHAR")
+
+        # Parts - new columns
+        add_column("parts", "session_id", "VARCHAR")
+        add_column("parts", "call_id", "VARCHAR")
+        add_column("parts", "ended_at", "TIMESTAMP")
+        add_column("parts", "duration_ms", "INTEGER")
+
+        info("Database schema migration completed")
 
     def needs_refresh(self, max_age_hours: int = 24) -> bool:
         """Check if data needs refresh based on age."""

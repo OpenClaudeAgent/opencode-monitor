@@ -218,6 +218,55 @@ class DirectoryStats:
 
 
 @dataclass
+class Todo:
+    """A todo item from a session."""
+
+    id: str
+    session_id: str
+    content: str
+    status: str  # pending, in_progress, completed, cancelled
+    priority: str  # high, medium, low
+    position: int
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+@dataclass
+class Project:
+    """An OpenCode project."""
+
+    id: str
+    worktree: str
+    vcs: str
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+
+
+@dataclass
+class TodoStats:
+    """Todo statistics for a period."""
+
+    total: int
+    completed: int
+    in_progress: int
+    pending: int
+    cancelled: int
+    completion_rate: float  # percentage
+
+
+@dataclass
+class ProjectStats:
+    """Statistics for a project."""
+
+    project_id: str
+    worktree: str
+    sessions: int
+    tokens: int
+    todos_total: int
+    todos_completed: int
+
+
+@dataclass
 class ModelStats:
     """Statistics per model."""
 
