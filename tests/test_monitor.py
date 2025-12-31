@@ -43,7 +43,7 @@ class TestFindOpencodePorts:
     @pytest.mark.asyncio
     async def test_returns_empty_list_when_netstat_fails(self):
         """When subprocess raises exception, return empty list"""
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.side_effect = Exception("Command failed")
             result = await find_opencode_ports()
             assert result == []
@@ -54,7 +54,7 @@ class TestFindOpencodePorts:
         mock_result = MagicMock()
         mock_result.stdout = "Active connections\nProto  Local Address\n"
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.return_value = mock_result
             result = await find_opencode_ports()
             assert result == []
@@ -76,9 +76,9 @@ tcp4       0      0  127.0.0.1.500          *.*                    LISTEN
             # Only port 8080 is an opencode instance
             return port == 8080
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             with patch(
-                "opencode_monitor.core.monitor.check_opencode_port",
+                "opencode_monitor.core.monitor.ports.check_opencode_port",
                 side_effect=mock_check,
             ):
                 mock_run.return_value = mock_result
@@ -98,9 +98,9 @@ tcp4       0      0  127.0.0.1.8080         *.*                    LISTEN
         async def mock_check(port):
             return True
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             with patch(
-                "opencode_monitor.core.monitor.check_opencode_port",
+                "opencode_monitor.core.monitor.ports.check_opencode_port",
                 side_effect=mock_check,
             ):
                 mock_run.return_value = mock_result
@@ -122,9 +122,9 @@ tcp4       0      0  127.0.0.1.8080         *.*                    LISTEN
         async def mock_check(port):
             return True
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             with patch(
-                "opencode_monitor.core.monitor.check_opencode_port",
+                "opencode_monitor.core.monitor.ports.check_opencode_port",
                 side_effect=mock_check,
             ):
                 mock_run.return_value = mock_result
@@ -148,9 +148,9 @@ tcp4       0      0  127.0.0.1.9000         *.*                    LISTEN
         async def mock_check(port):
             return port in [8080, 9000]
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             with patch(
-                "opencode_monitor.core.monitor.check_opencode_port",
+                "opencode_monitor.core.monitor.ports.check_opencode_port",
                 side_effect=mock_check,
             ):
                 mock_run.return_value = mock_result
@@ -168,7 +168,7 @@ class TestGetTtyForPort:
 
     def test_returns_empty_string_when_lsof_fails(self):
         """When lsof raises exception, return empty string"""
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.side_effect = Exception("Command failed")
             result = get_tty_for_port(8080)
             assert result == ""
@@ -178,7 +178,7 @@ class TestGetTtyForPort:
         mock_result = MagicMock()
         mock_result.stdout = "COMMAND     PID   USER\nnode      1234   user"
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.return_value = mock_result
             result = get_tty_for_port(8080)
             assert result == ""
@@ -196,7 +196,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (LISTEN
         mock_ps = MagicMock()
         mock_ps.stdout = ps_output
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.side_effect = [mock_lsof, mock_ps]
             result = get_tty_for_port(8080)
             assert result == "ttys001"
@@ -214,7 +214,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (LISTEN
         mock_ps = MagicMock()
         mock_ps.stdout = ps_output
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.side_effect = [mock_lsof, mock_ps]
             result = get_tty_for_port(8080)
             assert result == ""
@@ -230,7 +230,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (LISTEN
         mock_ps = MagicMock()
         mock_ps.stdout = ""
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.side_effect = [mock_lsof, mock_ps]
             result = get_tty_for_port(8080)
             assert result == ""
@@ -243,7 +243,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (ESTABL
         mock_lsof = MagicMock()
         mock_lsof.stdout = lsof_output
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.return_value = mock_lsof
             result = get_tty_for_port(8080)
             assert result == ""
@@ -255,7 +255,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (ESTABL
         mock_lsof = MagicMock()
         mock_lsof.stdout = lsof_output
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             mock_run.return_value = mock_lsof
             result = get_tty_for_port(8080)
             assert result == ""
@@ -268,7 +268,7 @@ opencode  12345   user    5u  IPv4 0xabc123      0t0  TCP 127.0.0.1:8080 (LISTEN
         mock_lsof = MagicMock()
         mock_lsof.stdout = lsof_output
 
-        with patch("opencode_monitor.core.monitor.subprocess.run") as mock_run:
+        with patch("opencode_monitor.core.monitor.ports.subprocess.run") as mock_run:
             # First call (lsof) succeeds, second call (ps) raises exception
             mock_run.side_effect = [mock_lsof, Exception("ps failed")]
             result = get_tty_for_port(8080)
@@ -734,10 +734,10 @@ class TestFetchInstance:
         mock_client.get_all_sessions.return_value = []
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value="ttys001"
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value="ttys001"
             ):
                 (
                     instance,
@@ -764,10 +764,10 @@ class TestFetchInstance:
         mock_client.get_all_sessions.return_value = []
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -790,10 +790,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value="ttys001"
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value="ttys001"
             ):
                 instance, pending, in_progress, _, busy_ids = await fetch_instance(8080)
 
@@ -818,10 +818,10 @@ class TestFetchInstance:
         ]
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 (
                     instance,
@@ -863,10 +863,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -889,10 +889,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -913,10 +913,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -937,10 +937,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -966,10 +966,10 @@ class TestFetchInstance:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, _ = await fetch_instance(8080)
 
@@ -999,10 +999,10 @@ class TestFetchInstance:
         ]
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 instance, pending, in_progress, _, busy_ids = await fetch_instance(8080)
 
@@ -1025,7 +1025,7 @@ class TestFetchAllInstances:
     async def test_returns_disconnected_state_when_no_ports(self):
         """Return disconnected state when no OpenCode ports found"""
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports", return_value=[]
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports", return_value=[]
         ):
             state = await fetch_all_instances()
 
@@ -1059,11 +1059,11 @@ class TestFetchAllInstances:
             return (mock_instance, 1, 0, [], {"ses_1"})
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -1094,11 +1094,11 @@ class TestFetchAllInstances:
                 return (instance2, 3, 2, [], set())
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -1122,11 +1122,11 @@ class TestFetchAllInstances:
                 return (None, 0, 0, [], set())
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -1146,11 +1146,11 @@ class TestFetchAllInstances:
             return (None, 0, 0, [], set())
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -1178,11 +1178,11 @@ class TestFetchAllInstances:
                 return (instance3, 0, 0, [], set())
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -1215,15 +1215,15 @@ class TestFetchAllInstances:
             return AskUserResult(has_pending=True, title="Test question")
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 with patch(
-                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    "opencode_monitor.core.monitor.fetcher.check_pending_ask_user_from_disk",
                     side_effect=mock_check_pending,
                 ):
                     # With known_active_sessions that doesn't include zombie_session
@@ -1262,15 +1262,15 @@ class TestFetchAllInstances:
             return AskUserResult(has_pending=True, title="User input needed")
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 with patch(
-                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    "opencode_monitor.core.monitor.fetcher.check_pending_ask_user_from_disk",
                     side_effect=mock_check_pending,
                 ):
                     # With known_active_sessions that includes known_session
@@ -1314,15 +1314,15 @@ class TestFetchAllInstances:
             return AskUserResult(has_pending=True, title="Question")
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 with patch(
-                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    "opencode_monitor.core.monitor.fetcher.check_pending_ask_user_from_disk",
                     side_effect=mock_check_pending,
                 ):
                     # Without known_active_sessions (None)
@@ -1357,11 +1357,11 @@ class TestFetchAllInstances:
             return (instance, 0, 0, [idle_session], {"ses_1"})
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 state = await fetch_all_instances()
@@ -2046,7 +2046,7 @@ class TestCheckPendingAskUserFromDisk:
         mock_settings.ask_user_timeout = 30 * 60  # 30 minutes
 
         with patch(
-            "opencode_monitor.core.monitor.get_settings", return_value=mock_settings
+            "opencode_monitor.core.monitor.ask_user.get_settings", return_value=mock_settings
         ):
             result = check_pending_ask_user_from_disk(
                 session_id="session_1",
@@ -2060,7 +2060,7 @@ class TestCheckPendingAskUserFromDisk:
         mock_settings.ask_user_timeout = 60 * 60  # 1 hour
 
         with patch(
-            "opencode_monitor.core.monitor.get_settings", return_value=mock_settings
+            "opencode_monitor.core.monitor.ask_user.get_settings", return_value=mock_settings
         ):
             result = check_pending_ask_user_from_disk(
                 session_id="session_1",
@@ -2111,10 +2111,10 @@ class TestFetchInstanceIdleCandidates:
         ]
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 (
                     instance,
@@ -2144,10 +2144,10 @@ class TestFetchInstanceIdleCandidates:
         ]
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 (
                     instance,
@@ -2181,10 +2181,10 @@ class TestFetchInstanceIdleCandidates:
         }
 
         with patch(
-            "opencode_monitor.core.monitor.OpenCodeClient", return_value=mock_client
+            "opencode_monitor.core.monitor.fetcher.OpenCodeClient", return_value=mock_client
         ):
             with patch(
-                "opencode_monitor.core.monitor.get_tty_for_port", return_value=""
+                "opencode_monitor.core.monitor.fetcher.get_tty_for_port", return_value=""
             ):
                 (
                     instance,
@@ -2356,15 +2356,15 @@ class TestFetchAllInstancesEdgeCases:
             return AskUserResult(has_pending=True, title="Test")
 
         with patch(
-            "opencode_monitor.core.monitor.find_opencode_ports",
+            "opencode_monitor.core.monitor.fetcher.find_opencode_ports",
             side_effect=mock_find,
         ):
             with patch(
-                "opencode_monitor.core.monitor.fetch_instance",
+                "opencode_monitor.core.monitor.fetcher.fetch_instance",
                 side_effect=mock_fetch,
             ):
                 with patch(
-                    "opencode_monitor.core.monitor.check_pending_ask_user_from_disk",
+                    "opencode_monitor.core.monitor.fetcher.check_pending_ask_user_from_disk",
                     side_effect=mock_check_pending,
                 ):
                     state = await fetch_all_instances()
