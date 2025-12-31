@@ -64,9 +64,38 @@ def get_operation_variant(operation: str) -> str:
 class MonitoringSection(QWidget):
     """Monitoring section - real-time agents and tools."""
 
+    # Signal emitted when user double-clicks to open terminal
+    open_terminal_requested = pyqtSignal(str)  # agent_id
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._setup_ui()
+        self._connect_table_signals()
+
+    def _connect_table_signals(self) -> None:
+        """Connect double-click signals for opening terminal."""
+        self._agents_table.cellDoubleClicked.connect(self._on_agents_double_click)
+        self._waiting_table.cellDoubleClicked.connect(self._on_waiting_double_click)
+
+        # Set pointing hand cursor to indicate clickable rows
+        self._agents_table.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._waiting_table.setCursor(Qt.CursorShape.PointingHandCursor)
+
+    def _on_agents_double_click(self, row: int, _col: int) -> None:
+        """Handle double-click on agents table."""
+        item = self._agents_table.item(row, 0)
+        if item:
+            agent_id = item.data(Qt.ItemDataRole.UserRole)
+            if agent_id:
+                self.open_terminal_requested.emit(agent_id)
+
+    def _on_waiting_double_click(self, row: int, _col: int) -> None:
+        """Handle double-click on waiting table."""
+        item = self._waiting_table.item(row, 0)
+        if item:
+            agent_id = item.data(Qt.ItemDataRole.UserRole)
+            if agent_id:
+                self.open_terminal_requested.emit(agent_id)
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
@@ -205,6 +234,7 @@ class MonitoringSection(QWidget):
                 status = agent.get("status", "idle")
                 title = agent.get("title", "Unknown")
                 directory = agent.get("dir", "")
+                agent_id = agent.get("agent_id", "")
 
                 # Add row with placeholder for status (will be replaced by widget)
                 self._agents_table.add_row(
@@ -225,6 +255,11 @@ class MonitoringSection(QWidget):
                     "success" if status == "busy" else "neutral",
                 )
                 self._agents_table.setCellWidget(row, 2, status_badge)
+
+                # Store agent_id for double-click handling
+                first_item = self._agents_table.item(row, 0)
+                if first_item:
+                    first_item.setData(Qt.ItemDataRole.UserRole, agent_id)
         else:
             self._agents_table.hide()
             self._agents_empty.show()
@@ -274,6 +309,7 @@ class MonitoringSection(QWidget):
                 question = agent.get("question", "")
                 options = agent.get("options", "")
                 context = agent.get("context", "")
+                agent_id = agent.get("agent_id", "")
 
                 # Truncate question to 80 chars for display
                 question_display = (
@@ -284,6 +320,12 @@ class MonitoringSection(QWidget):
                     [title, question_display, options, context],
                     full_values=[title, question, options, context],
                 )
+
+                # Store agent_id for double-click handling
+                row = self._waiting_table.rowCount() - 1
+                first_item = self._waiting_table.item(row, 0)
+                if first_item:
+                    first_item.setData(Qt.ItemDataRole.UserRole, agent_id)
         else:
             self._waiting_table.hide()
             self._waiting_empty.show()

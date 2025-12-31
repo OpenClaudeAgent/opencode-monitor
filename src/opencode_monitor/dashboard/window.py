@@ -44,6 +44,7 @@ class DashboardWindow(QMainWindow):
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
+        self._agent_tty_map: dict[str, str] = {}  # agent_id -> tty mapping
 
         self._setup_window()
         self._setup_ui()
@@ -140,6 +141,17 @@ class DashboardWindow(QMainWindow):
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
 
+        # Connect terminal focus signal
+        self._monitoring.open_terminal_requested.connect(self._on_open_terminal)
+
+    def _on_open_terminal(self, agent_id: str) -> None:
+        """Handle request to open terminal for an agent."""
+        tty = self._agent_tty_map.get(agent_id)
+        if tty:
+            from ..ui.terminal import focus_iterm2
+
+            focus_iterm2(tty)
+
     def _on_analytics_period_changed(self, days: int) -> None:
         """Handle analytics period change - refresh data immediately."""
         threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
@@ -175,6 +187,7 @@ class DashboardWindow(QMainWindow):
             agents_data = []
             tools_data = []
             waiting_data = []
+            agent_tty_map: dict[str, str] = {}  # Temporary map to update after loop
             busy_count = 0
             waiting_count = 0  # Sessions with pending ask_user
             idle_instances = 0  # Instances with no busy agents
@@ -189,6 +202,10 @@ class DashboardWindow(QMainWindow):
                     is_busy = agent.status == SessionStatus.BUSY
                     if is_busy:
                         busy_count += 1
+
+                    # Store TTY mapping for terminal focus
+                    if instance.tty:
+                        agent_tty_map[agent.id] = instance.tty
 
                     # Count agents waiting for user response
                     if agent.has_pending_ask_user:
@@ -206,6 +223,7 @@ class DashboardWindow(QMainWindow):
 
                         waiting_data.append(
                             {
+                                "agent_id": agent.id,
                                 "title": agent.ask_user_title
                                 or agent.title
                                 or f"Agent {agent.id[:8]}",
@@ -223,6 +241,7 @@ class DashboardWindow(QMainWindow):
 
                     agents_data.append(
                         {
+                            "agent_id": agent.id,
                             "title": agent.title or f"Agent {agent.id[:8]}",
                             "dir": agent.dir or "",
                             "status": "busy" if is_busy else "idle",
@@ -252,6 +271,9 @@ class DashboardWindow(QMainWindow):
                 "tools_data": tools_data,
                 "waiting_data": waiting_data,
             }
+
+            # Update TTY mapping (thread-safe assignment)
+            self._agent_tty_map = agent_tty_map
 
             self._signals.monitoring_updated.emit(data)
 
