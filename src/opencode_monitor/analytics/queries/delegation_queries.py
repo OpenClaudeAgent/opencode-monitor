@@ -14,6 +14,7 @@ from ..models import (
     DelegationSession,
 )
 from .base import BaseQueries
+from ...utils.logger import debug
 
 
 class DelegationQueries(BaseQueries):
@@ -79,7 +80,9 @@ class DelegationQueries(BaseQueries):
 
                 # depth+1 = number of agents in chain
                 max_depth = (depth_result + 1) if depth_result else 2
-            except Exception:
+            except (
+                Exception
+            ):  # Intentional catch-all: recursive CTE may fail, use default
                 max_depth = 2
 
             return DelegationMetrics(
@@ -91,7 +94,8 @@ class DelegationQueries(BaseQueries):
                 max_depth=max_depth,
                 avg_per_session=(total / sessions) if sessions > 0 else 0,
             )
-        except Exception:
+        except Exception as e:  # Intentional catch-all: query failures return None
+            debug(f"_get_delegation_metrics query failed: {e}")
             return None
 
     def _get_delegation_patterns(
@@ -144,7 +148,10 @@ class DelegationQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"_get_delegation_patterns query failed: {e}")
             return []
 
     def _get_agent_chains(
@@ -280,5 +287,8 @@ class DelegationQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"_get_delegation_sessions query failed: {e}")
             return []

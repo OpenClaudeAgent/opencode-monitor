@@ -454,7 +454,9 @@ class OpenCodeApp(rumps.App):
                 subprocess.run(["open", report_path])
                 info(f"[Analytics] Done!")
                 db.close()
-            except Exception as e:
+            except (
+                Exception
+            ) as e:  # Intentional catch-all: analytics failures shouldn't crash app
                 error(f"[Analytics] Error: {e}")
                 import traceback
 
@@ -473,7 +475,9 @@ class OpenCodeApp(rumps.App):
                 load_opencode_data(db, clear_first=True)
                 db.close()
                 info("Analytics data refreshed")
-            except Exception as e:
+            except (
+                Exception
+            ) as e:  # Intentional catch-all: refresh failures shouldn't crash app
                 error(f"Analytics refresh error: {e}")
 
         thread = threading.Thread(target=run_in_background, daemon=True)
@@ -492,7 +496,7 @@ class OpenCodeApp(rumps.App):
                 else:
                     debug("[Analytics] Data is fresh, skipping refresh")
                 db.close()
-            except Exception as e:
+            except Exception as e:  # Intentional catch-all: background refresh failures shouldn't crash app
                 error(f"[Analytics] Background refresh error: {e}")
 
         thread = threading.Thread(target=check_and_refresh, daemon=True)
@@ -527,7 +531,9 @@ class OpenCodeApp(rumps.App):
 
                     debug(f"State updated: {new_state.instance_count} instances")
 
-                except Exception as e:
+                except (
+                    Exception
+                ) as e:  # Intentional catch-all: monitor loop must continue
                     error(f"Monitor error: {e}")
 
                 # Update usage periodically
@@ -540,7 +546,7 @@ class OpenCodeApp(rumps.App):
                             self._usage = new_usage
                         self._last_usage_update = now
                         self._needs_refresh = True
-                    except Exception as e:
+                    except Exception as e:  # Intentional catch-all: usage update failures shouldn't stop monitor
                         error(f"Usage update error: {e}")
 
                 elapsed = time.time() - start_time
