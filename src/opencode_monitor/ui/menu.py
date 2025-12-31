@@ -429,7 +429,7 @@ class MenuBuilder:
             )
         )
 
-        # EDR/MITRE stats
+        # EDR/MITRE stats (from DB)
         edr_sequences = stats.get("edr_sequences", 0)
         edr_correlations = stats.get("edr_correlations", 0)
         mitre_tagged = stats.get("mitre_tagged", 0)
