@@ -210,22 +210,28 @@ class AnalyticsQueries:
     def _get_tool_stats(
         self, start_date: datetime, end_date: datetime
     ) -> list[ToolStats]:
-        """Get per-tool statistics."""
+        """Get per-tool statistics.
+
+        Filters tools by date using the parent message's created_at timestamp,
+        since parts.created_at may be NULL.
+        """
         conn = self._db.connect()
 
-        # Note: created_at may be NULL, so we don't filter by date for now
         results = conn.execute(
             """
             SELECT
-                tool_name,
+                p.tool_name,
                 COUNT(*) as invocations,
-                SUM(CASE WHEN tool_status = 'error' THEN 1 ELSE 0 END) as failures
-            FROM parts
-            WHERE tool_name IS NOT NULL
-            GROUP BY tool_name
+                SUM(CASE WHEN p.tool_status = 'error' THEN 1 ELSE 0 END) as failures
+            FROM parts p
+            JOIN messages m ON p.message_id = m.id
+            WHERE m.created_at >= ? AND m.created_at <= ?
+                AND p.tool_name IS NOT NULL
+            GROUP BY p.tool_name
             ORDER BY invocations DESC
             LIMIT 15
-            """
+            """,
+            [start_date, end_date],
         ).fetchall()
 
         return [
@@ -240,20 +246,26 @@ class AnalyticsQueries:
     def _get_skill_stats(
         self, start_date: datetime, end_date: datetime
     ) -> list[SkillStats]:
-        """Get skill usage statistics."""
+        """Get skill usage statistics.
+
+        Filters skills by date using the parent message's created_at timestamp,
+        since skills.loaded_at may be NULL.
+        """
         conn = self._db.connect()
 
-        # Note: loaded_at may be NULL, so we don't filter by date for now
         results = conn.execute(
             """
             SELECT
-                skill_name,
+                s.skill_name,
                 COUNT(*) as load_count
-            FROM skills
-            WHERE skill_name IS NOT NULL
-            GROUP BY skill_name
+            FROM skills s
+            JOIN messages m ON s.message_id = m.id
+            WHERE m.created_at >= ? AND m.created_at <= ?
+                AND s.skill_name IS NOT NULL
+            GROUP BY s.skill_name
             ORDER BY load_count DESC
-            """
+            """,
+            [start_date, end_date],
         ).fetchall()
 
         return [
@@ -536,7 +548,10 @@ class AnalyticsQueries:
     def _get_skills_by_agent(
         self, start_date: datetime, end_date: datetime
     ) -> list[SkillByAgent]:
-        """Get skill usage per agent."""
+        """Get skill usage per agent.
+
+        Filters by message created_at to respect the selected time period.
+        """
         conn = self._db.connect()
 
         try:
@@ -549,9 +564,11 @@ class AnalyticsQueries:
                 FROM skills s
                 JOIN messages m ON s.message_id = m.id
                 WHERE m.agent IS NOT NULL
+                    AND m.created_at >= ? AND m.created_at <= ?
                 GROUP BY m.agent, s.skill_name
                 ORDER BY count DESC
-                """
+                """,
+                [start_date, end_date],
             ).fetchall()
 
             return [
