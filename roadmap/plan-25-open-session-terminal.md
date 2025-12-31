@@ -71,11 +71,15 @@ self._agents_table.setCursor(Qt.CursorShape.PointingHandCursor)
 
 ## Validation
 
-- [ ] Double-clic sur agent BUSY ouvre iTerm sur le bon terminal
-- [ ] Double-clic sur agent WAITING ouvre iTerm sur le bon terminal
-- [ ] Curseur change au survol des lignes
-- [ ] Pas d'erreur si TTY non disponible (ex: agent zombie)
-- [ ] Tests unitaires pour le mapping et le signal
+- [x] Double-clic sur agent BUSY ouvre iTerm sur le bon terminal
+- [x] Double-clic sur agent WAITING ouvre iTerm sur le bon terminal
+- [x] Curseur change au survol des lignes
+- [x] Pas d'erreur si TTY non disponible (ex: agent zombie)
+- [x] Tests unitaires pour le mapping et le signal
+
+## Statut
+
+**TERMINE** - v2.18.0 - 2025-12-31
 
 ## Notes
 

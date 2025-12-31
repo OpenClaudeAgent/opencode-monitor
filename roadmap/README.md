@@ -37,7 +37,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 22 | Analytics Debugging | [plan-22](./plan-22-analytics-debugging.md) | `feature/analytics-debugging` | v2.16.0 | Termine |
 | 23 | DateTime Range Selector | [plan-23](./plan-23-datetime-selector.md) | `feature/datetime-selector` | - | En attente |
 | 24 | Data Model Enrichment | [plan-24](./plan-24-data-model-enrichment.md) | `feature/data-model` | v2.17.0 | Termine |
-| 25 | Open Session in Terminal | [plan-25](./plan-25-open-session-terminal.md) | `feature/open-terminal` | - | En attente |
+| 25 | Open Session in Terminal | [plan-25](./plan-25-open-session-terminal.md) | `feature/open-terminal` | v2.18.0 | Termine |
 
 ## Priorite
 
@@ -60,6 +60,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-31 | Plan-25 termine - Double-clic dashboard ouvre iTerm + refactoring queries.py + tests loader.py v2.18.0 |
 | 2025-12-31 | Ajout plan-25 (open session terminal) - Double-clic dans dashboard ouvre iTerm |
 | 2025-12-31 | Plan-24 termine - Data model enrichi (todos, projects, nouvelles colonnes) v2.17.0 |
 | 2025-12-31 | Plan-22 termine - Fix filtrage date tools/skills dans analytics v2.16.0 |
