@@ -29,9 +29,14 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 14 | Permission Detection (Heuristique) | [plan-14](./plan-14-permission-detection.md) | `feature/permission-heuristic` | v2.10.0 | Termine |
 | 15 | Detection MCP Notify ask_user | [plan-15](./plan-15-ask-user-detection.md) | `feature/ask-user-detection` | v2.11.0 | Termine |
 | 16 | Analytics et statistiques | [plan-16](./plan-16-analytics.md) | `feature/analytics` | v2.13.0 | Termine |
-| 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | - | En attente |
+| 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | v2.14.0 | Termine |
 | 18 | Hooks OpenCode (permissions) | [plan-18](./plan-18-opencode-hooks.md) | `feature/opencode-hooks` | - | En attente |
-| 19 | Heuristiques EDR | [plan-19](./plan-19-edr-heuristics.md) | `feature/edr-heuristics` | - | En attente |
+| 19 | Heuristiques EDR | [plan-19](./plan-19-edr-heuristics.md) | `feature/edr-heuristics` | v2.15.0 | Termine |
+| 20 | Agent Tracing System | [plan-20](./plan-20-agent-tracing.md) | `feature/agent-tracing` | - | En attente |
+| 21 | Dashboard Enrichment | [plan-21](./plan-21-dashboard-enrichment.md) | `feature/dashboard-enrichment` | - | En attente |
+| 22 | Analytics Debugging | [plan-22](./plan-22-analytics-debugging.md) | `feature/analytics-debugging` | - | En attente |
+| 23 | DateTime Range Selector | [plan-23](./plan-23-datetime-selector.md) | `feature/datetime-selector` | - | En attente |
+| 24 | Data Model Enrichment | [plan-24](./plan-24-data-model-enrichment.md) | `feature/data-model` | - | En attente |
 
 ## Priorite
 
@@ -54,6 +59,12 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2025-12-31 | Plan-19 termine - Heuristiques EDR avec 25+ techniques MITRE ATT&CK v2.15.0 |
+| 2025-12-31 | Ajout plan-23 (datetime selector) - Selecteur de plage date/heure personnalisee |
+| 2025-12-31 | Ajout plan-22 (analytics debugging) - Fix filtrage date skills/tools |
+| 2025-12-31 | Ajout plan-21 (dashboard enrichment) - Migration donnees rapport HTML vers dashboard |
+| 2025-12-31 | Ajout plan-20 (agent tracing) - Traces execution agents, evaluation librairies (OpenTelemetry, Langfuse) |
+| 2025-12-31 | Plan-17 termine - Dashboard PyQt avec design system moderne |
 | 2025-12-31 | Ajout plan-19 (heuristiques EDR) - Sequences, correlations, baseline, MITRE ATT&CK |
 | 2025-12-31 | Ajout plan-18 (hooks OpenCode) - POC detection permissions via plugin TypeScript |
 | 2025-12-30 | Plan-16 termine - Analytics DuckDB avec rapport HTML, refresh auto, metriques delegations v2.13.0 |
