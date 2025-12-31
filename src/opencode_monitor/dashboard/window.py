@@ -44,8 +44,6 @@ class DashboardWindow(QMainWindow):
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
-        # Track when agents started waiting for ask_user (agent_id -> timestamp_ms)
-        self._waiting_since: dict[str, int] = {}
 
         self._setup_window()
         self._setup_ui()
@@ -166,15 +164,12 @@ class DashboardWindow(QMainWindow):
         """Fetch monitoring data from core module."""
         try:
             import asyncio
-            import time
             from ..core.monitor import fetch_all_instances
             from ..core.models import SessionStatus
 
             loop = asyncio.new_event_loop()
             state = loop.run_until_complete(fetch_all_instances())
             loop.close()
-
-            current_time_ms = int(time.time() * 1000)
 
             # Build data dict
             agents_data = []
@@ -184,9 +179,6 @@ class DashboardWindow(QMainWindow):
             waiting_count = 0  # Sessions with pending ask_user
             idle_instances = 0  # Instances with no busy agents
             total_todos = 0
-
-            # Track which agents are currently waiting
-            current_waiting_ids: set[str] = set()
 
             for instance in state.instances:
                 # Count idle instances (instances where no agent is busy)
@@ -201,13 +193,6 @@ class DashboardWindow(QMainWindow):
                     # Count agents waiting for user response
                     if agent.has_pending_ask_user:
                         waiting_count += 1
-                        current_waiting_ids.add(agent.id)
-
-                        # Track when agent started waiting
-                        if agent.id not in self._waiting_since:
-                            self._waiting_since[agent.id] = current_time_ms
-
-                        waiting_ms = current_time_ms - self._waiting_since[agent.id]
 
                         # Build context string: "agent @ branch" or "repo @ branch" or just "repo"
                         context_parts = []
@@ -230,8 +215,6 @@ class DashboardWindow(QMainWindow):
                                 if agent.ask_user_options
                                 else "",
                                 "context": context,
-                                "waiting_ms": waiting_ms,
-                                "urgency": agent.ask_user_urgency,
                             }
                         )
 
@@ -257,11 +240,6 @@ class DashboardWindow(QMainWindow):
                                 "elapsed_ms": tool.elapsed_ms,
                             }
                         )
-
-            # Clean up agents that are no longer waiting
-            for agent_id in list(self._waiting_since.keys()):
-                if agent_id not in current_waiting_ids:
-                    del self._waiting_since[agent_id]
 
             data = {
                 "instances": state.instance_count,

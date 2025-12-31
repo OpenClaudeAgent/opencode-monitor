@@ -153,16 +153,13 @@ class MonitoringSection(QWidget):
             SectionHeader("Waiting for Response", "Agents waiting for user input")
         )
 
-        self._waiting_table = DataTable(
-            ["Title", "Question", "Options", "Context", "Waiting"]
-        )
+        self._waiting_table = DataTable(["Title", "Question", "Options", "Context"])
         self._waiting_table.setColumnWidth(0, COL_WIDTH["name_short"])  # Title
         self._waiting_table.setColumnWidth(1, COL_WIDTH["path"])  # Question (truncated)
         self._waiting_table.setColumnWidth(2, COL_WIDTH["name_short"])  # Options
         self._waiting_table.setColumnWidth(
             3, COL_WIDTH["name_short"]
         )  # Context (repo @ branch)
-        self._waiting_table.setColumnWidth(4, COL_WIDTH["duration"])  # Waiting duration
         content_layout.addWidget(self._waiting_table)
 
         self._waiting_empty = EmptyState(
@@ -277,29 +274,15 @@ class MonitoringSection(QWidget):
                 question = agent.get("question", "")
                 options = agent.get("options", "")
                 context = agent.get("context", "")
-                waiting_ms = agent.get("waiting_ms", 0)
-                urgency = agent.get("urgency", "normal")
-                duration = format_duration_ms(waiting_ms)
 
                 # Truncate question to 80 chars for display
                 question_display = (
                     question[:80] + "..." if len(question) > 80 else question
                 )
 
-                # Use warning variant if waiting > 5 minutes or high urgency
-                duration_variant = (
-                    "risk-high" if waiting_ms > 300000 or urgency == "high" else ""
-                )
-
                 self._waiting_table.add_row(
-                    [
-                        title,
-                        question_display,
-                        options,
-                        context,
-                        (duration, duration_variant) if duration_variant else duration,
-                    ],
-                    full_values=[title, question, options, context, duration],
+                    [title, question_display, options, context],
+                    full_values=[title, question, options, context],
                 )
         else:
             self._waiting_table.hide()
