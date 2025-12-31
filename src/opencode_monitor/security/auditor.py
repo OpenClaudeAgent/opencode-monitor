@@ -119,6 +119,8 @@ class SecurityAuditor:
             return
 
         try:
+            # Collect all new files first
+            files_to_process: List[Path] = []
             for msg_dir in OPENCODE_STORAGE.iterdir():
                 if not msg_dir.is_dir():
                     continue
@@ -128,33 +130,47 @@ class SecurityAuditor:
 
                 for prt_file in msg_dir.glob("prt_*.json"):
                     file_id = prt_file.name
+                    if file_id not in self._scanned_ids:
+                        files_to_process.append(prt_file)
 
-                    if file_id in self._scanned_ids:
-                        continue
+            # For batch scans (many files), disable EDR sequence analysis
+            # to avoid false positives from out-of-order processing
+            is_batch_scan = len(files_to_process) > 50
+            if is_batch_scan:
+                # Clear EDR buffers before batch scan to avoid stale data
+                self._sequence_analyzer.clear_all()
+                self._event_correlator.clear_all()
 
-                    result = self._process_file(prt_file)
-                    if result:
-                        result_type = result.get("type")
+            # Process files
+            for prt_file in files_to_process:
+                if not self._running and self._thread is not None:
+                    break
 
-                        if result_type == "command":
-                            if self._db.insert_command(result):
-                                new_counts["commands"] += 1
-                                self._update_stat(result["risk_level"])
-                        elif result_type == "read":
-                            if self._db.insert_read(result):
-                                new_counts["reads"] += 1
-                                self._update_stat(f"reads_{result['risk_level']}")
-                        elif result_type == "write":
-                            if self._db.insert_write(result):
-                                new_counts["writes"] += 1
-                                self._update_stat(f"writes_{result['risk_level']}")
-                        elif result_type == "webfetch":
-                            if self._db.insert_webfetch(result):
-                                new_counts["webfetches"] += 1
-                                self._update_stat(f"webfetches_{result['risk_level']}")
+                file_id = prt_file.name
+                # For batch scans, skip EDR analysis
+                result = self._process_file(prt_file, skip_edr=is_batch_scan)
+                if result:
+                    result_type = result.get("type")
 
-                    self._scanned_ids.add(file_id)
-                    new_files += 1
+                    if result_type == "command":
+                        if self._db.insert_command(result):
+                            new_counts["commands"] += 1
+                            self._update_stat(result["risk_level"])
+                    elif result_type == "read":
+                        if self._db.insert_read(result):
+                            new_counts["reads"] += 1
+                            self._update_stat(f"reads_{result['risk_level']}")
+                    elif result_type == "write":
+                        if self._db.insert_write(result):
+                            new_counts["writes"] += 1
+                            self._update_stat(f"writes_{result['risk_level']}")
+                    elif result_type == "webfetch":
+                        if self._db.insert_webfetch(result):
+                            new_counts["webfetches"] += 1
+                            self._update_stat(f"webfetches_{result['risk_level']}")
+
+                self._scanned_ids.add(file_id)
+                new_files += 1
 
             # Update totals
             self._stats["total_scanned"] += new_files
@@ -268,8 +284,16 @@ class SecurityAuditor:
             "mitre_from_edr": mitre_from_edr,
         }
 
-    def _process_file(self, prt_file: Path) -> Optional[Dict[str, Any]]:
-        """Process a single part file"""
+    def _process_file(
+        self, prt_file: Path, skip_edr: bool = False
+    ) -> Optional[Dict[str, Any]]:
+        """Process a single part file
+
+        Args:
+            prt_file: Path to the part file to process
+            skip_edr: If True, skip EDR sequence/correlation analysis
+                      (used during batch scans to avoid false positives)
+        """
         try:
             content = prt_file.read_bytes()
             content_hash = hashlib.md5(content).hexdigest()
@@ -289,19 +313,32 @@ class SecurityAuditor:
                 "scanned_at": datetime.now().isoformat(),
             }
 
+            # Empty EDR result for batch scans
+            empty_edr = {
+                "sequences": [],
+                "correlations": [],
+                "sequence_score_bonus": 0,
+                "correlation_score_bonus": 0,
+                "mitre_from_edr": [],
+            }
+
             if tool == "bash":
                 command = cmd_input.get("command", "")
                 if not command:
                     return None
                 alert = analyze_command(command, tool)
 
-                # EDR analysis
-                edr = self._process_edr_analysis(
-                    tool=tool,
-                    target=command,
-                    session_id=base_data["session_id"],
-                    timestamp=base_data["timestamp"],
-                    risk_score=alert.score,
+                # EDR analysis (skip during batch scans)
+                edr = (
+                    empty_edr
+                    if skip_edr
+                    else self._process_edr_analysis(
+                        tool=tool,
+                        target=command,
+                        session_id=base_data["session_id"],
+                        timestamp=base_data["timestamp"],
+                        risk_score=alert.score,
+                    )
                 )
 
                 # Combine MITRE techniques
@@ -337,13 +374,17 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_file_path(file_path)
 
-                # EDR analysis
-                edr = self._process_edr_analysis(
-                    tool=tool,
-                    target=file_path,
-                    session_id=base_data["session_id"],
-                    timestamp=base_data["timestamp"],
-                    risk_score=result.score,
+                # EDR analysis (skip during batch scans)
+                edr = (
+                    empty_edr
+                    if skip_edr
+                    else self._process_edr_analysis(
+                        tool=tool,
+                        target=file_path,
+                        session_id=base_data["session_id"],
+                        timestamp=base_data["timestamp"],
+                        risk_score=result.score,
+                    )
                 )
 
                 all_mitre = list(result.mitre_techniques)
@@ -376,13 +417,17 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_file_path(file_path, write_mode=True)
 
-                # EDR analysis
-                edr = self._process_edr_analysis(
-                    tool=tool,
-                    target=file_path,
-                    session_id=base_data["session_id"],
-                    timestamp=base_data["timestamp"],
-                    risk_score=result.score,
+                # EDR analysis (skip during batch scans)
+                edr = (
+                    empty_edr
+                    if skip_edr
+                    else self._process_edr_analysis(
+                        tool=tool,
+                        target=file_path,
+                        session_id=base_data["session_id"],
+                        timestamp=base_data["timestamp"],
+                        risk_score=result.score,
+                    )
                 )
 
                 all_mitre = list(result.mitre_techniques)
@@ -416,13 +461,17 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_url(url)
 
-                # EDR analysis
-                edr = self._process_edr_analysis(
-                    tool=tool,
-                    target=url,
-                    session_id=base_data["session_id"],
-                    timestamp=base_data["timestamp"],
-                    risk_score=result.score,
+                # EDR analysis (skip during batch scans)
+                edr = (
+                    empty_edr
+                    if skip_edr
+                    else self._process_edr_analysis(
+                        tool=tool,
+                        target=url,
+                        session_id=base_data["session_id"],
+                        timestamp=base_data["timestamp"],
+                        risk_score=result.score,
+                    )
                 )
 
                 all_mitre = list(result.mitre_techniques)
