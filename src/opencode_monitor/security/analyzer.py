@@ -205,6 +205,62 @@ DANGEROUS_PATTERNS = [
     ),  # System Owner/User Discovery
     (r"\buname\s+-a", 20, "System information", [], ["T1082"]),
     (r"\bcat\s+/proc/", 25, "Read proc filesystem", [], ["T1082"]),
+    # === NEW PATTERNS FOR BROADER MITRE COVERAGE ===
+    # T1560 - Archive Collected Data
+    (r"\btar\s+.*-[a-z]*c[a-z]*f", 25, "Create tar archive", [], ["T1560"]),
+    (r"\bzip\s+-r", 25, "Create zip archive recursively", [], ["T1560"]),
+    (r"\bgzip\s+", 20, "Compress file", [], ["T1560"]),
+    (r"\b7z\s+a\b", 25, "Create 7zip archive", [], ["T1560"]),
+    # T1132 - Data Encoding / T1140 - Deobfuscate
+    (r"\bbase64\s+[^-]", 30, "Base64 encode", [], ["T1132"]),
+    (r"\bbase64\s+-d", 35, "Base64 decode", [], ["T1140"]),
+    (r"\bopenssl\s+(enc|dec)", 35, "OpenSSL encrypt/decrypt", [], ["T1140"]),
+    (r"\bxxd\s+", 25, "Hex dump/undump", [], ["T1132"]),
+    # T1046 - Network Service Discovery
+    (r"\bnmap\s+", 45, "Network port scan", [], ["T1046"]),
+    (r"\bnetstat\s+-", 25, "Network connections", [], ["T1046", "T1016"]),
+    (r"\bss\s+-[a-z]*l", 25, "Socket statistics", [], ["T1046"]),
+    # T1016 - System Network Configuration Discovery
+    (r"\bifconfig\b", 20, "Network interface config", [], ["T1016"]),
+    (r"\bip\s+(addr|route|link)", 20, "IP configuration", [], ["T1016"]),
+    (r"\bcat\s+/etc/(hosts|resolv)", 25, "Read network config", [], ["T1016"]),
+    # T1057 - Process Discovery
+    (r"\bps\s+(aux|ef)", 20, "Process listing", [], ["T1057"]),
+    (r"\btop\s+-b", 20, "Batch process listing", [], ["T1057"]),
+    (r"\blsof\s+", 25, "List open files", [], ["T1057"]),
+    # T1083 - File and Directory Discovery
+    (r"\bfind\s+/\s+-name", 25, "Find from root", [], ["T1083"]),
+    (r"\bfind\s+.*-type\s+f.*-exec", 35, "Find with exec", [], ["T1083", "T1119"]),
+    (r"\blocate\s+", 20, "Locate files", [], ["T1083"]),
+    # T1555 - Credentials from Password Stores
+    (
+        r"\bsecurity\s+find-(generic|internet)-password",
+        60,
+        "macOS Keychain access",
+        [],
+        ["T1555"],
+    ),
+    (r"\bkeychain\b", 40, "Keychain access", [], ["T1555"]),
+    (r"\bpass\s+(show|ls)", 50, "Password store access", [], ["T1555"]),
+    (r"\bgpg\s+--decrypt", 40, "GPG decrypt", [], ["T1555"]),
+    # T1539 - Steal Web Session Cookie
+    (r"Cookies\.sqlite", 50, "Browser cookies file", [], ["T1539"]),
+    (r"cookies\.json", 45, "Cookies JSON file", [], ["T1539"]),
+    (r"\.cookie", 40, "Cookie file", [], ["T1539"]),
+    # T1119 - Automated Collection
+    (r"\brsync\s+.*-a", 30, "Rsync archive mode", [], ["T1119"]),
+    (r"\bscp\s+-r", 30, "Recursive SCP", [], ["T1119", "T1048"]),
+    # T1003 - OS Credential Dumping
+    (r"/etc/shadow", 70, "Shadow file access", [], ["T1003"]),
+    (r"\.docker/config\.json", 50, "Docker credentials", [], ["T1552"]),
+    (r"\.kube/config", 50, "Kubernetes config", [], ["T1552"]),
+    # T1562 - Impair Defenses
+    (r"\bsystemctl\s+(stop|disable)", 40, "Stop/disable service", [], ["T1562"]),
+    (r"\blaunchctl\s+unload", 40, "Unload launch agent", [], ["T1562"]),
+    (r"\bsetenforce\s+0", 60, "Disable SELinux", [], ["T1562"]),
+    # T1497 - Sandbox/VM Detection (potential evasion)
+    (r"\bdmesg\s+\|.*grep.*(vmware|virtual|vbox)", 35, "VM detection", [], ["T1497"]),
+    (r"\bsystemd-detect-virt", 30, "Virtualization detection", [], ["T1497"]),
 ]
 
 SAFE_PATTERNS = [
@@ -351,14 +407,38 @@ SENSITIVE_FILE_PATTERNS: Dict[str, List[Tuple[str, int, str, List[str]]]] = {
         (r"token", 55, "Token file", ["T1528"]),  # Steal Application Access Token
         (r"\.npmrc", 60, "NPM config with tokens", ["T1552"]),
         (r"\.pypirc", 60, "PyPI config with tokens", ["T1552"]),
+        # Additional high-risk patterns
+        (r"\.docker/config\.json", 65, "Docker credentials", ["T1552"]),
+        (r"\.netrc", 70, "Netrc credentials", ["T1552"]),
+        (r"\.pgpass", 65, "PostgreSQL password", ["T1552"]),
+        (r"\.my\.cnf", 65, "MySQL config", ["T1552"]),
+        (r"Cookies", 55, "Browser cookies", ["T1539"]),
+        (r"\.bash_history", 50, "Bash history", ["T1552", "T1083"]),
+        (r"\.zsh_history", 50, "Zsh history", ["T1552", "T1083"]),
+        (r"known_hosts", 50, "SSH known hosts", ["T1018"]),  # Remote System Discovery
+        (
+            r"authorized_keys",
+            60,
+            "SSH authorized keys",
+            ["T1098"],
+        ),  # Account Manipulation
     ],
     "medium": [
         (r"\.config/", 30, "Config directory", []),
         (r"\.git/config", 40, "Git config", ["T1552"]),
         (r"auth", 35, "Auth-related file", ["T1552"]),
         (r"\.db$", 35, "Database file", ["T1005"]),  # Data from Local System
-        (r"\.sqlite", 35, "SQLite database", ["T1005"]),
+        (r"\.sqlite", 35, "SQLite database", ["T1005", "T1539"]),
         (r"\.json$", 25, "JSON config", []),
+        # Additional medium-risk patterns
+        (r"\.log$", 25, "Log file", ["T1005"]),
+        (r"backup", 30, "Backup file", ["T1005"]),
+        (r"\.bak$", 30, "Backup file", ["T1005"]),
+        (r"\.old$", 25, "Old file version", ["T1005"]),
+        (r"\.cache/", 25, "Cache directory", ["T1005"]),
+        (r"Downloads/", 25, "Downloads directory", ["T1005"]),
+        (r"Desktop/", 25, "Desktop directory", ["T1005"]),
+        (r"Documents/", 25, "Documents directory", ["T1005"]),
     ],
 }
 
@@ -375,17 +455,35 @@ SENSITIVE_URL_PATTERNS: Dict[str, List[Tuple[str, int, str, List[str]]]] = {
         (r"hastebin", 85, "Hastebin content", ["T1105"]),
         (r"\.(sh|bash|zsh)$", 80, "Shell script download", ["T1059", "T1105"]),
         (r"\.exe$", 95, "Executable download", ["T1105"]),
+        # Additional critical URLs
+        (r"ngrok\.io", 80, "Ngrok tunnel", ["T1572", "T1090"]),  # Proxy
+        (r"webhook\.site", 75, "Webhook testing site", ["T1048"]),  # Exfiltration
+        (r"requestbin", 75, "Request capture", ["T1048"]),
     ],
     "high": [
         (r"raw\.githubusercontent\.com", 55, "Raw GitHub content", ["T1105"]),
         (r"gist\.github", 50, "GitHub Gist", ["T1105"]),
         (r"\.py$", 50, "Python script download", ["T1059", "T1105"]),
         (r"\.js$", 50, "JavaScript download", ["T1059"]),
+        # Additional high-risk URLs
+        (r"\.tar\.gz$", 45, "Archive download", ["T1105", "T1560"]),
+        (r"\.zip$", 45, "Zip download", ["T1105", "T1560"]),
+        (r"\.deb$", 55, "Debian package", ["T1105"]),
+        (r"\.rpm$", 55, "RPM package", ["T1105"]),
+        (r"\.pkg$", 55, "macOS package", ["T1105"]),
+        (r"\.dmg$", 55, "macOS disk image", ["T1105"]),
+        (r"install\.sh", 60, "Install script", ["T1059", "T1105"]),
+        (r"setup\.py", 50, "Python setup script", ["T1059"]),
     ],
     "medium": [
         (r"api\.", 25, "API endpoint", []),
         (r"\.json$", 20, "JSON data", []),
         (r"\.xml$", 20, "XML data", []),
+        # Additional medium-risk URLs
+        (r"\.sql$", 35, "SQL file", ["T1005"]),
+        (r"\.csv$", 25, "CSV data", ["T1005"]),
+        (r"\.yaml$", 25, "YAML config", []),
+        (r"\.toml$", 25, "TOML config", []),
     ],
 }
 
