@@ -286,7 +286,9 @@ class DashboardWindow(QMainWindow):
                 # Note: This should be called via signal for thread safety
                 # but for simplicity we'll keep it here
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
             from ..utils.logger import error
 
             error(f"[Dashboard] Monitoring fetch error: {e}")
@@ -401,7 +403,9 @@ class DashboardWindow(QMainWindow):
 
             self._signals.security_updated.emit(data)
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
             from ..utils.logger import error
 
             error(f"[Dashboard] Security fetch error: {e}")
@@ -462,7 +466,9 @@ class DashboardWindow(QMainWindow):
             db.close()
             self._signals.analytics_updated.emit(data)
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
             from ..utils.logger import error
 
             error(f"[Dashboard] Analytics fetch error: {e}")

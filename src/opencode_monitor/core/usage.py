@@ -20,7 +20,7 @@ def read_auth_token() -> Optional[str]:
         with open(AUTH_FILE, "r") as f:
             auth = json.load(f)
             return auth.get("anthropic", {}).get("access")
-    except Exception:
+    except Exception:  # Intentional catch-all: missing/invalid auth file returns None
         return None
 
 
@@ -43,7 +43,7 @@ def fetch_usage() -> Usage:
         if e.code == 401:
             return Usage(error="Token expired")
         return Usage(error=f"HTTP {e.code}")
-    except Exception as e:
+    except Exception as e:  # Intentional catch-all: network errors return error state
         return Usage(error=str(e))
 
     # Parse usage data
@@ -57,5 +57,7 @@ def fetch_usage() -> Usage:
             resets_at=data.get("seven_day", {}).get("resets_at"),
         )
         return Usage(five_hour=five_hour, seven_day=seven_day)
-    except Exception as e:
+    except (
+        Exception
+    ) as e:  # Intentional catch-all: malformed API response returns error state
         return Usage(error=f"Parse error: {e}")
