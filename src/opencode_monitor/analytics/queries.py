@@ -22,10 +22,14 @@ from .models import (
     HourlyStats,
     ModelStats,
     PeriodStats,
+    Project,
+    ProjectStats,
     SessionStats,
     SessionTokenStats,
     SkillByAgent,
     SkillStats,
+    Todo,
+    TodoStats,
     TokenStats,
     ToolStats,
 )
@@ -1089,3 +1093,297 @@ class AnalyticsQueries:
             return daily_stats
         except Exception:
             return []
+
+    # ===== NEW: Todos, Projects, and Enriched Stats =====
+
+    def get_todos(
+        self, session_id: Optional[str] = None, status: Optional[str] = None
+    ) -> list[Todo]:
+        """Get todos, optionally filtered by session or status."""
+        conn = self._db.connect()
+
+        try:
+            query = "SELECT id, session_id, content, status, priority, position, created_at, updated_at FROM todos"
+            params = []
+            conditions = []
+
+            if session_id:
+                conditions.append("session_id = ?")
+                params.append(session_id)
+            if status:
+                conditions.append("status = ?")
+                params.append(status)
+
+            if conditions:
+                query += " WHERE " + " AND ".join(conditions)
+
+            query += " ORDER BY session_id, position"
+
+            results = conn.execute(query, params).fetchall()
+
+            return [
+                Todo(
+                    id=row[0],
+                    session_id=row[1],
+                    content=row[2],
+                    status=row[3],
+                    priority=row[4],
+                    position=row[5],
+                    created_at=row[6],
+                    updated_at=row[7],
+                )
+                for row in results
+            ]
+        except Exception:
+            return []
+
+    def get_todo_stats(self, days: int) -> Optional[TodoStats]:
+        """Get todo statistics for the last N days."""
+        conn = self._db.connect()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            result = conn.execute(
+                """
+                SELECT 
+                    COUNT(*) as total,
+                    SUM(CASE WHEN status = 'completed' THEN 1 ELSE 0 END) as completed,
+                    SUM(CASE WHEN status = 'in_progress' THEN 1 ELSE 0 END) as in_progress,
+                    SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending,
+                    SUM(CASE WHEN status = 'cancelled' THEN 1 ELSE 0 END) as cancelled
+                FROM todos
+                WHERE created_at >= ? AND created_at <= ?
+                """,
+                [start_date, end_date],
+            ).fetchone()
+
+            if not result or result[0] == 0:
+                return None
+
+            total = result[0]
+            completed = result[1] or 0
+            completion_rate = (completed / total * 100) if total > 0 else 0
+
+            return TodoStats(
+                total=total,
+                completed=completed,
+                in_progress=result[2] or 0,
+                pending=result[3] or 0,
+                cancelled=result[4] or 0,
+                completion_rate=completion_rate,
+            )
+        except Exception:
+            return None
+
+    def get_projects(self) -> list[Project]:
+        """Get all projects."""
+        conn = self._db.connect()
+
+        try:
+            results = conn.execute(
+                """
+                SELECT id, worktree, vcs, created_at, updated_at
+                FROM projects
+                ORDER BY updated_at DESC
+                """
+            ).fetchall()
+
+            return [
+                Project(
+                    id=row[0],
+                    worktree=row[1],
+                    vcs=row[2],
+                    created_at=row[3],
+                    updated_at=row[4],
+                )
+                for row in results
+            ]
+        except Exception:
+            return []
+
+    def get_project_stats(self, days: int) -> list[ProjectStats]:
+        """Get statistics per project for the last N days."""
+        conn = self._db.connect()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            results = conn.execute(
+                """
+                SELECT 
+                    p.id,
+                    p.worktree,
+                    COUNT(DISTINCT s.id) as sessions,
+                    COALESCE(SUM(m.tokens_input + m.tokens_output), 0) as tokens,
+                    (SELECT COUNT(*) FROM todos t 
+                     WHERE t.session_id IN (SELECT id FROM sessions WHERE project_id = p.id)) as todos_total,
+                    (SELECT COUNT(*) FROM todos t 
+                     WHERE t.session_id IN (SELECT id FROM sessions WHERE project_id = p.id)
+                       AND t.status = 'completed') as todos_completed
+                FROM projects p
+                LEFT JOIN sessions s ON s.project_id = p.id 
+                    AND s.created_at >= ? AND s.created_at <= ?
+                LEFT JOIN messages m ON m.session_id = s.id
+                GROUP BY p.id, p.worktree
+                ORDER BY tokens DESC
+                """,
+                [start_date, end_date],
+            ).fetchall()
+
+            return [
+                ProjectStats(
+                    project_id=row[0],
+                    worktree=row[1],
+                    sessions=row[2],
+                    tokens=row[3],
+                    todos_total=row[4] or 0,
+                    todos_completed=row[5] or 0,
+                )
+                for row in results
+            ]
+        except Exception:
+            return []
+
+    def get_code_stats(self, days: int) -> dict:
+        """Get code change statistics (additions, deletions) for the last N days."""
+        conn = self._db.connect()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            result = conn.execute(
+                """
+                SELECT 
+                    COALESCE(SUM(additions), 0) as total_additions,
+                    COALESCE(SUM(deletions), 0) as total_deletions,
+                    COALESCE(SUM(files_changed), 0) as total_files,
+                    COUNT(CASE WHEN additions > 0 OR deletions > 0 THEN 1 END) as sessions_with_changes
+                FROM sessions
+                WHERE created_at >= ? AND created_at <= ?
+                """,
+                [start_date, end_date],
+            ).fetchone()
+
+            return {
+                "additions": result[0] if result else 0,
+                "deletions": result[1] if result else 0,
+                "files_changed": result[2] if result else 0,
+                "sessions_with_changes": result[3] if result else 0,
+            }
+        except Exception:
+            return {
+                "additions": 0,
+                "deletions": 0,
+                "files_changed": 0,
+                "sessions_with_changes": 0,
+            }
+
+    def get_cost_stats(self, days: int) -> dict:
+        """Get cost statistics for the last N days."""
+        conn = self._db.connect()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            result = conn.execute(
+                """
+                SELECT 
+                    COALESCE(SUM(cost), 0) as total_cost,
+                    COALESCE(AVG(cost), 0) as avg_cost_per_message,
+                    COUNT(CASE WHEN cost > 0 THEN 1 END) as messages_with_cost
+                FROM messages
+                WHERE created_at >= ? AND created_at <= ?
+                """,
+                [start_date, end_date],
+            ).fetchone()
+
+            return {
+                "total_cost": float(result[0]) if result else 0.0,
+                "avg_cost_per_message": float(result[1]) if result else 0.0,
+                "messages_with_cost": result[2] if result else 0,
+            }
+        except Exception:
+            return {
+                "total_cost": 0.0,
+                "avg_cost_per_message": 0.0,
+                "messages_with_cost": 0,
+            }
+
+    def get_tool_performance(self, days: int) -> list[dict]:
+        """Get tool performance stats (duration) for the last N days."""
+        conn = self._db.connect()
+        end_date = datetime.now()
+        start_date = end_date - timedelta(days=days)
+
+        try:
+            results = conn.execute(
+                """
+                SELECT 
+                    tool_name,
+                    COUNT(*) as invocations,
+                    COALESCE(AVG(duration_ms), 0) as avg_duration_ms,
+                    COALESCE(MAX(duration_ms), 0) as max_duration_ms,
+                    COALESCE(MIN(duration_ms), 0) as min_duration_ms,
+                    SUM(CASE WHEN tool_status = 'error' THEN 1 ELSE 0 END) as failures
+                FROM parts
+                WHERE created_at >= ? AND created_at <= ?
+                    AND tool_name IS NOT NULL
+                    AND duration_ms IS NOT NULL
+                GROUP BY tool_name
+                ORDER BY avg_duration_ms DESC
+                LIMIT 20
+                """,
+                [start_date, end_date],
+            ).fetchall()
+
+            return [
+                {
+                    "tool_name": row[0],
+                    "invocations": row[1],
+                    "avg_duration_ms": int(row[2]),
+                    "max_duration_ms": row[3],
+                    "min_duration_ms": row[4],
+                    "failures": row[5] or 0,
+                }
+                for row in results
+            ]
+        except Exception:
+            return []
+
+    def get_session_hierarchy(self, session_id: str) -> dict:
+        """Get parent-child session hierarchy for a session."""
+        conn = self._db.connect()
+
+        try:
+            # Get parent sessions (going up)
+            parents: list = []
+            current_id: Optional[str] = session_id
+            while current_id:
+                result = conn.execute(
+                    "SELECT id, parent_id, title FROM sessions WHERE id = ?",
+                    [current_id],
+                ).fetchone()
+                if result:
+                    parents.insert(0, {"id": result[0], "title": result[2]})
+                    current_id = result[1]
+                else:
+                    break
+
+            # Get child sessions (going down)
+            children = conn.execute(
+                """
+                SELECT id, title, parent_id FROM sessions
+                WHERE parent_id = ?
+                ORDER BY created_at
+                """,
+                [session_id],
+            ).fetchall()
+
+            return {
+                "parents": parents,
+                "current": session_id,
+                "children": [{"id": row[0], "title": row[1]} for row in children],
+            }
+        except Exception:
+            return {"parents": [], "current": session_id, "children": []}

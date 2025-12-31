@@ -73,12 +73,18 @@ class AnalyticsDB:
                 self._conn = None
 
     def _create_schema(self) -> None:
-        """Create the database schema if it doesn't exist."""
+        """Create the database schema if it doesn't exist.
+
+        Order of operations:
+        1. Create base tables (without new columns for existing DBs)
+        2. Run migrations to add any missing columns
+        3. Create indexes (including those on migrated columns)
+        """
         conn = self._conn
         if not conn:
             return
 
-        # Sessions table
+        # Sessions table (base columns only - new columns added via migration)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS sessions (
                 id VARCHAR PRIMARY KEY,
@@ -90,7 +96,7 @@ class AnalyticsDB:
             )
         """)
 
-        # Messages table with token metrics
+        # Messages table with token metrics (base columns only)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS messages (
                 id VARCHAR PRIMARY KEY,
@@ -110,7 +116,7 @@ class AnalyticsDB:
             )
         """)
 
-        # Parts table for tool calls
+        # Parts table for tool calls (base columns only)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS parts (
                 id VARCHAR PRIMARY KEY,
@@ -146,7 +152,35 @@ class AnalyticsDB:
             )
         """)
 
-        # Create indexes for performance
+        # Todos table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS todos (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR,
+                content VARCHAR,
+                status VARCHAR,
+                priority VARCHAR,
+                position INTEGER,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+
+        # Projects table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS projects (
+                id VARCHAR PRIMARY KEY,
+                worktree VARCHAR,
+                vcs VARCHAR,
+                created_at TIMESTAMP,
+                updated_at TIMESTAMP
+            )
+        """)
+
+        # Run migrations to add any missing columns BEFORE creating indexes
+        self._migrate_columns(conn)
+
+        # Create indexes for performance (base tables)
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_messages_session
             ON messages(session_id)
@@ -172,7 +206,81 @@ class AnalyticsDB:
             ON delegations(parent_agent)
         """)
 
+        # Indexes for todos/projects tables
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_session
+            ON todos(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_todos_status
+            ON todos(status)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_projects_worktree
+            ON projects(worktree)
+        """)
+
+        # Indexes on migrated columns (safe now that columns exist)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_session
+            ON parts(session_id)
+        """)
+
         debug("Analytics database schema created")
+
+    def _migrate_columns(self, conn: duckdb.DuckDBPyConnection) -> None:
+        """Add missing columns to existing tables (idempotent).
+
+        This method checks if each column exists before adding it,
+        making it safe to call multiple times.
+
+        Args:
+            conn: Active database connection
+        """
+
+        # Helper to check if column exists
+        def column_exists(table: str, column: str) -> bool:
+            try:
+                result = conn.execute(
+                    f"SELECT * FROM information_schema.columns "
+                    f"WHERE table_name = '{table}' AND column_name = '{column}'"
+                ).fetchone()
+                return result is not None
+            except Exception:
+                return False
+
+        # Helper to add column if not exists
+        def add_column(
+            table: str, column: str, col_type: str, default: str = ""
+        ) -> None:
+            if not column_exists(table, column):
+                default_clause = f" DEFAULT {default}" if default else ""
+                try:
+                    conn.execute(
+                        f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
+                    )
+                    debug(f"Added column {table}.{column}")
+                except Exception as e:
+                    debug(f"Failed to add column {table}.{column}: {e}")
+
+        # Sessions - new columns
+        add_column("sessions", "parent_id", "VARCHAR")
+        add_column("sessions", "version", "VARCHAR")
+        add_column("sessions", "additions", "INTEGER", "0")
+        add_column("sessions", "deletions", "INTEGER", "0")
+        add_column("sessions", "files_changed", "INTEGER", "0")
+
+        # Messages - new columns
+        add_column("messages", "mode", "VARCHAR")
+        add_column("messages", "cost", "DECIMAL(10,6)", "0")
+        add_column("messages", "finish_reason", "VARCHAR")
+        add_column("messages", "working_dir", "VARCHAR")
+
+        # Parts - new columns
+        add_column("parts", "session_id", "VARCHAR")
+        add_column("parts", "call_id", "VARCHAR")
+        add_column("parts", "ended_at", "TIMESTAMP")
+        add_column("parts", "duration_ms", "INTEGER")
 
     def clear_data(self) -> None:
         """Clear all data from the database."""
@@ -182,6 +290,8 @@ class AnalyticsDB:
         conn.execute("DELETE FROM parts")
         conn.execute("DELETE FROM messages")
         conn.execute("DELETE FROM sessions")
+        conn.execute("DELETE FROM todos")
+        conn.execute("DELETE FROM projects")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -189,7 +299,15 @@ class AnalyticsDB:
         conn = self.connect()
         result = {}
 
-        for table in ["sessions", "messages", "parts", "skills", "delegations"]:
+        for table in [
+            "sessions",
+            "messages",
+            "parts",
+            "skills",
+            "delegations",
+            "todos",
+            "projects",
+        ]:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
             result[table] = count[0] if count else 0
 
@@ -211,8 +329,17 @@ class AnalyticsDB:
             return 0
         except Exception:
             return 0
-        except Exception:
-            return 0
+
+    def migrate_schema(self) -> None:
+        """Migrate existing database to add new columns.
+
+        This is safe to call multiple times - it checks if columns exist
+        before adding them. Delegates to _migrate_columns() which contains
+        the actual migration logic.
+        """
+        conn = self.connect()
+        self._migrate_columns(conn)
+        info("Database schema migration completed")
 
     def needs_refresh(self, max_age_hours: int = 24) -> bool:
         """Check if data needs refresh based on age."""

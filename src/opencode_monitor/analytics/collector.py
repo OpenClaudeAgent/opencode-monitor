@@ -14,7 +14,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional, Set
+from typing import Optional, Set, Union, Any
 
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileCreatedEvent
@@ -54,6 +54,10 @@ class StorageEventHandler(FileSystemEventHandler):
             self._collector._queue_file("message", path)
         elif "part" in parts:
             self._collector._queue_file("part", path)
+        elif "todo" in parts:
+            self._collector._queue_file("todo", path)
+        elif "project" in parts:
+            self._collector._queue_file("project", path)
 
 
 class AnalyticsCollector:
@@ -74,6 +78,8 @@ class AnalyticsCollector:
         self._scanned_sessions: Set[str] = set()
         self._scanned_messages: Set[str] = set()
         self._scanned_parts: Set[str] = set()
+        self._scanned_todos: Set[str] = set()
+        self._scanned_projects: Set[str] = set()
 
         # Stats
         self._stats = {
@@ -82,6 +88,8 @@ class AnalyticsCollector:
             "parts": 0,
             "skills": 0,
             "delegations": 0,
+            "todos": 0,
+            "projects": 0,
             "last_reconciliation": None,
             "watcher_events": 0,
         }
@@ -114,14 +122,25 @@ class AnalyticsCollector:
             rows = conn.execute("SELECT id FROM parts").fetchall()
             self._scanned_parts = {row[0] for row in rows}
 
+            # Load todo IDs (session_id based)
+            rows = conn.execute("SELECT DISTINCT session_id FROM todos").fetchall()
+            self._scanned_todos = {row[0] for row in rows if row[0]}
+
+            # Load project IDs
+            rows = conn.execute("SELECT id FROM projects").fetchall()
+            self._scanned_projects = {row[0] for row in rows}
+
             # Update stats
             self._stats["sessions"] = len(self._scanned_sessions)
             self._stats["messages"] = len(self._scanned_messages)
             self._stats["parts"] = len(self._scanned_parts)
+            self._stats["todos"] = len(self._scanned_todos)
+            self._stats["projects"] = len(self._scanned_projects)
 
             info(
                 f"[AnalyticsCollector] Loaded {len(self._scanned_sessions)} sessions, "
-                f"{len(self._scanned_messages)} messages, {len(self._scanned_parts)} parts"
+                f"{len(self._scanned_messages)} messages, {len(self._scanned_parts)} parts, "
+                f"{len(self._scanned_todos)} todos, {len(self._scanned_projects)} projects"
             )
         except Exception as e:
             error(f"[AnalyticsCollector] Failed to load scanned IDs: {e}")
@@ -179,8 +198,8 @@ class AnalyticsCollector:
             handler = StorageEventHandler(self)
             self._observer = Observer()
 
-            # Watch session, message, and part directories
-            for subdir in ["session", "message", "part"]:
+            # Watch session, message, part, todo, and project directories
+            for subdir in ["session", "message", "part", "todo", "project"]:
                 path = OPENCODE_STORAGE / subdir
                 if path.exists():
                     self._observer.schedule(handler, str(path), recursive=True)
@@ -221,7 +240,7 @@ class AnalyticsCollector:
         """Process a single file. Returns True if processed.
 
         Args:
-            file_type: Type of file (session, message, part)
+            file_type: Type of file (session, message, part, todo, project)
             path: Path to the JSON file
             conn: Optional DB connection (creates one if not provided)
         """
@@ -234,11 +253,24 @@ class AnalyticsCollector:
             return False
         elif file_type == "part" and file_id in self._scanned_parts:
             return False
+        elif file_type == "todo" and file_id in self._scanned_todos:
+            return False
+        elif file_type == "project" and file_id in self._scanned_projects:
+            return False
 
         # Read and parse
-        data = self._read_json(path)
-        if not data or not data.get("id"):
+        raw_data = self._read_json(path)
+        if raw_data is None:
             return False
+
+        # For todos, data is a list (array of todos)
+        # For others, data must have an "id" field
+        if file_type == "todo":
+            if not isinstance(raw_data, list):
+                return False
+        else:
+            if not isinstance(raw_data, dict) or not raw_data.get("id"):
+                return False
 
         # Use provided connection or create temporary one
         db = None
@@ -248,17 +280,26 @@ class AnalyticsCollector:
 
         try:
             if file_type == "session":
-                self._insert_session(conn, data)
+                self._insert_session(conn, raw_data)  # type: ignore
                 self._scanned_sessions.add(file_id)
                 self._stats["sessions"] += 1
             elif file_type == "message":
-                self._insert_message(conn, data)
+                self._insert_message(conn, raw_data)  # type: ignore
                 self._scanned_messages.add(file_id)
                 self._stats["messages"] += 1
             elif file_type == "part":
-                self._insert_part(conn, data)
+                self._insert_part(conn, raw_data)  # type: ignore
                 self._scanned_parts.add(file_id)
                 self._stats["parts"] += 1
+            elif file_type == "todo":
+                # file_id is the session_id for todos
+                self._insert_todos(conn, file_id, raw_data, path)  # type: ignore
+                self._scanned_todos.add(file_id)
+                self._stats["todos"] += 1
+            elif file_type == "project":
+                self._insert_project(conn, raw_data)  # type: ignore
+                self._scanned_projects.add(file_id)
+                self._stats["projects"] += 1
             return True
         except Exception as e:
             debug(f"[AnalyticsCollector] Insert error: {e}")
@@ -333,6 +374,30 @@ class AnalyticsCollector:
                 batch_limit,
             )
 
+            if not self._running and self._reconcile_thread is not None:
+                return
+
+            # Reconcile todos (flat directory, no subdirs)
+            new_counts["todos"] = self._reconcile_flat_directory(
+                "todo",
+                OPENCODE_STORAGE / "todo",
+                self._scanned_todos,
+                conn,
+                batch_limit,
+            )
+
+            if not self._running and self._reconcile_thread is not None:
+                return
+
+            # Reconcile projects (flat directory, no subdirs)
+            new_counts["projects"] = self._reconcile_flat_directory(
+                "project",
+                OPENCODE_STORAGE / "project",
+                self._scanned_projects,
+                conn,
+                batch_limit,
+            )
+
             with self._lock:
                 self._stats["last_reconciliation"] = datetime.now().isoformat()
 
@@ -403,39 +468,47 @@ class AnalyticsCollector:
 
         return new_count
 
-    def _read_json(self, path: Path) -> Optional[dict]:
-        """Read and parse a JSON file."""
+    def _read_json(self, path: Path) -> Optional[Union[dict, list]]:
+        """Read and parse a JSON file. Returns dict, list, or None."""
         try:
             with open(path, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError):
             return None
 
-    def _insert_session(self, conn, data: dict) -> None:
-        """Insert a session record."""
+    def _insert_session(self, conn: Any, data: Any) -> None:
+        """Insert a session record (enriched)."""
         time_data = data.get("time", {})
+        summary = data.get("summary", {})
         created = time_data.get("created")
         updated = time_data.get("updated")
 
         conn.execute(
             """INSERT OR REPLACE INTO sessions
-            (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            (id, project_id, directory, title, parent_id, version,
+             additions, deletions, files_changed, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 data.get("id"),
                 data.get("projectID"),
                 data.get("directory"),
                 data.get("title"),
+                data.get("parentID"),
+                data.get("version"),
+                summary.get("additions", 0),
+                summary.get("deletions", 0),
+                summary.get("files", 0),
                 datetime.fromtimestamp(created / 1000) if created else None,
                 datetime.fromtimestamp(updated / 1000) if updated else None,
             ],
         )
 
     def _insert_message(self, conn, data: dict) -> None:
-        """Insert a message record."""
+        """Insert a message record (enriched)."""
         time_data = data.get("time", {})
         tokens = data.get("tokens", {})
         cache = tokens.get("cache", {})
+        path_data = data.get("path", {})
 
         created = time_data.get("created")
         completed = time_data.get("completed")
@@ -443,9 +516,10 @@ class AnalyticsCollector:
         conn.execute(
             """INSERT OR REPLACE INTO messages
             (id, session_id, parent_id, role, agent, model_id, provider_id,
+             mode, cost, finish_reason, working_dir,
              tokens_input, tokens_output, tokens_reasoning,
              tokens_cache_read, tokens_cache_write, created_at, completed_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 data.get("id"),
                 data.get("sessionID"),
@@ -454,6 +528,10 @@ class AnalyticsCollector:
                 data.get("agent"),
                 data.get("modelID"),
                 data.get("providerID"),
+                data.get("mode"),
+                data.get("cost", 0),
+                data.get("finish"),
+                path_data.get("cwd"),
                 tokens.get("input", 0),
                 tokens.get("output", 0),
                 tokens.get("reasoning", 0),
@@ -465,10 +543,11 @@ class AnalyticsCollector:
         )
 
     def _insert_part(self, conn, data: dict) -> None:
-        """Insert a part record."""
+        """Insert a part record (enriched)."""
         time_data = data.get("time", {})
         state = data.get("state", {})
-        created = time_data.get("start")
+        start_time = time_data.get("start")
+        end_time = time_data.get("end")
 
         # Only insert tool parts
         if data.get("type") != "tool":
@@ -478,17 +557,27 @@ class AnalyticsCollector:
         if not tool_name:
             return
 
+        # Calculate duration in ms
+        duration_ms = None
+        if start_time and end_time:
+            duration_ms = end_time - start_time
+
         conn.execute(
             """INSERT OR REPLACE INTO parts
-            (id, message_id, part_type, tool_name, tool_status, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)""",
+            (id, session_id, message_id, part_type, tool_name, tool_status,
+             call_id, created_at, ended_at, duration_ms)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 data.get("id"),
+                data.get("sessionID"),
                 data.get("messageID"),
                 data.get("type"),
                 tool_name,
                 state.get("status"),
-                datetime.fromtimestamp(created / 1000) if created else None,
+                data.get("callID"),
+                datetime.fromtimestamp(start_time / 1000) if start_time else None,
+                datetime.fromtimestamp(end_time / 1000) if end_time else None,
+                duration_ms,
             ],
         )
 
@@ -563,6 +652,112 @@ class AnalyticsCollector:
             ],
         )
         self._stats["delegations"] += 1
+
+    def _insert_todos(self, conn, session_id: str, todos: list, path: Path) -> None:
+        """Insert todos for a session.
+
+        Args:
+            conn: Database connection
+            session_id: Session ID (from filename)
+            todos: List of todo dicts
+            path: Path to the todo file (for timestamp)
+        """
+        if not todos:
+            return
+
+        # Use file modification time as proxy for timestamps
+        try:
+            file_mtime = datetime.fromtimestamp(path.stat().st_mtime)
+        except OSError:
+            file_mtime = datetime.now()
+
+        for index, todo in enumerate(todos):
+            todo_id = f"{session_id}_{todo.get('id', index)}"
+
+            conn.execute(
+                """INSERT OR REPLACE INTO todos
+                (id, session_id, content, status, priority, position, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    todo_id,
+                    session_id,
+                    todo.get("content"),
+                    todo.get("status"),
+                    todo.get("priority"),
+                    index,
+                    file_mtime,
+                    file_mtime,
+                ],
+            )
+
+    def _insert_project(self, conn, data: dict) -> None:
+        """Insert a project record."""
+        time_data = data.get("time", {})
+        created = time_data.get("created")
+        updated = time_data.get("updated")
+
+        conn.execute(
+            """INSERT OR REPLACE INTO projects
+            (id, worktree, vcs, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?)""",
+            [
+                data.get("id"),
+                data.get("worktree"),
+                data.get("vcs"),
+                datetime.fromtimestamp(created / 1000) if created else None,
+                datetime.fromtimestamp(updated / 1000) if updated else None,
+            ],
+        )
+
+    def _reconcile_flat_directory(
+        self,
+        file_type: str,
+        directory: Path,
+        scanned_set: Set[str],
+        conn,
+        batch_limit: Optional[int] = BATCH_SIZE,
+    ) -> int:
+        """Reconcile a flat directory (no subdirs), processing missed files.
+
+        Args:
+            file_type: Type of files to process
+            directory: Directory to scan
+            scanned_set: Set of already processed file IDs
+            conn: Database connection to use
+            batch_limit: Max files to process (None = no limit for initial scan)
+        """
+        if not directory.exists():
+            return 0
+
+        new_count = 0
+        processed = 0
+
+        # Get all JSON files in the directory (no subdirs)
+        try:
+            json_files = sorted(
+                [f for f in directory.iterdir() if f.is_file() and f.suffix == ".json"],
+                key=lambda f: f.stat().st_mtime,
+                reverse=True,
+            )
+        except OSError:
+            json_files = [
+                f for f in directory.iterdir() if f.is_file() and f.suffix == ".json"
+            ]
+
+        for json_file in json_files:
+            if batch_limit is not None and processed >= batch_limit:
+                break
+
+            file_id = json_file.stem
+            if file_id in scanned_set:
+                continue
+
+            if self._process_single_file(file_type, json_file, conn):
+                new_count += 1
+
+            processed += 1
+
+        return new_count
 
     # ===== Public API =====
 
