@@ -246,7 +246,9 @@ class AnalyticsDB:
                     f"WHERE table_name = '{table}' AND column_name = '{column}'"
                 ).fetchone()
                 return result is not None
-            except Exception:
+            except (
+                Exception
+            ):  # Intentional catch-all: schema query may fail on edge cases
                 return False
 
         # Helper to add column if not exists
@@ -260,7 +262,7 @@ class AnalyticsDB:
                         f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
                     )
                     debug(f"Added column {table}.{column}")
-                except Exception as e:
+                except Exception as e:  # Intentional catch-all: migration failures are logged and skipped
                     debug(f"Failed to add column {table}.{column}: {e}")
 
         # Sessions - new columns
@@ -327,7 +329,7 @@ class AnalyticsDB:
                     return result[0].timestamp()
                 return float(result[0]) / 1000  # Convert ms to seconds if int
             return 0
-        except Exception:
+        except Exception:  # Intentional catch-all: return safe default
             return 0
 
     def migrate_schema(self) -> None:
