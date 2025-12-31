@@ -45,6 +45,8 @@ def focus_iterm2(tty: str) -> bool:
     try:
         subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
         return True
-    except Exception as e:
+    except (
+        Exception
+    ) as e:  # Intentional catch-all: AppleScript failures logged and return False
         error(f"Focus terminal failed: {e}")
         return False

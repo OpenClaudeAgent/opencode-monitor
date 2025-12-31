@@ -341,7 +341,7 @@ class MenuBuilder:
                     session_reset = f" (reset {minutes // 60}h{minutes % 60:02d}m)"
                 elif minutes > 0:
                     session_reset = f" (reset {minutes}m)"
-            except Exception:
+            except Exception:  # Intentional catch-all: invalid date format is ignored
                 pass
 
         # Weekly reset time
@@ -354,7 +354,7 @@ class MenuBuilder:
                 days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
                 day_name = days[reset_time.weekday()]
                 weekly_reset = f" (reset {day_name} {reset_time.hour}h)"
-            except Exception:
+            except Exception:  # Intentional catch-all: invalid date format is ignored
                 pass
 
         items.append(rumps.MenuItem(f"{icon} Session: {five_h}%{session_reset}"))

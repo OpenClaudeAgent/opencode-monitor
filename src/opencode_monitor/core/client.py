@@ -32,7 +32,7 @@ def _sync_get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
             return response.read().decode("utf-8")
     except urllib.error.URLError:
         return None
-    except Exception:
+    except Exception:  # Intentional catch-all: any network error returns None
         return None
 
 
@@ -69,7 +69,7 @@ async def check_opencode_port(port: int) -> bool:
             return False
         # OpenCode returns {} or {"ses_xxx": {...}}
         return result == "{}" or result.startswith('{"ses_')
-    except Exception:
+    except Exception:  # Intentional catch-all: port check failures return False
         return False
 
 

@@ -186,7 +186,9 @@ class SecurityAuditor:
                 self._stats["last_scan"],
             )
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: scan errors logged, scan continues next cycle
             error(f"Scan error: {e}")
 
         elapsed = time.time() - start_time
@@ -500,7 +502,9 @@ class SecurityAuditor:
 
             return None
 
-        except Exception as e:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: individual file errors are logged and skipped
             debug(f"Error processing {prt_file}: {e}")
             return None
 

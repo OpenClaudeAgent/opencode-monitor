@@ -43,7 +43,7 @@ async def find_opencode_ports() -> list[int]:
             ["netstat", "-an"], capture_output=True, text=True, timeout=5
         )
         lines = result.stdout.split("\n")
-    except Exception:
+    except Exception:  # Intentional catch-all: subprocess failures return empty list
         return []
 
     # Extract ports from netstat output
@@ -88,7 +88,7 @@ def get_tty_for_port(port: int) -> str:
                     tty = ps_result.stdout.strip()
                     if tty and tty != "??":
                         return tty
-    except Exception:
+    except Exception:  # Intentional catch-all: TTY detection is best-effort
         pass
     return ""
 
@@ -229,7 +229,9 @@ def check_pending_ask_user_from_disk(
         notify_timestamp, notify_input, recent_messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
-    except Exception:
+    except (
+        Exception
+    ):  # Intentional catch-all: file scanning failures return safe default
         return AskUserResult(has_pending=False)
 
     # No recent notify_ask_user found

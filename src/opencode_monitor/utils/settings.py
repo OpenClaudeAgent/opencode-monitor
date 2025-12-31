@@ -47,7 +47,9 @@ class Settings:
             filtered_data = {k: v for k, v in data.items() if k in valid_fields}
 
             return cls(**filtered_data)
-        except Exception:
+        except (
+            Exception
+        ):  # Intentional catch-all: corrupted settings file returns defaults
             return cls()
 
 
