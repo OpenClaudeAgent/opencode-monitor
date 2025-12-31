@@ -174,17 +174,49 @@ class DashboardWindow(QMainWindow):
             # Build data dict
             agents_data = []
             tools_data = []
+            waiting_data = []
             busy_count = 0
-            idle_count = 0
+            waiting_count = 0  # Sessions with pending ask_user
+            idle_instances = 0  # Instances with no busy agents
             total_todos = 0
 
             for instance in state.instances:
+                # Count idle instances (instances where no agent is busy)
+                if instance.busy_count == 0:
+                    idle_instances += 1
+
                 for agent in instance.agents:
                     is_busy = agent.status == SessionStatus.BUSY
                     if is_busy:
                         busy_count += 1
-                    else:
-                        idle_count += 1
+
+                    # Count agents waiting for user response
+                    if agent.has_pending_ask_user:
+                        waiting_count += 1
+
+                        # Build context string: "agent @ branch" or "repo @ branch" or just "repo"
+                        context_parts = []
+                        if agent.ask_user_agent:
+                            context_parts.append(agent.ask_user_agent)
+                        elif agent.ask_user_repo:
+                            context_parts.append(agent.ask_user_repo)
+                        if agent.ask_user_branch:
+                            context_parts.append(agent.ask_user_branch)
+                        context = " @ ".join(context_parts) if context_parts else ""
+
+                        waiting_data.append(
+                            {
+                                "title": agent.ask_user_title
+                                or agent.title
+                                or f"Agent {agent.id[:8]}",
+                                "question": agent.ask_user_question
+                                or "Waiting for response...",
+                                "options": " | ".join(agent.ask_user_options)
+                                if agent.ask_user_options
+                                else "",
+                                "context": context,
+                            }
+                        )
 
                     todos_total = agent.todos.pending + agent.todos.in_progress
                     total_todos += todos_total
@@ -213,10 +245,12 @@ class DashboardWindow(QMainWindow):
                 "instances": state.instance_count,
                 "agents": len(agents_data),
                 "busy": busy_count,
-                "idle": idle_count,
+                "waiting": waiting_count,
+                "idle": idle_instances,
                 "todos": total_todos,
                 "agents_data": agents_data,
                 "tools_data": tools_data,
+                "waiting_data": waiting_data,
             }
 
             self._signals.monitoring_updated.emit(data)
@@ -417,10 +451,12 @@ class DashboardWindow(QMainWindow):
             instances=data.get("instances", 0),
             agents=data.get("agents", 0),
             busy=data.get("busy", 0),
+            waiting=data.get("waiting", 0),
             idle=data.get("idle", 0),
             todos=data.get("todos", 0),
             agents_data=data.get("agents_data", []),
             tools_data=data.get("tools_data", []),
+            waiting_data=data.get("waiting_data", []),
         )
 
         # Update sidebar status

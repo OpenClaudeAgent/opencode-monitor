@@ -90,11 +90,12 @@ class MonitoringSection(QWidget):
         content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
         content_layout.setSpacing(SPACING["xl"])
 
-        # Metrics Row (5 cards)
+        # Metrics Row (6 cards)
         self._metrics = MetricsRow()
         self._metrics.add_metric("instances", "0", "Instances", "primary")
         self._metrics.add_metric("agents", "0", "Agents", "primary")
         self._metrics.add_metric("busy", "0", "Busy", "success")
+        self._metrics.add_metric("waiting", "0", "Waiting", "warning")
         self._metrics.add_metric("idle", "0", "Idle", "muted")
         self._metrics.add_metric("todos", "0", "Todos", "warning")
         self._metrics.add_stretch()
@@ -145,6 +146,30 @@ class MonitoringSection(QWidget):
         self._tools_empty.hide()
         content_layout.addWidget(self._tools_empty)
 
+        content_layout.addWidget(Separator())
+
+        # Waiting for Response Section
+        content_layout.addWidget(
+            SectionHeader("Waiting for Response", "Agents waiting for user input")
+        )
+
+        self._waiting_table = DataTable(["Title", "Question", "Options", "Context"])
+        self._waiting_table.setColumnWidth(0, COL_WIDTH["name_short"])  # Title
+        self._waiting_table.setColumnWidth(1, COL_WIDTH["path"])  # Question (truncated)
+        self._waiting_table.setColumnWidth(2, COL_WIDTH["name_short"])  # Options
+        self._waiting_table.setColumnWidth(
+            3, COL_WIDTH["name_short"]
+        )  # Context (repo @ branch)
+        content_layout.addWidget(self._waiting_table)
+
+        self._waiting_empty = EmptyState(
+            icon="✓",
+            title="No agents waiting",
+            subtitle="Agents will appear here when asking for user input",
+        )
+        self._waiting_empty.hide()
+        content_layout.addWidget(self._waiting_empty)
+
         content_layout.addStretch()
         scroll.setWidget(content)
         layout.addWidget(scroll)
@@ -154,15 +179,18 @@ class MonitoringSection(QWidget):
         instances: int,
         agents: int,
         busy: int,
+        waiting: int,
         idle: int,
         todos: int,
         agents_data: list[dict],
         tools_data: list[dict],
+        waiting_data: list[dict] | None = None,
     ) -> None:
         """Update monitoring data."""
         self._metrics.update_metric("instances", str(instances))
         self._metrics.update_metric("agents", str(agents))
         self._metrics.update_metric("busy", str(busy))
+        self._metrics.update_metric("waiting", str(waiting))
         self._metrics.update_metric("idle", str(idle))
         self._metrics.update_metric("todos", str(todos))
 
@@ -233,6 +261,32 @@ class MonitoringSection(QWidget):
         else:
             self._tools_table.hide()
             self._tools_empty.show()
+
+        # Waiting for Response table
+        self._waiting_table.clear_data()
+
+        if waiting_data:
+            self._waiting_table.show()
+            self._waiting_empty.hide()
+
+            for agent in waiting_data:
+                title = agent.get("title", "Unknown")
+                question = agent.get("question", "")
+                options = agent.get("options", "")
+                context = agent.get("context", "")
+
+                # Truncate question to 80 chars for display
+                question_display = (
+                    question[:80] + "..." if len(question) > 80 else question
+                )
+
+                self._waiting_table.add_row(
+                    [title, question_display, options, context],
+                    full_values=[title, question, options, context],
+                )
+        else:
+            self._waiting_table.hide()
+            self._waiting_empty.show()
 
 
 class SecuritySection(QWidget):

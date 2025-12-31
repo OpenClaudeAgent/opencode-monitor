@@ -7,7 +7,7 @@ import json
 import subprocess
 import os
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Optional
 
@@ -27,6 +27,12 @@ class AskUserResult:
 
     has_pending: bool
     title: str = ""
+    question: str = ""
+    options: list[str] = field(default_factory=list)
+    repo: str = ""
+    agent: str = ""
+    branch: str = ""
+    urgency: str = "normal"
 
 
 async def find_opencode_ports() -> list[int]:
@@ -89,7 +95,7 @@ def get_tty_for_port(port: int) -> str:
 
 def _find_latest_notify_ask_user(
     message_dir: Path, part_dir: Path, cutoff_time: float
-) -> tuple[int, str, list[tuple[int, str, str]]]:
+) -> tuple[int, dict, list[tuple[int, str, str]]]:
     """Scan messages for the latest notify_ask_user call.
 
     Args:
@@ -98,11 +104,12 @@ def _find_latest_notify_ask_user(
         cutoff_time: Only consider files modified after this timestamp
 
     Returns:
-        (notify_timestamp, notify_title, recent_messages)
-        where recent_messages is a list of (msg_time, msg_id, role)
+        (notify_timestamp, notify_input, recent_messages)
+        where notify_input is the full input dict from the notify_ask_user call
+        and recent_messages is a list of (msg_time, msg_id, role)
     """
     notify_timestamp = 0
-    notify_title = ""
+    notify_input: dict = {}
     recent_messages: list[tuple[int, str, str]] = []
 
     for msg_file in message_dir.glob("msg_*.json"):
@@ -144,11 +151,9 @@ def _find_latest_notify_ask_user(
                 )
                 if part_time > notify_timestamp:
                     notify_timestamp = part_time
-                    notify_title = (
-                        part_data.get("state", {}).get("input", {}).get("title", "")
-                    )
+                    notify_input = part_data.get("state", {}).get("input", {})
 
-    return notify_timestamp, notify_title, recent_messages
+    return notify_timestamp, notify_input, recent_messages
 
 
 def _has_activity_after_notify(
@@ -207,7 +212,7 @@ def check_pending_ask_user_from_disk(
         storage_path: Override for OPENCODE_STORAGE_PATH (useful for testing)
 
     Returns:
-        AskUserResult with has_pending and title
+        AskUserResult with has_pending and all ask_user fields
     """
     storage = storage_path or OPENCODE_STORAGE_PATH
     message_dir = storage / "message" / session_id
@@ -221,7 +226,7 @@ def check_pending_ask_user_from_disk(
     cutoff_time = time.time() - settings.ask_user_timeout
 
     try:
-        notify_timestamp, notify_title, recent_messages = _find_latest_notify_ask_user(
+        notify_timestamp, notify_input, recent_messages = _find_latest_notify_ask_user(
             message_dir, part_dir, cutoff_time
         )
     except Exception:
@@ -236,7 +241,17 @@ def check_pending_ask_user_from_disk(
         return AskUserResult(has_pending=False)
 
     # notify_ask_user found with no activity after → pending
-    return AskUserResult(has_pending=True, title=notify_title)
+    # Extract all fields from input
+    return AskUserResult(
+        has_pending=True,
+        title=notify_input.get("title", ""),
+        question=notify_input.get("question", ""),
+        options=notify_input.get("options", []) or [],
+        repo=notify_input.get("repo", ""),
+        agent=notify_input.get("agent", ""),
+        branch=notify_input.get("branch", ""),
+        urgency=notify_input.get("urgency", "normal"),
+    )
 
 
 def extract_tools_from_messages(messages: Optional[list]) -> list[Tool]:
@@ -475,6 +490,12 @@ async def fetch_all_instances(known_active_sessions: Optional[set] = None) -> St
                     parent_id=None,
                     has_pending_ask_user=True,
                     ask_user_title=ask_user_result.title,
+                    ask_user_question=ask_user_result.question,
+                    ask_user_options=ask_user_result.options,
+                    ask_user_repo=ask_user_result.repo,
+                    ask_user_agent=ask_user_result.agent,
+                    ask_user_branch=ask_user_result.branch,
+                    ask_user_urgency=ask_user_result.urgency,
                 )
                 all_agents.append(agent)
 
