@@ -11,6 +11,7 @@ from typing import Optional
 
 from .db import AnalyticsDB
 from ..utils.logger import info, debug, error
+from ..utils.datetime import ms_to_datetime
 
 
 def get_opencode_storage_path() -> Path:
@@ -167,12 +168,9 @@ def load_skills(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
 
                 time_data = data.get("time", {})
                 start_ts = time_data.get("start")
-                if start_ts:
-                    loaded_at = datetime.fromtimestamp(start_ts / 1000)
-                    if loaded_at < cutoff:
-                        continue
-                else:
-                    loaded_at = None
+                loaded_at = ms_to_datetime(start_ts)
+                if loaded_at and loaded_at < cutoff:
+                    continue
 
                 skill_id += 1
                 skills.append(
@@ -245,12 +243,9 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
 
                 time_data = state.get("time", {})
                 created_ts = time_data.get("start")
-                if created_ts:
-                    created_at = datetime.fromtimestamp(created_ts / 1000)
-                    if created_at < cutoff:
-                        continue
-                else:
-                    created_at = None
+                created_at = ms_to_datetime(created_ts)
+                if created_at and created_at < cutoff:
+                    continue
 
                 delegations.append(
                     {

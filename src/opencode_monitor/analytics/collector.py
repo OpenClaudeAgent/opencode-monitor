@@ -21,6 +21,7 @@ from watchdog.events import FileSystemEventHandler, FileCreatedEvent
 
 from .db import AnalyticsDB, get_analytics_db
 from ..utils.logger import info, error, debug
+from ..utils.datetime import ms_to_datetime
 
 # Paths
 OPENCODE_STORAGE = Path.home() / ".local/share/opencode/storage"
@@ -506,8 +507,8 @@ class AnalyticsCollector:
                 summary.get("additions", 0),
                 summary.get("deletions", 0),
                 summary.get("files", 0),
-                datetime.fromtimestamp(created / 1000) if created else None,
-                datetime.fromtimestamp(updated / 1000) if updated else None,
+                ms_to_datetime(created),
+                ms_to_datetime(updated),
             ],
         )
 
@@ -545,8 +546,8 @@ class AnalyticsCollector:
                 tokens.get("reasoning", 0),
                 cache.get("read", 0),
                 cache.get("write", 0),
-                datetime.fromtimestamp(created / 1000) if created else None,
-                datetime.fromtimestamp(completed / 1000) if completed else None,
+                ms_to_datetime(created),
+                ms_to_datetime(completed),
             ],
         )
 
@@ -583,8 +584,8 @@ class AnalyticsCollector:
                 tool_name,
                 state.get("status"),
                 data.get("callID"),
-                datetime.fromtimestamp(start_time / 1000) if start_time else None,
-                datetime.fromtimestamp(end_time / 1000) if end_time else None,
+                ms_to_datetime(start_time),
+                ms_to_datetime(end_time),
                 duration_ms,
             ],
         )
@@ -616,7 +617,7 @@ class AnalyticsCollector:
                 data.get("messageID"),
                 data.get("sessionID"),
                 skill_name,
-                datetime.fromtimestamp(loaded_at / 1000) if loaded_at else None,
+                ms_to_datetime(loaded_at),
             ],
         )
         self._stats["skills"] += 1
@@ -656,7 +657,7 @@ class AnalyticsCollector:
                 parent_agent,
                 subagent_type,
                 metadata.get("sessionId"),
-                datetime.fromtimestamp(created_at / 1000) if created_at else None,
+                ms_to_datetime(created_at),
             ],
         )
         self._stats["delegations"] += 1
@@ -712,8 +713,8 @@ class AnalyticsCollector:
                 data.get("id"),
                 data.get("worktree"),
                 data.get("vcs"),
-                datetime.fromtimestamp(created / 1000) if created else None,
-                datetime.fromtimestamp(updated / 1000) if updated else None,
+                ms_to_datetime(created),
+                ms_to_datetime(updated),
             ],
         )
 
