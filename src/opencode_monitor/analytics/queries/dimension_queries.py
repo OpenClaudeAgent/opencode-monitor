@@ -8,6 +8,7 @@ from datetime import datetime
 
 from ..models import DirectoryStats, ModelStats
 from .base import BaseQueries
+from ...utils.logger import debug
 
 
 class DimensionQueries(BaseQueries):
@@ -43,7 +44,10 @@ class DimensionQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"_get_directory_stats query failed: {e}")
             return []
 
     def _get_model_stats(
@@ -88,7 +92,10 @@ class DimensionQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"_get_model_stats query failed: {e}")
             return []
 
     def _get_anomalies(self, start_date: datetime, end_date: datetime) -> list[str]:
@@ -120,7 +127,7 @@ class DimensionQueries(BaseQueries):
                     else (title or "Untitled")
                 )
                 anomalies.append(f"Session '{short_title}' has {count} task calls")
-        except Exception:
+        except Exception:  # Intentional catch-all: anomaly detection is optional
             pass
 
         # Check for high tool failure rates (> 20%)
@@ -145,7 +152,7 @@ class DimensionQueries(BaseQueries):
                 anomalies.append(
                     f"Tool '{tool}' has {rate:.0f}% failure rate ({failures}/{total})"
                 )
-        except Exception:
+        except Exception:  # Intentional catch-all: anomaly detection is optional
             pass
 
         return anomalies

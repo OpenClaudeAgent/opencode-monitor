@@ -8,6 +8,7 @@ from datetime import datetime
 
 from ..models import SkillByAgent, SkillStats, ToolStats
 from .base import BaseQueries
+from ...utils.logger import debug
 
 
 class ToolQueries(BaseQueries):
@@ -110,7 +111,10 @@ class ToolQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"_get_skills_by_agent query failed: {e}")
             return []
 
     def get_tool_performance(self, days: int) -> list[dict]:
@@ -149,5 +153,8 @@ class ToolQueries(BaseQueries):
                 }
                 for row in results
             ]
-        except Exception:
+        except (
+            Exception
+        ) as e:  # Intentional catch-all: query failures return empty list
+            debug(f"get_tool_performance query failed: {e}")
             return []
