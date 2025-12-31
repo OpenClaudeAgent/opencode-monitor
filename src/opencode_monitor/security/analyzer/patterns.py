@@ -1,79 +1,27 @@
 """
-Security Analyzer - Risk analysis for commands, files, and URLs
+Security Analyzer Patterns - Detection patterns for security analysis
 
-Provides unified security analysis for:
-- Bash commands (analyze_command)
-- File paths for read/write operations (RiskAnalyzer.analyze_file_path)
-- URLs for webfetch operations (RiskAnalyzer.analyze_url)
+Provides:
+- DANGEROUS_PATTERNS: Patterns for risky command detection
+- SAFE_PATTERNS: Patterns that reduce risk scores
+- SENSITIVE_FILE_PATTERNS: Patterns for sensitive file detection
+- SENSITIVE_URL_PATTERNS: Patterns for sensitive URL detection
+
+MITRE ATT&CK Technique IDs:
+- T1059 - Command and Scripting Interpreter
+- T1048 - Exfiltration Over Alternative Protocol
+- T1070 - Indicator Removal
+- T1222 - File and Directory Permissions Modification
+- T1105 - Ingress Tool Transfer
+- T1053 - Scheduled Task/Job
+- T1087 - Account Discovery
+- T1082 - System Information Discovery
+- T1485 - Data Destruction
+- T1548 - Abuse Elevation Control Mechanism
 """
 
-import re
-from dataclasses import dataclass
-from enum import Enum
-from typing import Optional, Tuple, Dict, List
+from typing import Dict, List, Tuple
 
-
-# =============================================================================
-# Common Types
-# =============================================================================
-
-
-class RiskLevel(Enum):
-    """Risk levels for security analysis"""
-
-    LOW = "low"  # 0-19: Normal operations
-    MEDIUM = "medium"  # 20-49: Potential impact
-    HIGH = "high"  # 50-79: Sensitive operations
-    CRITICAL = "critical"  # 80-100: Major risk
-
-
-@dataclass
-class SecurityAlert:
-    """Result of security analysis for a command"""
-
-    command: str
-    tool: str
-    score: int
-    level: RiskLevel
-    reason: str
-    agent_id: Optional[str] = None
-    agent_title: Optional[str] = None
-    mitre_techniques: List[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self):
-        if self.mitre_techniques is None:
-            self.mitre_techniques = []
-
-
-@dataclass
-class RiskResult:
-    """Result of a file/URL risk analysis"""
-
-    score: int
-    level: str
-    reason: str
-    mitre_techniques: List[str] = None  # type: ignore[assignment]
-
-    def __post_init__(self):
-        if self.mitre_techniques is None:
-            self.mitre_techniques = []
-
-
-# =============================================================================
-# Command Analysis
-# =============================================================================
-
-# MITRE ATT&CK Technique IDs
-# T1059 - Command and Scripting Interpreter
-# T1048 - Exfiltration Over Alternative Protocol
-# T1070 - Indicator Removal
-# T1222 - File and Directory Permissions Modification
-# T1105 - Ingress Tool Transfer
-# T1053 - Scheduled Task/Job
-# T1087 - Account Discovery
-# T1082 - System Information Discovery
-# T1485 - Data Destruction
-# T1548 - Abuse Elevation Control Mechanism
 
 # Pattern definitions with base scores and MITRE techniques
 # Format: (pattern, score, reason, context_adjustments, mitre_techniques)
@@ -283,96 +231,6 @@ SAFE_PATTERNS = [
 ]
 
 
-def analyze_command(command: str, tool: str = "bash") -> SecurityAlert:
-    """Analyze a command and return a security alert with risk score."""
-    if not command or not command.strip():
-        return SecurityAlert(
-            command=command,
-            tool=tool,
-            score=0,
-            level=RiskLevel.LOW,
-            reason="Empty command",
-            mitre_techniques=[],
-        )
-
-    max_score = 0
-    primary_reason = "Normal operation"
-    mitre_techniques: List[str] = []
-
-    for entry in DANGEROUS_PATTERNS:
-        # Handle both old format (4 elements) and new format (5 elements with MITRE)
-        if len(entry) == 5:
-            pattern, base_score, reason, context_adjustments, mitre = entry
-        else:
-            pattern, base_score, reason, context_adjustments = entry
-            mitre = []
-
-        if re.search(pattern, command, re.IGNORECASE):
-            adjusted_score = base_score
-            for ctx_pattern, modifier in context_adjustments:
-                if re.search(ctx_pattern, command, re.IGNORECASE):
-                    adjusted_score += modifier
-            if adjusted_score > max_score:
-                max_score = adjusted_score
-                primary_reason = reason
-                # Collect MITRE techniques from all matching patterns
-            if mitre:
-                for tech in mitre:
-                    if tech not in mitre_techniques:
-                        mitre_techniques.append(tech)
-
-    for pattern, modifier, _ in SAFE_PATTERNS:
-        if re.search(pattern, command, re.IGNORECASE):
-            max_score += modifier
-
-    max_score = max(0, min(100, max_score))
-
-    if max_score >= 80:
-        level = RiskLevel.CRITICAL
-    elif max_score >= 50:
-        level = RiskLevel.HIGH
-    elif max_score >= 20:
-        level = RiskLevel.MEDIUM
-    else:
-        level = RiskLevel.LOW
-
-    return SecurityAlert(
-        command=command,
-        tool=tool,
-        score=max_score,
-        level=level,
-        reason=primary_reason,
-        mitre_techniques=mitre_techniques,
-    )
-
-
-def get_level_emoji(level: RiskLevel) -> str:
-    """Return emoji indicator for risk level"""
-    return {
-        RiskLevel.LOW: "",
-        RiskLevel.MEDIUM: "🟡",
-        RiskLevel.HIGH: "🟠",
-        RiskLevel.CRITICAL: "🔴",
-    }.get(level, "")
-
-
-def format_alert_short(alert: SecurityAlert, max_length: int = 40) -> str:
-    """Format alert for menu display (short form)"""
-    emoji = get_level_emoji(alert.level)
-    cmd = (
-        alert.command[:max_length] + "..."
-        if len(alert.command) > max_length
-        else alert.command
-    )
-    if emoji:
-        return f"{emoji} {cmd}"
-    return cmd
-
-
-# =============================================================================
-# File/URL Analysis
-# =============================================================================
-
 # File patterns with MITRE techniques
 # Format: (pattern, score, reason, mitre_techniques)
 SENSITIVE_FILE_PATTERNS: Dict[str, List[Tuple[str, int, str, List[str]]]] = {
@@ -486,85 +344,3 @@ SENSITIVE_URL_PATTERNS: Dict[str, List[Tuple[str, int, str, List[str]]]] = {
         (r"\.toml$", 25, "TOML config", []),
     ],
 }
-
-
-class RiskAnalyzer:
-    """Analyzes file paths and URLs for security risks"""
-
-    @staticmethod
-    def _score_to_level(score: int) -> str:
-        """Convert a score to a risk level"""
-        if score >= 80:
-            return "critical"
-        elif score >= 50:
-            return "high"
-        elif score >= 20:
-            return "medium"
-        return "low"
-
-    @staticmethod
-    def _analyze_patterns(
-        value: str, patterns: Dict[str, List[Tuple[str, int, str, List[str]]]]
-    ) -> Tuple[int, str, List[str]]:
-        """Analyze a value against patterns, return max score, reason, and MITRE techniques"""
-        value_lower = value.lower()
-        max_score = 0
-        reason = "Normal"
-        mitre_techniques: List[str] = []
-
-        for level in ["critical", "high", "medium"]:
-            for entry in patterns.get(level, []):
-                pattern, score, desc, mitre = entry
-                if re.search(pattern, value_lower):
-                    if score > max_score:
-                        max_score = score
-                        reason = desc
-                    # Collect all MITRE techniques
-                    for tech in mitre:
-                        if tech not in mitre_techniques:
-                            mitre_techniques.append(tech)
-
-        return max_score, reason, mitre_techniques
-
-    def analyze_file_path(self, file_path: str, write_mode: bool = False) -> RiskResult:
-        """Analyze a file path for security risk"""
-        score, reason, mitre = self._analyze_patterns(
-            file_path, SENSITIVE_FILE_PATTERNS
-        )
-
-        if write_mode and score > 0:
-            score = min(100, score + 10)
-            reason = f"WRITE: {reason}"
-
-        level = self._score_to_level(score)
-
-        if score == 0:
-            reason = "Normal file"
-
-        return RiskResult(
-            score=score, level=level, reason=reason, mitre_techniques=mitre
-        )
-
-    def analyze_url(self, url: str) -> RiskResult:
-        """Analyze a URL for security risk"""
-        score, reason, mitre = self._analyze_patterns(url, SENSITIVE_URL_PATTERNS)
-        level = self._score_to_level(score)
-
-        if score == 0:
-            reason = "Normal URL"
-
-        return RiskResult(
-            score=score, level=level, reason=reason, mitre_techniques=mitre
-        )
-
-
-# Singleton instance
-_analyzer: Optional[RiskAnalyzer] = None
-
-
-def get_risk_analyzer() -> RiskAnalyzer:
-    """Get the singleton RiskAnalyzer instance"""
-    global _analyzer
-    if _analyzer is None:
-        _analyzer = RiskAnalyzer()
-    return _analyzer
