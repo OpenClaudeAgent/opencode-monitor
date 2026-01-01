@@ -5,11 +5,13 @@ Uses DuckDB's native JSON reading for maximum performance.
 """
 
 import json
+import uuid
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Optional
 
 from .db import AnalyticsDB
+from .models import AgentTrace
 from ..utils.logger import info, debug, error
 from ..utils.datetime import ms_to_datetime
 
@@ -292,6 +294,201 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
     return count
 
 
+def extract_traces(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
+    """Extract agent traces from task tool invocations.
+
+    Parses the part files to find tool calls with name="task",
+    extracts full prompt input/output, timing, and nested tool usage.
+
+    Args:
+        storage_path: Path to OpenCode storage
+        max_days: Only extract traces from the last N days
+
+    Returns:
+        List of AgentTrace objects with full execution context
+    """
+    part_dir = storage_path / "part"
+
+    if not part_dir.exists():
+        return []
+
+    cutoff = datetime.now() - timedelta(days=max_days)
+    traces: list[AgentTrace] = []
+
+    for msg_dir in part_dir.iterdir():
+        if not msg_dir.is_dir():
+            continue
+
+        for part_file in msg_dir.glob("*.json"):
+            try:
+                with open(part_file) as f:
+                    data = json.load(f)
+
+                if data.get("tool") != "task":
+                    continue
+
+                state = data.get("state", {})
+                input_data = state.get("input", {})
+                subagent_type = input_data.get("subagent_type")
+                if not subagent_type:
+                    continue
+
+                # Extract timing
+                time_data = state.get("time", {})
+                start_ts = time_data.get("start")
+                end_ts = time_data.get("end")
+                started_at = ms_to_datetime(start_ts)
+                ended_at = ms_to_datetime(end_ts)
+
+                if started_at and started_at < cutoff:
+                    continue
+
+                # Calculate duration
+                duration_ms = None
+                if start_ts and end_ts:
+                    duration_ms = end_ts - start_ts
+
+                # Determine status
+                status = state.get("status", "running")
+                if status == "completed":
+                    status = "completed"
+                elif status == "error" or status == "failed":
+                    status = "error"
+                else:
+                    status = "running"
+
+                # Extract tools used from metadata.summary
+                tools_used = []
+                metadata = state.get("metadata", {})
+                summary = metadata.get("summary", [])
+                for item in summary:
+                    tool_name = item.get("tool")
+                    if tool_name:
+                        tools_used.append(tool_name)
+
+                # Create trace
+                trace = AgentTrace(
+                    trace_id=data.get("id", str(uuid.uuid4())),
+                    session_id=data.get("sessionID", ""),
+                    parent_trace_id=None,  # Will be resolved later
+                    parent_agent=None,  # Will be resolved from message
+                    subagent_type=subagent_type,
+                    prompt_input=input_data.get("prompt", ""),
+                    prompt_output=state.get("output"),
+                    started_at=started_at,
+                    ended_at=ended_at,
+                    duration_ms=duration_ms,
+                    tokens_in=None,  # Would need message lookup
+                    tokens_out=None,
+                    status=status,
+                    tools_used=tools_used,
+                    child_session_id=metadata.get("sessionId"),
+                )
+                traces.append(trace)
+
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    info(f"Extracted {len(traces)} agent traces")
+    return traces
+
+
+def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
+    """Load agent traces into the database.
+
+    Extracts traces from task tool invocations and resolves parent agents.
+
+    Args:
+        db: Analytics database instance
+        storage_path: Path to OpenCode storage
+        max_days: Only load traces from the last N days
+
+    Returns:
+        Number of traces loaded
+    """
+    conn = db.connect()
+
+    # Ensure table exists (for legacy databases)
+    try:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agent_traces (
+                trace_id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                parent_trace_id VARCHAR,
+                parent_agent VARCHAR,
+                subagent_type VARCHAR NOT NULL,
+                prompt_input TEXT NOT NULL,
+                prompt_output TEXT,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP,
+                duration_ms INTEGER,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                status VARCHAR DEFAULT 'running',
+                tools_used TEXT[],
+                child_session_id VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+    except Exception:  # Intentional catch-all: table may already exist
+        pass
+
+    # Extract traces from files
+    traces = extract_traces(storage_path, max_days)
+
+    if not traces:
+        info("No traces found")
+        return 0
+
+    # Resolve parent agents from messages table
+    for trace in traces:
+        try:
+            # Get the message that made this task call
+            result = conn.execute(
+                "SELECT agent FROM messages WHERE id = ?",
+                [trace.session_id.replace("ses_", "msg_")],  # Approximate lookup
+            ).fetchone()
+            if result:
+                trace.parent_agent = result[0]
+        except Exception:  # Intentional catch-all: skip lookup failures
+            pass
+
+    # Insert traces
+    for trace in traces:
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO agent_traces
+                (trace_id, session_id, parent_trace_id, parent_agent, subagent_type,
+                 prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                 tokens_in, tokens_out, status, tools_used, child_session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    trace.trace_id,
+                    trace.session_id,
+                    trace.parent_trace_id,
+                    trace.parent_agent,
+                    trace.subagent_type,
+                    trace.prompt_input,
+                    trace.prompt_output,
+                    trace.started_at,
+                    trace.ended_at,
+                    trace.duration_ms,
+                    trace.tokens_in,
+                    trace.tokens_out,
+                    trace.status,
+                    trace.tools_used,
+                    trace.child_session_id,
+                ],
+            )
+        except Exception as e:  # Intentional catch-all: skip individual insert failures
+            debug(f"Trace insert failed for {trace.trace_id}: {e}")
+            continue
+
+    count = conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()[0]
+    info(f"Loaded {count} traces")
+    return count
+
+
 def load_opencode_data(
     db: Optional[AnalyticsDB] = None,
     storage_path: Optional[Path] = None,
@@ -340,6 +537,7 @@ def load_opencode_data(
 
     delegations = load_delegations(db, storage_path, max_days)
     skills = load_skills(db, storage_path, max_days)
+    traces = load_traces(db, storage_path, max_days)
 
     result = {
         "sessions": sessions,
@@ -347,9 +545,10 @@ def load_opencode_data(
         "parts": parts,
         "delegations": delegations,
         "skills": skills,
+        "traces": traces,
     }
 
     info(
-        f"Total: {sessions} sessions, {messages} messages, {parts} parts, {delegations} delegations, {skills} skills"
+        f"Total: {sessions} sessions, {messages} messages, {parts} parts, {delegations} delegations, {skills} skills, {traces} traces"
     )
     return result

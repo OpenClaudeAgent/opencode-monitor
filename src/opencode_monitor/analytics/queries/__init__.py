@@ -15,6 +15,7 @@ from .enriched_queries import EnrichedQueries
 from .session_queries import SessionQueries
 from .time_series_queries import TimeSeriesQueries
 from .tool_queries import ToolQueries
+from .trace_queries import TraceQueries, TraceTreeNode, SessionWithTraces
 
 if TYPE_CHECKING:
     from ..db import AnalyticsDB
@@ -189,4 +190,7 @@ __all__ = [
     "TimeSeriesQueries",
     "DimensionQueries",
     "EnrichedQueries",
+    "TraceQueries",
+    "TraceTreeNode",
+    "SessionWithTraces",
 ]

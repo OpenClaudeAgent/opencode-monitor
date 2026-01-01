@@ -177,6 +177,28 @@ class AnalyticsDB:
             )
         """)
 
+        # Agent traces table for task tool invocations
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS agent_traces (
+                trace_id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                parent_trace_id VARCHAR,
+                parent_agent VARCHAR,
+                subagent_type VARCHAR NOT NULL,
+                prompt_input TEXT NOT NULL,
+                prompt_output TEXT,
+                started_at TIMESTAMP NOT NULL,
+                ended_at TIMESTAMP,
+                duration_ms INTEGER,
+                tokens_in INTEGER,
+                tokens_out INTEGER,
+                status VARCHAR DEFAULT 'running',
+                tools_used TEXT[],
+                child_session_id VARCHAR,
+                created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         # Run migrations to add any missing columns BEFORE creating indexes
         self._migrate_columns(conn)
 
@@ -224,6 +246,28 @@ class AnalyticsDB:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_parts_session
             ON parts(session_id)
+        """)
+
+        # Indexes for agent_traces table
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_traces_session
+            ON agent_traces(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_traces_parent
+            ON agent_traces(parent_trace_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_traces_subagent
+            ON agent_traces(subagent_type)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_traces_date
+            ON agent_traces(started_at)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_traces_child_session
+            ON agent_traces(child_session_id)
         """)
 
         debug("Analytics database schema created")
@@ -287,6 +331,7 @@ class AnalyticsDB:
     def clear_data(self) -> None:
         """Clear all data from the database."""
         conn = self.connect()
+        conn.execute("DELETE FROM agent_traces")
         conn.execute("DELETE FROM delegations")
         conn.execute("DELETE FROM skills")
         conn.execute("DELETE FROM parts")
@@ -309,6 +354,7 @@ class AnalyticsDB:
             "delegations",
             "todos",
             "projects",
+            "agent_traces",
         ]:
             count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
             result[table] = count[0] if count else 0

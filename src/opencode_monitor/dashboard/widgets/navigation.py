@@ -147,6 +147,7 @@ class Sidebar(QFrame):
             (ICONS["monitoring"], "Monitoring"),
             (ICONS["security"], "Security"),
             (ICONS["analytics"], "Analytics"),
+            (ICONS["tracing"], "Traces"),
         ]
 
         for i, (icon, text) in enumerate(nav_data):

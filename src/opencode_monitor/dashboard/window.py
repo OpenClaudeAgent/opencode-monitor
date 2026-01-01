@@ -25,7 +25,12 @@ from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont
 
 from .styles import get_stylesheet, COLORS, SPACING, UI, format_tokens
 from .widgets import Sidebar
-from .sections import MonitoringSection, SecuritySection, AnalyticsSection
+from .sections import (
+    MonitoringSection,
+    SecuritySection,
+    AnalyticsSection,
+    TracingSection,
+)
 
 
 class DataSignals(QObject):
@@ -34,6 +39,7 @@ class DataSignals(QObject):
     monitoring_updated = pyqtSignal(dict)
     security_updated = pyqtSignal(dict)
     analytics_updated = pyqtSignal(dict)
+    tracing_updated = pyqtSignal(dict)
 
 
 class DashboardWindow(QMainWindow):
@@ -120,10 +126,12 @@ class DashboardWindow(QMainWindow):
         self._monitoring = MonitoringSection()
         self._security = SecuritySection()
         self._analytics = AnalyticsSection()
+        self._tracing = TracingSection()
 
         self._pages.addWidget(self._monitoring)
         self._pages.addWidget(self._security)
         self._pages.addWidget(self._analytics)
+        self._pages.addWidget(self._tracing)
 
         content_layout.addWidget(self._pages)
         main_layout.addWidget(content_frame)
@@ -137,12 +145,14 @@ class DashboardWindow(QMainWindow):
         self._signals.monitoring_updated.connect(self._on_monitoring_data)
         self._signals.security_updated.connect(self._on_security_data)
         self._signals.analytics_updated.connect(self._on_analytics_data)
+        self._signals.tracing_updated.connect(self._on_tracing_data)
 
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
 
         # Connect terminal focus signal
         self._monitoring.open_terminal_requested.connect(self._on_open_terminal)
+        self._tracing.open_terminal_requested.connect(self._on_open_terminal_session)
 
     def _on_open_terminal(self, agent_id: str) -> None:
         """Handle request to open terminal for an agent."""
@@ -151,6 +161,13 @@ class DashboardWindow(QMainWindow):
             from ..ui.terminal import focus_iterm2
 
             focus_iterm2(tty)
+
+    def _on_open_terminal_session(self, session_id: str) -> None:
+        """Handle request to open terminal for a session (from tracing)."""
+        # For now, just log - could be extended to find session's terminal
+        from ..utils.logger import debug
+
+        debug(f"Open terminal requested for session: {session_id}")
 
     def _on_analytics_period_changed(self, days: int) -> None:
         """Handle analytics period change - refresh data immediately."""
@@ -171,6 +188,7 @@ class DashboardWindow(QMainWindow):
         threading.Thread(target=self._fetch_monitoring_data, daemon=True).start()
         threading.Thread(target=self._fetch_security_data, daemon=True).start()
         threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
+        threading.Thread(target=self._fetch_tracing_data, daemon=True).start()
 
     def _fetch_monitoring_data(self) -> None:
         """Fetch monitoring data from core module."""
@@ -515,6 +533,85 @@ class DashboardWindow(QMainWindow):
             agents=data.get("agents", []),
             tools=data.get("tools", []),
             skills=data.get("skills", []),
+        )
+
+    def _fetch_tracing_data(self) -> None:
+        """Fetch tracing data from database."""
+        try:
+            from datetime import datetime, timedelta
+            from ..analytics.db import AnalyticsDB
+            from ..analytics.queries.trace_queries import TraceQueries
+
+            db = AnalyticsDB()
+            queries = TraceQueries(db)
+
+            # Get stats for last 30 days
+            end_date = datetime.now()
+            start_date = end_date - timedelta(days=30)
+
+            stats = queries.get_trace_stats(start_date, end_date)
+            sessions = queries.get_sessions_with_traces(limit=50)
+            traces = queries.get_traces_by_date_range(start_date, end_date)
+
+            # Convert to dicts for Qt signal
+            traces_data = []
+            for trace in traces:
+                traces_data.append(
+                    {
+                        "trace_id": trace.trace_id,
+                        "session_id": trace.session_id,
+                        "parent_trace_id": trace.parent_trace_id,
+                        "parent_agent": trace.parent_agent,
+                        "subagent_type": trace.subagent_type,
+                        "prompt_input": trace.prompt_input,
+                        "prompt_output": trace.prompt_output,
+                        "started_at": trace.started_at,
+                        "ended_at": trace.ended_at,
+                        "duration_ms": trace.duration_ms,
+                        "tokens_in": trace.tokens_in,
+                        "tokens_out": trace.tokens_out,
+                        "status": trace.status,
+                        "tools_used": trace.tools_used,
+                        "child_session_id": trace.child_session_id,
+                    }
+                )
+
+            sessions_data = []
+            for session in sessions:
+                sessions_data.append(
+                    {
+                        "session_id": session.session_id,
+                        "title": session.title,
+                        "trace_count": session.trace_count,
+                        "first_trace_at": session.first_trace_at,
+                        "total_duration_ms": session.total_duration_ms,
+                    }
+                )
+
+            data = {
+                "traces": traces_data,
+                "sessions": sessions_data,
+                "total_traces": stats.get("total_traces", 0),
+                "unique_agents": stats.get("unique_agents", 0),
+                "total_duration_ms": stats.get("total_duration_ms", 0),
+            }
+
+            db.close()
+            self._signals.tracing_updated.emit(data)
+
+        except Exception as e:
+            from ..utils.logger import error
+
+            error(f"[Dashboard] Tracing fetch error: {e}")
+
+    def _on_tracing_data(self, data: dict) -> None:
+        """Handle tracing data update."""
+        self._tracing.update_data(
+            traces=data.get("traces", []),
+            sessions=data.get("sessions", []),
+            total_traces=data.get("total_traces", 0),
+            unique_agents=data.get("unique_agents", 0),
+            total_duration_ms=data.get("total_duration_ms", 0),
         )
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:

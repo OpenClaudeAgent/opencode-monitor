@@ -122,6 +122,7 @@ ICONS = {
     "monitoring": "●",
     "security": "◆",
     "analytics": "■",
+    "tracing": "◎",
     # Status
     "status_active": "●",
     "status_idle": "○",

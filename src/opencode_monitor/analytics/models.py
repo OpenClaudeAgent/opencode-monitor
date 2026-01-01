@@ -267,6 +267,31 @@ class ProjectStats:
 
 
 @dataclass
+class AgentTrace:
+    """Trace of an agent invocation via task tool.
+
+    Captures the full execution context of a delegated task,
+    including prompts, timing, and nested tool usage.
+    """
+
+    trace_id: str  # UUID generated
+    session_id: str
+    parent_trace_id: Optional[str] = None
+    parent_agent: Optional[str] = None
+    subagent_type: str = ""
+    prompt_input: str = ""  # Full prompt (not truncated)
+    prompt_output: Optional[str] = None
+    started_at: Optional[datetime] = None
+    ended_at: Optional[datetime] = None
+    duration_ms: Optional[int] = None
+    tokens_in: Optional[int] = None
+    tokens_out: Optional[int] = None
+    status: str = "running"  # running, completed, error
+    tools_used: list[str] = field(default_factory=list)
+    child_session_id: Optional[str] = None  # Session created for the subtask
+
+
+@dataclass
 class ModelStats:
     """Statistics per model."""
 
