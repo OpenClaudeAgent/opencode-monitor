@@ -101,7 +101,11 @@ class MockApp:
 
 @pytest.fixture(scope="module", autouse=True)
 def setup_rumps_mock():
-    """Setup rumps mock for the entire module."""
+    """Setup rumps mock for the entire module.
+
+    Only mocks rumps itself. Does NOT reload app module here.
+    The app module reload happens in mock_dependencies with all patches active.
+    """
     # Save original if exists
     original_rumps = sys.modules.get("rumps", None)
 
@@ -115,59 +119,101 @@ def setup_rumps_mock():
     # Install the mock
     sys.modules["rumps"] = rumps_mock
 
-    # Reload the app module to use the mock
-    if "opencode_monitor.app" in sys.modules:
-        importlib.reload(sys.modules["opencode_monitor.app"])
+    # DON'T reload here - let mock_dependencies do it with patches active
 
     yield rumps_mock
 
     # Restore original after tests
     if original_rumps is not None:
         sys.modules["rumps"] = original_rumps
-        # Reload app module with real rumps
+        # Clean up app module
         if "opencode_monitor.app" in sys.modules:
-            importlib.reload(sys.modules["opencode_monitor.app"])
+            del sys.modules["opencode_monitor.app"]
 
 
 @pytest.fixture
 def mock_dependencies():
-    """Mock all external dependencies for OpenCodeApp."""
+    """Mock all external dependencies for OpenCodeApp.
+
+    Strategy: Patch at SOURCE level BEFORE reloading the app module.
+    This ensures that when the module is reloaded, all imports resolve
+    to our mocks rather than the real functions.
+    """
+    # Create mock objects
+    mock_start_auditor = MagicMock()
+    mock_get_auditor = MagicMock()
+    mock_menu_builder = MagicMock()
+    mock_get_settings = MagicMock()
+    mock_save_settings = MagicMock()
+    mock_focus_iterm2 = MagicMock()
+    mock_fetch_instances = MagicMock()
+    mock_fetch_usage = MagicMock()
+    mock_info = MagicMock()
+    mock_error = MagicMock()
+    mock_debug = MagicMock()
+    mock_start_collector = MagicMock()
+    mock_get_collector = MagicMock()
+
+    # Configure mocks
+    mock_settings = MagicMock()
+    mock_settings.usage_refresh_interval = 60
+    mock_settings.permission_threshold_seconds = 5  # 5 seconds threshold
+    mock_settings.ask_user_timeout = 3600  # 1 hour default
+    mock_get_settings.return_value = mock_settings
+
+    mock_auditor = MagicMock()
+    mock_auditor.get_stats.return_value = {
+        "critical": 0,
+        "high": 0,
+        "medium": 5,
+        "total_commands": 100,
+        "total_reads": 50,
+        "total_writes": 25,
+        "total_webfetches": 10,
+    }
+    mock_get_auditor.return_value = mock_auditor
+
+    mock_builder_instance = MagicMock()
+    mock_builder_instance.build_dynamic_items.return_value = []
+    mock_builder_instance.build_security_menu.return_value = MockMenuItem("Security")
+    mock_builder_instance.build_analytics_menu.return_value = MockMenuItem("Analytics")
+    mock_menu_builder.return_value = mock_builder_instance
+
+    # Patch at SOURCE level (where functions are defined)
+    # Then reload the app module so imports resolve to mocks
     with (
-        patch("opencode_monitor.app.start_auditor") as mock_start_auditor,
-        patch("opencode_monitor.app.get_auditor") as mock_get_auditor,
-        patch("opencode_monitor.app.MenuBuilder") as mock_menu_builder,
-        patch("opencode_monitor.app.get_settings") as mock_get_settings,
-        patch("opencode_monitor.app.save_settings") as mock_save_settings,
-        patch("opencode_monitor.app.focus_iterm2") as mock_focus_iterm2,
-        patch("opencode_monitor.app.fetch_all_instances") as mock_fetch_instances,
-        patch("opencode_monitor.app.fetch_usage") as mock_fetch_usage,
-        patch("opencode_monitor.app.info") as mock_info,
-        patch("opencode_monitor.app.error") as mock_error,
-        patch("opencode_monitor.app.debug") as mock_debug,
+        patch("opencode_monitor.security.auditor.start_auditor", mock_start_auditor),
+        patch("opencode_monitor.security.auditor.get_auditor", mock_get_auditor),
+        patch("opencode_monitor.ui.menu.MenuBuilder", mock_menu_builder),
+        patch("opencode_monitor.utils.settings.get_settings", mock_get_settings),
+        patch("opencode_monitor.utils.settings.save_settings", mock_save_settings),
+        patch("opencode_monitor.ui.terminal.focus_iterm2", mock_focus_iterm2),
+        patch(
+            "opencode_monitor.core.monitor.fetch_all_instances", mock_fetch_instances
+        ),
+        patch("opencode_monitor.core.usage.fetch_usage", mock_fetch_usage),
+        patch("opencode_monitor.utils.logger.info", mock_info),
+        patch("opencode_monitor.utils.logger.error", mock_error),
+        patch("opencode_monitor.utils.logger.debug", mock_debug),
+        patch(
+            "opencode_monitor.analytics.collector.start_collector", mock_start_collector
+        ),
+        patch("opencode_monitor.analytics.collector.get_collector", mock_get_collector),
     ):
-        # Configure mocks
-        mock_settings = MagicMock()
-        mock_settings.usage_refresh_interval = 60
-        mock_get_settings.return_value = mock_settings
+        # Remove ALL cached app modules so they get re-imported with mocks
+        # The app package has: __init__, core, menu, handlers
+        modules_to_remove = [
+            "opencode_monitor.app",
+            "opencode_monitor.app.core",
+            "opencode_monitor.app.menu",
+            "opencode_monitor.app.handlers",
+        ]
+        for mod_name in modules_to_remove:
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
 
-        mock_auditor = MagicMock()
-        mock_auditor.get_stats.return_value = {
-            "critical": 0,
-            "high": 0,
-            "medium": 5,
-            "total_commands": 100,
-            "total_reads": 50,
-            "total_writes": 25,
-            "total_webfetches": 10,
-        }
-        mock_get_auditor.return_value = mock_auditor
-
-        mock_builder_instance = MagicMock()
-        mock_builder_instance.build_dynamic_items.return_value = []
-        mock_builder_instance.build_security_menu.return_value = MockMenuItem(
-            "Security"
-        )
-        mock_menu_builder.return_value = mock_builder_instance
+        # Now import the app module - imports will resolve to mocks
+        import opencode_monitor.app  # noqa: F401
 
         yield {
             "start_auditor": mock_start_auditor,
@@ -185,6 +231,11 @@ def mock_dependencies():
             "error": mock_error,
             "debug": mock_debug,
         }
+
+        # Clean up - remove all app modules so next test gets fresh ones
+        for mod_name in modules_to_remove:
+            if mod_name in sys.modules:
+                del sys.modules[mod_name]
 
 
 def create_app_with_mocks(mock_dependencies, skip_monitor=True):

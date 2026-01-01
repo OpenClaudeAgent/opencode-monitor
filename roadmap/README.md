@@ -60,6 +60,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-01 | Plan-20 finalise - Collecte systeme OpenCode, visualisation 100% PyQt natif (QTreeWidget + QSplitter) |
 | 2025-12-31 | Plan-25 termine - Double-clic dashboard ouvre iTerm + refactoring queries.py + tests loader.py v2.18.0 |
 | 2025-12-31 | Ajout plan-25 (open session terminal) - Double-clic dans dashboard ouvre iTerm |
 | 2025-12-31 | Plan-24 termine - Data model enrichi (todos, projects, nouvelles colonnes) v2.17.0 |

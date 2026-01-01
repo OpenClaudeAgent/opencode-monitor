@@ -71,7 +71,7 @@ class DurationBar(QProgressBar):
         self.setMaximum(100)
         self.setStyleSheet(f"""
             QProgressBar {{
-                background-color: {COLORS["bg_muted"]};
+                background-color: {COLORS["bg_hover"]};
                 border: none;
                 border-radius: 4px;
             }}
@@ -125,7 +125,7 @@ class CollapsibleTextEdit(QFrame):
         self._text.setReadOnly(True)
         self._text.setStyleSheet(f"""
             QTextEdit {{
-                background-color: {COLORS["bg_muted"]};
+                background-color: {COLORS["bg_hover"]};
                 border: 1px solid {COLORS["border_default"]};
                 border-radius: 8px;
                 padding: {SPACING["sm"]}px;
@@ -309,7 +309,7 @@ class TracingSection(QWidget):
                 font-size: {FONTS["size_sm"]}px;
             }}
             QComboBox:hover {{
-                border-color: {COLORS["border_hover"]};
+                border-color: {COLORS["border_strong"]};
             }}
             QComboBox::drop-down {{
                 border: none;
@@ -379,10 +379,10 @@ class TracingSection(QWidget):
                 background-color: {COLORS["bg_elevated"]};
             }}
             QTreeWidget::item:hover {{
-                background-color: {COLORS["bg_muted"]};
+                background-color: {COLORS["bg_hover"]};
             }}
             QHeaderView::section {{
-                background-color: {COLORS["bg_muted"]};
+                background-color: {COLORS["bg_hover"]};
                 color: {COLORS["text_secondary"]};
                 font-size: {FONTS["size_sm"]}px;
                 font-weight: {FONTS["weight_medium"]};
@@ -527,7 +527,7 @@ class TracingSection(QWidget):
         if status == "completed":
             status_color = QColor(COLORS["success"])
         elif status == "error":
-            status_color = QColor(COLORS["danger"])
+            status_color = QColor(COLORS["error"])
         else:
             status_color = QColor(COLORS["warning"])
 
