@@ -32,7 +32,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 17 | Dashboard PyQt | [plan-17](./plan-17-pyqt-dashboard.md) | `feature/pyqt-dashboard` | v2.14.1 | Termine |
 | 18 | Hooks OpenCode (permissions) | [plan-18](./plan-18-opencode-hooks.md) | `feature/opencode-hooks` | - | En attente |
 | 19 | Heuristiques EDR | [plan-19](./plan-19-edr-heuristics.md) | `feature/edr-heuristics` | v2.15.0 | Termine |
-| 20 | Agent Tracing System | [plan-20](./plan-20-agent-tracing.md) | `feature/agent-tracing` | - | En attente |
+| 20 | Agent Tracing System | [plan-20](./plan-20-agent-tracing.md) | `feature/agent-tracing` | v2.19.0 | Termine |
 | 21 | Dashboard Enrichment | [plan-21](./plan-21-dashboard-enrichment.md) | `feature/dashboard-enrichment` | - | En attente |
 | 22 | Analytics Debugging | [plan-22](./plan-22-analytics-debugging.md) | `feature/analytics-debugging` | v2.16.0 | Termine |
 | 23 | DateTime Range Selector | [plan-23](./plan-23-datetime-selector.md) | `feature/datetime-selector` | - | En attente |
@@ -60,6 +60,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-02 | Plan-20 termine - Agent Tracing avec 343 traces, dashboard PyQt, optimisations performance v2.19.0 |
 | 2026-01-01 | Plan-20 finalise - Collecte systeme OpenCode, visualisation 100% PyQt natif (QTreeWidget + QSplitter) |
 | 2025-12-31 | Plan-25 termine - Double-clic dashboard ouvre iTerm + refactoring queries.py + tests loader.py v2.18.0 |
 | 2025-12-31 | Ajout plan-25 (open session terminal) - Double-clic dans dashboard ouvre iTerm |
