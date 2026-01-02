@@ -440,8 +440,24 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
         info("No traces found")
         return 0
 
-    # Resolve parent agents from messages table
+    # Build child_session_id -> parent_trace mapping
+    # A trace with child_session_id = "ses_xyz" is the parent of traces in session "ses_xyz"
+    parent_trace_by_child_session: dict[str, AgentTrace] = {}
     for trace in traces:
+        if trace.child_session_id:
+            parent_trace_by_child_session[trace.child_session_id] = trace
+
+    # Resolve parent_trace_id based on session membership
+    for trace in traces:
+        if trace.session_id in parent_trace_by_child_session:
+            parent = parent_trace_by_child_session[trace.session_id]
+            trace.parent_trace_id = parent.trace_id
+            trace.parent_agent = parent.subagent_type
+
+    # Also try to resolve parent_agent from messages table for root traces
+    for trace in traces:
+        if trace.parent_agent:
+            continue  # Already resolved
         try:
             # Get the message that made this task call
             result = conn.execute(
