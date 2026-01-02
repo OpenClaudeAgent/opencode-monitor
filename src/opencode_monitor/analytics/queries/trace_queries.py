@@ -35,6 +35,21 @@ class SessionWithTraces:
     total_duration_ms: int
 
 
+@dataclass
+class SessionNode:
+    """A session in the hierarchy with delegation info."""
+
+    session_id: str
+    title: Optional[str]
+    parent_session_id: Optional[str]
+    agent_type: Optional[str]  # The agent running in this session
+    parent_agent: Optional[str]  # The agent that delegated to this session
+    created_at: Optional[datetime]
+    directory: Optional[str] = None  # Project directory
+    trace_count: int = 0
+    children: list["SessionNode"] = field(default_factory=list)
+
+
 class TraceQueries(BaseQueries):
     """Queries related to agent traces."""
 
@@ -372,6 +387,95 @@ class TraceQueries(BaseQueries):
             ]
         except Exception as e:
             debug(f"get_agent_type_stats failed: {e}")
+            return []
+
+    def get_session_hierarchy(
+        self, start_date: datetime, end_date: datetime, limit: int = 100
+    ) -> list[SessionNode]:
+        """Get sessions with their delegation hierarchy.
+
+        Returns sessions as a tree structure based on delegations.
+        Only includes sessions that are part of a delegation chain OR have traces.
+        Root sessions show project/directory info, children show agent delegation info.
+
+        Args:
+            start_date: Start of the date range
+            end_date: End of the date range
+            limit: Maximum number of root sessions to return
+
+        Returns:
+            List of root SessionNode objects with children populated
+        """
+        try:
+            # Get sessions that are part of delegation chains or have traces
+            # This filters out "orphan" sessions with no delegations/traces
+            results = self._conn.execute(
+                """
+                WITH relevant_sessions AS (
+                    -- Sessions that are parents (have children delegated to them)
+                    SELECT DISTINCT parent_id as session_id FROM sessions WHERE parent_id IS NOT NULL
+                    UNION
+                    -- Sessions that are children (created by delegation)
+                    SELECT DISTINCT id as session_id FROM sessions WHERE parent_id IS NOT NULL
+                    UNION
+                    -- Sessions with traces
+                    SELECT DISTINCT session_id FROM agent_traces
+                )
+                SELECT
+                    s.id as session_id,
+                    s.title,
+                    s.parent_id,
+                    s.created_at,
+                    s.directory,
+                    d.parent_agent,
+                    d.child_agent,
+                    (SELECT COUNT(*) FROM agent_traces t WHERE t.session_id = s.id) as trace_count
+                FROM sessions s
+                LEFT JOIN delegations d ON s.id = d.child_session_id
+                WHERE s.id IN (SELECT session_id FROM relevant_sessions)
+                  AND s.created_at >= ? AND s.created_at <= ?
+                ORDER BY s.created_at ASC
+                """,
+                [start_date, end_date],
+            ).fetchall()
+
+            # Build lookup
+            sessions_by_id: dict[str, SessionNode] = {}
+            for row in results:
+                node = SessionNode(
+                    session_id=row[0],
+                    title=row[1],
+                    parent_session_id=row[2],
+                    created_at=row[3],
+                    directory=row[4],
+                    parent_agent=row[5],
+                    agent_type=row[6],  # child_agent from delegation
+                    trace_count=row[7] or 0,
+                )
+                sessions_by_id[node.session_id] = node
+
+            # Build tree - find root sessions and attach children
+            root_sessions: list[SessionNode] = []
+            for session in sessions_by_id.values():
+                if (
+                    session.parent_session_id
+                    and session.parent_session_id in sessions_by_id
+                ):
+                    parent = sessions_by_id[session.parent_session_id]
+                    parent.children.append(session)
+                else:
+                    root_sessions.append(session)
+
+            # Sort children by created_at (chronological order - oldest first)
+            for session in sessions_by_id.values():
+                session.children.sort(key=lambda s: s.created_at or datetime.min)
+
+            # Sort root sessions by created_at DESC (most recent first) and limit
+            root_sessions.sort(key=lambda s: s.created_at or datetime.min, reverse=True)
+            return root_sessions[:limit]
+
+        except Exception as e:
+            debug(f"get_session_hierarchy failed: {e}")
             return []
 
     def _row_to_trace(self, row: tuple) -> AgentTrace:

@@ -7,7 +7,7 @@ A modern dashboard with sidebar navigation featuring:
 - Analytics: Usage statistics and trends
 """
 
-from .window import DashboardWindow, show_dashboard
+from .window import DashboardWindow, SyncConfig, show_dashboard
 from .styles import (
     COLORS,
     SPACING,
@@ -42,6 +42,7 @@ from .sections import MonitoringSection, SecuritySection, AnalyticsSection
 __all__ = [
     # Main entry points
     "DashboardWindow",
+    "SyncConfig",
     "show_dashboard",
     # Styles & Constants
     "COLORS",

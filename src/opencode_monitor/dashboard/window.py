@@ -9,7 +9,33 @@ Modern design with:
 """
 
 import threading
+from dataclasses import dataclass
+from datetime import datetime, timedelta
 from typing import Optional
+
+# Import analytics modules at top level to avoid deadlock in threads
+from ..analytics.db import AnalyticsDB
+from ..analytics.queries.trace_queries import TraceQueries
+from ..analytics.loader import load_opencode_data
+
+
+@dataclass
+class SyncConfig:
+    """Configuration for OpenCode data synchronization.
+
+    Extracted as a dataclass for testability - allows injecting
+    different configurations in tests without modifying code.
+
+    Attributes:
+        clear_first: Whether to clear existing data before sync
+        max_days: Maximum number of days to sync
+        skip_parts: Skip loading parts (slow with many files)
+    """
+
+    clear_first: bool = False
+    max_days: int = 30
+    skip_parts: bool = True
+
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -40,17 +66,31 @@ class DataSignals(QObject):
     security_updated = pyqtSignal(dict)
     analytics_updated = pyqtSignal(dict)
     tracing_updated = pyqtSignal(dict)
+    sync_completed = pyqtSignal(dict)  # OpenCode data sync status
 
 
 class DashboardWindow(QMainWindow):
     """Main dashboard window with sidebar navigation."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(
+        self,
+        parent: QWidget | None = None,
+        sync_config: SyncConfig | None = None,
+    ):
+        """Initialize dashboard window.
+
+        Args:
+            parent: Parent widget (optional)
+            sync_config: Configuration for OpenCode data sync (optional).
+                        If not provided, uses default SyncConfig().
+                        Inject a custom config for testing.
+        """
         super().__init__(parent)
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
         self._agent_tty_map: dict[str, str] = {}  # agent_id -> tty mapping
+        self._sync_config = sync_config or SyncConfig()
 
         self._setup_window()
         self._setup_ui()
@@ -146,6 +186,7 @@ class DashboardWindow(QMainWindow):
         self._signals.security_updated.connect(self._on_security_data)
         self._signals.analytics_updated.connect(self._on_analytics_data)
         self._signals.tracing_updated.connect(self._on_tracing_data)
+        self._signals.sync_completed.connect(self._on_sync_completed)
 
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
@@ -153,6 +194,11 @@ class DashboardWindow(QMainWindow):
         # Connect terminal focus signal
         self._monitoring.open_terminal_requested.connect(self._on_open_terminal)
         self._tracing.open_terminal_requested.connect(self._on_open_terminal_session)
+
+    def _on_sync_completed(self, result: dict) -> None:
+        """Handle OpenCode data sync completion - refresh all data."""
+        # Refresh all sections to pick up new data
+        self._refresh_all_data()
 
     def _on_open_terminal(self, agent_id: str) -> None:
         """Handle request to open terminal for an agent."""
@@ -175,13 +221,42 @@ class DashboardWindow(QMainWindow):
 
     def _start_refresh(self) -> None:
         """Start periodic data refresh."""
-        # Initial data load
+        # Sync OpenCode data first (in background to not block UI)
+        threading.Thread(target=self._sync_opencode_data, daemon=True).start()
+
+        # Initial data load (will use whatever is in DB)
         self._refresh_all_data()
 
         # Periodic refresh
         self._refresh_timer = QTimer(self)
         self._refresh_timer.timeout.connect(self._refresh_all_data)
         self._refresh_timer.start(UI["refresh_interval_ms"])
+
+    def _sync_opencode_data(self) -> None:
+        """Sync OpenCode storage data to analytics database.
+
+        This runs on startup to ensure the dashboard shows the latest data.
+        Uses configuration from self._sync_config for testability.
+        """
+        try:
+            from ..utils.logger import info, error
+
+            cfg = self._sync_config
+            info(f"[Dashboard] Syncing OpenCode data (max_days={cfg.max_days})...")
+            result = load_opencode_data(
+                clear_first=cfg.clear_first,
+                max_days=cfg.max_days,
+                skip_parts=cfg.skip_parts,
+            )
+            info(f"[Dashboard] Sync complete: {result}")
+
+            # Emit signal to trigger data refresh
+            self._signals.sync_completed.emit(result)
+
+        except Exception as e:
+            from ..utils.logger import error
+
+            error(f"[Dashboard] Sync error: {e}")
 
     def _refresh_all_data(self) -> None:
         """Refresh all section data in background threads."""
@@ -538,10 +613,6 @@ class DashboardWindow(QMainWindow):
     def _fetch_tracing_data(self) -> None:
         """Fetch tracing data from database."""
         try:
-            from datetime import datetime, timedelta
-            from ..analytics.db import AnalyticsDB
-            from ..analytics.queries.trace_queries import TraceQueries
-
             db = AnalyticsDB()
             queries = TraceQueries(db)
 
@@ -552,8 +623,11 @@ class DashboardWindow(QMainWindow):
             stats = queries.get_trace_stats(start_date, end_date)
             sessions = queries.get_sessions_with_traces(limit=50)
             traces = queries.get_traces_by_date_range(start_date, end_date)
+            session_hierarchy = queries.get_session_hierarchy(
+                start_date, end_date, limit=50
+            )
 
-            # Convert to dicts for Qt signal
+            # Convert traces to dicts for Qt signal
             traces_data = []
             for trace in traces:
                 traces_data.append(
@@ -588,9 +662,26 @@ class DashboardWindow(QMainWindow):
                     }
                 )
 
+            # Convert session hierarchy to nested dicts
+            def session_to_dict(node):
+                return {
+                    "session_id": node.session_id,
+                    "title": node.title,
+                    "parent_session_id": node.parent_session_id,
+                    "agent_type": node.agent_type,
+                    "parent_agent": node.parent_agent,
+                    "created_at": node.created_at,
+                    "directory": node.directory,
+                    "trace_count": node.trace_count,
+                    "children": [session_to_dict(c) for c in node.children],
+                }
+
+            hierarchy_data = [session_to_dict(s) for s in session_hierarchy]
+
             data = {
                 "traces": traces_data,
                 "sessions": sessions_data,
+                "session_hierarchy": hierarchy_data,
                 "total_traces": stats.get("total_traces", 0),
                 "unique_agents": stats.get("unique_agents", 0),
                 "total_duration_ms": stats.get("total_duration_ms", 0),
@@ -609,6 +700,7 @@ class DashboardWindow(QMainWindow):
         self._tracing.update_data(
             traces=data.get("traces", []),
             sessions=data.get("sessions", []),
+            session_hierarchy=data.get("session_hierarchy", []),
             total_traces=data.get("total_traces", 0),
             unique_agents=data.get("unique_agents", 0),
             total_duration_ms=data.get("total_duration_ms", 0),

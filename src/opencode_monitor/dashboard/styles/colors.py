@@ -75,4 +75,16 @@ COLORS = {
     # Shadows
     "shadow_sm": "rgba(0, 0, 0, 0.3)",
     "shadow_md": "rgba(0, 0, 0, 0.4)",
+    # Tree hierarchy colors
+    "tree_root": "#60a5fa",  # Blue 400 - root/project items
+    "tree_root_bg": "rgba(96, 165, 250, 0.08)",
+    "tree_child": "#a78bfa",  # Violet 400 - delegated agents
+    "tree_child_bg": "rgba(167, 139, 250, 0.06)",
+    "tree_depth_1": "#c4b5fd",  # Violet 300
+    "tree_depth_2": "#ddd6fe",  # Violet 200
+    # Agent type colors (for trace items)
+    "agent_coder": "#22c55e",  # Green - coder agent
+    "agent_designer": "#f59e0b",  # Amber - designer
+    "agent_researcher": "#3b82f6",  # Blue - researcher
+    "agent_default": "#94a3b8",  # Slate 400 - unknown
 }
