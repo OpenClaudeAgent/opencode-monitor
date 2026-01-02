@@ -541,8 +541,15 @@ class DashboardWindow(QMainWindow):
             from datetime import datetime, timedelta
             from ..analytics.db import AnalyticsDB
             from ..analytics.queries.trace_queries import TraceQueries
+            from ..analytics.loader import load_traces, get_opencode_storage_path
 
             db = AnalyticsDB()
+
+            # Load traces from OpenCode files into DB first
+            storage_path = get_opencode_storage_path()
+            if storage_path.exists():
+                load_traces(db, storage_path, max_days=30)
+
             queries = TraceQueries(db)
 
             # Get stats for last 30 days
