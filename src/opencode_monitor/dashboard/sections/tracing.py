@@ -484,23 +484,44 @@ class TracingSection(QWidget):
                 max((t.get("duration_ms") or 0 for t in traces), default=1) or 1
             )
 
-            # Group by session for hierarchy
-            session_traces: dict[str, list[dict]] = {}
+            # Build hierarchy based on parent_trace_id
+            traces_by_id: dict[str, dict] = {}
+            for t in traces:
+                tid = t.get("trace_id")
+                if tid:
+                    traces_by_id[tid] = t
+            children_by_parent: dict[str, list[dict]] = {}
+            root_traces: list[dict] = []
+
             for trace in traces:
-                session = trace.get("session_id", "unknown")
-                if session not in session_traces:
-                    session_traces[session] = []
-                session_traces[session].append(trace)
+                parent_id = trace.get("parent_trace_id")
+                if parent_id and parent_id in traces_by_id:
+                    # Has a parent in this dataset
+                    if parent_id not in children_by_parent:
+                        children_by_parent[parent_id] = []
+                    children_by_parent[parent_id].append(trace)
+                else:
+                    # Root trace (no parent or parent not in dataset)
+                    root_traces.append(trace)
 
-            # Build tree
-            for session_id, session_traces_list in session_traces.items():
-                # Sort by start time
-                session_traces_list.sort(
-                    key=lambda t: t.get("started_at") or datetime.min
-                )
+            # Sort root traces by start time
+            root_traces.sort(key=lambda t: t.get("started_at") or datetime.min)
 
-                for trace in session_traces_list:
-                    self._add_trace_item(None, trace)
+            # Build tree recursively
+            def add_with_children(parent_item: Optional[QTreeWidgetItem], trace: dict):
+                item = self._add_trace_item(parent_item, trace)
+                trace_id = trace.get("trace_id")
+                if trace_id and trace_id in children_by_parent:
+                    # Sort children by start time
+                    children = sorted(
+                        children_by_parent[trace_id],
+                        key=lambda t: t.get("started_at") or datetime.min,
+                    )
+                    for child in children:
+                        add_with_children(item, child)
+
+            for trace in root_traces:
+                add_with_children(None, trace)
 
             # Expand all only on first load
             if not hasattr(self, "_first_load_done"):
