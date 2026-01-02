@@ -459,40 +459,55 @@ class TracingSection(QWidget):
 
     def _populate_tree(self, traces: list[dict]) -> None:
         """Populate tree widget with traces."""
-        self._tree.clear()
-
-        if not traces:
-            self._tree.hide()
-            self._empty.show()
-            self._detail_panel.clear()
+        # Skip if data hasn't changed (avoid expensive rebuilds)
+        trace_ids = {t.get("trace_id") for t in traces}
+        if hasattr(self, "_last_trace_ids") and self._last_trace_ids == trace_ids:
             return
+        self._last_trace_ids = trace_ids
 
-        self._tree.show()
-        self._empty.hide()
+        # Disable updates during rebuild for performance
+        self._tree.setUpdatesEnabled(False)
+        try:
+            self._tree.clear()
 
-        # Find max duration for timeline scaling
-        self._max_duration_ms = (
-            max((t.get("duration_ms") or 0 for t in traces), default=1) or 1
-        )
+            if not traces:
+                self._tree.hide()
+                self._empty.show()
+                self._detail_panel.clear()
+                return
 
-        # Group by session for hierarchy
-        session_traces: dict[str, list[dict]] = {}
-        for trace in traces:
-            session = trace.get("session_id", "unknown")
-            if session not in session_traces:
-                session_traces[session] = []
-            session_traces[session].append(trace)
+            self._tree.show()
+            self._empty.hide()
 
-        # Build tree
-        for session_id, session_traces_list in session_traces.items():
-            # Sort by start time
-            session_traces_list.sort(key=lambda t: t.get("started_at") or datetime.min)
+            # Find max duration for timeline scaling
+            self._max_duration_ms = (
+                max((t.get("duration_ms") or 0 for t in traces), default=1) or 1
+            )
 
-            for trace in session_traces_list:
-                self._add_trace_item(None, trace)
+            # Group by session for hierarchy
+            session_traces: dict[str, list[dict]] = {}
+            for trace in traces:
+                session = trace.get("session_id", "unknown")
+                if session not in session_traces:
+                    session_traces[session] = []
+                session_traces[session].append(trace)
 
-        # Expand all by default
-        self._tree.expandAll()
+            # Build tree
+            for session_id, session_traces_list in session_traces.items():
+                # Sort by start time
+                session_traces_list.sort(
+                    key=lambda t: t.get("started_at") or datetime.min
+                )
+
+                for trace in session_traces_list:
+                    self._add_trace_item(None, trace)
+
+            # Expand all only on first load
+            if not hasattr(self, "_first_load_done"):
+                self._tree.expandAll()
+                self._first_load_done = True
+        finally:
+            self._tree.setUpdatesEnabled(True)
 
     def _add_trace_item(
         self, parent: Optional[QTreeWidgetItem], trace: dict
