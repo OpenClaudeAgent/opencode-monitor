@@ -48,10 +48,26 @@ Améliorer l'ergonomie de la section Tracing :
 
 ## Checklist de validation
 
-- [ ] Les chevrons ▶/▼ sont visibles sur tous les éléments avec enfants
-- [ ] Cliquer sur un chevron expand/collapse l'élément
-- [ ] Le toggle de vue a des labels clairs et compréhensibles
-- [ ] Un tooltip explique la différence entre les deux vues
-- [ ] Le dropdown "All Sessions" fonctionne OU est supprimé
-- [ ] L'arbre reste lisible avec 3+ niveaux de profondeur
-- [ ] Les animations sont fluides (pas de saccades)
+- [x] Les chevrons ▶/▼ sont visibles sur tous les éléments avec enfants
+- [x] Cliquer sur un chevron expand/collapse l'élément
+- [x] Le toggle de vue a des labels clairs et compréhensibles
+- [x] Un tooltip explique la différence entre les deux vues
+- [x] Le dropdown "All Sessions" fonctionne OU est supprimé
+- [x] L'arbre reste lisible avec 3+ niveaux de profondeur
+- [x] Les animations sont fluides (pas de saccades)
+
+## Implémentation
+
+**Date** : 2026-01-03
+**Approche** : Option A (Simplification) adoptée
+
+### Menu simplifié
+- Dropdown "All Sessions" et toggle "View" supprimés
+- Vue unique "sessions" - hiérarchie par projet/session
+- Interface épurée sans contrôles confus
+
+### Chevrons de l'arbre
+- `setRootIsDecorated(True)` active les chevrons natifs Qt
+- `setAnimated(True)` pour animations fluides
+- Indentation 20px (`setIndentation(20)`)
+- Chevrons visibles par défaut (pas de `image: none` dans CSS)

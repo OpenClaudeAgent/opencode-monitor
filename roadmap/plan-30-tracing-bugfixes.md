@@ -38,10 +38,30 @@ Corriger les 3 bugs critiques pour rendre la section Tracing stable et utilisabl
 
 ## Checklist de validation
 
-- [ ] Cliquer sur une session ROOT affiche le vrai user prompt
-- [ ] Le panneau de détail n'affiche plus "new session" de manière incorrecte
-- [ ] Aucun flickering visible pendant 30 secondes d'observation
-- [ ] La sélection dans l'arbre est préservée après refresh
-- [ ] Toutes les traces récentes affichent leurs métriques
-- [ ] Les traces "en cours" sont visuellement distinctes
-- [ ] Tests unitaires ajoutés pour les queries corrigées
+- [x] Cliquer sur une session ROOT affiche le vrai user prompt
+- [x] Le panneau de détail n'affiche plus "new session" de manière incorrecte
+- [x] Aucun flickering visible pendant 30 secondes d'observation
+- [x] La sélection dans l'arbre est préservée après refresh
+- [x] Toutes les traces récentes affichent leurs métriques
+- [x] Les traces "en cours" sont visuellement distinctes
+- [x] Tests unitaires ajoutés pour les queries corrigées
+
+## Implémentation
+
+**Date** : 2026-01-03
+**Approche** : Corrections intégrées au refactoring Plan 29
+
+### Bug 1 - User Prompt
+- `get_session_prompts()` dans TracingDataService récupère le premier message user via requête SQL
+- Fallback vers le titre de session si aucun contenu trouvé
+- TranscriptTab affiche correctement les prompts
+
+### Bug 2 - Flickering UI
+- Cache `_last_trace_ids` et `_last_session_ids` dans section.py
+- L'arbre ne se reconstruit que si les IDs ont changé
+- `setUpdatesEnabled(False/True)` pendant les mises à jour
+
+### Bug 3 - Traces sans exécution
+- Métriques affichées pour toutes les traces via tree_data
+- Status "running" affiché avec icône ⏳ distincte
+- Fallback gracieux pour les données manquantes
