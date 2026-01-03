@@ -724,6 +724,107 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
     return count
 
 
+def load_file_operations(
+    db: AnalyticsDB, storage_path: Path, max_days: int = 30
+) -> int:
+    """Load file operations from tool invocations.
+
+    Extracts read, write, and edit operations from parts data.
+
+    Args:
+        db: Analytics database instance
+        storage_path: Path to OpenCode storage
+        max_days: Only load operations from the last N days
+
+    Returns:
+        Number of file operations loaded
+    """
+    conn = db.connect()
+    part_dir = storage_path / "part"
+
+    if not part_dir.exists():
+        return 0
+
+    cutoff = datetime.now() - timedelta(days=max_days)
+    operations: list[dict] = []
+    file_tools = {"read", "write", "edit"}
+
+    for msg_dir in part_dir.iterdir():
+        if not msg_dir.is_dir():
+            continue
+
+        for part_file in msg_dir.glob("*.json"):
+            try:
+                with open(part_file) as f:
+                    data = json.load(f)
+
+                tool_name = data.get("tool")
+                if tool_name not in file_tools:
+                    continue
+
+                state = data.get("state", {})
+                input_data = state.get("input", {})
+
+                # Extract file path from tool input
+                file_path = input_data.get("filePath") or input_data.get("path")
+                if not file_path:
+                    continue
+
+                time_data = state.get("time", {})
+                start_ts = time_data.get("start")
+                timestamp = ms_to_datetime(start_ts)
+                if timestamp and timestamp < cutoff:
+                    continue
+
+                # Determine operation type
+                operation = tool_name  # read, write, or edit
+
+                operations.append(
+                    {
+                        "id": data.get("id"),
+                        "session_id": data.get("sessionID"),
+                        "trace_id": None,  # Will be resolved later if needed
+                        "operation": operation,
+                        "file_path": file_path,
+                        "timestamp": timestamp,
+                        "risk_level": "normal",  # Can be enriched by security module
+                        "risk_reason": None,
+                    }
+                )
+
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    if not operations:
+        info("No file operations found")
+        return 0
+
+    for op in operations:
+        try:
+            conn.execute(
+                """INSERT OR REPLACE INTO file_operations
+                (id, session_id, trace_id, operation, file_path, timestamp, risk_level, risk_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    op["id"],
+                    op["session_id"],
+                    op["trace_id"],
+                    op["operation"],
+                    op["file_path"],
+                    op["timestamp"],
+                    op["risk_level"],
+                    op["risk_reason"],
+                ],
+            )
+        except Exception as e:
+            debug(f"File operation insert failed for {op.get('id', 'unknown')}: {e}")
+            continue
+
+    count = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()[0]
+    info(f"Loaded {count} file operations")
+    return count
+
+
 def load_opencode_data(
     db: Optional[AnalyticsDB] = None,
     storage_path: Optional[Path] = None,
@@ -774,6 +875,9 @@ def load_opencode_data(
     skills = load_skills(db, storage_path, max_days)
     traces = load_traces(db, storage_path, max_days)
 
+    # Load file operations (from parts, relatively fast)
+    file_operations = load_file_operations(db, storage_path, max_days)
+
     result = {
         "sessions": sessions,
         "messages": messages,
@@ -781,9 +885,12 @@ def load_opencode_data(
         "delegations": delegations,
         "skills": skills,
         "traces": traces,
+        "file_operations": file_operations,
     }
 
     info(
-        f"Total: {sessions} sessions, {messages} messages, {parts} parts, {delegations} delegations, {skills} skills, {traces} traces"
+        f"Total: {sessions} sessions, {messages} messages, {parts} parts, "
+        f"{delegations} delegations, {skills} skills, {traces} traces, "
+        f"{file_operations} file_operations"
     )
     return result

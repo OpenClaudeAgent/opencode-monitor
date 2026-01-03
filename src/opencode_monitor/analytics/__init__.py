@@ -9,6 +9,7 @@ Structure:
 - collector.py: Background incremental data collection
 - loader.py: Bulk data loading (legacy)
 - queries.py: SQL queries
+- tracing_service.py: Centralized tracing data service
 - report/: HTML report generation
 """
 
@@ -18,10 +19,12 @@ from .loader import load_opencode_data
 from .models import PeriodStats, TokenStats
 from .queries import AnalyticsQueries
 from .report import AnalyticsReport, generate_report
+from .tracing_service import TracingDataService, TracingConfig
 
 __all__ = [
     # Database
     "AnalyticsDB",
+    "get_analytics_db",
     # Collector (incremental background loading)
     "get_collector",
     "start_collector",
@@ -33,6 +36,9 @@ __all__ = [
     "TokenStats",
     # Queries
     "AnalyticsQueries",
+    # Tracing Service
+    "TracingDataService",
+    "TracingConfig",
     # Report
     "AnalyticsReport",
     "generate_report",

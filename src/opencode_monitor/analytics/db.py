@@ -292,6 +292,67 @@ class AnalyticsDB:
             WHERE NOT EXISTS (SELECT 1 FROM sync_meta WHERE id = 1)
         """)
 
+        # File operations table (for tracing file reads/writes/edits)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS file_operations (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR,
+                trace_id VARCHAR,
+                operation VARCHAR,
+                file_path VARCHAR,
+                timestamp TIMESTAMP,
+                risk_level VARCHAR,
+                risk_reason VARCHAR
+            )
+        """)
+
+        # Session stats aggregation table (pre-calculated KPIs)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_stats (
+                session_id VARCHAR PRIMARY KEY,
+                total_messages INTEGER DEFAULT 0,
+                total_tokens_in INTEGER DEFAULT 0,
+                total_tokens_out INTEGER DEFAULT 0,
+                total_tokens_cache INTEGER DEFAULT 0,
+                total_tool_calls INTEGER DEFAULT 0,
+                tool_success_rate DECIMAL(5,2) DEFAULT 0,
+                total_file_reads INTEGER DEFAULT 0,
+                total_file_writes INTEGER DEFAULT 0,
+                unique_agents INTEGER DEFAULT 0,
+                max_delegation_depth INTEGER DEFAULT 0,
+                estimated_cost_usd DECIMAL(10,6) DEFAULT 0,
+                duration_ms INTEGER DEFAULT 0,
+                updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
+        # Daily stats aggregation table
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS daily_stats (
+                date DATE PRIMARY KEY,
+                total_sessions INTEGER DEFAULT 0,
+                total_traces INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                total_tool_calls INTEGER DEFAULT 0,
+                avg_session_duration_ms INTEGER DEFAULT 0,
+                error_rate DECIMAL(5,2) DEFAULT 0
+            )
+        """)
+
+        # Indexes for new tables
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_file_ops_session
+            ON file_operations(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_file_ops_trace
+            ON file_operations(trace_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_file_ops_operation
+            ON file_operations(operation)
+        """)
+
         debug("Analytics database schema created")
 
     def _migrate_columns(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -349,6 +410,15 @@ class AnalyticsDB:
         add_column("parts", "call_id", "VARCHAR")
         add_column("parts", "ended_at", "TIMESTAMP")
         add_column("parts", "duration_ms", "INTEGER")
+        add_column("parts", "arguments", "TEXT")
+        add_column("parts", "result_summary", "TEXT")
+        add_column("parts", "error_message", "TEXT")
+
+        # Sessions - additional columns for stats
+        add_column("sessions", "ended_at", "TIMESTAMP")
+        add_column("sessions", "duration_ms", "INTEGER")
+        add_column("sessions", "is_root", "BOOLEAN", "TRUE")
+        add_column("sessions", "project_name", "VARCHAR")
 
     def clear_data(self) -> None:
         """Clear all data from the database."""
@@ -361,6 +431,9 @@ class AnalyticsDB:
         conn.execute("DELETE FROM sessions")
         conn.execute("DELETE FROM todos")
         conn.execute("DELETE FROM projects")
+        conn.execute("DELETE FROM file_operations")
+        conn.execute("DELETE FROM session_stats")
+        conn.execute("DELETE FROM daily_stats")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -377,9 +450,15 @@ class AnalyticsDB:
             "todos",
             "projects",
             "agent_traces",
+            "file_operations",
+            "session_stats",
+            "daily_stats",
         ]:
-            count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
-            result[table] = count[0] if count else 0
+            try:
+                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                result[table] = count[0] if count else 0
+            except Exception:
+                result[table] = 0  # Table may not exist yet
 
         return result
 
