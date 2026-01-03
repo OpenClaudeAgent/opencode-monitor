@@ -5,7 +5,6 @@ Provides:
 - Mock API client that replaces the real HTTP client
 - QApplication fixture for PyQt tests
 - Dashboard fixtures with mocked dependencies
-- Helper utilities for UI interaction testing
 
 Architecture note:
 The dashboard accesses data ONLY via the API client (get_api_client()).
@@ -24,7 +23,21 @@ import pytest
 src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
 
-from .fixtures import MockAPIResponses
+# Import from reorganized fixtures
+from .fixtures import (
+    MockAPIResponses,
+    SIGNAL_WAIT_MS,
+    SECTION_MONITORING,
+    SECTION_SECURITY,
+    SECTION_ANALYTICS,
+    SECTION_TRACING,
+    EXPECTED_TRACING,
+)
+
+# Import helpers (now as fixtures from helpers module)
+from .helpers.assertions import assert_table_content, assert_widget_content
+from .helpers.navigation import click_nav, click_tab, select_first_session
+from .helpers.signals import wait_for_signal
 
 
 # =============================================================================
@@ -302,36 +315,6 @@ def dashboard_window_hidden(
     window.close()
 
 
-# =============================================================================
-# Helper Fixtures
-# =============================================================================
-
-
-@pytest.fixture
-def select_first_session(qtbot):
-    """Helper to select first session in tracing tree.
-
-    Eliminates duplication of session selection pattern across tests.
-    Returns the selected root item for further assertions.
-
-    Usage:
-        def test_with_session(tracing_with_data, select_first_session):
-            tracing, _ = tracing_with_data
-            root_item = select_first_session(tracing)
-            # Now session is selected, detail panel is updated
-    """
-
-    def _select(tracing):
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item is not None, "Expected at least one session in tree"
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
-        return root_item
-
-    return _select
-
-
 @pytest.fixture
 def tracing_with_data(dashboard_window, qtbot, click_nav):
     """Tracing section with realistic data loaded.
@@ -370,177 +353,6 @@ def mock_api_client_variants(request):
         "extreme": MockAPIResponses.extreme_data(),
     }
     return MockAnalyticsAPIClient(responses_map[request.param])
-
-
-@pytest.fixture
-def assert_table_content():
-    """Helper fixture for table content assertions.
-
-    Provides a function to assert table cell content with options
-    for contains/exact matching and case sensitivity.
-
-    Usage:
-        def test_table(assert_table_content, dashboard_window):
-            table = dashboard_window._monitoring._agents_table
-            assert_table_content(table, 0, 0, "Agent Name")
-            assert_table_content(table, 0, 1, "path", contains=True)
-    """
-
-    def _assert(
-        table,
-        row: int,
-        col: int,
-        expected: str,
-        contains: bool = False,
-        ignore_case: bool = False,
-    ):
-        item = table.item(row, col)
-        assert item is not None, f"No item at ({row}, {col})"
-
-        actual = item.text()
-        expected_cmp = expected
-        actual_cmp = actual
-
-        if ignore_case:
-            actual_cmp = actual.lower()
-            expected_cmp = expected.lower()
-
-        if contains:
-            assert expected_cmp in actual_cmp, (
-                f"Expected '{expected}' in '{actual}' at ({row}, {col})"
-            )
-        else:
-            assert actual_cmp == expected_cmp, (
-                f"Expected '{expected}', got '{actual}' at ({row}, {col})"
-            )
-
-    return _assert
-
-
-@pytest.fixture
-def assert_widget_content():
-    """Helper fixture for cell widget assertions.
-
-    Similar to assert_table_content but for cell widgets (like badges).
-    """
-
-    def _assert(
-        table,
-        row: int,
-        col: int,
-        expected: str,
-        contains: bool = True,
-        ignore_case: bool = True,
-    ):
-        widget = table.cellWidget(row, col)
-        assert widget is not None, f"No widget at ({row}, {col})"
-
-        actual = widget.text()
-        expected_cmp = expected
-        actual_cmp = actual
-
-        if ignore_case:
-            actual_cmp = actual.lower()
-            expected_cmp = expected.lower()
-
-        if contains:
-            assert expected_cmp in actual_cmp, (
-                f"Expected '{expected}' in widget text '{actual}' at ({row}, {col})"
-            )
-        else:
-            assert actual_cmp == expected_cmp, (
-                f"Expected '{expected}', got '{actual}' in widget at ({row}, {col})"
-            )
-
-    return _assert
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-SIGNAL_WAIT_MS = (
-    200  # Standard wait time for signal processing (increased for CI stability)
-)
-
-# Section indices (order in sidebar and pages)
-SECTION_MONITORING = 0
-SECTION_SECURITY = 1
-SECTION_ANALYTICS = 2
-SECTION_TRACING = 3
-
-
-@pytest.fixture
-def wait_for_signal():
-    """Fixture to wait for Qt signals with timeout."""
-
-    def waiter(qtbot, signal, timeout: int = 1000) -> bool:
-        try:
-            with qtbot.waitSignal(signal, timeout=timeout):
-                return True
-        except TimeoutError:
-            # Signal was not emitted within timeout
-            return False
-        # Let other exceptions propagate for debugging
-
-    return waiter
-
-
-@pytest.fixture
-def click_nav(qtbot):
-    """Helper to click sidebar navigation buttons.
-
-    This simulates real user interaction by clicking on sidebar nav items
-    instead of directly manipulating internal state.
-
-    Usage:
-        click_nav(dashboard_window, SECTION_MONITORING)
-        click_nav(dashboard_window, SECTION_TRACING)
-    """
-    from PyQt6.QtCore import Qt
-
-    def _click(dashboard_window, section_index: int) -> None:
-        """Click on sidebar nav item to navigate to section.
-
-        Args:
-            dashboard_window: The dashboard window
-            section_index: 0=Monitoring, 1=Security, 2=Analytics, 3=Tracing
-        """
-        sidebar = dashboard_window._sidebar
-        nav_items = sidebar._nav_items
-        if 0 <= section_index < len(nav_items):
-            qtbot.mouseClick(nav_items[section_index], Qt.MouseButton.LeftButton)
-            qtbot.wait(SIGNAL_WAIT_MS)
-
-    return _click
-
-
-@pytest.fixture
-def click_tab(qtbot):
-    """Helper to click on QTabWidget tabs.
-
-    This simulates real user interaction by clicking on tab bar
-    instead of directly calling setCurrentIndex().
-
-    Usage:
-        click_tab(detail._tabs, 0)  # Click first tab
-        click_tab(detail._tabs, 1)  # Click second tab
-    """
-    from PyQt6.QtCore import Qt
-
-    def _click(tab_widget, tab_index: int) -> None:
-        """Click on a tab by index.
-
-        Args:
-            tab_widget: QTabWidget instance
-            tab_index: Index of the tab to click
-        """
-        tab_bar = tab_widget.tabBar()
-        tab_rect = tab_bar.tabRect(tab_index)
-        qtbot.mouseClick(tab_bar, Qt.MouseButton.LeftButton, pos=tab_rect.center())
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-    return _click
 
 
 # =============================================================================
