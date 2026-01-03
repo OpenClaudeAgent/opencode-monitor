@@ -400,13 +400,16 @@ class TestGetSessionPrompts:
         assert "prompt_input" in result
         assert "prompt_output" in result
 
-    def test_returns_none_for_nonexistent_session(self, service: TracingDataService):
-        """Should return None values for non-existent session."""
+    def test_returns_fallback_for_nonexistent_session(
+        self, service: TracingDataService
+    ):
+        """Should return fallback messages for non-existent session."""
         result = service.get_session_prompts("nonexistent")
 
         assert result["meta"]["session_id"] == "nonexistent"
-        assert result["prompt_input"] is None
-        assert result["prompt_output"] is None
+        # Returns fallback message instead of None for better UX
+        assert result["prompt_input"] is not None
+        assert isinstance(result["prompt_input"], str)
 
 
 # =============================================================================

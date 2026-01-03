@@ -17,9 +17,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Callable, Optional
 
-# Import analytics modules at top level to avoid deadlock in threads
-from ..analytics.db import AnalyticsDB
-from ..analytics.queries.trace_queries import TraceQueries
+# API client is used for all data fetching to avoid DuckDB concurrency issues
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -79,21 +77,29 @@ class SyncChecker:
         self._timer.start(self.POLL_FAST_MS)
 
     def _check(self) -> None:
-        """Check if sync timestamp has changed."""
+        """Check if API is available and data has changed."""
         try:
-            db = AnalyticsDB(read_only=True)
-            current = db.get_sync_timestamp()
-            db.close()
+            from ..api import get_api_client
 
-            if current != self._known_sync:
-                self._known_sync = current
-                self._last_change_time = time.time()
-                self._timer.setInterval(self.POLL_FAST_MS)  # Active mode
-                self._on_sync()  # Trigger refresh
-            elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
-                self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
+            client = get_api_client()
+
+            # Use API health check instead of direct DB access
+            if client.is_available:
+                # Get stats to check for changes
+                stats = client.get_stats()
+                if stats:
+                    # Use session count as change indicator
+                    current = stats.get("sessions", 0)
+
+                    if current != self._known_sync:
+                        self._known_sync = current
+                        self._last_change_time = time.time()
+                        self._timer.setInterval(self.POLL_FAST_MS)  # Active mode
+                        self._on_sync()  # Trigger refresh
+                    elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
+                        self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
         except Exception:
-            pass  # DB may be locked momentarily
+            pass  # API may not be available
 
     def stop(self) -> None:
         """Stop the sync checker."""
@@ -500,59 +506,59 @@ class DashboardWindow(QMainWindow):
             error(f"[Dashboard] Security fetch error: {e}")
 
     def _fetch_analytics_data(self) -> None:
-        """Fetch analytics data from database."""
+        """Fetch analytics data via API to avoid DuckDB concurrency issues."""
         try:
-            from ..analytics import AnalyticsQueries
-            from ..analytics.db import AnalyticsDB
+            from ..api import get_api_client
 
-            db = AnalyticsDB(read_only=True)
-            queries = AnalyticsQueries(db)
+            client = get_api_client()
+
+            # Check if API is available
+            if not client.is_available:
+                from ..utils.logger import debug
+
+                debug("[Dashboard] API not available for analytics")
+                return
 
             days = self._analytics.get_current_period()
-            stats = queries.get_period_stats(days=days)
+            global_stats = client.get_global_stats(days=days)
 
-            tokens_str = format_tokens(stats.tokens.total)
-            cache_hit = f"{stats.tokens.cache_hit_ratio:.0f}%"
+            if not global_stats:
+                return
 
-            # Convert dataclasses to dicts
-            limit = UI["top_items_limit"]
-            agents = [
-                {
-                    "agent": a.agent,
-                    "messages": a.message_count,
-                    "tokens": a.tokens.total,
-                }
-                for a in stats.agents[:limit]
-            ]
+            summary = global_stats.get("summary", {})
+            details = global_stats.get("details", {})
+            tokens_detail = details.get("tokens", {})
 
-            tools = [
-                {
-                    "tool_name": t.tool_name,
-                    "invocations": t.invocations,
-                    "failures": t.failures,
-                }
-                for t in stats.tools[:limit]
-            ]
+            total_tokens = summary.get("total_tokens", 0)
+            input_tokens = tokens_detail.get("input", 0)
+            cache_tokens = tokens_detail.get("cache_read", 0)
 
-            skills = [
-                {
-                    "skill_name": s.skill_name,
-                    "load_count": s.load_count,
-                }
-                for s in stats.skills[:limit]
-            ]
+            # Format tokens
+            if total_tokens < 1000:
+                tokens_str = str(total_tokens)
+            elif total_tokens < 1000000:
+                tokens_str = f"{total_tokens / 1000:.1f}K"
+            else:
+                tokens_str = f"{total_tokens / 1000000:.1f}M"
+
+            # Calculate cache hit ratio
+            total_input = input_tokens + cache_tokens
+            cache_hit = (
+                f"{(cache_tokens / total_input * 100):.0f}%"
+                if total_input > 0
+                else "0%"
+            )
 
             data = {
-                "sessions": stats.session_count,
-                "messages": stats.message_count,
+                "sessions": summary.get("total_sessions", 0),
+                "messages": summary.get("total_messages", 0),
                 "tokens": tokens_str,
                 "cache_hit": cache_hit,
-                "agents": agents,
-                "tools": tools,
-                "skills": skills,
+                "agents": [],  # API doesn't provide detailed agent breakdown yet
+                "tools": [],  # API doesn't provide detailed tool breakdown yet
+                "skills": [],  # API doesn't provide detailed skill breakdown yet
             }
 
-            db.close()
             self._signals.analytics_updated.emit(data)
 
         except (
@@ -607,90 +613,207 @@ class DashboardWindow(QMainWindow):
         )
 
     def _fetch_tracing_data(self) -> None:
-        """Fetch tracing data from database."""
+        """Fetch tracing data from API (menubar serves data).
+
+        Uses the API client instead of direct DB access to avoid
+        DuckDB multi-process concurrency issues.
+        """
+        from ..utils.logger import debug, error
+
         try:
-            db = AnalyticsDB(read_only=True)
-            queries = TraceQueries(db)
+            from ..api import get_api_client
 
-            # Get stats for last 30 days
-            end_date = datetime.now()
-            start_date = end_date - timedelta(days=30)
+            client = get_api_client()
+            debug("[Dashboard] _fetch_tracing_data: checking API availability...")
 
-            stats = queries.get_trace_stats(start_date, end_date)
-            sessions = queries.get_sessions_with_traces(limit=50)
-            traces = queries.get_traces_by_date_range(start_date, end_date)
-            session_hierarchy = queries.get_session_hierarchy(
-                start_date, end_date, limit=50
+            # Check if API is available
+            if not client.is_available:
+                debug("[Dashboard] API not available, menubar may not be running")
+                return
+
+            debug("[Dashboard] API is available, fetching global stats...")
+
+            # Get global stats
+            global_stats = client.get_global_stats(days=30)
+            if not global_stats:
+                debug("[Dashboard] No global stats returned")
+                return
+
+            debug(f"[Dashboard] Got global stats: {list(global_stats.keys())}")
+
+            # Get traces, sessions, and delegations from API
+            traces_data = client.get_traces(days=30, limit=500) or []
+            sessions_data = client.get_sessions(days=30, limit=100) or []
+            delegations_data = client.get_delegations(days=30, limit=1000) or []
+
+            debug(
+                f"[Dashboard] Got {len(traces_data)} traces, {len(sessions_data)} sessions, {len(delegations_data)} delegations"
             )
 
-            # Convert traces to dicts for Qt signal
-            traces_data = []
-            for trace in traces:
-                traces_data.append(
+            # Convert sessions to expected format
+            sessions_formatted = []
+            for session in sessions_data:
+                sessions_formatted.append(
                     {
-                        "trace_id": trace.trace_id,
-                        "session_id": trace.session_id,
-                        "parent_trace_id": trace.parent_trace_id,
-                        "parent_agent": trace.parent_agent,
-                        "subagent_type": trace.subagent_type,
-                        "prompt_input": trace.prompt_input,
-                        "prompt_output": trace.prompt_output,
-                        "started_at": trace.started_at,
-                        "ended_at": trace.ended_at,
-                        "duration_ms": trace.duration_ms,
-                        "tokens_in": trace.tokens_in,
-                        "tokens_out": trace.tokens_out,
-                        "status": trace.status,
-                        "tools_used": trace.tools_used,
-                        "child_session_id": trace.child_session_id,
+                        "session_id": session.get("id"),
+                        "title": session.get("title"),
+                        "trace_count": 0,  # Will be computed
+                        "first_trace_at": session.get("created_at"),
+                        "total_duration_ms": 0,
                     }
                 )
 
-            sessions_data = []
-            for session in sessions:
-                sessions_data.append(
-                    {
-                        "session_id": session.session_id,
-                        "title": session.title,
-                        "trace_count": session.trace_count,
-                        "first_trace_at": session.first_trace_at,
-                        "total_duration_ms": session.total_duration_ms,
-                    }
-                )
+            # Build session hierarchy using delegations
+            session_hierarchy = self._build_session_hierarchy(
+                traces_data, sessions_data, delegations_data
+            )
 
-            # Convert session hierarchy to nested dicts
-            def session_to_dict(node):
-                return {
-                    "session_id": node.session_id,
-                    "title": node.title,
-                    "parent_session_id": node.parent_session_id,
-                    "agent_type": node.agent_type,
-                    "parent_agent": node.parent_agent,
-                    "created_at": node.created_at,
-                    "directory": node.directory,
-                    "trace_count": node.trace_count,
-                    "prompt_input": node.prompt_input,  # For ROOT sessions
-                    "children": [session_to_dict(c) for c in node.children],
-                }
+            debug(
+                f"[Dashboard] Built hierarchy with {len(session_hierarchy)} root sessions"
+            )
 
-            hierarchy_data = [session_to_dict(s) for s in session_hierarchy]
+            # Extract stats
+            summary = global_stats.get("summary", {})
 
             data = {
                 "traces": traces_data,
-                "sessions": sessions_data,
-                "session_hierarchy": hierarchy_data,
-                "total_traces": stats.get("total_traces", 0),
-                "unique_agents": stats.get("unique_agents", 0),
-                "total_duration_ms": stats.get("total_duration_ms", 0),
+                "sessions": sessions_formatted,
+                "session_hierarchy": session_hierarchy,
+                "total_traces": summary.get("total_traces", len(traces_data)),
+                "unique_agents": summary.get("unique_agents", 0),
+                "total_duration_ms": summary.get("total_duration_ms", 0),
             }
 
-            db.close()
+            debug(
+                f"[Dashboard] Emitting tracing_updated signal with {len(session_hierarchy)} sessions"
+            )
             self._signals.tracing_updated.emit(data)
 
         except Exception as e:
-            from ..utils.logger import error
-
             error(f"[Dashboard] Tracing fetch error: {e}")
+            import traceback
+
+            error(traceback.format_exc())
+
+    def _build_session_hierarchy(
+        self, traces: list, sessions: list, delegations: list | None = None
+    ) -> list:
+        """Build session hierarchy from traces grouped by root session.
+
+        Creates a tree structure where each root session contains its
+        sub-agent traces as children. Uses parent_trace_id (root_ses_XXX)
+        to group traces.
+
+        Args:
+            traces: List of agent trace dicts
+            sessions: List of session dicts
+            delegations: List of delegation dicts (for future use)
+
+        Returns:
+            List of root session nodes with agent traces as children
+        """
+        # Group traces by their root session (extracted from parent_trace_id)
+        # parent_trace_id format: "root_ses_XXX" where XXX matches session_id
+        traces_by_root: dict[str, list] = {}
+
+        for trace in traces:
+            parent_trace_id = trace.get("parent_trace_id", "")
+
+            # Extract root session ID from parent_trace_id
+            # Format: "root_ses_47ced5014ffe04Zv07QUKoJeDe" -> "ses_47ced5014ffe04Zv07QUKoJeDe"
+            if parent_trace_id.startswith("root_"):
+                root_session_id = parent_trace_id[5:]  # Remove "root_" prefix
+            else:
+                # Use the trace's own session_id as root
+                root_session_id = trace.get("session_id", "unknown")
+
+            if root_session_id not in traces_by_root:
+                traces_by_root[root_session_id] = []
+            traces_by_root[root_session_id].append(trace)
+
+        # Sort traces within each root by time
+        for root_id in traces_by_root:
+            traces_by_root[root_id].sort(
+                key=lambda t: t.get("started_at") or "", reverse=False
+            )
+
+        # Build session lookup
+        sessions_map = {s.get("id"): s for s in sessions}
+
+        # Build hierarchy
+        hierarchy = []
+
+        for root_session_id, root_traces in traces_by_root.items():
+            session = sessions_map.get(root_session_id, {})
+
+            # Separate the root trace (user) from sub-agent traces
+            user_trace = None
+            agent_traces = []
+
+            for t in root_traces:
+                if t.get("subagent_type") == "user":
+                    user_trace = t
+                else:
+                    agent_traces.append(t)
+
+            # Use user trace or first trace for metadata
+            first_trace = user_trace or (agent_traces[0] if agent_traces else {})
+
+            # Compute totals across all traces
+            all_traces = root_traces
+            total_duration = sum(t.get("duration_ms", 0) or 0 for t in all_traces)
+            total_tokens_in = sum(t.get("tokens_in", 0) or 0 for t in all_traces)
+            total_tokens_out = sum(t.get("tokens_out", 0) or 0 for t in all_traces)
+
+            # Build children from agent traces (non-user traces)
+            children = []
+            for agent_trace in agent_traces:
+                child_node = {
+                    "session_id": agent_trace.get("session_id"),
+                    "trace_id": agent_trace.get("trace_id"),
+                    "title": agent_trace.get("subagent_type", "agent"),
+                    "agent_type": agent_trace.get("subagent_type"),
+                    "parent_agent": agent_trace.get("parent_agent"),
+                    "created_at": agent_trace.get("started_at"),
+                    "duration_ms": agent_trace.get("duration_ms", 0),
+                    "tokens_in": agent_trace.get("tokens_in", 0),
+                    "tokens_out": agent_trace.get("tokens_out", 0),
+                    "status": agent_trace.get("status"),
+                    "trace_count": 1,
+                    "children": [],  # Could be expanded for deeper hierarchy
+                }
+                children.append(child_node)
+
+            # Sort children by time
+            children.sort(key=lambda c: c.get("created_at") or "", reverse=False)
+
+            # Skip sessions without sub-agent traces (only user trace)
+            # These are sessions without Task invocations - no useful hierarchy
+            if not children:
+                continue
+
+            # Build root node
+            node = {
+                "session_id": root_session_id,
+                "title": session.get("title") or "Session",
+                "agent_type": "user",
+                "parent_agent": None,
+                "created_at": first_trace.get("started_at")
+                or session.get("created_at"),
+                "directory": session.get("directory", ""),
+                "trace_count": len(all_traces),
+                "total_duration_ms": total_duration,
+                "tokens_in": total_tokens_in,
+                "tokens_out": total_tokens_out,
+                "status": first_trace.get("status"),
+                "children": children,
+            }
+            hierarchy.append(node)
+
+        # Sort hierarchy by created_at (most recent first)
+        hierarchy.sort(key=lambda n: n.get("created_at") or "", reverse=True)
+
+        return hierarchy
 
     def _on_tracing_data(self, data: dict) -> None:
         """Handle tracing data update."""

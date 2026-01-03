@@ -82,6 +82,11 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
         self._sync_manager = AnalyticsSyncManager()
         self._sync_manager.start_background_sync(max_days=30)
 
+        # Start analytics API server (for dashboard access)
+        from ..api import start_api_server
+
+        start_api_server()
+
         # Build initial menu
         self._build_static_menu()
 

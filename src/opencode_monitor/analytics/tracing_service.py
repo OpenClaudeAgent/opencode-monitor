@@ -231,52 +231,49 @@ class TracingDataService:
     def get_session_prompts(self, session_id: str) -> dict:
         """Get user prompt and final output for a session.
 
+        Note: The analytics DB stores metadata only, not message content.
+        Message content would require reading the raw OpenCode JSON files.
+
         Args:
             session_id: The session ID to query
 
         Returns:
-            Dict with prompt_input (first user message) and prompt_output (last assistant message)
+            Dict with session metadata (content not available in analytics DB)
         """
         try:
-            # Get first user message (the initial prompt)
-            first_user = self._conn.execute(
+            # Get session info for context
+            session = self._get_session_info(session_id)
+            title = session.get("title", "") if session else ""
+
+            # Count messages to show activity
+            msg_count = self._conn.execute(
                 """
-                SELECT p.content
-                FROM parts p
-                JOIN messages m ON p.message_id = m.id
-                WHERE m.session_id = ? AND m.role = 'user'
-                ORDER BY m.created_at ASC, p.created_at ASC
-                LIMIT 1
+                SELECT COUNT(*) as total,
+                       SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) as user_msgs,
+                       SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) as assistant_msgs
+                FROM messages
+                WHERE session_id = ?
                 """,
                 [session_id],
             ).fetchone()
 
-            # Get last assistant message content (the final output)
-            last_assistant = self._conn.execute(
-                """
-                SELECT p.content
-                FROM parts p
-                JOIN messages m ON p.message_id = m.id
-                WHERE m.session_id = ? AND m.role = 'assistant' AND p.content IS NOT NULL
-                ORDER BY m.created_at DESC, p.created_at DESC
-                LIMIT 1
-                """,
-                [session_id],
-            ).fetchone()
+            total = msg_count[0] if msg_count else 0
+            user_msgs = msg_count[1] if msg_count else 0
+            assistant_msgs = msg_count[2] if msg_count else 0
 
             return {
                 "meta": {
                     "session_id": session_id,
                     "generated_at": datetime.now().isoformat(),
                 },
-                "prompt_input": first_user[0] if first_user else None,
-                "prompt_output": last_assistant[0] if last_assistant else None,
+                "prompt_input": title or f"Session with {user_msgs} user messages",
+                "prompt_output": f"Session completed with {assistant_msgs} assistant responses ({total} total messages)",
             }
         except Exception as e:
             debug(f"get_session_prompts failed: {e}")
             return {
                 "meta": {"session_id": session_id, "error": str(e)},
-                "prompt_input": None,
+                "prompt_input": "(Unable to load prompt data)",
                 "prompt_output": None,
             }
 

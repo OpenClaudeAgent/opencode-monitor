@@ -12,16 +12,13 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QHBoxLayout,
-    QScrollArea,
     QSplitter,
     QTreeWidget,
     QTreeWidgetItem,
     QTextEdit,
-    QComboBox,
     QLabel,
     QProgressBar,
     QFrame,
-    QPushButton,
     QHeaderView,
     QTabWidget,
     QListWidget,
@@ -29,19 +26,12 @@ from PyQt6.QtWidgets import (
     QTableWidget,
     QTableWidgetItem,
     QGridLayout,
+    QScrollArea,
 )
-from PyQt6.QtCore import Qt, pyqtSignal, QTimer
-from PyQt6.QtGui import QFont, QColor
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtGui import QColor
 
-from ..widgets import (
-    PageHeader,
-    SectionHeader,
-    EmptyState,
-    MetricsRow,
-    Separator,
-    RiskBadge,
-    StatusBadge,
-)
+from ..widgets import EmptyState
 from ..styles import COLORS, SPACING, FONTS, RADIUS, UI
 
 if TYPE_CHECKING:
@@ -863,6 +853,7 @@ class TraceDetailPanel(QFrame):
     - 6 tabs: Prompts, Tokens, Tools, Files, Agents, Timeline
     - Lazy loading: only loads data for the active tab
     - TracingDataService integration
+    - Scrollable content for overflow handling
     """
 
     def __init__(self, parent: QWidget | None = None):
@@ -883,7 +874,43 @@ class TraceDetailPanel(QFrame):
             }}
         """)
 
-        layout = QVBoxLayout(self)
+        # Main layout with scroll area
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Scroll area for content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background-color: {COLORS["bg_surface"]};
+                width: 8px;
+                border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {COLORS["border_default"]};
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+            QScrollBar::handle:vertical:hover {{
+                background-color: {COLORS["text_muted"]};
+            }}
+            QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {{
+                height: 0;
+            }}
+        """)
+
+        # Content widget inside scroll area
+        content = QWidget()
+        content.setStyleSheet("background-color: transparent;")
+        layout = QVBoxLayout(content)
         layout.setContentsMargins(
             SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
         )
@@ -904,6 +931,9 @@ class TraceDetailPanel(QFrame):
 
         # === Tab Widget ===
         self._setup_tabs(layout)
+
+        scroll.setWidget(content)
+        main_layout.addWidget(scroll)
 
     def _setup_header(self, layout: QVBoxLayout) -> None:
         """Setup header with title and status."""
@@ -1012,11 +1042,12 @@ class TraceDetailPanel(QFrame):
             QTabBar::tab {{
                 background-color: {COLORS["bg_elevated"]};
                 color: {COLORS["text_secondary"]};
-                padding: {SPACING["sm"]}px {SPACING["md"]}px;
-                margin-right: 2px;
+                padding: {SPACING["md"]}px {SPACING["lg"]}px;
+                margin-right: 4px;
                 border-top-left-radius: {RADIUS["sm"]}px;
                 border-top-right-radius: {RADIUS["sm"]}px;
-                font-size: {FONTS["size_sm"]}px;
+                font-size: 16px;
+                min-width: 32px;
             }}
             QTabBar::tab:selected {{
                 background-color: {COLORS["accent_primary_muted"]};
@@ -1037,25 +1068,32 @@ class TraceDetailPanel(QFrame):
         self._agents_tab = AgentsTab()
         self._timeline_tab = TimelineTab()
 
-        self._tabs.addTab(self._prompts_tab, "💬 Prompts")
-        self._tabs.addTab(self._tokens_tab, "📊 Tokens")
-        self._tabs.addTab(self._tools_tab, "🔧 Tools")
-        self._tabs.addTab(self._files_tab, "📁 Files")
-        self._tabs.addTab(self._agents_tab, "🤖 Agents")
-        self._tabs.addTab(self._timeline_tab, "⏱ Timeline")
+        # Short tab labels to avoid truncation
+        self._tabs.addTab(self._prompts_tab, "💬")
+        self._tabs.addTab(self._tokens_tab, "📊")
+        self._tabs.addTab(self._tools_tab, "🔧")
+        self._tabs.addTab(self._files_tab, "📁")
+        self._tabs.addTab(self._agents_tab, "🤖")
+        self._tabs.addTab(self._timeline_tab, "⏱")
+
+        # Add tooltips for clarity
+        self._tabs.setTabToolTip(0, "Prompts - User input and final output")
+        self._tabs.setTabToolTip(1, "Tokens - Usage breakdown")
+        self._tabs.setTabToolTip(2, "Tools - Tool calls")
+        self._tabs.setTabToolTip(3, "Files - File operations")
+        self._tabs.setTabToolTip(4, "Agents - Agent hierarchy")
+        self._tabs.setTabToolTip(5, "Timeline - Event timeline")
 
         # Connect tab change for lazy loading
         self._tabs.currentChanged.connect(self._on_tab_changed)
 
         layout.addWidget(self._tabs)
 
-    def _get_service(self) -> "TracingDataService":
-        """Lazy load TracingDataService."""
-        if self._service is None:
-            from ...analytics import TracingDataService
+    def _get_api_client(self):
+        """Get the API client for data access."""
+        from ...api import get_api_client
 
-            self._service = TracingDataService()
-        return self._service
+        return get_api_client()
 
     def _on_tab_changed(self, index: int) -> None:
         """Handle tab change - load data for new tab if needed."""
@@ -1066,59 +1104,110 @@ class TraceDetailPanel(QFrame):
         self._load_tab_data(index)
 
     def _load_tab_data(self, tab_index: int) -> None:
-        """Load data for a specific tab."""
+        """Load data for a specific tab via API."""
+        from ...utils.logger import debug
+
         if not self._current_session_id:
+            debug("[TraceDetailPanel] _load_tab_data: no session_id")
             return
 
-        service = self._get_service()
+        client = self._get_api_client()
+
+        if not client.is_available:
+            debug("[TraceDetailPanel] _load_tab_data: API not available")
+            return
 
         try:
             if tab_index == 0:  # Prompts
                 if not self._prompts_tab.is_loaded():
-                    # Load prompts from service for rich data
-                    prompts_data = service.get_session_prompts(self._current_session_id)
-                    self._prompts_tab.load_data(prompts_data)
+                    debug(
+                        f"[TraceDetailPanel] Loading prompts for {self._current_session_id}"
+                    )
+                    prompts_data = client.get_session_prompts(self._current_session_id)
+                    debug(
+                        f"[TraceDetailPanel] Prompts data: {prompts_data is not None}"
+                    )
+                    if prompts_data:
+                        self._prompts_tab.load_data(prompts_data)
+                    else:
+                        # Show empty state if no data
+                        self._prompts_tab.load_data(
+                            {
+                                "prompt_input": "(No prompt data available)",
+                                "prompt_output": "(Session may be empty or API unavailable)",
+                            }
+                        )
             elif tab_index == 1:  # Tokens
                 if not self._tokens_tab.is_loaded():
-                    data = service.get_session_tokens(self._current_session_id)
-                    self._tokens_tab.load_data(data)
+                    data = client.get_session_tokens(self._current_session_id)
+                    if data:
+                        self._tokens_tab.load_data(data)
             elif tab_index == 2:  # Tools
                 if not self._tools_tab.is_loaded():
-                    data = service.get_session_tools(self._current_session_id)
-                    self._tools_tab.load_data(data)
+                    data = client.get_session_tools(self._current_session_id)
+                    if data:
+                        self._tools_tab.load_data(data)
             elif tab_index == 3:  # Files
                 if not self._files_tab.is_loaded():
-                    data = service.get_session_files(self._current_session_id)
-                    self._files_tab.load_data(data)
+                    data = client.get_session_files(self._current_session_id)
+                    if data:
+                        self._files_tab.load_data(data)
             elif tab_index == 4:  # Agents
                 if not self._agents_tab.is_loaded():
-                    agents = service.get_session_agents(self._current_session_id)
-                    self._agents_tab.load_data(agents)
+                    agents = client.get_session_agents(self._current_session_id)
+                    if agents:
+                        self._agents_tab.load_data(agents)
             elif tab_index == 5:  # Timeline
                 if not self._timeline_tab.is_loaded():
-                    events = service.get_session_timeline(self._current_session_id)
-                    self._timeline_tab.load_data(events)
+                    events = client.get_session_timeline(self._current_session_id)
+                    if events:
+                        self._timeline_tab.load_data(events)
         except Exception as e:
             from ...utils.logger import debug
 
             debug(f"Failed to load tab data: {e}")
 
-    def show_session_summary(self, session_id: str) -> None:
-        """Display complete session summary using TracingDataService.
+    def show_session_summary(
+        self, session_id: str, tree_data: dict | None = None
+    ) -> None:
+        """Show session summary with data from TracingDataService.
 
         This is the main entry point for displaying session details.
         Loads summary data and updates all metrics. Tab data is lazy loaded.
+
+        Args:
+            session_id: The session ID to display
+            tree_data: Optional data from tree item for consistent metrics
+                       (children_count, trace_count, tokens, duration)
         """
         import os
+        from ...utils.logger import debug
 
+        debug(f"[TraceDetailPanel] show_session_summary called for: {session_id}")
         self._current_session_id = session_id
+        self._tree_data = tree_data or {}
 
         # Clear all tabs
         self._clear_tabs()
 
-        # Get summary from service
-        service = self._get_service()
-        summary = service.get_session_summary(session_id)
+        # Get summary from API
+        client = self._get_api_client()
+
+        if not client.is_available:
+            debug("[TraceDetailPanel] API not available, using fallback")
+            self._header.setText("API not available")
+            self._header.setStyleSheet(f"""
+                font-size: {FONTS["size_lg"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                color: {COLORS["text_muted"]};
+            """)
+            return
+
+        summary = client.get_session_summary(session_id)
+        debug(f"[TraceDetailPanel] Got summary: {summary is not None}")
+
+        if summary is None:
+            summary = {"meta": {}, "summary": {}, "details": {}}
 
         self._current_data = summary
         meta = summary.get("meta", {})
@@ -1176,12 +1265,14 @@ class TraceDetailPanel(QFrame):
             """)
         self._status_badge.show()
 
-        # Update metrics
-        duration_ms = s.get("duration_ms", 0)
+        # Update metrics - prefer tree_data for consistency with tree display
+        # Tree data has accurate duration and agent count from hierarchy
+        duration_ms = self._tree_data.get("duration_ms") or s.get("duration_ms", 0)
         total_tokens = s.get("total_tokens", 0)
         total_tools = s.get("total_tool_calls", 0)
         total_files = s.get("total_files", 0)
-        unique_agents = s.get("unique_agents", 0)
+        # Use children_count from tree (sub-agents invoked) instead of API's unique_agents
+        agents_count = self._tree_data.get("children_count", s.get("unique_agents", 0))
 
         self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
         self._update_metric(
@@ -1189,7 +1280,7 @@ class TraceDetailPanel(QFrame):
         )
         self._update_metric(self._metric_tools, "🔧", str(total_tools))
         self._update_metric(self._metric_files, "📁", str(total_files))
-        self._update_metric(self._metric_agents, "🤖", str(unique_agents))
+        self._update_metric(self._metric_agents, "🤖", str(agents_count))
 
         # Load data for current tab
         self._load_tab_data(self._tabs.currentIndex())
@@ -1376,7 +1467,12 @@ class TraceDetailPanel(QFrame):
 
 
 class TracingSection(QWidget):
-    """Tracing section - agent execution traces visualization."""
+    """Tracing section - agent execution traces visualization.
+
+    Simplified UI with two panels:
+    - Left: Session/trace tree with hierarchy
+    - Right: Detail panel with tabs
+    """
 
     # Signal when double-click to open terminal
     open_terminal_requested = pyqtSignal(str)  # session_id
@@ -1387,116 +1483,47 @@ class TracingSection(QWidget):
         self._sessions_data: list[dict] = []
         self._session_hierarchy: list[dict] = []
         self._max_duration_ms: int = 1  # Avoid division by zero
-        self._view_mode: str = "sessions"  # "traces" or "sessions"
+        self._view_mode: str = "sessions"  # Always sessions view
         self._setup_ui()
         self._connect_signals()
 
     def _setup_ui(self) -> None:
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
         )
-        layout.setSpacing(0)
+        layout.setSpacing(SPACING["sm"])
 
-        # Header row with title and metrics
-        header_row = QHBoxLayout()
-        header_row.setSpacing(SPACING["lg"])
-
-        # Title
-        title = QLabel("Agent Traces")
+        # Simple header with just title
+        title = QLabel("Traces")
         title.setStyleSheet(f"""
-            font-size: {FONTS["size_xl"]}px;
-            font-weight: {FONTS["weight_bold"]};
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
+            padding-bottom: {SPACING["xs"]}px;
         """)
-        header_row.addWidget(title)
-
-        # Metrics inline
-        self._metrics = MetricsRow()
-        self._metrics.add_metric("traces", "0", "Traces", "primary")
-        self._metrics.add_metric("agents", "0", "Agents", "primary")
-        self._metrics.add_metric("duration", "0s", "Total", "warning")
-        header_row.addWidget(self._metrics)
-
-        header_row.addStretch()
-
-        # Use a container for header actions
-        header = QWidget()
-        header_layout = QHBoxLayout(header)
-        header_layout.setContentsMargins(0, 0, 0, SPACING["sm"])
-        header_layout.addLayout(header_row)
-
-        # Session filter combo
-        self._session_combo = QComboBox()
-        self._session_combo.setMinimumWidth(200)
-        self._session_combo.setStyleSheet(f"""
-            QComboBox {{
-                background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-radius: 6px;
-                padding: 6px 12px;
-                color: {COLORS["text_primary"]};
-                font-size: {FONTS["size_sm"]}px;
-            }}
-            QComboBox:hover {{
-                border-color: {COLORS["border_strong"]};
-            }}
-            QComboBox::drop-down {{
-                border: none;
-                padding-right: 8px;
-            }}
-            QComboBox::down-arrow {{
-                image: none;
-                border: none;
-            }}
-            QComboBox QAbstractItemView {{
-                background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-radius: 6px;
-                selection-background-color: {COLORS["bg_elevated"]};
-            }}
-        """)
-        self._session_combo.addItem("All Sessions", "")
-        header_layout.addWidget(self._session_combo)
-
-        # View mode toggle button
-        self._view_toggle = QPushButton("View: Sessions")
-        self._view_toggle.setCheckable(True)
-        self._view_toggle.setChecked(True)  # Sessions view by default
-        self._view_toggle.setMinimumWidth(100)
-        self._view_toggle.setStyleSheet(f"""
-            QPushButton {{
-                background-color: {COLORS["bg_elevated"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-radius: {RADIUS["sm"]}px;
-                padding: {SPACING["sm"]}px {SPACING["md"]}px;
-                color: {COLORS["text_secondary"]};
-                font-size: {FONTS["size_sm"]}px;
-                font-weight: {FONTS["weight_medium"]};
-            }}
-            QPushButton:hover {{
-                border-color: {COLORS["border_strong"]};
-                color: {COLORS["text_primary"]};
-            }}
-            QPushButton:checked {{
-                background-color: {COLORS["accent_primary_muted"]};
-                border-color: {COLORS["accent_primary"]};
-                color: {COLORS["accent_primary"]};
-            }}
-        """)
-        self._view_toggle.clicked.connect(self._toggle_view_mode)
-        header_layout.addWidget(self._view_toggle)
-
-        layout.addWidget(header)
+        layout.addWidget(title)
 
         # Main content with vertical splitter (tree on top, details below)
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.setChildrenCollapsible(False)
+        self._splitter.setHandleWidth(8)  # Make handle easier to grab
+        self._splitter.setStyleSheet(f"""
+            QSplitter::handle {{
+                background-color: {COLORS["border_default"]};
+                margin: 4px 40px;
+                border-radius: 2px;
+            }}
+            QSplitter::handle:hover {{
+                background-color: {COLORS["accent_primary"]};
+            }}
+        """)
 
-        # Top: Tree view
+        # Top panel: Tree view (gets more space)
         top_panel = QWidget()
+        top_panel.setMinimumHeight(200)  # Ensure tree gets adequate space
         top_layout = QVBoxLayout(top_panel)
-        top_layout.setContentsMargins(0, SPACING["sm"], 0, 0)
+        top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
         # Tree widget
@@ -1541,19 +1568,6 @@ class TracingSection(QWidget):
             QTreeWidget::item:hover:!selected {{
                 background-color: {COLORS["bg_hover"]};
             }}
-            QTreeWidget::branch {{
-                background: transparent;
-            }}
-            QTreeWidget::branch:has-children:!has-siblings:closed,
-            QTreeWidget::branch:closed:has-children:has-siblings {{
-                image: none;
-                border-image: none;
-            }}
-            QTreeWidget::branch:open:has-children:!has-siblings,
-            QTreeWidget::branch:open:has-children:has-siblings {{
-                image: none;
-                border-image: none;
-            }}
             QHeaderView {{
                 background-color: transparent;
             }}
@@ -1582,9 +1596,10 @@ class TracingSection(QWidget):
 
         # Make columns resizable
         header = self._tree.header()
-        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
-        header.setStretchLastSection(True)
-        header.setMinimumSectionSize(50)
+        if header:
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+            header.setStretchLastSection(True)
+            header.setMinimumSectionSize(50)
 
         top_layout.addWidget(self._tree)
 
@@ -1599,49 +1614,20 @@ class TracingSection(QWidget):
 
         self._splitter.addWidget(top_panel)
 
-        # Bottom: Detail panel (full width)
+        # Bottom panel: Detail panel
         self._detail_panel = TraceDetailPanel()
+        self._detail_panel.setMinimumHeight(250)  # Ensure details panel is visible
         self._splitter.addWidget(self._detail_panel)
 
-        # Set splitter proportions (60% tree, 40% details)
-        self._splitter.setSizes([500, 300])
+        # Set splitter proportions (50% tree, 50% details)
+        self._splitter.setSizes([500, 500])
 
-        layout.addWidget(self._splitter)
+        layout.addWidget(self._splitter, stretch=1)
 
     def _connect_signals(self) -> None:
         """Connect internal signals."""
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._session_combo.currentIndexChanged.connect(self._on_session_changed)
-
-    def _toggle_view_mode(self) -> None:
-        """Toggle between traces and sessions view."""
-        if self._view_toggle.isChecked():
-            self._view_mode = "sessions"
-            self._view_toggle.setText("View: Sessions")
-            # Update headers for session view
-            self._tree.setHeaderLabels(
-                ["Session / Agent", "Created", "Agents", "Traces", ""]
-            )
-            self._tree.setColumnWidth(0, 320)  # Wide for hierarchy
-            self._tree.setColumnWidth(1, 130)
-            self._tree.setColumnWidth(2, 70)
-            self._tree.setColumnWidth(3, 70)
-            self._tree.setColumnWidth(4, 40)
-            self._populate_sessions_tree(self._session_hierarchy)
-        else:
-            self._view_mode = "traces"
-            self._view_toggle.setText("View: Traces")
-            # Update headers for traces view
-            self._tree.setHeaderLabels(
-                ["Agent", "Duration", "Tokens", "Status", "Timeline"]
-            )
-            self._tree.setColumnWidth(0, 200)
-            self._tree.setColumnWidth(1, 90)
-            self._tree.setColumnWidth(2, 80)
-            self._tree.setColumnWidth(3, 90)
-            self._tree.setColumnWidth(4, 120)
-            self._populate_tree(self._traces_data)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Handle click on tree item - show details.
@@ -1658,8 +1644,20 @@ class TracingSection(QWidget):
             session_id = data.get("session_id")
 
             if session_id:
-                # Use new show_session_summary for rich data
-                self._detail_panel.show_session_summary(session_id)
+                # Pass tree data for consistent display
+                # Use duration_ms for children, total_duration_ms for root
+                duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
+                tree_data = {
+                    "children_count": len(data.get("children", [])),
+                    "trace_count": data.get("trace_count", 0),
+                    "tokens_in": data.get("tokens_in", 0),
+                    "tokens_out": data.get("tokens_out", 0),
+                    "duration_ms": duration,
+                    "agent_type": data.get("agent_type"),
+                    "title": data.get("title", ""),
+                    "status": data.get("status"),
+                }
+                self._detail_panel.show_session_summary(session_id, tree_data=tree_data)
             else:
                 # Fallback to legacy method if no session_id
                 self._detail_panel.show_session(
@@ -1692,21 +1690,6 @@ class TracingSection(QWidget):
             session_id = trace_data.get("session_id", "")
             if session_id:
                 self.open_terminal_requested.emit(session_id)
-
-    def _on_session_changed(self, _index: int) -> None:
-        """Handle session filter change."""
-        session_id = self._session_combo.currentData()
-        self._filter_traces(session_id)
-
-    def _filter_traces(self, session_id: Optional[str]) -> None:
-        """Filter displayed traces by session."""
-        if not session_id:
-            filtered = self._traces_data
-        else:
-            filtered = [
-                t for t in self._traces_data if t.get("session_id") == session_id
-            ]
-        self._populate_tree(filtered)
 
     def _populate_tree(self, traces: list[dict]) -> None:
         """Populate tree widget with traces."""
@@ -1814,10 +1797,13 @@ class TracingSection(QWidget):
             self._tree.show()
             self._empty.hide()
 
-            def format_datetime(dt: Optional[datetime]) -> str:
-                """Format datetime for display."""
+            def format_datetime(dt) -> str:
+                """Format datetime for display. Handles both datetime and string."""
                 if not dt:
                     return "-"
+                if isinstance(dt, str):
+                    # ISO format string from API - extract date/time part
+                    return dt[:16].replace("T", " ")
                 return dt.strftime("%Y-%m-%d %H:%M")
 
             def get_project_name(directory: Optional[str]) -> str:
@@ -1940,8 +1926,8 @@ class TracingSection(QWidget):
             for session in sessions:
                 add_session_item(None, session, is_root=True, depth=0)
 
-            # Expand first level by default to show structure
-            self._tree.expandToDepth(0)
+            # Collapse all by default - user can expand manually
+            self._tree.collapseAll()
 
         finally:
             self._tree.setUpdatesEnabled(True)
@@ -2044,28 +2030,5 @@ class TracingSection(QWidget):
         self._sessions_data = sessions
         self._session_hierarchy = session_hierarchy or []
 
-        # Update metrics
-        self._metrics.update_metric("traces", str(total_traces))
-        self._metrics.update_metric("agents", str(unique_agents))
-        self._metrics.update_metric("duration", format_duration(total_duration_ms))
-
-        # Update session combo
-        current_session = self._session_combo.currentData()
-        self._session_combo.clear()
-        self._session_combo.addItem("All Sessions", "")
-        for session in sessions:
-            title = session.get("title") or session.get("session_id", "")[:12]
-            count = session.get("trace_count", 0)
-            self._session_combo.addItem(f"{title} ({count})", session.get("session_id"))
-
-        # Restore selection if possible
-        if current_session:
-            idx = self._session_combo.findData(current_session)
-            if idx >= 0:
-                self._session_combo.setCurrentIndex(idx)
-
-        # Populate tree based on current view mode
-        if hasattr(self, "_view_mode") and self._view_mode == "sessions":
-            self._populate_sessions_tree(self._session_hierarchy)
-        else:
-            self._populate_tree(traces)
+        # Populate tree with sessions hierarchy (always sessions view)
+        self._populate_sessions_tree(self._session_hierarchy)
