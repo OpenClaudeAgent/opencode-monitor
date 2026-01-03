@@ -1075,7 +1075,9 @@ class TraceDetailPanel(QFrame):
         try:
             if tab_index == 0:  # Prompts
                 if not self._prompts_tab.is_loaded():
-                    self._prompts_tab.load_data(self._current_data)
+                    # Load prompts from service for rich data
+                    prompts_data = service.get_session_prompts(self._current_session_id)
+                    self._prompts_tab.load_data(prompts_data)
             elif tab_index == 1:  # Tokens
                 if not self._tokens_tab.is_loaded():
                     data = service.get_session_tokens(self._current_session_id)

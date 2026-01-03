@@ -228,6 +228,58 @@ class TracingDataService:
             },
         }
 
+    def get_session_prompts(self, session_id: str) -> dict:
+        """Get user prompt and final output for a session.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with prompt_input (first user message) and prompt_output (last assistant message)
+        """
+        try:
+            # Get first user message (the initial prompt)
+            first_user = self._conn.execute(
+                """
+                SELECT p.content
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE m.session_id = ? AND m.role = 'user'
+                ORDER BY m.created_at ASC, p.created_at ASC
+                LIMIT 1
+                """,
+                [session_id],
+            ).fetchone()
+
+            # Get last assistant message content (the final output)
+            last_assistant = self._conn.execute(
+                """
+                SELECT p.content
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE m.session_id = ? AND m.role = 'assistant' AND p.content IS NOT NULL
+                ORDER BY m.created_at DESC, p.created_at DESC
+                LIMIT 1
+                """,
+                [session_id],
+            ).fetchone()
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "prompt_input": first_user[0] if first_user else None,
+                "prompt_output": last_assistant[0] if last_assistant else None,
+            }
+        except Exception as e:
+            debug(f"get_session_prompts failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "error": str(e)},
+                "prompt_input": None,
+                "prompt_output": None,
+            }
+
     def get_session_timeline(self, session_id: str) -> list[dict]:
         """Get timeline of events for a session.
 
