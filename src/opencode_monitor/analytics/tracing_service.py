@@ -459,6 +459,150 @@ class TracingDataService:
         agents = self._get_session_agents_internal(session_id)
         return agents.get("agents", [])
 
+    def get_session_tool_operations(self, session_id: str) -> list[dict]:
+        """Get detailed tool operations for a session.
+
+        Returns tool calls with their arguments extracted from content.
+        Used for displaying tools in the session tree.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            List of tool operation dicts with name, arguments, status, etc.
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    p.id,
+                    p.tool_name,
+                    p.tool_status,
+                    p.content,
+                    p.arguments,
+                    p.created_at,
+                    p.duration_ms
+                FROM parts p
+                WHERE p.session_id = ? 
+                  AND p.tool_name IS NOT NULL
+                ORDER BY p.created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            operations = []
+            for row in results:
+                tool_name = row[1]
+                content = row[3] or ""
+                arguments = row[4] or ""
+
+                # Extract meaningful info from tool based on type
+                display_info = self._extract_tool_display_info(
+                    tool_name, content, arguments
+                )
+
+                operations.append(
+                    {
+                        "id": row[0],
+                        "tool_name": tool_name,
+                        "status": row[2] or "completed",
+                        "display_info": display_info,
+                        "timestamp": row[5].isoformat() if row[5] else None,
+                        "duration_ms": row[6] or 0,
+                    }
+                )
+
+            return operations
+
+        except Exception as e:
+            debug(f"get_session_tool_operations failed: {e}")
+            return []
+
+    def _extract_tool_display_info(
+        self, tool_name: str, content: str, arguments: str
+    ) -> str:
+        """Extract display-friendly info from tool content/arguments.
+
+        Args:
+            tool_name: Name of the tool (read, edit, bash, etc.)
+            content: Tool result content
+            arguments: Tool arguments (JSON string)
+
+        Returns:
+            Short display string for the tool operation
+        """
+        import json
+        import os
+
+        # Try to parse arguments as JSON
+        args = {}
+        if arguments:
+            try:
+                args = json.loads(arguments)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Extract based on tool type
+        if tool_name == "read":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "edit":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "write":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "bash":
+            command = args.get("command", "")
+            if command:
+                # Truncate long commands
+                short_cmd = command.split("\n")[0][:50]
+                if len(command) > 50:
+                    short_cmd += "..."
+                return short_cmd
+            return "command"
+
+        elif tool_name == "glob":
+            pattern = args.get("pattern", "")
+            return pattern[:40] if pattern else "pattern"
+
+        elif tool_name == "grep":
+            pattern = args.get("pattern", "")
+            return pattern[:40] if pattern else "search"
+
+        elif tool_name == "task":
+            subagent = args.get("subagent_type", args.get("description", ""))
+            return subagent[:30] if subagent else "agent"
+
+        elif tool_name in ("webfetch", "web_fetch"):
+            url = args.get("url", "")
+            if url:
+                # Extract domain
+                try:
+                    from urllib.parse import urlparse
+
+                    parsed = urlparse(url)
+                    return parsed.netloc[:30]
+                except Exception:
+                    return url[:30]
+            return "url"
+
+        else:
+            # For other tools, try to show something meaningful
+            if args:
+                first_value = str(list(args.values())[0])[:30]
+                return first_value
+            return ""
+
     def get_global_stats(
         self,
         start: Optional[datetime] = None,

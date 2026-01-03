@@ -205,7 +205,16 @@ class TracingSection(QWidget):
             node_type = data.get("node_type", "session")
             session_id = data.get("session_id")
 
-            if node_type == "turn":
+            if node_type == "tool":
+                # Show tool details
+                self._detail_panel.show_tool(
+                    tool_name=data.get("tool_name", ""),
+                    display_info=data.get("display_info", ""),
+                    status=data.get("status", "completed"),
+                    duration_ms=data.get("duration_ms", 0),
+                    timestamp=data.get("created_at"),
+                )
+            elif node_type == "turn":
                 self._detail_panel.show_turn(
                     user_content=data.get("user_content", ""),
                     assistant_content=data.get("assistant_content"),
@@ -457,6 +466,61 @@ class TracingSection(QWidget):
 
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
+                elif node_type == "tool":
+                    tool_name = session.get("tool_name", "")
+                    display_info = session.get("display_info", "")
+                    tool_status = session.get("status", "completed")
+
+                    # Choose icon based on tool type
+                    tool_icons = {
+                        "read": "📖",
+                        "edit": "✏️",
+                        "write": "📝",
+                        "bash": "🔧",
+                        "glob": "🔍",
+                        "grep": "🔎",
+                        "task": "🤖",
+                        "webfetch": "🌐",
+                        "web_fetch": "🌐",
+                        "todowrite": "📋",
+                        "todoread": "📋",
+                    }
+                    icon = tool_icons.get(tool_name, "⚙️")
+
+                    # Build label
+                    if display_info:
+                        label = f"{icon} {tool_name}: {display_info}"
+                    else:
+                        label = f"{icon} {tool_name}"
+
+                    # Truncate if too long
+                    if len(label) > 60:
+                        label = label[:57] + "..."
+
+                    item.setText(0, label)
+
+                    # Color based on status
+                    if tool_status == "error":
+                        item.setForeground(0, QColor(COLORS["error"]))
+                    else:
+                        item.setForeground(0, QColor(COLORS["text_muted"]))
+
+                    # Show duration in column 1
+                    duration_ms = session.get("duration_ms", 0)
+                    if duration_ms:
+                        item.setText(1, format_duration(duration_ms))
+                    else:
+                        item.setText(1, "-")
+                    item.setForeground(1, QColor(COLORS["text_muted"]))
+
+                    # Empty columns 2 and 3
+                    item.setText(2, "-")
+                    item.setForeground(2, QColor(COLORS["text_muted"]))
+                    item.setText(3, "-")
+                    item.setForeground(3, QColor(COLORS["text_muted"]))
+
+                    item.setData(0, Qt.ItemDataRole.UserRole, session)
+                    return item  # Tools don't have children
                 else:
                     effective_agent = agent_type or extract_agent_from_title(title)
                     icon = "🔗" if depth == 1 else "└─"

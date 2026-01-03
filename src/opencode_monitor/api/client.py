@@ -148,6 +148,14 @@ class AnalyticsAPIClient:
         """
         return self._request(f"/api/session/{session_id}/messages")
 
+    def get_session_operations(self, session_id: str) -> Optional[list]:
+        """Get tool operations for a session (for tree display).
+
+        Returns:
+            List of operation dicts with tool_name, display_info, status, etc.
+        """
+        return self._request(f"/api/session/{session_id}/operations")
+
     def get_sessions(self, days: int = 30, limit: int = 100) -> Optional[list]:
         """Get list of sessions.
 

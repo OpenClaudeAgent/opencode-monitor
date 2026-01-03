@@ -866,6 +866,29 @@ class DashboardWindow(QMainWindow):
                 if trace_parent == "user" and session_agent:
                     trace_parent = session_agent
 
+                # Get tool operations for this agent's session
+                agent_session_id = agent_trace.get(
+                    "child_session_id"
+                ) or agent_trace.get("session_id")
+                tool_children = []
+
+                if agent_session_id:
+                    operations = (
+                        api_client.get_session_operations(agent_session_id) or []
+                    )
+                    for op in operations[:20]:  # Limit to 20 tools per agent
+                        tool_node = {
+                            "session_id": agent_session_id,
+                            "node_type": "tool",
+                            "tool_name": op.get("tool_name", ""),
+                            "display_info": op.get("display_info", ""),
+                            "status": op.get("status", "completed"),
+                            "created_at": op.get("timestamp"),
+                            "duration_ms": op.get("duration_ms", 0),
+                            "children": [],
+                        }
+                        tool_children.append(tool_node)
+
                 child_node = {
                     "session_id": agent_trace.get("session_id"),
                     "trace_id": agent_trace.get("trace_id"),
@@ -885,7 +908,7 @@ class DashboardWindow(QMainWindow):
                     "prompt_output": agent_trace.get(
                         "prompt_output"
                     ),  # Agent's response
-                    "children": [],
+                    "children": tool_children,
                 }
                 children.append(child_node)
 

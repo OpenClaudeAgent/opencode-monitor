@@ -105,6 +105,9 @@ class TraceDetailPanel(QFrame):
         )
         layout.setSpacing(SPACING["md"])
 
+        # === Breadcrumb ===
+        self._setup_breadcrumb(layout)
+
         # === Header Section ===
         self._setup_header(layout)
 
@@ -123,6 +126,33 @@ class TraceDetailPanel(QFrame):
 
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
+
+    def _setup_breadcrumb(self, layout: QVBoxLayout) -> None:
+        """Setup breadcrumb navigation showing path from ROOT to current."""
+        self._breadcrumb = QLabel("")
+        self._breadcrumb.setStyleSheet(f"""
+            font-size: {FONTS["size_sm"]}px;
+            color: {COLORS["text_muted"]};
+            padding: {SPACING["xs"]}px 0;
+        """)
+        self._breadcrumb.setWordWrap(True)
+        self._breadcrumb.hide()  # Hidden until we have a path
+        layout.addWidget(self._breadcrumb)
+
+    def _update_breadcrumb(self, path: list[str]) -> None:
+        """Update breadcrumb with navigation path.
+
+        Args:
+            path: List of names from root to current (e.g., ["opencode-monitor", "coordinateur", "executeur"])
+        """
+        if not path:
+            self._breadcrumb.hide()
+            return
+
+        # Build breadcrumb with arrows
+        breadcrumb_text = " › ".join(path)
+        self._breadcrumb.setText(breadcrumb_text)
+        self._breadcrumb.show()
 
     def _setup_header(self, layout: QVBoxLayout) -> None:
         """Setup header with title and status."""
@@ -428,6 +458,9 @@ class TraceDetailPanel(QFrame):
             color: {COLORS["text_primary"]};
         """)
 
+        # Update breadcrumb (root session = just project name)
+        self._update_breadcrumb([f"🌳 {project_name}"])
+
         # Update status badge
         status = s.get("status", "completed")
         self._update_status_badge(status)
@@ -469,6 +502,13 @@ class TraceDetailPanel(QFrame):
             font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
         """)
+
+        # Update breadcrumb - show delegation path
+        breadcrumb_path = ["🌳 ROOT"]
+        if parent_agent and parent_agent != "user":
+            breadcrumb_path.append(f"🔗 {parent_agent}")
+        breadcrumb_path.append(f"🤖 {agent_type}")
+        self._update_breadcrumb(breadcrumb_path)
 
         # Update status badge
         self._update_status_badge(status)
@@ -647,6 +687,99 @@ class TraceDetailPanel(QFrame):
         self._current_data = {
             "user_content": content if role == "user" else "",
             "assistant_content": content if role == "assistant" else "",
+        }
+        self._transcript_tab.load_data(self._current_data)
+        self._tabs.setCurrentIndex(0)
+
+    def show_tool(
+        self,
+        tool_name: str,
+        display_info: str,
+        status: str = "completed",
+        duration_ms: int = 0,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Display tool operation details."""
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Choose icon based on tool type
+        tool_icons = {
+            "read": "📖",
+            "edit": "✏️",
+            "write": "📝",
+            "bash": "🔧",
+            "glob": "🔍",
+            "grep": "🔎",
+            "task": "🤖",
+            "webfetch": "🌐",
+            "web_fetch": "🌐",
+            "todowrite": "📋",
+            "todoread": "📋",
+        }
+        icon = tool_icons.get(tool_name, "⚙️")
+
+        # Update header
+        header_text = f"{icon} {tool_name}"
+        if display_info:
+            header_text += f": {display_info}"
+        self._header.setText(header_text)
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+
+        # Update breadcrumb - tool operations don't have a path
+        self._breadcrumb.hide()
+
+        # Update status badge
+        if status == "completed":
+            self._status_badge.setText("✅ Completed")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["success_muted"]};
+                color: {COLORS["success"]};
+            """)
+        elif status == "error":
+            self._status_badge.setText("❌ Error")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["error_muted"]};
+                color: {COLORS["error"]};
+            """)
+        else:
+            self._status_badge.hide()
+
+        if status in ("completed", "error"):
+            self._status_badge.show()
+
+        # Update metrics
+        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        self._update_metric(self._metric_tokens, "🎫", "-")
+        self._update_metric(self._metric_tools, "🔧", "1")
+        self._update_metric(self._metric_files, "📁", "-")
+        self._update_metric(self._metric_agents, "🤖", "-")
+
+        # Show tool info in transcript tab
+        tool_info = f"Tool: {tool_name}\n"
+        if display_info:
+            tool_info += f"Target: {display_info}\n"
+        tool_info += f"Status: {status}\n"
+        if duration_ms:
+            tool_info += f"Duration: {format_duration(duration_ms)}\n"
+        if timestamp:
+            tool_info += f"Timestamp: {timestamp}\n"
+
+        self._current_data = {
+            "user_content": f"Tool: {tool_name}",
+            "assistant_content": tool_info,
         }
         self._transcript_tab.load_data(self._current_data)
         self._tabs.setCurrentIndex(0)
