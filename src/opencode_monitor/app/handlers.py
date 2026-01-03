@@ -31,18 +31,24 @@ class AnalyticsSyncManager:
     - Syncs data from OpenCode storage periodically
     - Updates sync_meta table to signal dashboard readers
     - Handles background sync with thread safety
+
+    IMPORTANT: Connection is opened and closed for each sync operation
+    to allow the dashboard to read the database concurrently.
+    DuckDB does not support concurrent read access when a writer holds a lock.
     """
 
     SYNC_INTERVAL_S = 300  # 5 minutes fallback
 
     def __init__(self):
         """Initialize the sync manager."""
-        self._db = AnalyticsDB(read_only=False)
         self._last_sync = 0.0
         self._lock = threading.Lock()
 
     def sync_incremental(self, max_days: int = 7) -> dict:
         """Sync recent data from OpenCode storage.
+
+        Opens DB connection, syncs data, then closes connection to allow
+        concurrent reads from dashboard.
 
         Args:
             max_days: Maximum days of data to sync.
@@ -51,16 +57,20 @@ class AnalyticsSyncManager:
             Dict with sync results (sessions count, etc).
         """
         with self._lock:
+            db = None
             try:
+                # Open connection for this sync only
+                db = AnalyticsDB(read_only=False)
+
                 result = load_opencode_data(
-                    db=self._db,
+                    db=db,
                     clear_first=False,
                     max_days=max_days,
                     skip_parts=True,
                 )
 
                 # Mark the sync as completed
-                self._db.update_sync_timestamp()
+                db.update_sync_timestamp()
                 self._last_sync = time.time()
 
                 sessions = result.get("sessions", 0)
@@ -69,6 +79,10 @@ class AnalyticsSyncManager:
             except Exception as e:
                 error(f"[Menubar] Sync error: {e}")
                 return {}
+            finally:
+                # Always close connection to release lock for dashboard readers
+                if db:
+                    db.close()
 
     def needs_sync(self) -> bool:
         """Check if periodic sync is needed.
@@ -91,8 +105,8 @@ class AnalyticsSyncManager:
         threading.Thread(target=_sync, daemon=True).start()
 
     def close(self) -> None:
-        """Close the database connection."""
-        self._db.close()
+        """Close any resources (no-op, connections are closed after each sync)."""
+        pass  # Connections are now closed after each sync
 
 
 if TYPE_CHECKING:
@@ -188,9 +202,10 @@ class HandlersMixin:
             import tempfile
             import os
 
+            db = None
             try:
                 info(f"[Analytics] Starting for {days} days...")
-                db = AnalyticsDB()
+                db = AnalyticsDB(read_only=False)
 
                 stats = db.get_stats()
                 info(f"[Analytics] Current stats: {stats}")
@@ -210,12 +225,14 @@ class HandlersMixin:
 
                 subprocess.run(["open", report_path])
                 info("[Analytics] Done!")
-                db.close()
             except Exception as e:
                 error(f"[Analytics] Error: {e}")
                 import traceback
 
                 error(traceback.format_exc())
+            finally:
+                if db:
+                    db.close()
 
         thread = threading.Thread(target=run_in_background, daemon=True)
         thread.start()
@@ -224,14 +241,17 @@ class HandlersMixin:
         """Refresh analytics data from OpenCode storage (runs in background)."""
 
         def run_in_background():
+            db = None
             try:
                 info("Refreshing OpenCode analytics data (background)...")
-                db = AnalyticsDB()
+                db = AnalyticsDB(read_only=False)
                 load_opencode_data(db, clear_first=True)
-                db.close()
                 info("Analytics data refreshed")
             except Exception as e:
                 error(f"Analytics refresh error: {e}")
+            finally:
+                if db:
+                    db.close()
 
         thread = threading.Thread(target=run_in_background, daemon=True)
         thread.start()
@@ -240,17 +260,20 @@ class HandlersMixin:
         """Start background analytics refresh if data is stale (>24h old)."""
 
         def check_and_refresh():
+            db = None
             try:
-                db = AnalyticsDB()
+                db = AnalyticsDB(read_only=False)
                 if db.needs_refresh(max_age_hours=24):
                     info("[Analytics] Data is stale, refreshing in background...")
                     load_opencode_data(db, clear_first=True)
                     info("[Analytics] Background refresh complete")
                 else:
                     debug("[Analytics] Data is fresh, skipping refresh")
-                db.close()
             except Exception as e:
                 error(f"[Analytics] Background refresh error: {e}")
+            finally:
+                if db:
+                    db.close()
 
         thread = threading.Thread(target=check_and_refresh, daemon=True)
         thread.start()
