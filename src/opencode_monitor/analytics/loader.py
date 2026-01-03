@@ -226,6 +226,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                                     None,
                                     None,
                                     created_at,
+                                    None,  # arguments (only for tools)
                                 )
                             )
                             text_count += 1
@@ -235,6 +236,12 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                         tool_status = (
                             state.get("status") if isinstance(state, dict) else None
                         )
+                        # Extract tool arguments from state.input
+                        tool_input = (
+                            state.get("input", {}) if isinstance(state, dict) else {}
+                        )
+                        arguments = json.dumps(tool_input) if tool_input else None
+
                         if tool_name:
                             batch.append(
                                 (
@@ -246,6 +253,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                                     tool_name,
                                     tool_status,
                                     created_at,
+                                    arguments,
                                 )
                             )
                             tool_count += 1
@@ -254,8 +262,8 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                     if len(batch) >= batch_size:
                         conn.executemany(
                             """INSERT OR REPLACE INTO parts 
-                               (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at, arguments)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             batch,
                         )
                         batch = []
@@ -268,8 +276,8 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
         if batch:
             conn.executemany(
                 """INSERT OR REPLACE INTO parts 
-                   (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at, arguments)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 batch,
             )
 

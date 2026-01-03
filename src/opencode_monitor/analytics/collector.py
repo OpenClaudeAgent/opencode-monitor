@@ -571,11 +571,15 @@ class AnalyticsCollector:
         if start_time and end_time:
             duration_ms = end_time - start_time
 
+        # Extract tool arguments from state.input
+        tool_input = state.get("input", {})
+        arguments = json.dumps(tool_input) if tool_input else None
+
         conn.execute(
             """INSERT OR REPLACE INTO parts
             (id, session_id, message_id, part_type, tool_name, tool_status,
-             call_id, created_at, ended_at, duration_ms)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+             call_id, created_at, ended_at, duration_ms, arguments)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 data.get("id"),
                 data.get("sessionID"),
@@ -587,6 +591,7 @@ class AnalyticsCollector:
                 ms_to_datetime(start_time),
                 ms_to_datetime(end_time),
                 duration_ms,
+                arguments,
             ],
         )
 
