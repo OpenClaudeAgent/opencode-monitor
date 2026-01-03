@@ -1,5 +1,9 @@
 # Plan 26 : Correction Concurrence DB Analytics
 
+**Statut** : ✅ Terminé  
+**Version** : v0.8.2  
+**Branche** : `feature/db-concurrency` (mergée)
+
 ## Contexte
 
 Le menubar et le dashboard utilisent tous deux la même base DuckDB (`analytics.duckdb`). DuckDB ne supporte pas les écritures concurrentes - un seul processus peut écrire à la fois.
@@ -49,9 +53,24 @@ Séparer les responsabilités :
 
 ## Tests
 
-- [ ] Dashboard peut lire la DB pendant que menubar écrit
-- [ ] Pas d'erreur "database locked" 
-- [ ] Les données se mettent à jour après sync du menubar
+- [x] Dashboard peut lire la DB pendant que menubar écrit
+- [x] Pas d'erreur "database locked" 
+- [x] Les données se mettent à jour après sync du menubar
+- [x] SyncChecker polling adaptatif (2s actif → 5s repos)
+- [x] 21 tests passent (test_db_concurrency.py + test_dashboard_sync.py)
+
+## Résultat
+
+**Architecture finale** :
+```
+MENUBAR (seul writer) → sync_meta.last_sync → DASHBOARD (poll 2s, read_only)
+```
+
+**Fichiers modifiés** :
+- `db.py` : +table sync_meta, +2 méthodes
+- `window.py` : -SyncConfig, +SyncChecker
+- `handlers.py` : +AnalyticsSyncManager
+- `core.py` : +intégration sync au démarrage
 
 ## Estimation
 
