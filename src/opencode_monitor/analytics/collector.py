@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Optional, Set, Union, Any
 
 from watchdog.observers import Observer
-from watchdog.events import FileSystemEventHandler, FileCreatedEvent
+from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
 
 from .db import AnalyticsDB, get_analytics_db
 from ..utils.logger import info, error, debug
@@ -38,8 +38,8 @@ class StorageEventHandler(FileSystemEventHandler):
         super().__init__()
         self._collector = collector
 
-    def on_created(self, event: FileCreatedEvent) -> None:
-        """Handle new file creation."""
+    def _handle_file_event(self, event, force_reload: bool = False) -> None:
+        """Handle file creation or modification."""
         if event.is_directory:
             return
 
@@ -50,15 +50,23 @@ class StorageEventHandler(FileSystemEventHandler):
         # Determine file type from path
         parts = path.parts
         if "session" in parts:
-            self._collector._queue_file("session", path)
+            self._collector._queue_file("session", path, force_reload=force_reload)
         elif "message" in parts:
-            self._collector._queue_file("message", path)
+            self._collector._queue_file("message", path, force_reload=force_reload)
         elif "part" in parts:
-            self._collector._queue_file("part", path)
+            self._collector._queue_file("part", path, force_reload=force_reload)
         elif "todo" in parts:
-            self._collector._queue_file("todo", path)
+            self._collector._queue_file("todo", path, force_reload=force_reload)
         elif "project" in parts:
-            self._collector._queue_file("project", path)
+            self._collector._queue_file("project", path, force_reload=force_reload)
+
+    def on_created(self, event: FileCreatedEvent) -> None:
+        """Handle new file creation."""
+        self._handle_file_event(event, force_reload=False)
+
+    def on_modified(self, event: FileModifiedEvent) -> None:
+        """Handle file modification - reload updated files."""
+        self._handle_file_event(event, force_reload=True)
 
 
 class AnalyticsCollector:
@@ -72,7 +80,8 @@ class AnalyticsCollector:
         self._lock = threading.Lock()
 
         # Queue for files to process (from watcher)
-        self._file_queue: list[tuple[str, Path]] = []
+        # Tuple: (file_type, path, force_reload)
+        self._file_queue: list[tuple[str, Path, bool]] = []
         self._queue_lock = threading.Lock()
 
         # Track scanned file IDs (loaded from DB on init)
@@ -213,10 +222,18 @@ class AnalyticsCollector:
         ) as e:  # Intentional catch-all: watcher is optional, app should continue
             error(f"[AnalyticsCollector] Failed to start watcher: {e}")
 
-    def _queue_file(self, file_type: str, path: Path) -> None:
-        """Add a file to the processing queue."""
+    def _queue_file(
+        self, file_type: str, path: Path, force_reload: bool = False
+    ) -> None:
+        """Add a file to the processing queue.
+
+        Args:
+            file_type: Type of file (session, message, part, todo, project)
+            path: Path to the JSON file
+            force_reload: If True, reload even if already scanned (for modified files)
+        """
         with self._queue_lock:
-            self._file_queue.append((file_type, path))
+            self._file_queue.append((file_type, path, force_reload))
             self._stats["watcher_events"] += 1
 
     def _process_queue_loop(self) -> None:
@@ -231,27 +248,45 @@ class AnalyticsCollector:
                 self._file_queue = self._file_queue[50:]
 
             # Process batch
-            for file_type, path in batch:
+            for file_type, path, force_reload in batch:
                 if not self._running:
                     break
                 try:
-                    self._process_single_file(file_type, path)
+                    self._process_single_file(
+                        file_type, path, force_reload=force_reload
+                    )
                 except (
                     Exception
                 ) as e:  # Intentional catch-all: one file failure shouldn't stop batch
                     debug(f"[AnalyticsCollector] Error processing {path}: {e}")
 
-    def _process_single_file(self, file_type: str, path: Path, conn=None) -> bool:
+    def _process_single_file(
+        self, file_type: str, path: Path, conn=None, force_reload: bool = False
+    ) -> bool:
         """Process a single file. Returns True if processed.
 
         Args:
             file_type: Type of file (session, message, part, todo, project)
             path: Path to the JSON file
             conn: Optional DB connection (creates one if not provided)
+            force_reload: If True, reload even if already scanned (for modified files)
         """
         file_id = path.stem
 
-        # Check if already scanned
+        # For force_reload, remove from scanned set first to allow re-processing
+        if force_reload:
+            if file_type == "session":
+                self._scanned_sessions.discard(file_id)
+            elif file_type == "message":
+                self._scanned_messages.discard(file_id)
+            elif file_type == "part":
+                self._scanned_parts.discard(file_id)
+            elif file_type == "todo":
+                self._scanned_todos.discard(file_id)
+            elif file_type == "project":
+                self._scanned_projects.discard(file_id)
+
+        # Check if already scanned (skip if not force_reload)
         if file_type == "session" and file_id in self._scanned_sessions:
             return False
         elif file_type == "message" and file_id in self._scanned_messages:
