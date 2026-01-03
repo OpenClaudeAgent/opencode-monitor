@@ -220,11 +220,12 @@ class DashboardWindow(QMainWindow):
         threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
 
     def _start_refresh(self) -> None:
-        """Start periodic data refresh."""
-        # Sync OpenCode data first (in background to not block UI)
-        threading.Thread(target=self._sync_opencode_data, daemon=True).start()
+        """Start periodic data refresh.
 
-        # Initial data load (will use whatever is in DB)
+        Note: Dashboard operates in read-only mode. Data sync is handled by
+        the menubar app which has write access to the database.
+        """
+        # Initial data load from DB (read-only)
         self._refresh_all_data()
 
         # Periodic refresh
@@ -509,7 +510,7 @@ class DashboardWindow(QMainWindow):
             from ..analytics import AnalyticsQueries
             from ..analytics.db import AnalyticsDB
 
-            db = AnalyticsDB()
+            db = AnalyticsDB(read_only=True)
             queries = AnalyticsQueries(db)
 
             days = self._analytics.get_current_period()
@@ -613,7 +614,7 @@ class DashboardWindow(QMainWindow):
     def _fetch_tracing_data(self) -> None:
         """Fetch tracing data from database."""
         try:
-            db = AnalyticsDB()
+            db = AnalyticsDB(read_only=True)
             queries = TraceQueries(db)
 
             # Get stats for last 30 days

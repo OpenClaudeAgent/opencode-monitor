@@ -42,22 +42,26 @@ class AnalyticsDB:
     Use get_analytics_db() to get the singleton instance.
     """
 
-    def __init__(self, db_path: Optional[Path] = None):
+    def __init__(self, db_path: Optional[Path] = None, read_only: bool = False):
         """Initialize the analytics database.
 
         Args:
             db_path: Optional path to database. Uses default if not provided.
+            read_only: If True, open in read-only mode (allows concurrent reads).
         """
         self._db_path = db_path or get_db_path()
         self._conn: Optional[duckdb.DuckDBPyConnection] = None
         self._lock = threading.Lock()
+        self._read_only = read_only
 
-    def connect(self, read_only: bool = False) -> duckdb.DuckDBPyConnection:
+    def connect(self, read_only: Optional[bool] = None) -> duckdb.DuckDBPyConnection:
         """Get or create a database connection (thread-safe).
 
         Args:
-            read_only: If True, open in read-only mode (allows concurrent access)
+            read_only: If True, open in read-only mode. Defaults to instance setting.
         """
+        if read_only is None:
+            read_only = self._read_only
         with self._lock:
             if self._conn is None:
                 self._conn = duckdb.connect(str(self._db_path), read_only=read_only)
