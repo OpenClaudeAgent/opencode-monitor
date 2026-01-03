@@ -755,6 +755,104 @@ class MockAPIResponses:
             "total_traces": 3,
             "unique_agents": 3,
             "total_duration_ms": 200000,
+            # Session detail data for MockAnalyticsAPIClient methods
+            "session_tokens": {
+                "sess-root-001": {
+                    "input": 5000,
+                    "output": 8000,
+                    "cache_read": 1000,
+                    "cache_write": 500,
+                },
+                "sess-child-001": {
+                    "input": 2000,
+                    "output": 3000,
+                    "cache_read": 400,
+                    "cache_write": 200,
+                },
+                "sess-child-002": {
+                    "input": 1500,
+                    "output": 2500,
+                    "cache_read": 300,
+                    "cache_write": 150,
+                },
+            },
+            "session_tools": {
+                "sess-root-001": [
+                    {"tool_name": "read", "count": 15, "duration_ms": 500},
+                    {"tool_name": "edit", "count": 8, "duration_ms": 1200},
+                    {"tool_name": "bash", "count": 5, "duration_ms": 3000},
+                ],
+                "sess-child-001": [
+                    {"tool_name": "read", "count": 10, "duration_ms": 300},
+                    {"tool_name": "edit", "count": 5, "duration_ms": 800},
+                ],
+                "sess-child-002": [
+                    {"tool_name": "bash", "count": 3, "duration_ms": 2000},
+                ],
+            },
+            "session_files": {
+                "sess-root-001": [
+                    {"path": "src/main.py", "reads": 10, "writes": 3},
+                    {"path": "tests/test_main.py", "reads": 5, "writes": 2},
+                ],
+                "sess-child-001": [
+                    {"path": "src/auth/login.py", "reads": 8, "writes": 4},
+                ],
+                "sess-child-002": [
+                    {"path": "tests/test_auth.py", "reads": 3, "writes": 1},
+                ],
+            },
+            "session_agents": {
+                "sess-root-001": [
+                    {"agent": "executor", "messages": 50, "tokens": 5000},
+                    {"agent": "tester", "messages": 30, "tokens": 3000},
+                ],
+                "sess-child-001": [
+                    {"agent": "executor", "messages": 25, "tokens": 2500},
+                ],
+                "sess-child-002": [
+                    {"agent": "tester", "messages": 15, "tokens": 1500},
+                ],
+            },
+            "session_timeline": {
+                "sess-root-001": [
+                    {"timestamp": now.isoformat(), "event": "session_start"},
+                    {
+                        "timestamp": (now + timedelta(seconds=10)).isoformat(),
+                        "event": "agent_spawn",
+                        "agent": "executor",
+                    },
+                    {
+                        "timestamp": (now + timedelta(minutes=2)).isoformat(),
+                        "event": "agent_spawn",
+                        "agent": "tester",
+                    },
+                    {
+                        "timestamp": (now + timedelta(minutes=5)).isoformat(),
+                        "event": "session_end",
+                    },
+                ],
+                "sess-child-001": [
+                    {
+                        "timestamp": (now - timedelta(minutes=5)).isoformat(),
+                        "event": "session_start",
+                    },
+                    {
+                        "timestamp": (now - timedelta(minutes=4)).isoformat(),
+                        "event": "session_end",
+                    },
+                ],
+                "sess-child-002": [
+                    {
+                        "timestamp": (now - timedelta(minutes=3)).isoformat(),
+                        "event": "session_start",
+                    },
+                    {
+                        "timestamp": (now - timedelta(minutes=2)).isoformat(),
+                        "event": "session_end",
+                    },
+                ],
+            },
         }
 
     @staticmethod

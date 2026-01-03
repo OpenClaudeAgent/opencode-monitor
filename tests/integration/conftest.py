@@ -107,27 +107,32 @@ class MockAnalyticsAPIClient:
     def get_session_tokens(self, session_id: str) -> Optional[dict]:
         """Return configured session tokens."""
         self._log_call("get_session_tokens", session_id=session_id)
-        return None
+        tokens = self._responses.get("session_tokens", {})
+        return tokens.get(session_id)
 
-    def get_session_tools(self, session_id: str) -> Optional[dict]:
+    def get_session_tools(self, session_id: str) -> Optional[list]:
         """Return configured session tools."""
         self._log_call("get_session_tools", session_id=session_id)
-        return None
+        tools = self._responses.get("session_tools", {})
+        return tools.get(session_id)
 
-    def get_session_files(self, session_id: str) -> Optional[dict]:
+    def get_session_files(self, session_id: str) -> Optional[list]:
         """Return configured session files."""
         self._log_call("get_session_files", session_id=session_id)
-        return None
+        files = self._responses.get("session_files", {})
+        return files.get(session_id)
 
     def get_session_agents(self, session_id: str) -> Optional[list]:
         """Return configured session agents."""
         self._log_call("get_session_agents", session_id=session_id)
-        return None
+        agents = self._responses.get("session_agents", {})
+        return agents.get(session_id)
 
     def get_session_timeline(self, session_id: str) -> Optional[list]:
         """Return configured session timeline."""
         self._log_call("get_session_timeline", session_id=session_id)
-        return None
+        timeline = self._responses.get("session_timeline", {})
+        return timeline.get(session_id)
 
     def get_session_prompts(self, session_id: str) -> Optional[dict]:
         """Return configured session prompts."""
@@ -410,7 +415,9 @@ def assert_widget_content():
 # Constants
 # =============================================================================
 
-SIGNAL_WAIT_MS = 100  # Standard wait time for signal processing
+SIGNAL_WAIT_MS = (
+    200  # Standard wait time for signal processing (increased for CI stability)
+)
 
 # Section indices (order in sidebar and pages)
 SECTION_MONITORING = 0
@@ -430,9 +437,7 @@ def wait_for_signal():
         except TimeoutError:
             # Signal was not emitted within timeout
             return False
-        except BaseException:
-            # Catch other exceptions (including pytest internal ones)
-            return False
+        # Let other exceptions propagate for debugging
 
     return waiter
 

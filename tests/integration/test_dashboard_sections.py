@@ -437,10 +437,16 @@ class TestSecuritySectionData:
 
         # Section should have processed the data without errors
         security = dashboard_window._security
-        assert security is not None
+        assert security is not None, "Security section should exist"
+        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
+            "Security section should have a commands table"
+        )
 
-        # Verify section is visible after navigation
-        assert security.isVisible() or dashboard_window._pages.currentIndex() == 3
+        # Verify section is visible after navigation (Security = index 1)
+        assert dashboard_window._pages.currentIndex() == SECTION_SECURITY, (
+            f"Expected Security section (index {SECTION_SECURITY}), "
+            f"got index {dashboard_window._pages.currentIndex()}"
+        )
 
     def test_security_section_stats_processed(self, dashboard_window, qtbot, click_nav):
         """Verify security stats are processed correctly."""
@@ -453,8 +459,11 @@ class TestSecuritySectionData:
         security = dashboard_window._security
 
         # Security section should have received the stats
-        # Note: exact UI verification depends on SecuritySection implementation
-        assert security is not None
+        assert security is not None, "Security section should exist"
+        # Verify section has the expected structure
+        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
+            "Security section should have a commands table"
+        )
 
     def test_security_section_with_critical_commands(
         self, dashboard_window, qtbot, click_nav
@@ -470,7 +479,11 @@ class TestSecuritySectionData:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         security = dashboard_window._security
-        assert security is not None
+        assert security is not None, "Security section should exist"
+        # Verify section has valid structure
+        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
+            "Security section should have a commands table"
+        )
 
         # The section should process without errors
         # Critical items are included in the data
@@ -499,9 +512,14 @@ class TestSecuritySectionTables:
             # First command should contain expected text
             first_cmd = table.item(0, 0)
             if first_cmd:
-                cmd_text = first_cmd.text().lower()
-                # Expected first command is "rm -rf /tmp/cache/*"
-                assert "rm" in cmd_text or "curl" in cmd_text or len(cmd_text) > 0
+                cmd_text = first_cmd.text()
+                assert cmd_text, "Command text should not be empty"
+                # Verify it's one of the expected security commands
+                cmd_lower = cmd_text.lower()
+                expected_commands = ["rm", "curl", "chmod", "git push", "pip"]
+                assert any(cmd in cmd_lower for cmd in expected_commands), (
+                    f"Expected known command pattern, got: {cmd_text}"
+                )
 
     def test_commands_table_shows_risk_levels(
         self, dashboard_window, qtbot, assert_widget_content, click_nav
@@ -562,8 +580,11 @@ class TestSecuritySectionTables:
         if hasattr(security, "_files_table"):
             table = security._files_table
             # Data has 2 file entries
-            if data.get("files"):
-                assert table.rowCount() >= 0  # May be filtered
+            expected_files = len(data.get("files", []))
+            if expected_files > 0:
+                assert table.rowCount() > 0, (
+                    f"Expected files in table, got {table.rowCount()} rows"
+                )
 
     def test_security_metrics_display(self, dashboard_window, qtbot, click_nav):
         """Verify security metrics show correct values."""

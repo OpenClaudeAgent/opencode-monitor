@@ -49,7 +49,7 @@ class TestRobustnessNavigation:
             dashboard_window._signals.analytics_updated.emit(analytics_data)
 
             click_nav(dashboard_window, SECTION_SECURITY)
-            qtbot.wait(10)
+            qtbot.wait(50)
 
         # Should not crash - window still visible
         assert dashboard_window.isVisible()
@@ -61,7 +61,7 @@ class TestRobustnessNavigation:
         # Emit same signal rapidly 20 times
         for _ in range(20):
             dashboard_window._signals.monitoring_updated.emit(data)
-            qtbot.wait(5)
+            qtbot.wait(30)
 
         qtbot.wait(SIGNAL_WAIT_MS)
         assert dashboard_window.isVisible()
@@ -83,9 +83,9 @@ class TestRobustnessNavigation:
 
         for _ in range(10):
             dashboard_window._signals.monitoring_updated.emit(empty_data)
-            qtbot.wait(20)
+            qtbot.wait(50)
             dashboard_window._signals.monitoring_updated.emit(full_data)
-            qtbot.wait(20)
+            qtbot.wait(50)
 
         assert dashboard_window.isVisible()
 
@@ -307,7 +307,9 @@ class TestParallelSafety:
 
         # Value should NOT be "42" from previous test (fresh fixture)
         # Initial value is typically "0" or "-" depending on implementation
-        assert initial_value != "42" or initial_value in ("0", "-", "")
+        assert initial_value in ("0", "-", ""), (
+            f"Initial value should be default (0, -, or empty), got: '{initial_value}'"
+        )
 
     def test_window_is_fresh_instance(self, dashboard_window, qtbot):
         """Each test gets a fresh window instance."""

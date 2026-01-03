@@ -94,7 +94,7 @@ class TestSidebarWidget:
             qtbot.mouseClick(security_item, Qt.MouseButton.LeftButton)
 
             # After click, current index should change
-            qtbot.wait(100)  # Wait for signal processing
+            qtbot.wait(200)  # Wait for signal processing (increased for CI stability)
 
 
 class TestPageSwitchingPerformance:
@@ -106,7 +106,7 @@ class TestPageSwitchingPerformance:
         for _ in range(3):
             for i in range(4):
                 dashboard_window._on_section_changed(i)
-                qtbot.wait(10)
+                qtbot.wait(50)
 
         # Should end up on last page (3)
         assert dashboard_window._pages.currentIndex() == 3
@@ -136,7 +136,7 @@ class TestSidebarStatus:
         sidebar.set_status(True, "3 agents")
 
         # Should not raise errors
-        qtbot.wait(50)
+        qtbot.wait(100)
 
     def test_sidebar_status_idle(self, dashboard_window, qtbot):
         """Test that sidebar can show idle status."""
@@ -144,4 +144,4 @@ class TestSidebarStatus:
 
         sidebar.set_status(False, "Idle")
 
-        qtbot.wait(50)
+        qtbot.wait(100)

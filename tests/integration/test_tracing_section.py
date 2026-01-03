@@ -246,48 +246,73 @@ class TestTracingTabsNavigation:
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_transcript_tab")
-        assert detail._transcript_tab is not None
+        assert hasattr(detail, "_transcript_tab"), (
+            "Detail panel should have transcript tab"
+        )
+        assert detail._transcript_tab is not None, "Transcript tab should exist"
+        # Verify it's a valid widget
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._transcript_tab, QWidget), (
+            "Transcript tab should be a QWidget"
+        )
 
     def test_tab_has_tokens(self, dashboard_window, qtbot):
         """Tokens tab exists and is accessible."""
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_tokens_tab")
-        assert detail._tokens_tab is not None
+        assert hasattr(detail, "_tokens_tab"), "Detail panel should have tokens tab"
+        assert detail._tokens_tab is not None, "Tokens tab should exist"
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._tokens_tab, QWidget), "Tokens tab should be a QWidget"
 
     def test_tab_has_tools(self, dashboard_window, qtbot):
         """Tools tab exists and is accessible."""
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_tools_tab")
-        assert detail._tools_tab is not None
+        assert hasattr(detail, "_tools_tab"), "Detail panel should have tools tab"
+        assert detail._tools_tab is not None, "Tools tab should exist"
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._tools_tab, QWidget), "Tools tab should be a QWidget"
 
     def test_tab_has_files(self, dashboard_window, qtbot):
         """Files tab exists and is accessible."""
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_files_tab")
-        assert detail._files_tab is not None
+        assert hasattr(detail, "_files_tab"), "Detail panel should have files tab"
+        assert detail._files_tab is not None, "Files tab should exist"
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._files_tab, QWidget), "Files tab should be a QWidget"
 
     def test_tab_has_agents(self, dashboard_window, qtbot):
         """Agents tab exists and is accessible."""
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_agents_tab")
-        assert detail._agents_tab is not None
+        assert hasattr(detail, "_agents_tab"), "Detail panel should have agents tab"
+        assert detail._agents_tab is not None, "Agents tab should exist"
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._agents_tab, QWidget), "Agents tab should be a QWidget"
 
     def test_tab_has_timeline(self, dashboard_window, qtbot):
         """Timeline tab exists and is accessible."""
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
 
-        assert hasattr(detail, "_timeline_tab")
-        assert detail._timeline_tab is not None
+        assert hasattr(detail, "_timeline_tab"), "Detail panel should have timeline tab"
+        assert detail._timeline_tab is not None, "Timeline tab should exist"
+        from PyQt6.QtWidgets import QWidget
+
+        assert isinstance(detail._timeline_tab, QWidget), (
+            "Timeline tab should be a QWidget"
+        )
 
 
 class TestTracingDataPersistence:
@@ -529,9 +554,11 @@ class TestTracingTabsContent:
 
         # Header should have changed
         new_header = detail._header.text()
-        # Either header changed or it shows the expected content
-        assert new_header != initial_header or new_header, (
-            "Header should update on selection"
+        # Header must not be empty and should change from initial state
+        assert new_header, "Header should not be empty after selection"
+        assert new_header != initial_header, (
+            f"Header should change after selection. "
+            f"Initial: '{initial_header}', New: '{new_header}'"
         )
 
     def test_metrics_update_on_selection(self, dashboard_window, qtbot, click_nav):
