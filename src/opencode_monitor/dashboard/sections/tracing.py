@@ -1380,7 +1380,7 @@ class TraceDetailPanel(QFrame):
 
         self._header.setText(header_text)
         self._header.setStyleSheet(f"""
-            font_size: {FONTS["size_lg"]}px;
+            font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
         """)
