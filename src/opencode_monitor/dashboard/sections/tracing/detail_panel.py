@@ -492,7 +492,9 @@ class TraceDetailPanel(QFrame):
 
         # Update header - show delegation chain
         if parent_agent:
-            header_text = f"🔗 {parent_agent} → {agent_type}"
+            # Use 💬 for user-initiated, 🔗 for agent delegations
+            icon = "💬" if parent_agent == "user" else "🔗"
+            header_text = f"{icon} {parent_agent} → {agent_type}"
         else:
             header_text = f"🤖 {agent_type}"
 
@@ -850,7 +852,9 @@ class TraceDetailPanel(QFrame):
 
         # Update header
         if agent_type and parent_agent:
-            header_text = f"🔗 {agent_type} ← {parent_agent}"
+            # Use 💬 for user-initiated, 🔗 for agent delegations
+            icon = "💬" if parent_agent == "user" else "🔗"
+            header_text = f"{icon} {agent_type} ← {parent_agent}"
         elif agent_type:
             header_text = f"Agent: {agent_type}"
         else:

@@ -615,8 +615,8 @@ class DashboardWindow(QMainWindow):
     def _fetch_tracing_data(self) -> None:
         """Fetch tracing data from API (menubar serves data).
 
-        Uses the API client instead of direct DB access to avoid
-        DuckDB multi-process concurrency issues.
+        Uses the new /api/tracing/tree endpoint which returns a pre-built
+        hierarchy. No client-side aggregation needed anymore.
         """
         from ..utils.logger import debug, error
 
@@ -624,69 +624,32 @@ class DashboardWindow(QMainWindow):
             from ..api import get_api_client
 
             client = get_api_client()
-            debug("[Dashboard] _fetch_tracing_data: checking API availability...")
 
             # Check if API is available
             if not client.is_available:
                 debug("[Dashboard] API not available, menubar may not be running")
                 return
 
-            debug("[Dashboard] API is available, fetching global stats...")
+            # Get hierarchical tree directly from API - no client-side aggregation
+            session_hierarchy = client.get_tracing_tree(days=30) or []
 
-            # Get global stats
+            debug(
+                f"[Dashboard] Got tracing tree with {len(session_hierarchy)} root sessions"
+            )
+
+            # Get global stats for summary metrics
             global_stats = client.get_global_stats(days=30)
-            if not global_stats:
-                debug("[Dashboard] No global stats returned")
-                return
-
-            debug(f"[Dashboard] Got global stats: {list(global_stats.keys())}")
-
-            # Get traces, sessions, and delegations from API
-            traces_data = client.get_traces(days=30, limit=500) or []
-            sessions_data = client.get_sessions(days=30, limit=100) or []
-            delegations_data = client.get_delegations(days=30, limit=1000) or []
-
-            debug(
-                f"[Dashboard] Got {len(traces_data)} traces, {len(sessions_data)} sessions, {len(delegations_data)} delegations"
-            )
-
-            # Convert sessions to expected format
-            sessions_formatted = []
-            for session in sessions_data:
-                sessions_formatted.append(
-                    {
-                        "session_id": session.get("id"),
-                        "title": session.get("title"),
-                        "trace_count": 0,  # Will be computed
-                        "first_trace_at": session.get("created_at"),
-                        "total_duration_ms": 0,
-                    }
-                )
-
-            # Build session hierarchy using delegations
-            session_hierarchy = self._build_session_hierarchy(
-                traces_data, sessions_data, delegations_data
-            )
-
-            debug(
-                f"[Dashboard] Built hierarchy with {len(session_hierarchy)} root sessions"
-            )
-
-            # Extract stats
-            summary = global_stats.get("summary", {})
+            summary = global_stats.get("summary", {}) if global_stats else {}
 
             data = {
-                "traces": traces_data,
-                "sessions": sessions_formatted,
+                "traces": [],  # Legacy - not needed with new API
+                "sessions": [],  # Legacy - not needed with new API
                 "session_hierarchy": session_hierarchy,
-                "total_traces": summary.get("total_traces", len(traces_data)),
+                "total_traces": summary.get("total_traces", 0),
                 "unique_agents": summary.get("unique_agents", 0),
                 "total_duration_ms": summary.get("total_duration_ms", 0),
             }
 
-            debug(
-                f"[Dashboard] Emitting tracing_updated signal with {len(session_hierarchy)} sessions"
-            )
             self._signals.tracing_updated.emit(data)
 
         except Exception as e:
@@ -694,237 +657,6 @@ class DashboardWindow(QMainWindow):
             import traceback
 
             error(traceback.format_exc())
-
-    def _build_session_hierarchy(
-        self, traces: list, sessions: list, delegations: list
-    ) -> list:
-        """Build session hierarchy from traces grouped by root session.
-
-        Creates a tree structure where each root session contains:
-        - Messages (user prompts and assistant responses)
-        - Sub-agent traces (Task invocations)
-
-        Args:
-            traces: List of agent trace dicts
-            sessions: List of session dicts
-            delegations: List of delegation dicts (for future use)
-
-        Returns:
-            List of root session nodes with messages and agents as children
-        """
-        from ..api import get_api_client
-
-        api_client = get_api_client()
-
-        # Group traces by their root session (extracted from parent_trace_id)
-        traces_by_root: dict[str, list] = {}
-
-        for trace in traces:
-            parent_trace_id = trace.get("parent_trace_id", "")
-
-            # Extract root session ID from parent_trace_id
-            if parent_trace_id.startswith("root_"):
-                root_session_id = parent_trace_id[5:]  # Remove "root_" prefix
-            else:
-                root_session_id = trace.get("session_id", "unknown")
-
-            if root_session_id not in traces_by_root:
-                traces_by_root[root_session_id] = []
-            traces_by_root[root_session_id].append(trace)
-
-        # Sort traces within each root by time
-        for root_id in traces_by_root:
-            traces_by_root[root_id].sort(
-                key=lambda t: t.get("started_at") or "", reverse=False
-            )
-
-        # Build session lookup
-        sessions_map = {s.get("id"): s for s in sessions}
-
-        # Build hierarchy
-        hierarchy = []
-
-        for root_session_id, root_traces in traces_by_root.items():
-            session = sessions_map.get(root_session_id, {})
-
-            # Separate the root trace (user) from sub-agent traces
-            user_trace = None
-            agent_traces = []
-
-            for t in root_traces:
-                if t.get("subagent_type") == "user":
-                    user_trace = t
-                else:
-                    agent_traces.append(t)
-
-            # Use user trace or first trace for metadata
-            first_trace = user_trace or (agent_traces[0] if agent_traces else {})
-
-            # Compute totals across all traces
-            all_traces = root_traces
-            total_duration = sum(t.get("duration_ms", 0) or 0 for t in all_traces)
-            total_tokens_in = sum(t.get("tokens_in", 0) or 0 for t in all_traces)
-            total_tokens_out = sum(t.get("tokens_out", 0) or 0 for t in all_traces)
-
-            # Build children: agent traces only (messages loaded lazily in TranscriptTab)
-            # Note: Loading messages here caused API overload (20+ simultaneous requests
-            # to single-threaded Flask server). Messages are now loaded via get_session_summary
-            # when user clicks on a session, which is a single request per selection.
-            children = []
-            messages = []  # Messages loaded lazily via TranscriptTab, not in tree
-
-            # Group messages into conversation turns (user prompt + assistant response)
-            # Each turn starts with a user message and includes all following assistant messages
-            turns = []
-            current_turn = None
-
-            for msg in messages:
-                msg_type = msg.get("type", "message")
-                role = msg.get("role", "")
-                content = msg.get("content", "")
-                timestamp = msg.get("timestamp", "")
-                agent = msg.get(
-                    "agent", ""
-                )  # Agent name (coordinateur, executeur, etc.)
-
-                # Skip tool messages and empty content
-                if msg_type == "tool" or not content:
-                    continue
-
-                if msg_type == "text":
-                    if role == "user":
-                        # Start a new turn with user message
-                        if current_turn:
-                            turns.append(current_turn)
-                        current_turn = {
-                            "user_content": content,
-                            "user_timestamp": timestamp,
-                            "user_tokens_in": msg.get("tokens_in", 0),
-                            "assistant_content": "",  # Will accumulate all responses
-                            "assistant_timestamp": None,
-                            "assistant_tokens_out": 0,
-                            "agent": agent or "assistant",  # Agent who will respond
-                        }
-                    elif role == "assistant" and current_turn:
-                        # Accumulate ALL assistant responses (not just the last one)
-                        if current_turn["assistant_content"]:
-                            current_turn["assistant_content"] += "\n\n---\n\n" + content
-                        else:
-                            current_turn["assistant_content"] = content
-                        current_turn["assistant_timestamp"] = timestamp
-                        current_turn["assistant_tokens_out"] += (
-                            msg.get("tokens_out", 0) or 0
-                        )
-                        # Update agent name from assistant message (more reliable)
-                        if agent:
-                            current_turn["agent"] = agent
-
-            # Don't forget the last turn
-            if current_turn:
-                turns.append(current_turn)
-
-            # Add turns as children (conversation exchanges)
-            for turn in turns:
-                user_content = turn["user_content"] or ""
-                assistant_content = turn["assistant_content"]
-
-                # Truncate for display
-                user_short = user_content[:80].replace("\n", " ")
-                if len(user_content) > 80:
-                    user_short += "..."
-
-                if assistant_content:
-                    assistant_short = assistant_content[:60].replace("\n", " ")
-                    if len(assistant_content) > 60:
-                        assistant_short += "..."
-                    title = f"{user_short} → {assistant_short}"
-                else:
-                    title = f"{user_short} → (waiting...)"
-
-                child_node = {
-                    "session_id": root_session_id,
-                    "node_type": "turn",
-                    "title": title,
-                    "user_content": user_content,
-                    "assistant_content": assistant_content,
-                    "created_at": turn["user_timestamp"],
-                    "tokens_in": turn["user_tokens_in"],
-                    "tokens_out": turn["assistant_tokens_out"],
-                    "agent": turn.get("agent", "assistant"),  # Agent who responded
-                    "children": [],
-                }
-                children.append(child_node)
-
-            # Determine session's main agent from turns (for parent_agent correction)
-            session_agent = None
-            if turns:
-                session_agent = turns[0].get("agent")
-
-            # Add agent traces as children
-            for agent_trace in agent_traces:
-                # Use session's agent as parent if trace says "user" but session has an agent
-                trace_parent = agent_trace.get("parent_agent", "user")
-                if trace_parent == "user" and session_agent:
-                    trace_parent = session_agent
-
-                # Tool operations are displayed in the ToolsTab panel when user
-                # clicks on an agent, not in the tree (to avoid API overload)
-                tool_children = []
-
-                child_node = {
-                    "session_id": agent_trace.get("session_id"),
-                    "trace_id": agent_trace.get("trace_id"),
-                    "node_type": "agent",
-                    "title": agent_trace.get("subagent_type", "agent"),
-                    "agent_type": agent_trace.get("subagent_type"),
-                    "parent_agent": trace_parent,
-                    "created_at": agent_trace.get("started_at"),
-                    "duration_ms": agent_trace.get("duration_ms", 0),
-                    "tokens_in": agent_trace.get("tokens_in", 0),
-                    "tokens_out": agent_trace.get("tokens_out", 0),
-                    "status": agent_trace.get("status"),
-                    "trace_count": 1,
-                    "prompt_input": agent_trace.get(
-                        "prompt_input"
-                    ),  # Real prompt from Task tool
-                    "prompt_output": agent_trace.get(
-                        "prompt_output"
-                    ),  # Agent's response
-                    "children": tool_children,
-                }
-                children.append(child_node)
-
-            # Sort all children by timestamp
-            children.sort(key=lambda c: c.get("created_at") or "", reverse=False)
-
-            # Skip sessions without any children (agents)
-            # Note: Messages are loaded lazily via TranscriptTab, not in the tree
-            if not children:
-                continue
-
-            # Build root node
-            node = {
-                "session_id": root_session_id,
-                "node_type": "session",
-                "title": session.get("title") or "Session",
-                "agent_type": "user",
-                "parent_agent": None,
-                "created_at": first_trace.get("started_at")
-                or session.get("created_at"),
-                "directory": session.get("directory", ""),
-                "trace_count": len(all_traces),
-                "total_duration_ms": total_duration,
-                "tokens_in": total_tokens_in,
-                "tokens_out": total_tokens_out,
-                "status": first_trace.get("status"),
-                "children": children,
-            }
-            hierarchy.append(node)
-
-        # Sort hierarchy by created_at (most recent first)
-        hierarchy.sort(key=lambda n: n.get("created_at") or "", reverse=True)
-
-        return hierarchy
 
     def _on_tracing_data(self, data: dict) -> None:
         """Handle tracing data update."""

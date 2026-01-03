@@ -192,6 +192,20 @@ class AnalyticsAPIClient:
         """
         return self._request("/api/delegations", {"days": days, "limit": limit})
 
+    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
+        """Get hierarchical tracing tree for dashboard display.
+
+        Returns sessions with their child traces already structured
+        as a tree. No client-side aggregation needed.
+
+        Args:
+            days: Number of days to include
+
+        Returns:
+            List of session nodes with children, or None
+        """
+        return self._request("/api/tracing/tree", {"days": days})
+
 
 # Global client instance
 _api_client: Optional[AnalyticsAPIClient] = None

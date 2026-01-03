@@ -104,6 +104,10 @@ class AnalyticsDB:
         with self._lock:
             if self._conn is None:
                 self._conn = duckdb.connect(str(self._db_path), read_only=read_only)
+                # Performance settings: reduce CPU/memory usage for background loading
+                self._conn.execute("PRAGMA disable_progress_bar")
+                self._conn.execute("SET threads = 2")
+                self._conn.execute("SET memory_limit = '512MB'")
                 if not read_only:
                     self._create_schema()
             return self._conn

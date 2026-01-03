@@ -406,7 +406,7 @@ class TracingSection(QWidget):
                 parent_agent = session.get("parent_agent")
                 title = session.get("title") or ""
                 directory = session.get("directory")
-                created_at = session.get("created_at")
+                created_at = session.get("created_at") or session.get("started_at")
                 trace_count = session.get("trace_count", 0)
                 children_count = len(session.get("children", []))
 
@@ -455,7 +455,11 @@ class TracingSection(QWidget):
                         )
                 elif node_type == "agent":
                     effective_agent = agent_type or extract_agent_from_title(title)
-                    icon = "🔗" if depth == 1 else "└─"
+                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
+                    if depth == 1:
+                        icon = "💬" if parent_agent == "user" else "🔗"
+                    else:
+                        icon = "└─"
 
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
@@ -523,7 +527,11 @@ class TracingSection(QWidget):
                     return item  # Tools don't have children
                 else:
                     effective_agent = agent_type or extract_agent_from_title(title)
-                    icon = "🔗" if depth == 1 else "└─"
+                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
+                    if depth == 1:
+                        icon = "💬" if parent_agent == "user" else "🔗"
+                    else:
+                        icon = "└─"
 
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
@@ -580,6 +588,7 @@ class TracingSection(QWidget):
                 if directory:
                     item.setToolTip(0, directory)
 
+                # Add all children (agents and tools are now both in children)
                 for child in session.get("children", []):
                     add_session_item(item, child, is_root=False, depth=depth + 1)
 
