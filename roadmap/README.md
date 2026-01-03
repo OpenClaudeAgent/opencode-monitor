@@ -48,7 +48,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 33 | Infrastructure Tests Integration | [plan-33](./plan-33-integration-tests.md) | `feature/integration-tests` | v2.22.0 | Termine |
 | 34 | Parts Enrichment (reasoning, step-finish) | [plan-34](./plan-34-parts-enrichment.md) | `feature/parts-enrichment` | - | En attente |
 | 35 | Todos & Projects Loading | [plan-35](./plan-35-todos-projects-loading.md) | `feature/todos-projects` | - | En attente |
-| 36 | Schema Cleanup & Consolidation | [plan-36](./plan-36-schema-cleanup.md) | `feature/schema-cleanup` | - | En attente |
+| 36 | Schema Cleanup & Consolidation | [plan-36](./plan-36-schema-cleanup.md) | `feature/plan-36-schema` | v0.10.0 | Termine |
 | 37 | API Consolidation | [plan-37](./plan-37-api-consolidation.md) | `feature/api-consolidation` | - | En attente |
 
 ## Sprint actif
@@ -82,6 +82,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-03 | Plan-36 termine - Schema Cleanup avec enrichissement parts/sessions, suppression tests legacy v0.10.0 |
 | 2026-01-03 | Plan-33 termine - Infrastructure tests integration avec 127 tests, refactoring arborescence modulaire v2.22.0 |
 | 2026-01-03 | Ajout plans 34-37 + Sprint 01 Data Enrichment - Parts enrichment, Todos/Projects loading, Schema cleanup, API consolidation |
 | 2026-01-03 | Ajout plan-33 (infrastructure tests integration) - pytest-qt, mock API, parallelisation, mode headless/visible |
