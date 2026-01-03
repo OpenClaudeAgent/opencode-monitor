@@ -1,5 +1,9 @@
 # Plan 27 : Traçage des Sessions ROOT
 
+**Statut** : ✅ Terminé  
+**Version** : v0.8.1  
+**Branche** : `feature/root-sessions-tracing` (mergée)
+
 ## Contexte
 
 Le système de tracing actuel ne capture que les **délégations** (invocations `tool="task"`). Les conversations directes avec un agent (sessions ROOT) ne sont pas visibles dans le dashboard.
@@ -115,10 +119,18 @@ def load_traces(db, storage_path, max_days=30):
 
 ## Tests
 
-- [ ] Sessions ROOT extraites correctement
-- [ ] Prompt utilisateur récupéré depuis first message
-- [ ] Hiérarchie ROOT → CHILD affichée correctement
-- [ ] Tokens calculés pour ROOT sessions aussi
+- [x] Sessions ROOT extraites correctement (14 tests)
+- [x] Prompt utilisateur récupéré depuis first message
+- [x] Hiérarchie ROOT → CHILD affichée correctement
+- [x] Tokens calculés pour ROOT sessions aussi
+
+## Résultat
+
+**Fichiers modifiés** :
+- `loader.py` : +158 lignes (extract_root_sessions, get_first_user_message)
+- `trace_queries.py` : +30 lignes (COALESCE pour prompts ROOT+CHILD)
+- `tracing.py` : +58 lignes (icônes 🌳/🔗, UI améliorée)
+- `test_loader.py` : +457 lignes (14 nouveaux tests)
 
 ## Estimation
 

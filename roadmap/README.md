@@ -38,6 +38,8 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 23 | DateTime Range Selector | [plan-23](./plan-23-datetime-selector.md) | `feature/datetime-selector` | - | En attente |
 | 24 | Data Model Enrichment | [plan-24](./plan-24-data-model-enrichment.md) | `feature/data-model` | v2.17.0 | Termine |
 | 25 | Open Session in Terminal | [plan-25](./plan-25-open-session-terminal.md) | `feature/open-terminal` | v2.18.0 | Termine |
+| 26 | DB Concurrency (menubar sync) | [plan-26](./plan-26-db-concurrency.md) | `feature/db-concurrency` | - | En attente |
+| 27 | Root Sessions Tracing | [plan-27](./plan-27-root-sessions-tracing.md) | `feature/root-sessions-tracing` | v0.8.1 | Termine |
 
 ## Priorite
 
@@ -60,6 +62,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-03 | Plan-27 termine - Root Sessions Tracing avec icones distinctives (🌳 ROOT, 🔗 CHILD) et prompts hierarchiques v0.8.1 |
 | 2026-01-02 | Plan-20 termine - Agent Tracing avec 343 traces, dashboard PyQt, optimisations performance v2.19.0 |
 | 2026-01-01 | Plan-20 finalise - Collecte systeme OpenCode, visualisation 100% PyQt natif (QTreeWidget + QSplitter) |
 | 2025-12-31 | Plan-25 termine - Double-clic dashboard ouvre iTerm + refactoring queries.py + tests loader.py v2.18.0 |
