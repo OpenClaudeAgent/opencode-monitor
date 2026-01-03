@@ -257,10 +257,14 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                                     message_id,
                                     part_type,
                                     content,
-                                    None,
-                                    None,
+                                    None,  # tool_name
+                                    None,  # tool_status
                                     created_at,
-                                    None,  # arguments (only for tools)
+                                    None,  # arguments
+                                    None,  # call_id
+                                    None,  # ended_at
+                                    None,  # duration_ms
+                                    None,  # error_message
                                 )
                             )
                             text_count += 1
@@ -276,6 +280,22 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                         )
                         arguments = json.dumps(tool_input) if tool_input else None
 
+                        # Plan 36: Extract enriched fields
+                        call_id = data.get("callID")
+
+                        # Timing: get end timestamp and calculate duration
+                        start_ts = time_data.get("start")
+                        end_ts = time_data.get("end")
+                        ended_at = ms_to_datetime(end_ts) if end_ts else None
+                        duration_ms = (
+                            (end_ts - start_ts) if (start_ts and end_ts) else None
+                        )
+
+                        # Error message from state
+                        error_message = (
+                            state.get("error") if isinstance(state, dict) else None
+                        )
+
                         if tool_name:
                             batch.append(
                                 (
@@ -283,11 +303,15 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                                     session_id,
                                     message_id,
                                     part_type,
-                                    None,
+                                    None,  # content
                                     tool_name,
                                     tool_status,
                                     created_at,
                                     arguments,
+                                    call_id,
+                                    ended_at,
+                                    duration_ms,
+                                    error_message,
                                 )
                             )
                             tool_count += 1
@@ -296,8 +320,9 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                     if len(batch) >= batch_size:
                         conn.executemany(
                             """INSERT OR REPLACE INTO parts 
-                               (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at, arguments)
-                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                               (id, session_id, message_id, part_type, content, tool_name, tool_status, 
+                                created_at, arguments, call_id, ended_at, duration_ms, error_message)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                             batch,
                         )
                         batch = []
@@ -310,8 +335,9 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
         if batch:
             conn.executemany(
                 """INSERT OR REPLACE INTO parts 
-                   (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at, arguments)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   (id, session_id, message_id, part_type, content, tool_name, tool_status, 
+                    created_at, arguments, call_id, ended_at, duration_ms, error_message)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 batch,
             )
 
@@ -1309,6 +1335,69 @@ def load_file_operations(
     return count
 
 
+def enrich_sessions_metadata(db: AnalyticsDB) -> int:
+    """Enrich sessions with computed fields (Plan 36).
+
+    Computes and fills:
+    - is_root: FALSE if parent_id is set
+    - project_name: basename of directory
+    - ended_at: approximated from updated_at
+    - duration_ms: computed from timestamps
+
+    Returns:
+        Number of sessions updated
+    """
+    conn = db.connect()
+    updated = 0
+
+    try:
+        # Mark child sessions (is_root = FALSE)
+        result = conn.execute("""
+            UPDATE sessions 
+            SET is_root = FALSE 
+            WHERE parent_id IS NOT NULL AND (is_root = TRUE OR is_root IS NULL)
+        """)
+        updated += result.rowcount if hasattr(result, "rowcount") else 0
+
+        # Extract project_name from directory (last path component)
+        conn.execute("""
+            UPDATE sessions 
+            SET project_name = regexp_extract(directory, '[^/]+$')
+            WHERE project_name IS NULL AND directory IS NOT NULL
+        """)
+
+        # Set ended_at from updated_at (approximation)
+        conn.execute("""
+            UPDATE sessions 
+            SET ended_at = updated_at
+            WHERE ended_at IS NULL AND updated_at IS NOT NULL
+        """)
+
+        # Calculate duration_ms from timestamps
+        conn.execute("""
+            UPDATE sessions 
+            SET duration_ms = CAST(
+                EXTRACT(EPOCH FROM (updated_at - created_at)) * 1000 AS BIGINT
+            )
+            WHERE duration_ms IS NULL 
+              AND updated_at IS NOT NULL 
+              AND created_at IS NOT NULL
+        """)
+
+        # Count enriched sessions
+        enriched = conn.execute("""
+            SELECT COUNT(*) FROM sessions 
+            WHERE project_name IS NOT NULL OR duration_ms IS NOT NULL
+        """).fetchone()[0]
+
+        info(f"Enriched {enriched} sessions with metadata")
+        return enriched
+
+    except Exception as e:
+        error(f"Session enrichment failed: {e}")
+        return 0
+
+
 def load_opencode_data(
     db: Optional[AnalyticsDB] = None,
     storage_path: Optional[Path] = None,
@@ -1346,6 +1435,10 @@ def load_opencode_data(
         db.clear_data()
 
     sessions = load_sessions_fast(db, storage_path, max_days)
+
+    # Enrich sessions with computed metadata (Plan 36)
+    enrich_sessions_metadata(db)
+
     messages = load_messages_fast(db, storage_path, max_days)
 
     # Parts loading is slow (can be 70k+ files) - skip by default

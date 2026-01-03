@@ -181,6 +181,43 @@ Settings stored in `~/.config/opencode-monitor/settings.json`:
 
 Security audit database: `~/.config/opencode-monitor/security.db`
 
+## Analytics Database Schema
+
+The analytics module uses DuckDB for storing tracing and session data.
+
+### Schema Decisions
+
+#### delegations vs agent_traces
+
+Two tables track agent delegations with different focus:
+
+- **`delegations`**: Lightweight view for parent/child hierarchy
+  - Quick stats on delegation patterns
+  - Simple foreign keys between sessions
+  
+- **`agent_traces`**: Complete view with prompts and outputs
+  - Full prompt_input and prompt_output content
+  - Tool usage details via child_session_id
+  - Duration and token metrics
+
+Both are populated from `tool='task'` calls but serve different query needs.
+Keep both for flexibility.
+
+#### Enriched parts columns (Plan 36)
+
+- **`call_id`**: Claude API call ID (toolu_xxx), useful for debugging
+- **`ended_at`** / **`duration_ms`**: Precise tool timing
+- **`error_message`**: Tool execution errors
+
+#### Enriched sessions columns (Plan 36)
+
+- **`is_root`**: TRUE for root sessions, FALSE for child sessions (parent_id set)
+- **`project_name`**: Extracted from directory basename
+- **`ended_at`**: Approximated from updated_at
+- **`duration_ms`**: Computed from created_at to updated_at
+
+These computed fields are populated by `enrich_sessions_metadata()` after loading.
+
 ## Development
 
 ```bash

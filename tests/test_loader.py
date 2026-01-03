@@ -51,101 +51,6 @@ def db(tmp_path: Path) -> AnalyticsDB:
 
 
 @pytest.fixture
-def db_legacy_schema(tmp_path: Path):
-    """Create a DuckDB database with legacy schema (no migrated columns).
-
-    This is needed because load_*_fast functions use INSERT OR REPLACE
-    with a fixed number of columns that doesn't match the migrated schema.
-    """
-    import duckdb
-
-    db_path = tmp_path / "test_loader_legacy.duckdb"
-    conn = duckdb.connect(str(db_path))
-
-    # Create base tables without migrated columns
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS sessions (
-            id VARCHAR PRIMARY KEY,
-            project_id VARCHAR,
-            directory VARCHAR,
-            title VARCHAR,
-            created_at TIMESTAMP,
-            updated_at TIMESTAMP
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS messages (
-            id VARCHAR PRIMARY KEY,
-            session_id VARCHAR,
-            parent_id VARCHAR,
-            role VARCHAR,
-            agent VARCHAR,
-            model_id VARCHAR,
-            provider_id VARCHAR,
-            tokens_input INTEGER DEFAULT 0,
-            tokens_output INTEGER DEFAULT 0,
-            tokens_reasoning INTEGER DEFAULT 0,
-            tokens_cache_read INTEGER DEFAULT 0,
-            tokens_cache_write INTEGER DEFAULT 0,
-            created_at TIMESTAMP,
-            completed_at TIMESTAMP
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS parts (
-            id VARCHAR PRIMARY KEY,
-            message_id VARCHAR,
-            part_type VARCHAR,
-            tool_name VARCHAR,
-            tool_status VARCHAR,
-            created_at TIMESTAMP
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS skills (
-            id VARCHAR PRIMARY KEY,
-            message_id VARCHAR,
-            session_id VARCHAR,
-            skill_name VARCHAR,
-            loaded_at TIMESTAMP
-        )
-    """)
-
-    conn.execute("""
-        CREATE TABLE IF NOT EXISTS delegations (
-            id VARCHAR PRIMARY KEY,
-            message_id VARCHAR,
-            session_id VARCHAR,
-            parent_agent VARCHAR,
-            child_agent VARCHAR,
-            child_session_id VARCHAR,
-            created_at TIMESTAMP
-        )
-    """)
-
-    # Return a mock AnalyticsDB-like object
-    class LegacyDB:
-        def __init__(self, conn, path):
-            self._conn = conn
-            self._db_path = path
-
-        def connect(self):
-            return self._conn
-
-        def clear_data(self):
-            self._conn.execute("DELETE FROM delegations")
-            self._conn.execute("DELETE FROM skills")
-            self._conn.execute("DELETE FROM parts")
-            self._conn.execute("DELETE FROM messages")
-            self._conn.execute("DELETE FROM sessions")
-
-    return LegacyDB(conn, db_path)
-
-
-@pytest.fixture
 def storage_path(tmp_path: Path) -> Path:
     """Create a mock OpenCode storage directory structure."""
     storage = tmp_path / "opencode_storage"
@@ -353,11 +258,7 @@ class TestGetOpencodeStoragePath:
 
 
 class TestLoadSessionsFast:
-    """Tests for load_sessions_fast function.
-
-    Note: Uses db_legacy_schema because load_sessions_fast uses INSERT OR REPLACE
-    with a fixed column count that doesn't match the enriched/migrated schema.
-    """
+    """Tests for load_sessions_fast function."""
 
     def test_returns_zero_when_directory_not_exists(
         self, db: AnalyticsDB, storage_path: Path
@@ -366,9 +267,7 @@ class TestLoadSessionsFast:
         result = load_sessions_fast(db, storage_path)
         assert result == 0
 
-    def test_loads_valid_sessions(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_loads_valid_sessions(self, db, storage_path: Path, current_timestamp: int):
         """Loads sessions from valid JSON files."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
@@ -382,19 +281,17 @@ class TestLoadSessionsFast:
                 created_ts=current_timestamp,
             )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         assert result == 3
 
         # Verify data in database
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         sessions = conn.execute("SELECT id, title FROM sessions ORDER BY id").fetchall()
         assert len(sessions) == 3
         assert sessions[0][0] == "ses_0"
         assert sessions[0][1] == "Session 0"
 
-    def test_skips_old_sessions(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_skips_old_sessions(self, db, storage_path: Path, current_timestamp: int):
         """Skips sessions older than max_days."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
@@ -408,16 +305,16 @@ class TestLoadSessionsFast:
         old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
         create_session_file(session_dir, "ses_old", title="Old", created_ts=old_ts)
 
-        result = load_sessions_fast(db_legacy_schema, storage_path, max_days=30)
+        result = load_sessions_fast(db, storage_path, max_days=30)
         assert result == 1
 
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         sessions = conn.execute("SELECT id FROM sessions").fetchall()
         assert len(sessions) == 1
         assert sessions[0][0] == "ses_recent"
 
     def test_handles_invalid_json_returns_zero(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Returns 0 when JSON is malformed (DuckDB strict JSON parsing)."""
         session_dir = storage_path / "session"
@@ -435,12 +332,12 @@ class TestLoadSessionsFast:
         invalid_file.write_text("{ invalid json }")
 
         # DuckDB's read_json_auto doesn't support ignore_errors for standard JSON
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         # Returns 0 because malformed JSON causes query to fail
         assert result == 0
 
     def test_handles_missing_required_fields(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Handles sessions with missing required fields."""
         session_dir = storage_path / "session"
@@ -468,7 +365,7 @@ class TestLoadSessionsFast:
             session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
         )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         # Only valid session should be loaded (WHERE id IS NOT NULL)
         assert result == 1
 
@@ -479,11 +376,7 @@ class TestLoadSessionsFast:
 
 
 class TestLoadMessagesFast:
-    """Tests for load_messages_fast function.
-
-    Note: Uses db_legacy_schema because load_messages_fast uses INSERT OR REPLACE
-    with a fixed column count that doesn't match the enriched/migrated schema.
-    """
+    """Tests for load_messages_fast function."""
 
     def test_returns_zero_when_directory_not_exists(
         self, db: AnalyticsDB, storage_path: Path
@@ -492,9 +385,7 @@ class TestLoadMessagesFast:
         result = load_messages_fast(db, storage_path)
         assert result == 0
 
-    def test_loads_valid_messages(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_loads_valid_messages(self, db, storage_path: Path, current_timestamp: int):
         """Loads messages from valid JSON files."""
         message_dir = storage_path / "message"
         message_dir.mkdir()
@@ -508,11 +399,11 @@ class TestLoadMessagesFast:
                 created_ts=current_timestamp,
             )
 
-        result = load_messages_fast(db_legacy_schema, storage_path)
+        result = load_messages_fast(db, storage_path)
         assert result == 3
 
         # Verify data in database
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         messages = conn.execute(
             "SELECT id, session_id, role FROM messages ORDER BY id"
         ).fetchall()
@@ -521,9 +412,7 @@ class TestLoadMessagesFast:
         assert messages[0][1] == "ses_0"
         assert messages[0][2] == "assistant"
 
-    def test_loads_token_metrics(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_loads_token_metrics(self, db, storage_path: Path, current_timestamp: int):
         """Loads token metrics correctly."""
         message_dir = storage_path / "message"
         message_dir.mkdir()
@@ -536,9 +425,9 @@ class TestLoadMessagesFast:
             tokens_output=200,
         )
 
-        load_messages_fast(db_legacy_schema, storage_path)
+        load_messages_fast(db, storage_path)
 
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         msg = conn.execute(
             "SELECT tokens_input, tokens_output FROM messages WHERE id = 'msg_tokens'"
         ).fetchone()
@@ -546,9 +435,7 @@ class TestLoadMessagesFast:
         assert msg[0] == 500
         assert msg[1] == 200
 
-    def test_skips_old_messages(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_skips_old_messages(self, db, storage_path: Path, current_timestamp: int):
         """Skips messages older than max_days."""
         message_dir = storage_path / "message"
         message_dir.mkdir()
@@ -560,7 +447,7 @@ class TestLoadMessagesFast:
         old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
         create_message_file(message_dir, "msg_old", created_ts=old_ts)
 
-        result = load_messages_fast(db_legacy_schema, storage_path, max_days=30)
+        result = load_messages_fast(db, storage_path, max_days=30)
         assert result == 1
 
 
@@ -570,11 +457,7 @@ class TestLoadMessagesFast:
 
 
 class TestLoadPartsFast:
-    """Tests for load_parts_fast function.
-
-    Note: Uses db_legacy_schema because load_parts_fast uses INSERT OR REPLACE
-    with a fixed column count that doesn't match the enriched/migrated schema.
-    """
+    """Tests for load_parts_fast function."""
 
     def test_returns_zero_when_directory_not_exists(
         self, db: AnalyticsDB, storage_path: Path
@@ -583,9 +466,7 @@ class TestLoadPartsFast:
         result = load_parts_fast(db, storage_path)
         assert result == 0
 
-    def test_loads_valid_parts(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
+    def test_loads_valid_parts(self, db, storage_path: Path, current_timestamp: int):
         """Loads parts from valid JSON files."""
         part_dir = storage_path / "part"
         part_dir.mkdir()
@@ -600,18 +481,18 @@ class TestLoadPartsFast:
                 start_ts=current_timestamp,
             )
 
-        result = load_parts_fast(db_legacy_schema, storage_path)
+        result = load_parts_fast(db, storage_path)
         assert result == 3
 
         # Verify data in database
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         parts = conn.execute("SELECT id, tool_name FROM parts ORDER BY id").fetchall()
         assert len(parts) == 3
         assert parts[0][0] == "prt_0"
         assert parts[0][1] == "bash"
 
     def test_only_loads_tool_type_parts(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Only loads parts with type='tool'."""
         part_dir = storage_path / "part"
@@ -635,11 +516,11 @@ class TestLoadPartsFast:
             )
         )
 
-        result = load_parts_fast(db_legacy_schema, storage_path)
+        result = load_parts_fast(db, storage_path)
         # Only tool parts should be loaded
         assert result == 1
 
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         parts = conn.execute("SELECT id FROM parts").fetchall()
         assert len(parts) == 1
         assert parts[0][0] == "prt_tool"
@@ -1102,10 +983,8 @@ class TestLoadOpencodeData:
         assert result["skills"] == 1
         assert result["delegations"] == 1
 
-    def test_loads_all_data_types_legacy_schema(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
-    ):
-        """Loads all data types with legacy schema."""
+    def test_loads_all_data_types(self, db, storage_path: Path, current_timestamp: int):
+        """Loads all data types correctly."""
         # Create session
         session_dir = storage_path / "session"
         session_dir.mkdir()
@@ -1139,7 +1018,7 @@ class TestLoadOpencodeData:
             start_ts=current_timestamp,
         )
 
-        result = load_opencode_data(db=db_legacy_schema, storage_path=storage_path)
+        result = load_opencode_data(db=db, storage_path=storage_path)
 
         assert result["sessions"] == 1
         assert result["messages"] == 1
@@ -1163,10 +1042,10 @@ class TestLoadOpencodeData:
 
         assert result["parts"] == 0  # Skipped by default
 
-    def test_loads_parts_when_requested_legacy_schema(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+    def test_loads_parts_when_requested(
+        self, db, storage_path: Path, current_timestamp: int
     ):
-        """Loads parts when skip_parts=False (with legacy schema)."""
+        """Loads parts when skip_parts=False."""
         # Create session
         session_dir = storage_path / "session"
         session_dir.mkdir()
@@ -1176,9 +1055,7 @@ class TestLoadOpencodeData:
         part_dir.mkdir()
         create_part_file(part_dir, "prt_001", tool="bash", start_ts=current_timestamp)
 
-        result = load_opencode_data(
-            db=db_legacy_schema, storage_path=storage_path, skip_parts=False
-        )
+        result = load_opencode_data(db=db, storage_path=storage_path, skip_parts=False)
 
         assert result["parts"] == 1
 
@@ -1216,7 +1093,7 @@ class TestEdgeCases:
         assert result["parts"] == 0
 
     def test_handles_nested_structure(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Handles nested directory structure correctly."""
         session_dir = storage_path / "session"
@@ -1242,11 +1119,11 @@ class TestEdgeCases:
             )
         )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         assert result == 1
 
     def test_handles_special_characters_in_paths(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Handles special characters in file paths."""
         session_dir = storage_path / "session"
@@ -1261,11 +1138,11 @@ class TestEdgeCases:
             created_ts=current_timestamp,
         )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         assert result == 1
 
     def test_handles_unicode_content(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Handles unicode content in JSON files."""
         session_dir = storage_path / "session"
@@ -1292,10 +1169,10 @@ class TestEdgeCases:
             encoding="utf-8",
         )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         assert result == 1
 
-        conn = db_legacy_schema.connect()
+        conn = db.connect()
         session = conn.execute(
             "SELECT title FROM sessions WHERE id = 'ses_unicode'"
         ).fetchone()
@@ -1342,7 +1219,7 @@ class TestEdgeCases:
         assert result >= 1
 
     def test_handles_read_only_files(
-        self, db_legacy_schema, storage_path: Path, current_timestamp: int
+        self, db, storage_path: Path, current_timestamp: int
     ):
         """Handles read-only files gracefully."""
         session_dir = storage_path / "session"
@@ -1352,7 +1229,7 @@ class TestEdgeCases:
             session_dir, "ses_readonly", title="ReadOnly", created_ts=current_timestamp
         )
 
-        result = load_sessions_fast(db_legacy_schema, storage_path)
+        result = load_sessions_fast(db, storage_path)
         assert result == 1
 
 
