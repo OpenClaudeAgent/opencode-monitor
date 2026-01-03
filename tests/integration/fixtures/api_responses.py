@@ -248,6 +248,94 @@ class MockAPIResponses:
         }
 
     @staticmethod
+    def api_error() -> dict[str, Any]:
+        """Responses simulating API errors/unavailable.
+
+        Use None to indicate errors (vs [] for empty but successful).
+        """
+        return {
+            "health": False,
+            "stats": None,
+            "global_stats": None,
+            "sessions": None,  # None = error, [] = empty
+            "traces": None,
+            "delegations": None,
+        }
+
+    @staticmethod
+    def partial_data() -> dict[str, Any]:
+        """Responses with missing/null fields (edge case testing).
+
+        Tests dashboard resilience when API returns incomplete data.
+        """
+        now = datetime.now()
+        return {
+            "health": True,
+            "stats": {"sessions": 5},  # Missing traces, messages
+            "global_stats": None,  # Missing entirely
+            "sessions": [
+                {
+                    "id": "sess-partial-001",
+                    "title": None,  # Missing title
+                    "created_at": now.isoformat(),
+                    "tokens_in": None,  # Missing tokens
+                    "tokens_out": 0,
+                    "directory": None,
+                }
+            ],
+            "traces": [],
+            "delegations": [],
+        }
+
+    @staticmethod
+    def extreme_data() -> dict[str, Any]:
+        """Responses with extreme values (stress test).
+
+        Tests dashboard handling of very large numbers and long strings.
+        """
+        now = datetime.now()
+
+        # Create session with extreme values
+        session = create_session_data(
+            "sess-extreme",
+            "A" * 500,  # Very long title (500 chars)
+            now,
+            tokens_in=999_999_999,  # Very large number
+            tokens_out=999_999_999,
+        )
+
+        # Create 100 traces for stress testing
+        traces = [
+            create_trace_data(
+                f"trace-extreme-{i:03d}",
+                "sess-extreme",
+                "root_sess-extreme",
+                ["executor", "tester", "quality", "coordinator"][i % 4],
+                "completed",
+                duration_ms=i * 1000,
+                tokens_in=100_000,
+                tokens_out=50_000,
+                started_at=now - timedelta(minutes=i),
+            )
+            for i in range(100)
+        ]
+
+        return {
+            "health": True,
+            "stats": {"sessions": 999_999, "traces": 999_999, "messages": 999_999_999},
+            "global_stats": create_global_stats(
+                999_999,  # sessions
+                999_999,  # traces
+                999_999_999,  # messages
+                999_999_999_999,  # tokens
+                100,  # unique agents
+            ),
+            "sessions": [session],
+            "traces": traces,
+            "delegations": [],
+        }
+
+    @staticmethod
     def realistic_monitoring() -> dict[str, Any]:
         """Create realistic monitoring data with agents, tools, and waiting items."""
         return {
@@ -312,6 +400,129 @@ class MockAPIResponses:
                     "context": "infra-team @ main",
                 },
             ],
+        }
+
+    @staticmethod
+    def realistic_monitoring_all_idle() -> dict[str, Any]:
+        """All agents idle, no tools running.
+
+        Tests monitoring section displays correctly when nothing is active.
+        """
+        return {
+            "instances": 2,
+            "agents": 4,
+            "busy": 0,
+            "waiting": 0,
+            "idle": 4,
+            "todos": 0,
+            "agents_data": [
+                {
+                    "agent_id": f"agent-idle-{i:03d}",
+                    "title": f"Idle Agent {i}",
+                    "dir": f"/home/dev/project-{i}",
+                    "status": "idle",
+                    "tools": [],
+                    "todos_total": 0,
+                }
+                for i in range(4)
+            ],
+            "tools_data": [],
+            "waiting_data": [],
+        }
+
+    @staticmethod
+    def realistic_monitoring_all_waiting() -> dict[str, Any]:
+        """Multiple agents waiting for user response.
+
+        Tests monitoring section handles multiple waiting agents.
+        """
+        return {
+            "instances": 3,
+            "agents": 3,
+            "busy": 0,
+            "waiting": 3,
+            "idle": 0,
+            "todos": 0,
+            "agents_data": [
+                {
+                    "agent_id": f"agent-wait-{i:03d}",
+                    "title": f"Waiting Agent {i}",
+                    "dir": f"/home/dev/project-{i}",
+                    "status": "waiting",
+                    "tools": [],
+                    "todos_total": 0,
+                }
+                for i in range(3)
+            ],
+            "tools_data": [],
+            "waiting_data": [
+                {
+                    "agent_id": f"agent-wait-{i:03d}",
+                    "title": f"Waiting Agent {i}",
+                    "question": f"Question {i}: Need user confirmation for action {i}",
+                    "options": "Confirm | Reject | Skip",
+                    "context": f"project-{i} @ feature-branch",
+                }
+                for i in range(3)
+            ],
+        }
+
+    @staticmethod
+    def realistic_monitoring_error() -> dict[str, Any]:
+        """Monitoring data with some agents in error state.
+
+        Tests monitoring section handles error states gracefully.
+        """
+        return {
+            "instances": 2,
+            "agents": 4,
+            "busy": 1,
+            "waiting": 0,
+            "idle": 1,
+            "todos": 2,
+            "agents_data": [
+                {
+                    "agent_id": "agent-busy-001",
+                    "title": "Normal Working Agent",
+                    "dir": "/home/dev/project",
+                    "status": "busy",
+                    "tools": [{"name": "read"}],
+                    "todos_total": 2,
+                },
+                {
+                    "agent_id": "agent-error-001",
+                    "title": "Error: Connection Failed",
+                    "dir": "/home/dev/broken",
+                    "status": "error",
+                    "tools": [],
+                    "todos_total": 0,
+                },
+                {
+                    "agent_id": "agent-error-002",
+                    "title": None,  # Missing title
+                    "dir": None,  # Missing directory
+                    "status": "unknown",
+                    "tools": None,  # Missing tools
+                    "todos_total": None,
+                },
+                {
+                    "agent_id": "agent-idle-001",
+                    "title": "Idle Agent",
+                    "dir": "/home/dev/idle",
+                    "status": "idle",
+                    "tools": [],
+                    "todos_total": 0,
+                },
+            ],
+            "tools_data": [
+                {
+                    "name": "read",
+                    "agent": "Normal Working Agent",
+                    "arg": "src/file.py",
+                    "elapsed_ms": 500,
+                },
+            ],
+            "waiting_data": [],
         }
 
     @staticmethod

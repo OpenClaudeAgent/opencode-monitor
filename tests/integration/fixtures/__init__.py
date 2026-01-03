@@ -27,3 +27,11 @@ realistic_monitoring = MockAPIResponses.realistic_monitoring
 realistic_analytics = MockAPIResponses.realistic_analytics
 realistic_security = MockAPIResponses.realistic_security
 realistic_tracing = MockAPIResponses.realistic_tracing
+
+# Additional states for robustness testing
+api_error = MockAPIResponses.api_error
+partial_data = MockAPIResponses.partial_data
+extreme_data = MockAPIResponses.extreme_data
+monitoring_all_idle = MockAPIResponses.realistic_monitoring_all_idle
+monitoring_all_waiting = MockAPIResponses.realistic_monitoring_all_waiting
+monitoring_error = MockAPIResponses.realistic_monitoring_error
