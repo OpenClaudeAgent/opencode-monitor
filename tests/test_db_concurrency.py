@@ -36,9 +36,11 @@ class TestSyncMeta:
         db.connect()
 
         before = db.get_sync_timestamp()
+        assert before is not None
         time.sleep(0.1)  # Ensure timestamp changes
         db.update_sync_timestamp()
         after = db.get_sync_timestamp()
+        assert after is not None
 
         assert after > before
 
@@ -49,15 +51,19 @@ class TestSyncMeta:
         db = AnalyticsDB(db_path=tmp_path / "test.duckdb")
         conn = db.connect()
 
-        count_before = conn.execute(
+        result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()[0]
+        ).fetchone()
+        assert result is not None
+        count_before = result[0]
 
         db.update_sync_timestamp()
 
-        count_after = conn.execute(
+        result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()[0]
+        ).fetchone()
+        assert result is not None
+        count_after = result[0]
 
         assert count_after == count_before + 1
 
@@ -115,6 +121,7 @@ class TestReadOnlyAccess:
         db1.connect()
         db1.update_sync_timestamp()
         ts1 = db1.get_sync_timestamp()
+        assert ts1 is not None
         db1.close()
 
         time.sleep(0.1)
@@ -124,6 +131,7 @@ class TestReadOnlyAccess:
         db2.connect()
         db2.update_sync_timestamp()
         ts2 = db2.get_sync_timestamp()
+        assert ts2 is not None
         db2.close()
 
         assert ts2 > ts1
@@ -136,9 +144,11 @@ class TestReadOnlyAccess:
         writer = AnalyticsDB(db_path=db_path, read_only=False)
         conn = writer.connect()
         writer.update_sync_timestamp()
-        count1 = conn.execute(
+        result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()[0]
+        ).fetchone()
+        assert result is not None
+        count1 = result[0]
         writer.close()
 
         # Write more data
@@ -150,12 +160,59 @@ class TestReadOnlyAccess:
         # Reader should see both updates
         reader = AnalyticsDB(db_path=db_path, read_only=True)
         conn = reader.connect()
-        count2 = conn.execute(
+        result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()[0]
+        ).fetchone()
+        assert result is not None
+        count2 = result[0]
         reader.close()
 
         assert count2 == count1 + 1
+
+
+class TestContextManager:
+    """Tests for the context manager support."""
+
+    def test_context_manager_opens_and_closes(self, tmp_path):
+        """Context manager should automatically open and close connection."""
+        db_path = tmp_path / "test.duckdb"
+
+        with AnalyticsDB(db_path=db_path, read_only=False) as db:
+            # Connection should be open inside context
+            assert db._conn is not None
+            ts = db.get_sync_timestamp()
+            assert ts is not None
+
+        # Connection should be closed after context
+        assert db._conn is None
+
+    def test_context_manager_closes_on_exception(self, tmp_path):
+        """Context manager should close connection even on exception."""
+        db_path = tmp_path / "test.duckdb"
+
+        db = AnalyticsDB(db_path=db_path, read_only=False)
+        try:
+            with db:
+                assert db._conn is not None
+                raise ValueError("Test exception")
+        except ValueError:
+            pass
+
+        # Connection should be closed even after exception
+        assert db._conn is None
+
+    def test_context_manager_read_only(self, tmp_path):
+        """Context manager should work with read_only mode."""
+        db_path = tmp_path / "test.duckdb"
+
+        # Create DB first
+        with AnalyticsDB(db_path=db_path, read_only=False) as writer:
+            writer.update_sync_timestamp()
+
+        # Read with context manager
+        with AnalyticsDB(db_path=db_path, read_only=True) as reader:
+            ts = reader.get_sync_timestamp()
+            assert ts is not None
 
 
 class TestAnalyticsSyncManager:
@@ -195,8 +252,12 @@ class TestAnalyticsSyncManager:
 
         manager.close()
 
-    def test_sync_manager_updates_db_timestamp(self, tmp_path, monkeypatch):
-        """Sync manager should update DB timestamp when sync runs."""
+    def test_sync_manager_opens_and_closes_connection(self, tmp_path, monkeypatch):
+        """Sync manager should open/close connection for each sync.
+
+        This is critical for allowing the dashboard to read concurrently.
+        The manager no longer holds a persistent connection.
+        """
         from opencode_monitor.app.handlers import AnalyticsSyncManager
 
         monkeypatch.setattr(
@@ -204,19 +265,24 @@ class TestAnalyticsSyncManager:
             lambda: tmp_path / "analytics.duckdb",
         )
 
+        # Create DB first
+        with AnalyticsDB(db_path=tmp_path / "analytics.duckdb", read_only=False) as db:
+            ts1 = db.get_sync_timestamp()
+            assert ts1 is not None
+
         manager = AnalyticsSyncManager()
 
-        # Get initial timestamp
-        ts1 = manager._db.get_sync_timestamp()
+        # Manager should not hold a persistent _db reference
+        assert not hasattr(manager, "_db")
 
+        # After sync (even empty), timestamp should be updated
         time.sleep(0.1)
+        manager.sync_incremental(max_days=1)
 
-        # Manually update the sync timestamp (simulating a sync)
-        manager._db.update_sync_timestamp()
-
-        ts2 = manager._db.get_sync_timestamp()
-
-        assert ts2 is not None
-        assert ts2 > ts1
+        # Verify by opening a new connection
+        with AnalyticsDB(db_path=tmp_path / "analytics.duckdb", read_only=True) as db2:
+            ts2 = db2.get_sync_timestamp()
+            assert ts2 is not None
+            assert ts2 > ts1
 
         manager.close()
