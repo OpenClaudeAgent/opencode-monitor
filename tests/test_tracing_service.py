@@ -384,6 +384,32 @@ class TestGetSessionAgents:
 
 
 # =============================================================================
+# Test get_session_prompts
+# =============================================================================
+
+
+class TestGetSessionPrompts:
+    """Tests for get_session_prompts method."""
+
+    def test_returns_prompt_data(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+        """Should return user prompt and output."""
+        service = TracingDataService(db=populated_db)
+        result = service.get_session_prompts("ses_001")
+
+        assert result["meta"]["session_id"] == "ses_001"
+        assert "prompt_input" in result
+        assert "prompt_output" in result
+
+    def test_returns_none_for_nonexistent_session(self, service: TracingDataService):
+        """Should return None values for non-existent session."""
+        result = service.get_session_prompts("nonexistent")
+
+        assert result["meta"]["session_id"] == "nonexistent"
+        assert result["prompt_input"] is None
+        assert result["prompt_output"] is None
+
+
+# =============================================================================
 # Test get_global_stats
 # =============================================================================
 
