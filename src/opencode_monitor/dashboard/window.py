@@ -674,6 +674,7 @@ class DashboardWindow(QMainWindow):
                     "created_at": node.created_at,
                     "directory": node.directory,
                     "trace_count": node.trace_count,
+                    "prompt_input": node.prompt_input,  # For ROOT sessions
                     "children": [session_to_dict(c) for c in node.children],
                 }
 

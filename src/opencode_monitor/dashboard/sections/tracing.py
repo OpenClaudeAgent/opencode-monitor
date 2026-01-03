@@ -294,19 +294,34 @@ class TraceDetailPanel(QFrame):
         created_at: Optional[datetime],
         trace_count: int,
         children_count: int,
+        prompt_input: Optional[str] = None,
     ) -> None:
-        """Display session details."""
+        """Display session details.
+
+        Args:
+            title: Session title
+            agent_type: Type of agent running in this session
+            parent_agent: Agent that delegated to this session
+            directory: Working directory
+            created_at: Creation timestamp
+            trace_count: Number of traces in session
+            children_count: Number of child sessions
+            prompt_input: First user message (for ROOT sessions)
+        """
         import os
+
+        # Determine if this is a ROOT session (no parent)
+        is_root = parent_agent is None and agent_type is None
 
         # Header with session info
         if agent_type and parent_agent:
-            header_text = f"{agent_type} ← {parent_agent}"
+            header_text = f"🔗 {agent_type} ← {parent_agent}"
         elif agent_type:
             header_text = f"Agent: {agent_type}"
         else:
-            # Root session - show project name
+            # Root session - show project name with tree icon
             project_name = os.path.basename(directory) if directory else "Session"
-            header_text = f"📁 {project_name}"
+            header_text = f"🌳 {project_name}"
 
         self._header.setText(header_text)
         self._header.setStyleSheet(f"""
@@ -321,6 +336,8 @@ class TraceDetailPanel(QFrame):
             parts.append(f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}")
         if parent_agent:
             parts.append(f"⬅ Appelé par {parent_agent}")
+        if is_root:
+            parts.append("🌳 ROOT session")
         if trace_count > 0:
             parts.append(f"📊 {trace_count} traces")
         if children_count > 0:
@@ -328,12 +345,19 @@ class TraceDetailPanel(QFrame):
 
         self._metrics_line.setText("  •  ".join(parts) if parts else "")
 
-        # Change section titles for session view
-        self._input_section.set_title("📝 Task Description")
-        self._output_section.set_title("📁 Project Info")
+        # Adapt section titles based on session type
+        if is_root:
+            self._input_section.set_title("💬 User Prompt")
+            self._output_section.set_title("📁 Project Info")
+        else:
+            self._input_section.set_title("📝 Task Description")
+            self._output_section.set_title("📁 Project Info")
 
-        # Show task description (title) in first section
-        if title:
+        # Show prompt/title in first section
+        if prompt_input:
+            # For ROOT sessions, show the actual user prompt
+            self._input_section.set_text(prompt_input)
+        elif title:
             # Clean up title - remove (@agent) suffix if present
             import re
 
@@ -342,12 +366,14 @@ class TraceDetailPanel(QFrame):
                 clean_title if clean_title else "(No description)"
             )
         else:
-            self._input_section.set_text("(No task description)")
+            self._input_section.set_text("(No prompt)")
 
         # Show project info in second section
         project_info_parts = []
         if directory:
             project_info_parts.append(f"Directory: {directory}")
+        if is_root:
+            project_info_parts.append("Type: Direct user conversation")
         project_info_parts.append(f"Traces in session: {trace_count}")
         project_info_parts.append(f"Delegated sub-agents: {children_count}")
 
@@ -679,6 +705,7 @@ class TracingSection(QWidget):
                 )
             else:
                 # No trace found - show session info as fallback
+                # For ROOT sessions, prompt_input may be stored in data
                 self._detail_panel.show_session(
                     title=data.get("title", ""),
                     agent_type=data.get("agent_type"),
@@ -687,6 +714,7 @@ class TracingSection(QWidget):
                     created_at=data.get("created_at"),
                     trace_count=data.get("trace_count", 0),
                     children_count=len(data.get("children", [])),
+                    prompt_input=data.get("prompt_input"),
                 )
         else:
             # Trace data - show trace details
@@ -877,9 +905,9 @@ class TracingSection(QWidget):
                 children_count = len(session.get("children", []))
 
                 if is_root:
-                    # Root session: show project name with folder icon
+                    # Root session: show with tree icon (direct user conversation)
                     project = get_project_name(directory)
-                    item.setText(0, f"■ {project}")
+                    item.setText(0, f"🌳 {project}")
                     # Color root items with primary accent
                     item.setForeground(0, QColor(COLORS["tree_root"]))
                 else:
@@ -889,9 +917,9 @@ class TracingSection(QWidget):
 
                     # Use different icons based on depth for visual hierarchy
                     if depth == 1:
-                        icon = "◆"  # Diamond for first level delegation
+                        icon = "🔗"  # Link for first level delegation
                     else:
-                        icon = "○"  # Circle for deeper levels
+                        icon = "└─"  # Tree branch for deeper levels
 
                     if effective_agent and parent_agent:
                         # Show: parent → child (who called who)

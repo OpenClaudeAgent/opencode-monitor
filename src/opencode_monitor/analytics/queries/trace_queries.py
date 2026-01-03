@@ -47,6 +47,7 @@ class SessionNode:
     created_at: Optional[datetime]
     directory: Optional[str] = None  # Project directory
     trace_count: int = 0
+    prompt_input: Optional[str] = None  # First user message (for ROOT sessions)
     children: list["SessionNode"] = field(default_factory=list)
 
 
@@ -395,8 +396,12 @@ class TraceQueries(BaseQueries):
         """Get sessions with their delegation hierarchy.
 
         Returns sessions as a tree structure based on delegations.
-        Only includes sessions that are part of a delegation chain OR have traces.
-        Root sessions show project/directory info, children show agent delegation info.
+        Includes:
+        - ROOT sessions (direct user conversations, parentID is NULL)
+        - CHILD sessions (created via delegation, parentID is not NULL)
+
+        Root sessions display with 🌳 icon and show user prompts.
+        Child sessions display with 🔗 icon and show delegation info.
 
         Args:
             start_date: Start of the date range
@@ -407,11 +412,16 @@ class TraceQueries(BaseQueries):
             List of root SessionNode objects with children populated
         """
         try:
-            # Get sessions that are part of delegation chains or have traces
-            # This filters out "orphan" sessions with no delegations/traces
+            # Get sessions including:
+            # 1. ROOT sessions (parent_id IS NULL) that have activity
+            # 2. Sessions that are part of delegation chains
+            # 3. Sessions with traces
             results = self._conn.execute(
                 """
                 WITH relevant_sessions AS (
+                    -- ROOT sessions (no parent) - these are direct user conversations
+                    SELECT DISTINCT id as session_id FROM sessions WHERE parent_id IS NULL
+                    UNION
                     -- Sessions that are parents (have children delegated to them)
                     SELECT DISTINCT parent_id as session_id FROM sessions WHERE parent_id IS NOT NULL
                     UNION
@@ -429,7 +439,10 @@ class TraceQueries(BaseQueries):
                     s.directory,
                     d.parent_agent,
                     d.child_agent,
-                    (SELECT COUNT(*) FROM agent_traces t WHERE t.session_id = s.id) as trace_count
+                    (SELECT COUNT(*) FROM agent_traces t WHERE t.session_id = s.id) as trace_count,
+                    (SELECT prompt_input FROM agent_traces t 
+                     WHERE t.child_session_id = s.id AND t.trace_id LIKE 'root_%' 
+                     LIMIT 1) as root_prompt
                 FROM sessions s
                 LEFT JOIN delegations d ON s.id = d.child_session_id
                 WHERE s.id IN (SELECT session_id FROM relevant_sessions)
@@ -451,6 +464,7 @@ class TraceQueries(BaseQueries):
                     parent_agent=row[5],
                     agent_type=row[6],  # child_agent from delegation
                     trace_count=row[7] or 0,
+                    prompt_input=row[8],  # Root prompt from agent_traces
                 )
                 sessions_by_id[node.session_id] = node
 

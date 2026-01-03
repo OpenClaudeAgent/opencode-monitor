@@ -28,6 +28,11 @@ from opencode_monitor.analytics.loader import (
     load_skills,
     load_delegations,
     load_opencode_data,
+    extract_root_sessions,
+    get_first_user_message,
+    load_traces,
+    ROOT_TRACE_PREFIX,
+    ROOT_AGENT_TYPE,
 )
 
 
@@ -1349,3 +1354,455 @@ class TestEdgeCases:
 
         result = load_sessions_fast(db_legacy_schema, storage_path)
         assert result == 1
+
+
+# =============================================================================
+# Helper Functions for Root Sessions
+# =============================================================================
+
+
+def create_root_session_file(
+    session_dir: Path,
+    project_id: str,
+    session_id: str,
+    title: str = "Root Session",
+    directory: str = "/test/path",
+    created_ts: int | None = None,
+    updated_ts: int | None = None,
+) -> Path:
+    """Create a ROOT session JSON file (no parentID)."""
+    now_ms = int(time.time() * 1000)
+    created_ts = created_ts or now_ms
+    updated_ts = updated_ts or now_ms
+
+    # Sessions are in project subdirectories
+    project_dir = session_dir / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    session_file = project_dir / f"{session_id}.json"
+    data = {
+        "id": session_id,
+        "projectID": project_id,
+        "directory": directory,
+        "title": title,
+        "parentID": None,  # ROOT session - no parent
+        "time": {"created": created_ts, "updated": updated_ts},
+    }
+    session_file.write_text(json.dumps(data))
+    return session_file
+
+
+def create_child_session_file(
+    session_dir: Path,
+    project_id: str,
+    session_id: str,
+    parent_id: str,
+    title: str = "Child Session",
+    directory: str = "/test/path",
+    created_ts: int | None = None,
+) -> Path:
+    """Create a CHILD session JSON file (with parentID)."""
+    now_ms = int(time.time() * 1000)
+    created_ts = created_ts or now_ms
+
+    project_dir = session_dir / project_id
+    project_dir.mkdir(parents=True, exist_ok=True)
+
+    session_file = project_dir / f"{session_id}.json"
+    data = {
+        "id": session_id,
+        "projectID": project_id,
+        "directory": directory,
+        "title": title,
+        "parentID": parent_id,  # CHILD session - has parent
+        "time": {"created": created_ts, "updated": created_ts},
+    }
+    session_file.write_text(json.dumps(data))
+    return session_file
+
+
+def create_user_message_file(
+    message_dir: Path,
+    session_id: str,
+    message_id: str,
+    summary_title: str = "User question",
+    summary_body: str = "This is the message body",
+    created_ts: int | None = None,
+) -> Path:
+    """Create a user message JSON file with summary."""
+    now_ms = int(time.time() * 1000)
+    created_ts = created_ts or now_ms
+
+    msg_session_dir = message_dir / session_id
+    msg_session_dir.mkdir(parents=True, exist_ok=True)
+
+    message_file = msg_session_dir / f"{message_id}.json"
+    data = {
+        "id": message_id,
+        "sessionID": session_id,
+        "role": "user",
+        "time": {"created": created_ts},
+        "summary": {
+            "title": summary_title,
+            "body": summary_body,
+        },
+    }
+    message_file.write_text(json.dumps(data))
+    return message_file
+
+
+# =============================================================================
+# Tests: get_first_user_message
+# =============================================================================
+
+
+class TestGetFirstUserMessage:
+    """Tests for get_first_user_message function."""
+
+    def test_returns_none_when_session_dir_not_exists(self, storage_path: Path):
+        """Returns None when session message directory doesn't exist."""
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        result = get_first_user_message(message_dir, "non_existent_session")
+        assert result is None
+
+    def test_returns_none_when_no_user_messages(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Returns None when no user messages exist."""
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        # Create assistant message only (not user)
+        create_message_file(
+            message_dir,
+            "msg_assistant",
+            session_id="ses_001",
+            role="assistant",
+            created_ts=current_timestamp,
+        )
+
+        result = get_first_user_message(message_dir, "ses_001")
+        assert result is None
+
+    def test_returns_first_user_message_content(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Returns first user message content with title and body."""
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        # Create user message
+        create_user_message_file(
+            message_dir,
+            "ses_001",
+            "msg_user_001",
+            summary_title="Implement feature X",
+            summary_body="Please implement the feature X with tests",
+            created_ts=current_timestamp,
+        )
+
+        result = get_first_user_message(message_dir, "ses_001")
+        assert result is not None
+        assert "Implement feature X" in result
+        assert "Please implement the feature X with tests" in result
+
+    def test_returns_first_chronologically(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Returns the first user message chronologically."""
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        # Create second message first (higher timestamp)
+        create_user_message_file(
+            message_dir,
+            "ses_001",
+            "msg_user_002",
+            summary_title="Second message",
+            created_ts=current_timestamp + 1000,
+        )
+
+        # Create first message (lower timestamp)
+        create_user_message_file(
+            message_dir,
+            "ses_001",
+            "msg_user_001",
+            summary_title="First message",
+            created_ts=current_timestamp,
+        )
+
+        result = get_first_user_message(message_dir, "ses_001")
+        assert result is not None
+        assert "First message" in result
+        assert "Second message" not in result
+
+    def test_returns_title_only_when_no_body(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Returns title only when body is empty."""
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        create_user_message_file(
+            message_dir,
+            "ses_001",
+            "msg_user_001",
+            summary_title="Just a title",
+            summary_body="",
+            created_ts=current_timestamp,
+        )
+
+        result = get_first_user_message(message_dir, "ses_001")
+        assert result == "Just a title"
+
+
+# =============================================================================
+# Tests: extract_root_sessions
+# =============================================================================
+
+
+class TestExtractRootSessions:
+    """Tests for extract_root_sessions function."""
+
+    def test_returns_empty_when_session_dir_not_exists(self, storage_path: Path):
+        """Returns empty list when session directory doesn't exist."""
+        result = extract_root_sessions(storage_path)
+        assert result == []
+
+    def test_extracts_root_sessions_only(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Extracts only ROOT sessions (no parentID)."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        # Create ROOT session
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_root",
+            title="Root Session",
+            created_ts=current_timestamp,
+        )
+
+        # Create CHILD session
+        create_child_session_file(
+            session_dir,
+            "proj_001",
+            "ses_child",
+            parent_id="ses_root",
+            title="Child Session",
+            created_ts=current_timestamp,
+        )
+
+        result = extract_root_sessions(storage_path)
+
+        # Only ROOT should be extracted
+        assert len(result) == 1
+        assert result[0].trace_id == f"{ROOT_TRACE_PREFIX}ses_root"
+        assert result[0].subagent_type == ROOT_AGENT_TYPE
+
+    def test_root_session_has_correct_trace_id_prefix(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Root session trace has correct prefix."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_abc123",
+            created_ts=current_timestamp,
+        )
+
+        result = extract_root_sessions(storage_path)
+
+        assert len(result) == 1
+        assert result[0].trace_id.startswith(ROOT_TRACE_PREFIX)
+        assert "ses_abc123" in result[0].trace_id
+
+    def test_root_session_includes_prompt_from_first_message(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Root session includes prompt from first user message."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_with_prompt",
+            created_ts=current_timestamp,
+        )
+
+        create_user_message_file(
+            message_dir,
+            "ses_with_prompt",
+            "msg_user",
+            summary_title="Help me implement Plan 27",
+            summary_body="I need to add root session tracing",
+            created_ts=current_timestamp,
+        )
+
+        result = extract_root_sessions(storage_path)
+
+        assert len(result) == 1
+        assert "Help me implement Plan 27" in result[0].prompt_input
+        assert "root session tracing" in result[0].prompt_input
+
+    def test_root_session_falls_back_to_title_when_no_message(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Falls back to session title when no user message."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_no_msg",
+            title="OpenMonitor Planning",
+            created_ts=current_timestamp,
+        )
+
+        result = extract_root_sessions(storage_path)
+
+        assert len(result) == 1
+        assert result[0].prompt_input == "OpenMonitor Planning"
+
+    def test_skips_old_sessions(self, storage_path: Path, current_timestamp: int):
+        """Skips sessions older than max_days."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+
+        # Create recent ROOT session
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_recent",
+            created_ts=current_timestamp,
+        )
+
+        # Create old ROOT session (60 days ago)
+        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_old",
+            created_ts=old_ts,
+        )
+
+        result = extract_root_sessions(storage_path, max_days=30)
+
+        assert len(result) == 1
+        assert "ses_recent" in result[0].trace_id
+
+    def test_root_session_has_child_session_id_self_reference(
+        self, storage_path: Path, current_timestamp: int
+    ):
+        """Root session has child_session_id pointing to itself for hierarchy."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_root",
+            created_ts=current_timestamp,
+        )
+
+        result = extract_root_sessions(storage_path)
+
+        assert len(result) == 1
+        # child_session_id should be the session_id itself for linking children
+        assert result[0].child_session_id == "ses_root"
+
+
+# =============================================================================
+# Tests: load_traces with root sessions
+# =============================================================================
+
+
+class TestLoadTracesWithRootSessions:
+    """Tests for load_traces function including root sessions."""
+
+    def test_loads_root_sessions_into_traces_table(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Root sessions are loaded into agent_traces table."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_root",
+            title="Test Root",
+            created_ts=current_timestamp,
+        )
+
+        result = load_traces(db, storage_path)
+
+        assert result >= 1
+
+        conn = db.connect()
+        traces = conn.execute(
+            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id LIKE 'root_%'"
+        ).fetchall()
+
+        assert len(traces) >= 1
+        assert traces[0][1] == ROOT_AGENT_TYPE
+
+    def test_loads_both_root_and_delegation_traces(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Loads both root sessions and delegation traces."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+        part_dir = storage_path / "part"
+        part_dir.mkdir()
+
+        # Create ROOT session
+        create_root_session_file(
+            session_dir,
+            "proj_001",
+            "ses_root",
+            created_ts=current_timestamp,
+        )
+
+        # Create delegation trace
+        create_delegation_part_file(
+            part_dir,
+            "prt_del",
+            "msg_001",
+            "ses_root",
+            "tester",
+            child_session_id="ses_child",
+            start_ts=current_timestamp,
+        )
+
+        result = load_traces(db, storage_path)
+
+        assert result >= 2  # At least 1 root + 1 delegation
+
+        conn = db.connect()
+        root_traces = conn.execute(
+            "SELECT COUNT(*) FROM agent_traces WHERE trace_id LIKE 'root_%'"
+        ).fetchone()
+        delegation_traces = conn.execute(
+            "SELECT COUNT(*) FROM agent_traces WHERE trace_id NOT LIKE 'root_%'"
+        ).fetchone()
+
+        assert root_traces is not None
+        assert root_traces[0] >= 1
+        assert delegation_traces is not None
+        assert delegation_traces[0] >= 1

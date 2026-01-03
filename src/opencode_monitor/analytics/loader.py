@@ -2,6 +2,7 @@
 JSON data loader for OpenCode storage.
 
 Uses DuckDB's native JSON reading for maximum performance.
+Supports both delegation traces (task tool) and root sessions (direct conversations).
 """
 
 import json
@@ -14,6 +15,11 @@ from .db import AnalyticsDB
 from .models import AgentTrace
 from ..utils.logger import info, debug, error
 from ..utils.datetime import ms_to_datetime
+
+
+# Constants for root session traces
+ROOT_TRACE_PREFIX = "root_"
+ROOT_AGENT_TYPE = "user"  # Root sessions are direct user conversations
 
 
 def get_opencode_storage_path() -> Path:
@@ -341,6 +347,141 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
     return count
 
 
+def get_first_user_message(message_dir: Path, session_id: str) -> Optional[str]:
+    """Get the first user message content for a session.
+
+    Args:
+        message_dir: Path to OpenCode message storage
+        session_id: The session ID to find messages for
+
+    Returns:
+        The first user message content, or None if not found
+    """
+    session_msg_dir = message_dir / session_id
+    if not session_msg_dir.exists():
+        return None
+
+    # Find all message files and sort by timestamp
+    messages = []
+    for msg_file in session_msg_dir.glob("*.json"):
+        try:
+            with open(msg_file) as f:
+                data = json.load(f)
+            if data.get("role") == "user":
+                time_data = data.get("time", {})
+                created = time_data.get("created", 0)
+                messages.append((created, data))
+        except (json.JSONDecodeError, OSError):
+            continue
+
+    if not messages:
+        return None
+
+    # Sort by creation time and get the first
+    messages.sort(key=lambda x: x[0])
+    first_msg = messages[0][1]
+
+    # Extract content from summary (title + body if available)
+    summary = first_msg.get("summary", {})
+    title = summary.get("title", "")
+    body = summary.get("body", "")
+
+    if title and body:
+        return f"{title}\n\n{body}"
+    elif title:
+        return title
+    elif body:
+        return body
+
+    return "(No message content)"
+
+
+def extract_root_sessions(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
+    """Extract root sessions (direct conversations, not delegations).
+
+    Root sessions are sessions where parentID is null, meaning they were
+    started directly by the user rather than created via task delegation.
+
+    Args:
+        storage_path: Path to OpenCode storage
+        max_days: Only extract sessions from the last N days
+
+    Returns:
+        List of AgentTrace objects representing root sessions
+    """
+    session_dir = storage_path / "session"
+    message_dir = storage_path / "message"
+
+    if not session_dir.exists():
+        return []
+
+    cutoff = datetime.now() - timedelta(days=max_days)
+    traces: list[AgentTrace] = []
+
+    # Sessions are organized in subdirectories by project
+    for project_dir in session_dir.iterdir():
+        if not project_dir.is_dir():
+            continue
+
+        for session_file in project_dir.glob("*.json"):
+            try:
+                with open(session_file) as f:
+                    data = json.load(f)
+
+                # Only process root sessions (no parent)
+                if data.get("parentID") is not None:
+                    continue
+
+                session_id = data.get("id")
+                if not session_id:
+                    continue
+
+                # Check time filter
+                time_data = data.get("time", {})
+                created_ts = time_data.get("created")
+                created_at = ms_to_datetime(created_ts)
+
+                if created_at and created_at < cutoff:
+                    continue
+
+                updated_ts = time_data.get("updated")
+                updated_at = ms_to_datetime(updated_ts)
+
+                # Calculate duration if we have both timestamps
+                duration_ms = None
+                if created_ts and updated_ts:
+                    duration_ms = updated_ts - created_ts
+
+                # Get the first user message as prompt
+                first_message = get_first_user_message(message_dir, session_id)
+
+                # Create trace for root session
+                trace = AgentTrace(
+                    trace_id=f"{ROOT_TRACE_PREFIX}{session_id}",
+                    session_id=session_id,
+                    parent_trace_id=None,  # ROOT - no parent
+                    parent_agent=None,
+                    subagent_type=ROOT_AGENT_TYPE,
+                    prompt_input=first_message or data.get("title", "(No prompt)"),
+                    prompt_output=None,  # Conversation ongoing
+                    started_at=created_at,
+                    ended_at=updated_at,
+                    duration_ms=duration_ms,
+                    tokens_in=None,  # Will be resolved from messages
+                    tokens_out=None,
+                    status="completed" if updated_at else "running",
+                    tools_used=[],
+                    child_session_id=session_id,  # Self-reference for hierarchy
+                )
+                traces.append(trace)
+
+            except (json.JSONDecodeError, OSError):
+                continue
+
+    info(f"Extracted {len(traces)} root sessions")
+    return traces
+
+
 def extract_traces(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
     """Extract agent traces from task tool invocations.
 
@@ -443,7 +584,12 @@ def extract_traces(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
 def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
     """Load agent traces into the database.
 
-    Extracts traces from task tool invocations and resolves parent agents.
+    Extracts traces from both:
+    1. Task tool invocations (delegation traces)
+    2. Root sessions (direct user conversations)
+
+    This creates a unified hierarchy where root sessions are at the top
+    and delegation traces are nested under them.
 
     Args:
         db: Analytics database instance
@@ -480,8 +626,14 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
     except Exception:  # Intentional catch-all: table may already exist
         pass
 
-    # Extract traces from files
-    traces = extract_traces(storage_path, max_days)
+    # Extract delegation traces from task tool invocations
+    delegation_traces = extract_traces(storage_path, max_days)
+
+    # Extract root sessions (direct conversations)
+    root_traces = extract_root_sessions(storage_path, max_days)
+
+    # Merge both types of traces
+    traces = root_traces + delegation_traces
 
     if not traces:
         info("No traces found")
