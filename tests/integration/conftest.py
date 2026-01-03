@@ -6,11 +6,16 @@ Provides:
 - QApplication fixture for PyQt tests
 - Dashboard fixtures with mocked dependencies
 - Helper utilities for UI interaction testing
+
+Architecture note:
+The dashboard accesses data ONLY via the API client (get_api_client()).
+It does NOT access DuckDB directly. The API client is mocked in tests
+to provide controlled responses without network calls.
 """
 
 import sys
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Optional
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -99,12 +104,6 @@ class MockAnalyticsAPIClient:
         messages = self._responses.get("session_messages", {})
         return messages.get(session_id, [])
 
-    def get_session_operations(self, session_id: str) -> Optional[list]:
-        """Return configured session operations."""
-        self._log_call("get_session_operations", session_id=session_id)
-        operations = self._responses.get("session_operations", {})
-        return operations.get(session_id, [])
-
     def get_session_tokens(self, session_id: str) -> Optional[dict]:
         """Return configured session tokens."""
         self._log_call("get_session_tokens", session_id=session_id)
@@ -151,21 +150,14 @@ class MockAnalyticsAPIClient:
 
 @pytest.fixture(scope="session")
 def qapp():
-    """Create QApplication for the test session.
-
-    Uses pytest-qt's built-in qapp fixture internally.
-    This ensures proper Qt initialization and cleanup.
-    """
+    """Create QApplication for the test session."""
     from PyQt6.QtWidgets import QApplication
 
-    # Check if app already exists (pytest-qt may have created one)
     app = QApplication.instance()
     if app is None:
         app = QApplication([])
 
     yield app
-
-    # Don't quit the app here - let pytest-qt handle cleanup
 
 
 @pytest.fixture
@@ -200,13 +192,12 @@ def mock_api_factory():
 def patched_api_client(mock_api_client):
     """Patch get_api_client to return the mock client.
 
-    This fixture patches the global get_api_client function so that
-    all dashboard code uses the mock client instead of the real one.
+    This is the ONLY mock needed for the dashboard - it accesses
+    all data through the API client, not directly to DuckDB.
     """
     with patch(
         "opencode_monitor.api.client.get_api_client", return_value=mock_api_client
     ):
-        # Also patch the api module's __init__ export
         with patch("opencode_monitor.api.get_api_client", return_value=mock_api_client):
             yield mock_api_client
 
@@ -214,7 +205,6 @@ def patched_api_client(mock_api_client):
 @pytest.fixture
 def patched_monitoring():
     """Patch monitoring fetch to avoid real network calls."""
-    import asyncio
     from opencode_monitor.core.models import State, Todos
 
     async def mock_fetch():
@@ -222,7 +212,6 @@ def patched_monitoring():
             instances=[], todos=Todos(pending=0, in_progress=0), connected=False
         )
 
-    # Use side_effect to return a new coroutine each time
     mock = MagicMock(side_effect=lambda: mock_fetch())
 
     with patch("opencode_monitor.core.monitor.fetch_all_instances", mock):
@@ -260,9 +249,8 @@ def patched_security():
 def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_security):
     """Create a dashboard window with all dependencies mocked.
 
-    This is the main fixture for testing dashboard functionality.
-    It patches the API client, monitoring, and security modules to
-    avoid any real network or file operations.
+    The dashboard accesses data ONLY via the API client, which is mocked
+    by patched_api_client. No DuckDB access occurs.
 
     Args:
         qtbot: pytest-qt's qtbot fixture for UI interaction
@@ -275,26 +263,18 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
     """
     from opencode_monitor.dashboard.window import DashboardWindow
 
-    # Create window (patches are already active from fixtures)
     window = DashboardWindow()
-
-    # Register with qtbot for proper cleanup
     qtbot.addWidget(window)
-
-    # Show window (needed for some Qt operations)
     window.show()
-
-    # Process events to ensure window is fully initialized
     qtbot.waitExposed(window)
 
     yield window
 
-    # Cleanup: stop timers before closing
+    # Cleanup
     if window._refresh_timer:
         window._refresh_timer.stop()
     if window._sync_checker:
         window._sync_checker.stop()
-
     window.close()
 
 
@@ -302,10 +282,7 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
 def dashboard_window_hidden(
     qtbot, patched_api_client, patched_monitoring, patched_security
 ):
-    """Create a dashboard window without showing it.
-
-    Useful for testing initialization logic without visual display.
-    """
+    """Create a dashboard window without showing it."""
     from opencode_monitor.dashboard.window import DashboardWindow
 
     window = DashboardWindow()
@@ -317,7 +294,6 @@ def dashboard_window_hidden(
         window._refresh_timer.stop()
     if window._sync_checker:
         window._sync_checker.stop()
-
     window.close()
 
 
@@ -331,16 +307,6 @@ def wait_for_signal():
     """Fixture to wait for Qt signals with timeout."""
 
     def waiter(qtbot, signal, timeout: int = 1000) -> bool:
-        """Wait for a signal to be emitted.
-
-        Args:
-            qtbot: pytest-qt's qtbot fixture
-            signal: Qt signal to wait for
-            timeout: Maximum wait time in milliseconds
-
-        Returns:
-            True if signal was received, False if timeout
-        """
         try:
             with qtbot.waitSignal(signal, timeout=timeout):
                 return True
@@ -353,21 +319,12 @@ def wait_for_signal():
 @pytest.fixture
 def click_sidebar_item():
     """Fixture to click a sidebar navigation item."""
+    from PyQt6 import QtCore as qt_core
 
     def clicker(qtbot, sidebar, index: int) -> None:
-        """Click a sidebar item by index.
-
-        Args:
-            qtbot: pytest-qt's qtbot fixture
-            sidebar: Sidebar widget
-            index: Item index (0=Monitoring, 1=Security, etc.)
-        """
-        # Get the button at the specified index
         buttons = sidebar._buttons
         if 0 <= index < len(buttons):
             qtbot.mouseClick(buttons[index], qt_core.Qt.MouseButton.LeftButton)
-
-    from PyQt6 import QtCore as qt_core
 
     return clicker
 
