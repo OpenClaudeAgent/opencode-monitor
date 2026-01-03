@@ -2,10 +2,11 @@
 Tracing section - Agent execution traces visualization.
 
 Displays hierarchical view of agent delegations with timing and prompts.
+Provides detailed session analysis with tabs for different metrics.
 """
 
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -22,8 +23,14 @@ from PyQt6.QtWidgets import (
     QFrame,
     QPushButton,
     QHeaderView,
+    QTabWidget,
+    QListWidget,
+    QListWidgetItem,
+    QTableWidget,
+    QTableWidgetItem,
+    QGridLayout,
 )
-from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtCore import Qt, pyqtSignal, QTimer
 from PyQt6.QtGui import QFont, QColor
 
 from ..widgets import (
@@ -32,8 +39,13 @@ from ..widgets import (
     EmptyState,
     MetricsRow,
     Separator,
+    RiskBadge,
+    StatusBadge,
 )
 from ..styles import COLORS, SPACING, FONTS, RADIUS, UI
+
+if TYPE_CHECKING:
+    from ...analytics import TracingDataService
 
 
 def format_duration(ms: Optional[int]) -> str:
@@ -158,13 +170,711 @@ class CollapsibleTextEdit(QFrame):
         self._text.setPlainText(text)
 
 
+# =============================================================================
+# Tab Widgets for TraceDetailPanel
+# =============================================================================
+
+
+class HorizontalBar(QFrame):
+    """Horizontal bar chart for simple value visualization."""
+
+    def __init__(
+        self,
+        value: int,
+        max_value: int,
+        label: str = "",
+        color: str = COLORS["accent_primary"],
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._value = value
+        self._max_value = max_value
+        self._label = label
+        self._color = color
+
+        self.setMinimumHeight(28)
+        self.setMaximumHeight(32)
+
+        layout = QHBoxLayout(self)
+        layout.setContentsMargins(0, 2, 0, 2)
+        layout.setSpacing(SPACING["sm"])
+
+        # Label
+        label_widget = QLabel(label)
+        label_widget.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            min-width: 80px;
+        """)
+        layout.addWidget(label_widget)
+
+        # Bar container
+        bar_container = QFrame()
+        bar_container.setStyleSheet(f"""
+            background-color: {COLORS["bg_hover"]};
+            border-radius: 4px;
+        """)
+        bar_container.setFixedHeight(16)
+
+        bar_layout = QHBoxLayout(bar_container)
+        bar_layout.setContentsMargins(0, 0, 0, 0)
+        bar_layout.setSpacing(0)
+
+        # Bar fill
+        percentage = min(100, int((value / max_value) * 100)) if max_value > 0 else 0
+        bar_fill = QFrame()
+        bar_fill.setStyleSheet(f"""
+            background-color: {color};
+            border-radius: 4px;
+        """)
+        bar_fill.setFixedHeight(16)
+        bar_fill.setMinimumWidth(max(2, percentage * 2))
+        bar_layout.addWidget(bar_fill)
+        bar_layout.addStretch()
+
+        layout.addWidget(bar_container, stretch=1)
+
+        # Value
+        value_widget = QLabel(format_tokens_short(value))
+        value_widget.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_sm"]}px;
+            font-weight: {FONTS["weight_medium"]};
+            min-width: 50px;
+            text-align: right;
+        """)
+        value_widget.setAlignment(
+            Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter
+        )
+        layout.addWidget(value_widget)
+
+
+class PromptsTab(QWidget):
+    """Tab displaying user prompt and final output."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # User prompt section
+        self._input_section = CollapsibleTextEdit("💬 User Prompt")
+        layout.addWidget(self._input_section)
+
+        # Final output section
+        self._output_section = CollapsibleTextEdit("📤 Final Output")
+        layout.addWidget(self._output_section)
+
+        layout.addStretch()
+
+    def load_data(self, data: dict) -> None:
+        """Load prompts data from TracingDataService response."""
+        self._loaded = True
+        prompt_input = data.get("prompt_input", "")
+        prompt_output = data.get("prompt_output", "")
+
+        self._input_section.set_text(prompt_input or "(No user prompt)")
+        self._output_section.set_text(prompt_output or "(No output yet)")
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._input_section.set_text("")
+        self._output_section.set_text("")
+
+
+class TokensTab(QWidget):
+    """Tab displaying token usage breakdown with mini-charts."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["lg"])
+
+        # Summary row
+        self._summary = QLabel("")
+        self._summary.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            padding: {SPACING["sm"]}px;
+            background-color: {COLORS["bg_hover"]};
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        layout.addWidget(self._summary)
+
+        # Token breakdown section
+        breakdown_label = QLabel("Token Breakdown")
+        breakdown_label.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+        """)
+        layout.addWidget(breakdown_label)
+
+        # Bars container
+        self._bars_container = QWidget()
+        self._bars_layout = QVBoxLayout(self._bars_container)
+        self._bars_layout.setContentsMargins(0, 0, 0, 0)
+        self._bars_layout.setSpacing(SPACING["xs"])
+        layout.addWidget(self._bars_container)
+
+        # By agent section
+        agent_label = QLabel("By Agent")
+        agent_label.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            margin-top: {SPACING["md"]}px;
+        """)
+        layout.addWidget(agent_label)
+
+        self._agent_container = QWidget()
+        self._agent_layout = QVBoxLayout(self._agent_container)
+        self._agent_layout.setContentsMargins(0, 0, 0, 0)
+        self._agent_layout.setSpacing(SPACING["xs"])
+        layout.addWidget(self._agent_container)
+
+        layout.addStretch()
+
+    def load_data(self, data: dict) -> None:
+        """Load tokens data from TracingDataService response."""
+        self._loaded = True
+
+        details = data.get("details", {})
+        summary = data.get("summary", {})
+
+        # Update summary
+        total = summary.get("total", 0)
+        cache_ratio = summary.get("cache_hit_ratio", 0)
+        self._summary.setText(
+            f"Total: {format_tokens_short(total)}  •  Cache hit: {cache_ratio:.1f}%"
+        )
+
+        # Clear old bars
+        while self._bars_layout.count():
+            child = self._bars_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Add token bars
+        input_tokens = details.get("input", 0)
+        output_tokens = details.get("output", 0)
+        cache_tokens = details.get("cache_read", 0)
+        max_tokens = max(input_tokens, output_tokens, cache_tokens, 1)
+
+        self._bars_layout.addWidget(
+            HorizontalBar(input_tokens, max_tokens, "Input", COLORS["info"])
+        )
+        self._bars_layout.addWidget(
+            HorizontalBar(output_tokens, max_tokens, "Output", COLORS["success"])
+        )
+        self._bars_layout.addWidget(
+            HorizontalBar(cache_tokens, max_tokens, "Cache", COLORS["type_skill"])
+        )
+
+        # Clear old agent bars
+        while self._agent_layout.count():
+            child = self._agent_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        # Add agent bars
+        by_agent = details.get("by_agent", [])
+        if by_agent:
+            max_agent_tokens = max((a.get("tokens", 0) for a in by_agent), default=1)
+            for agent_data in by_agent[:5]:  # Top 5 agents
+                agent_name = agent_data.get("agent", "unknown")
+                tokens = agent_data.get("tokens", 0)
+                self._agent_layout.addWidget(
+                    HorizontalBar(
+                        tokens, max_agent_tokens, agent_name, COLORS["accent_primary"]
+                    )
+                )
+        else:
+            no_data = QLabel("No agent breakdown available")
+            no_data.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: {FONTS['size_sm']}px;"
+            )
+            self._agent_layout.addWidget(no_data)
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._summary.setText("")
+        while self._bars_layout.count():
+            child = self._bars_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+        while self._agent_layout.count():
+            child = self._agent_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+
+class ToolsTab(QWidget):
+    """Tab displaying tool usage statistics."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # Summary
+        self._summary = QLabel("")
+        self._summary.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            padding: {SPACING["sm"]}px;
+            background-color: {COLORS["bg_hover"]};
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        layout.addWidget(self._summary)
+
+        # Table
+        self._table = QTableWidget()
+        self._table.setColumnCount(4)
+        self._table.setHorizontalHeaderLabels(
+            ["Tool", "Count", "Avg Duration", "Errors"]
+        )
+        self._table.setAlternatingRowColors(True)
+        self._table.setShowGrid(False)
+        self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
+        self._table.verticalHeader().setVisible(False)
+
+        # Style
+        palette = self._table.palette()
+        palette.setColor(palette.ColorRole.Base, QColor(COLORS["bg_surface"]))
+        palette.setColor(palette.ColorRole.AlternateBase, QColor(COLORS["bg_elevated"]))
+        self._table.setPalette(palette)
+
+        self._table.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+            QTableWidget::item {{
+                padding: {SPACING["sm"]}px;
+                color: {COLORS["text_secondary"]};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {COLORS["sidebar_active"]};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS["bg_elevated"]};
+                color: {COLORS["text_muted"]};
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["sm"]}px;
+                border: none;
+                border-bottom: 1px solid {COLORS["border_default"]};
+            }}
+        """)
+
+        header = self._table.horizontalHeader()
+        if header:
+            header.setStretchLastSection(True)
+            header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
+
+        layout.addWidget(self._table)
+        layout.addStretch()
+
+    def load_data(self, data: dict) -> None:
+        """Load tools data from TracingDataService response."""
+        self._loaded = True
+
+        summary = data.get("summary", {})
+        details = data.get("details", {})
+
+        # Update summary
+        total = summary.get("total_calls", 0)
+        unique = summary.get("unique_tools", 0)
+        success_rate = summary.get("success_rate", 0)
+        avg_duration = summary.get("avg_duration_ms", 0)
+
+        self._summary.setText(
+            f"Total: {total} calls  •  "
+            f"Unique: {unique} tools  •  "
+            f"Success: {success_rate:.1f}%  •  "
+            f"Avg: {format_duration(avg_duration)}"
+        )
+
+        # Populate table
+        self._table.setRowCount(0)
+        top_tools = details.get("top_tools", [])
+
+        for tool in top_tools:
+            row = self._table.rowCount()
+            self._table.insertRow(row)
+
+            name_item = QTableWidgetItem(tool.get("name", ""))
+            name_item.setForeground(QColor(COLORS["text_primary"]))
+            self._table.setItem(row, 0, name_item)
+
+            count_item = QTableWidgetItem(str(tool.get("count", 0)))
+            self._table.setItem(row, 1, count_item)
+
+            duration_item = QTableWidgetItem(
+                format_duration(tool.get("avg_duration_ms"))
+            )
+            self._table.setItem(row, 2, duration_item)
+
+            errors = tool.get("error_count", 0)
+            error_item = QTableWidgetItem(str(errors))
+            if errors > 0:
+                error_item.setForeground(QColor(COLORS["error"]))
+            self._table.setItem(row, 3, error_item)
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._summary.setText("")
+        self._table.setRowCount(0)
+
+
+class FilesTab(QWidget):
+    """Tab displaying file operations with risk indicators."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # Summary
+        self._summary = QLabel("")
+        self._summary.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            padding: {SPACING["sm"]}px;
+            background-color: {COLORS["bg_hover"]};
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        layout.addWidget(self._summary)
+
+        # Operations breakdown
+        self._operations_container = QWidget()
+        ops_layout = QGridLayout(self._operations_container)
+        ops_layout.setContentsMargins(0, SPACING["sm"], 0, 0)
+        ops_layout.setSpacing(SPACING["md"])
+
+        # Create operation cards
+        self._reads_card = self._create_op_card("📖 Reads", "0", COLORS["type_read"])
+        self._writes_card = self._create_op_card("✏️ Writes", "0", COLORS["type_write"])
+        self._edits_card = self._create_op_card("📝 Edits", "0", COLORS["type_edit"])
+        self._risk_card = self._create_op_card("⚠️ High Risk", "0", COLORS["error"])
+
+        ops_layout.addWidget(self._reads_card, 0, 0)
+        ops_layout.addWidget(self._writes_card, 0, 1)
+        ops_layout.addWidget(self._edits_card, 1, 0)
+        ops_layout.addWidget(self._risk_card, 1, 1)
+
+        layout.addWidget(self._operations_container)
+        layout.addStretch()
+
+    def _create_op_card(self, label: str, value: str, color: str) -> QFrame:
+        """Create a small operation card."""
+        card = QFrame()
+        card.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_hover"]};
+                border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["md"]}px;
+            }}
+        """)
+
+        card_layout = QVBoxLayout(card)
+        card_layout.setContentsMargins(
+            SPACING["md"], SPACING["md"], SPACING["md"], SPACING["md"]
+        )
+        card_layout.setSpacing(SPACING["xs"])
+
+        value_label = QLabel(value)
+        value_label.setObjectName("value")
+        value_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xl"]}px;
+            font-weight: {FONTS["weight_bold"]};
+            color: {color};
+        """)
+        value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(value_label)
+
+        text_label = QLabel(label)
+        text_label.setStyleSheet(f"""
+            font-size: {FONTS["size_sm"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        text_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        card_layout.addWidget(text_label)
+
+        return card
+
+    def _update_card_value(self, card: QFrame, value: str) -> None:
+        """Update the value in an operation card."""
+        value_label = card.findChild(QLabel, "value")
+        if value_label:
+            value_label.setText(value)
+
+    def load_data(self, data: dict) -> None:
+        """Load files data from TracingDataService response."""
+        self._loaded = True
+
+        summary = data.get("summary", {})
+
+        reads = summary.get("total_reads", 0)
+        writes = summary.get("total_writes", 0)
+        edits = summary.get("total_edits", 0)
+        high_risk = summary.get("high_risk_count", 0)
+
+        self._summary.setText(
+            f"Total operations: {reads + writes + edits}  •  High risk: {high_risk}"
+        )
+
+        self._update_card_value(self._reads_card, str(reads))
+        self._update_card_value(self._writes_card, str(writes))
+        self._update_card_value(self._edits_card, str(edits))
+        self._update_card_value(self._risk_card, str(high_risk))
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._summary.setText("")
+        self._update_card_value(self._reads_card, "0")
+        self._update_card_value(self._writes_card, "0")
+        self._update_card_value(self._edits_card, "0")
+        self._update_card_value(self._risk_card, "0")
+
+
+class AgentsTab(QWidget):
+    """Tab displaying agent hierarchy with delegation info."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # Summary
+        self._summary = QLabel("")
+        self._summary.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            padding: {SPACING["sm"]}px;
+            background-color: {COLORS["bg_hover"]};
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        layout.addWidget(self._summary)
+
+        # Agents list
+        self._list = QListWidget()
+        self._list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+            QListWidget::item {{
+                padding: {SPACING["sm"]}px {SPACING["md"]}px;
+                border-bottom: 1px solid {COLORS["border_subtle"]};
+                color: {COLORS["text_secondary"]};
+            }}
+            QListWidget::item:selected {{
+                background-color: {COLORS["sidebar_active"]};
+            }}
+            QListWidget::item:hover {{
+                background-color: {COLORS["bg_hover"]};
+            }}
+        """)
+        layout.addWidget(self._list)
+
+    def load_data(self, agents: list[dict]) -> None:
+        """Load agents data from TracingDataService response."""
+        self._loaded = True
+
+        self._list.clear()
+
+        if not agents:
+            self._summary.setText("No agent data available")
+            return
+
+        # Update summary
+        total_agents = len(agents)
+        total_tokens = sum(a.get("tokens", 0) for a in agents)
+        self._summary.setText(
+            f"Agents: {total_agents}  •  "
+            f"Total tokens: {format_tokens_short(total_tokens)}"
+        )
+
+        # Add agents to list
+        for agent in agents:
+            name = agent.get("agent", "unknown")
+            tokens = agent.get("tokens", 0)
+            msg_count = agent.get("message_count", 0)
+
+            item = QListWidgetItem(
+                f"🤖 {name}  •  {format_tokens_short(tokens)} tokens  •  {msg_count} messages"
+            )
+            self._list.addItem(item)
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._summary.setText("")
+        self._list.clear()
+
+
+class TimelineTab(QWidget):
+    """Tab displaying chronological timeline of events."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # Summary
+        self._summary = QLabel("")
+        self._summary.setStyleSheet(f"""
+            color: {COLORS["text_secondary"]};
+            font-size: {FONTS["size_sm"]}px;
+            padding: {SPACING["sm"]}px;
+            background-color: {COLORS["bg_hover"]};
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        layout.addWidget(self._summary)
+
+        # Timeline list
+        self._list = QListWidget()
+        self._list.setStyleSheet(f"""
+            QListWidget {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+            QListWidget::item {{
+                padding: {SPACING["sm"]}px {SPACING["md"]}px;
+                border-bottom: 1px solid {COLORS["border_subtle"]};
+                font-family: {FONTS["mono"]};
+                font-size: {FONTS["size_sm"]}px;
+            }}
+            QListWidget::item:selected {{
+                background-color: {COLORS["sidebar_active"]};
+            }}
+        """)
+        layout.addWidget(self._list)
+
+    def load_data(self, events: list[dict]) -> None:
+        """Load timeline data from TracingDataService response."""
+        self._loaded = True
+
+        self._list.clear()
+
+        if not events:
+            self._summary.setText("No events recorded")
+            return
+
+        # Update summary
+        total_events = len(events)
+        tool_events = len([e for e in events if e.get("type") == "tool"])
+        msg_events = len([e for e in events if e.get("type") == "message"])
+
+        self._summary.setText(
+            f"Events: {total_events}  •  "
+            f"Messages: {msg_events}  •  "
+            f"Tools: {tool_events}"
+        )
+
+        # Add events to list
+        for event in events[:50]:  # Limit to 50 events
+            event_type = event.get("type", "")
+            timestamp = event.get("timestamp", "")
+
+            if event_type == "message":
+                role = event.get("role", "")
+                tokens = event.get("tokens_in", 0) + event.get("tokens_out", 0)
+                icon = "💬" if role == "user" else "🤖"
+                text = f"{timestamp[:19]}  {icon} {role}  ({format_tokens_short(tokens)} tokens)"
+            elif event_type == "tool":
+                tool_name = event.get("tool_name", "")
+                status = event.get("status", "")
+                duration = event.get("duration_ms", 0)
+                icon = (
+                    "✅"
+                    if status == "completed"
+                    else "❌"
+                    if status == "error"
+                    else "⏳"
+                )
+                text = f"{timestamp[:19]}  🔧 {tool_name} {icon} ({format_duration(duration)})"
+            else:
+                text = f"{timestamp[:19]}  {event_type}"
+
+            item = QListWidgetItem(text)
+            if event_type == "tool" and event.get("status") == "error":
+                item.setForeground(QColor(COLORS["error"]))
+            else:
+                item.setForeground(QColor(COLORS["text_secondary"]))
+            self._list.addItem(item)
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        self._summary.setText("")
+        self._list.clear()
+
+
+# =============================================================================
+# Main TraceDetailPanel with Tabs
+# =============================================================================
+
+
 class TraceDetailPanel(QFrame):
-    """Panel showing detailed trace information."""
+    """Panel showing detailed trace/session information with tabbed sections.
+
+    Features:
+    - Header with key metrics (duration, tokens, tools, files, agents, status)
+    - 6 tabs: Prompts, Tokens, Tools, Files, Agents, Timeline
+    - Lazy loading: only loads data for the active tab
+    - TracingDataService integration
+    """
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self.setObjectName("trace-detail")
-        self.setMinimumWidth(350)
+        self.setMinimumWidth(400)
+
+        # TracingDataService instance (lazy loaded)
+        self._service: Optional["TracingDataService"] = None
+        self._current_session_id: Optional[str] = None
+        self._current_data: dict = {}
+
         self.setStyleSheet(f"""
             QFrame#trace-detail {{
                 background-color: {COLORS["bg_surface"]};
@@ -179,71 +889,308 @@ class TraceDetailPanel(QFrame):
         )
         layout.setSpacing(SPACING["md"])
 
-        # Header
-        self._header = QLabel("Select a trace")
-        self._header.setStyleSheet(f"""
-            font-size: {FONTS["size_lg"]}px;
-            font-weight: {FONTS["weight_semibold"]};
-            color: {COLORS["text_muted"]};
-        """)
-        layout.addWidget(self._header)
+        # === Header Section ===
+        self._setup_header(layout)
 
-        # Metrics line
-        self._metrics_line = QLabel("")
-        self._metrics_line.setStyleSheet(f"""
-            font-size: {FONTS["size_sm"]}px;
-            color: {COLORS["text_secondary"]};
-        """)
-        self._metrics_line.setWordWrap(True)
-        layout.addWidget(self._metrics_line)
+        # === Metrics Row ===
+        self._setup_metrics(layout)
 
-        # Separator
+        # === Separator ===
         sep = QFrame()
         sep.setFrameShape(QFrame.Shape.HLine)
         sep.setStyleSheet(f"background-color: {COLORS['border_default']};")
         sep.setFixedHeight(1)
         layout.addWidget(sep)
 
-        # Scroll area for prompts
-        scroll = QScrollArea()
-        scroll.setWidgetResizable(True)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        scroll.setFrameShape(QScrollArea.Shape.NoFrame)
+        # === Tab Widget ===
+        self._setup_tabs(layout)
 
-        content = QWidget()
-        content_layout = QVBoxLayout(content)
-        content_layout.setContentsMargins(0, 0, SPACING["sm"], 0)
-        content_layout.setSpacing(SPACING["md"])
+    def _setup_header(self, layout: QVBoxLayout) -> None:
+        """Setup header with title and status."""
+        header_row = QHBoxLayout()
+        header_row.setSpacing(SPACING["sm"])
 
-        # Prompt Input
-        self._input_section = CollapsibleTextEdit("Prompt Input")
-        content_layout.addWidget(self._input_section)
-
-        # Prompt Output
-        self._output_section = CollapsibleTextEdit("Prompt Output")
-        content_layout.addWidget(self._output_section)
-
-        # Tools Used
-        self._tools_label = QLabel("Tools Used")
-        self._tools_label.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_sm"]}px;
-            font-weight: {FONTS["weight_medium"]};
-            margin-top: {SPACING["sm"]}px;
-        """)
-        content_layout.addWidget(self._tools_label)
-
-        self._tools_text = QLabel("-")
-        self._tools_text.setStyleSheet(f"""
+        self._header = QLabel("Select a session")
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_muted"]};
-            font-size: {FONTS["size_sm"]}px;
         """)
-        self._tools_text.setWordWrap(True)
-        content_layout.addWidget(self._tools_text)
+        header_row.addWidget(self._header)
+        header_row.addStretch()
 
-        content_layout.addStretch()
-        scroll.setWidget(content)
-        layout.addWidget(scroll)
+        self._status_badge = QLabel("")
+        self._status_badge.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+            border-radius: {RADIUS["sm"]}px;
+            background-color: {COLORS["success_muted"]};
+            color: {COLORS["success"]};
+        """)
+        self._status_badge.hide()
+        header_row.addWidget(self._status_badge)
+
+        layout.addLayout(header_row)
+
+    def _setup_metrics(self, layout: QVBoxLayout) -> None:
+        """Setup metrics row with key KPIs."""
+        metrics_container = QFrame()
+        metrics_container.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_hover"]};
+                border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
+            }}
+        """)
+
+        metrics_layout = QHBoxLayout(metrics_container)
+        metrics_layout.setContentsMargins(
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
+        )
+        metrics_layout.setSpacing(SPACING["lg"])
+
+        # Create metrics labels
+        self._metric_duration = self._create_metric("⏱", "0s", "Duration")
+        self._metric_tokens = self._create_metric("🎫", "0", "Tokens")
+        self._metric_tools = self._create_metric("🔧", "0", "Tools")
+        self._metric_files = self._create_metric("📁", "0", "Files")
+        self._metric_agents = self._create_metric("🤖", "0", "Agents")
+
+        metrics_layout.addWidget(self._metric_duration)
+        metrics_layout.addWidget(self._metric_tokens)
+        metrics_layout.addWidget(self._metric_tools)
+        metrics_layout.addWidget(self._metric_files)
+        metrics_layout.addWidget(self._metric_agents)
+        metrics_layout.addStretch()
+
+        layout.addWidget(metrics_container)
+
+    def _create_metric(self, icon: str, value: str, label: str) -> QWidget:
+        """Create a single metric widget."""
+        widget = QWidget()
+        widget_layout = QVBoxLayout(widget)
+        widget_layout.setContentsMargins(0, 0, 0, 0)
+        widget_layout.setSpacing(2)
+
+        # Value with icon
+        value_label = QLabel(f"{icon} {value}")
+        value_label.setObjectName("metric_value")
+        value_label.setStyleSheet(f"""
+            font-size: {FONTS["size_md"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+        widget_layout.addWidget(value_label)
+
+        # Label
+        label_widget = QLabel(label)
+        label_widget.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        widget_layout.addWidget(label_widget)
+
+        return widget
+
+    def _update_metric(self, metric_widget: QWidget, icon: str, value: str) -> None:
+        """Update a metric widget's value."""
+        value_label = metric_widget.findChild(QLabel, "metric_value")
+        if value_label:
+            value_label.setText(f"{icon} {value}")
+
+    def _setup_tabs(self, layout: QVBoxLayout) -> None:
+        """Setup tab widget with 6 sections."""
+        self._tabs = QTabWidget()
+        self._tabs.setStyleSheet(f"""
+            QTabWidget::pane {{
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
+                background-color: {COLORS["bg_surface"]};
+                padding: {SPACING["sm"]}px;
+            }}
+            QTabBar::tab {{
+                background-color: {COLORS["bg_elevated"]};
+                color: {COLORS["text_secondary"]};
+                padding: {SPACING["sm"]}px {SPACING["md"]}px;
+                margin-right: 2px;
+                border-top-left-radius: {RADIUS["sm"]}px;
+                border-top-right-radius: {RADIUS["sm"]}px;
+                font-size: {FONTS["size_sm"]}px;
+            }}
+            QTabBar::tab:selected {{
+                background-color: {COLORS["accent_primary_muted"]};
+                color: {COLORS["accent_primary"]};
+                font-weight: {FONTS["weight_semibold"]};
+            }}
+            QTabBar::tab:hover:!selected {{
+                background-color: {COLORS["bg_hover"]};
+                color: {COLORS["text_primary"]};
+            }}
+        """)
+
+        # Create tabs
+        self._prompts_tab = PromptsTab()
+        self._tokens_tab = TokensTab()
+        self._tools_tab = ToolsTab()
+        self._files_tab = FilesTab()
+        self._agents_tab = AgentsTab()
+        self._timeline_tab = TimelineTab()
+
+        self._tabs.addTab(self._prompts_tab, "💬 Prompts")
+        self._tabs.addTab(self._tokens_tab, "📊 Tokens")
+        self._tabs.addTab(self._tools_tab, "🔧 Tools")
+        self._tabs.addTab(self._files_tab, "📁 Files")
+        self._tabs.addTab(self._agents_tab, "🤖 Agents")
+        self._tabs.addTab(self._timeline_tab, "⏱ Timeline")
+
+        # Connect tab change for lazy loading
+        self._tabs.currentChanged.connect(self._on_tab_changed)
+
+        layout.addWidget(self._tabs)
+
+    def _get_service(self) -> "TracingDataService":
+        """Lazy load TracingDataService."""
+        if self._service is None:
+            from ...analytics import TracingDataService
+
+            self._service = TracingDataService()
+        return self._service
+
+    def _on_tab_changed(self, index: int) -> None:
+        """Handle tab change - load data for new tab if needed."""
+        if not self._current_session_id:
+            return
+
+        # Load data for the selected tab
+        self._load_tab_data(index)
+
+    def _load_tab_data(self, tab_index: int) -> None:
+        """Load data for a specific tab."""
+        if not self._current_session_id:
+            return
+
+        service = self._get_service()
+
+        try:
+            if tab_index == 0:  # Prompts
+                if not self._prompts_tab.is_loaded():
+                    self._prompts_tab.load_data(self._current_data)
+            elif tab_index == 1:  # Tokens
+                if not self._tokens_tab.is_loaded():
+                    data = service.get_session_tokens(self._current_session_id)
+                    self._tokens_tab.load_data(data)
+            elif tab_index == 2:  # Tools
+                if not self._tools_tab.is_loaded():
+                    data = service.get_session_tools(self._current_session_id)
+                    self._tools_tab.load_data(data)
+            elif tab_index == 3:  # Files
+                if not self._files_tab.is_loaded():
+                    data = service.get_session_files(self._current_session_id)
+                    self._files_tab.load_data(data)
+            elif tab_index == 4:  # Agents
+                if not self._agents_tab.is_loaded():
+                    agents = service.get_session_agents(self._current_session_id)
+                    self._agents_tab.load_data(agents)
+            elif tab_index == 5:  # Timeline
+                if not self._timeline_tab.is_loaded():
+                    events = service.get_session_timeline(self._current_session_id)
+                    self._timeline_tab.load_data(events)
+        except Exception as e:
+            from ...utils.logger import debug
+
+            debug(f"Failed to load tab data: {e}")
+
+    def show_session_summary(self, session_id: str) -> None:
+        """Display complete session summary using TracingDataService.
+
+        This is the main entry point for displaying session details.
+        Loads summary data and updates all metrics. Tab data is lazy loaded.
+        """
+        import os
+
+        self._current_session_id = session_id
+
+        # Clear all tabs
+        self._clear_tabs()
+
+        # Get summary from service
+        service = self._get_service()
+        summary = service.get_session_summary(session_id)
+
+        self._current_data = summary
+        meta = summary.get("meta", {})
+        s = summary.get("summary", {})
+        details = summary.get("details", {})
+
+        # Update header
+        title = meta.get("title", "")
+        directory = meta.get("directory", "")
+        project_name = os.path.basename(directory) if directory else "Session"
+
+        if title:
+            header_text = f"🌳 {project_name}"
+        else:
+            header_text = f"🌳 {project_name}"
+
+        self._header.setText(header_text)
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+
+        # Update status badge
+        status = s.get("status", "completed")
+        if status == "completed":
+            self._status_badge.setText("✅ Completed")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["success_muted"]};
+                color: {COLORS["success"]};
+            """)
+        elif status == "running":
+            self._status_badge.setText("⏳ Running")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["warning_muted"]};
+                color: {COLORS["warning"]};
+            """)
+        else:
+            self._status_badge.setText(f"● {status.capitalize()}")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["info_muted"]};
+                color: {COLORS["info"]};
+            """)
+        self._status_badge.show()
+
+        # Update metrics
+        duration_ms = s.get("duration_ms", 0)
+        total_tokens = s.get("total_tokens", 0)
+        total_tools = s.get("total_tool_calls", 0)
+        total_files = s.get("total_files", 0)
+        unique_agents = s.get("unique_agents", 0)
+
+        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(self._metric_tools, "🔧", str(total_tools))
+        self._update_metric(self._metric_files, "📁", str(total_files))
+        self._update_metric(self._metric_agents, "🤖", str(unique_agents))
+
+        # Load data for current tab
+        self._load_tab_data(self._tabs.currentIndex())
 
     def show_trace(
         self,
@@ -256,7 +1203,11 @@ class TraceDetailPanel(QFrame):
         prompt_output: Optional[str],
         tools_used: list[str],
     ) -> None:
-        """Display trace details."""
+        """Display trace details (legacy method for compatibility)."""
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Update header
         self._header.setText(f"Agent: {agent}")
         self._header.setStyleSheet(f"""
             font-size: {FONTS["size_lg"]}px;
@@ -264,26 +1215,58 @@ class TraceDetailPanel(QFrame):
             color: {COLORS["text_primary"]};
         """)
 
-        # Metrics
-        duration_str = format_duration(duration_ms)
-        tokens_str = f"{format_tokens_short(tokens_in)} in / {format_tokens_short(tokens_out)} out"
-        self._metrics_line.setText(
-            f"Duration: {duration_str}  •  Tokens: {tokens_str}  •  Status: {status}"
-        )
-
-        # Reset section titles for trace view
-        self._input_section.set_title("Prompt Input")
-        self._output_section.set_title("Prompt Output")
-
-        # Prompts
-        self._input_section.set_text(prompt_input or "(No input)")
-        self._output_section.set_text(prompt_output or "(No output)")
-
-        # Tools
-        if tools_used:
-            self._tools_text.setText(", ".join(tools_used))
+        # Update status badge
+        if status == "completed":
+            self._status_badge.setText("✅ Completed")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["success_muted"]};
+                color: {COLORS["success"]};
+            """)
+        elif status == "error":
+            self._status_badge.setText("❌ Error")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["error_muted"]};
+                color: {COLORS["error"]};
+            """)
         else:
-            self._tools_text.setText("-")
+            self._status_badge.setText("⏳ Running")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["warning_muted"]};
+                color: {COLORS["warning"]};
+            """)
+        self._status_badge.show()
+
+        # Update metrics
+        total_tokens = (tokens_in or 0) + (tokens_out or 0)
+        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(self._metric_tools, "🔧", str(len(tools_used)))
+        self._update_metric(self._metric_files, "📁", "-")
+        self._update_metric(self._metric_agents, "🤖", "1")
+
+        # Store for prompts tab
+        self._current_data = {
+            "prompt_input": prompt_input,
+            "prompt_output": prompt_output,
+        }
+
+        # Load prompts tab (default)
+        self._prompts_tab.load_data(self._current_data)
+        self._tabs.setCurrentIndex(0)
 
     def show_session(
         self,
@@ -296,30 +1279,21 @@ class TraceDetailPanel(QFrame):
         children_count: int,
         prompt_input: Optional[str] = None,
     ) -> None:
-        """Display session details.
-
-        Args:
-            title: Session title
-            agent_type: Type of agent running in this session
-            parent_agent: Agent that delegated to this session
-            directory: Working directory
-            created_at: Creation timestamp
-            trace_count: Number of traces in session
-            children_count: Number of child sessions
-            prompt_input: First user message (for ROOT sessions)
-        """
+        """Display session details (legacy method for compatibility)."""
         import os
 
-        # Determine if this is a ROOT session (no parent)
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Determine if this is a ROOT session
         is_root = parent_agent is None and agent_type is None
 
-        # Header with session info
+        # Update header
         if agent_type and parent_agent:
             header_text = f"🔗 {agent_type} ← {parent_agent}"
         elif agent_type:
             header_text = f"Agent: {agent_type}"
         else:
-            # Root session - show project name with tree icon
             project_name = os.path.basename(directory) if directory else "Session"
             header_text = f"🌳 {project_name}"
 
@@ -330,70 +1304,73 @@ class TraceDetailPanel(QFrame):
             color: {COLORS["text_primary"]};
         """)
 
-        # Metrics line with session info
-        parts = []
-        if created_at:
-            parts.append(f"📅 {created_at.strftime('%Y-%m-%d %H:%M')}")
-        if parent_agent:
-            parts.append(f"⬅ Appelé par {parent_agent}")
+        # Status badge
+        self._status_badge.setText("📁 Session")
+        self._status_badge.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+            border-radius: {RADIUS["sm"]}px;
+            background-color: {COLORS["info_muted"]};
+            color: {COLORS["info"]};
+        """)
+        self._status_badge.show()
+
+        # Update metrics
+        self._update_metric(self._metric_duration, "⏱", "-")
+        self._update_metric(self._metric_tokens, "🎫", "-")
+        self._update_metric(self._metric_tools, "🔧", "-")
+        self._update_metric(self._metric_files, "📁", str(trace_count))
+        self._update_metric(self._metric_agents, "🤖", str(children_count))
+
+        # Store for prompts tab
+        output_text = f"Directory: {directory}\n"
         if is_root:
-            parts.append("🌳 ROOT session")
-        if trace_count > 0:
-            parts.append(f"📊 {trace_count} traces")
-        if children_count > 0:
-            parts.append(f"🔗 {children_count} sous-agents")
+            output_text += "Type: Direct user conversation\n"
+        output_text += f"Traces: {trace_count}\n"
+        output_text += f"Sub-agents: {children_count}"
 
-        self._metrics_line.setText("  •  ".join(parts) if parts else "")
+        self._current_data = {
+            "prompt_input": prompt_input or title or "(No prompt)",
+            "prompt_output": output_text,
+        }
 
-        # Adapt section titles based on session type
-        if is_root:
-            self._input_section.set_title("💬 User Prompt")
-            self._output_section.set_title("📁 Project Info")
-        else:
-            self._input_section.set_title("📝 Task Description")
-            self._output_section.set_title("📁 Project Info")
+        # Load prompts tab
+        self._prompts_tab.load_data(self._current_data)
+        self._tabs.setCurrentIndex(0)
 
-        # Show prompt/title in first section
-        if prompt_input:
-            # For ROOT sessions, show the actual user prompt
-            self._input_section.set_text(prompt_input)
-        elif title:
-            # Clean up title - remove (@agent) suffix if present
-            import re
-
-            clean_title = re.sub(r"\s*\(@\w+.*\)$", "", title)
-            self._input_section.set_text(
-                clean_title if clean_title else "(No description)"
-            )
-        else:
-            self._input_section.set_text("(No prompt)")
-
-        # Show project info in second section
-        project_info_parts = []
-        if directory:
-            project_info_parts.append(f"Directory: {directory}")
-        if is_root:
-            project_info_parts.append("Type: Direct user conversation")
-        project_info_parts.append(f"Traces in session: {trace_count}")
-        project_info_parts.append(f"Delegated sub-agents: {children_count}")
-
-        self._output_section.set_text("\n".join(project_info_parts))
-
-        # Clear tools
-        self._tools_text.setText("-")
+    def _clear_tabs(self) -> None:
+        """Clear all tab data."""
+        self._prompts_tab.clear()
+        self._tokens_tab.clear()
+        self._tools_tab.clear()
+        self._files_tab.clear()
+        self._agents_tab.clear()
+        self._timeline_tab.clear()
 
     def clear(self) -> None:
         """Clear all trace details."""
-        self._header.setText("Select a trace")
+        self._current_session_id = None
+        self._current_data = {}
+
+        self._header.setText("Select a session")
         self._header.setStyleSheet(f"""
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_muted"]};
         """)
-        self._metrics_line.setText("")
-        self._input_section.set_text("")
-        self._output_section.set_text("")
-        self._tools_text.setText("-")
+
+        self._status_badge.hide()
+
+        # Reset metrics
+        self._update_metric(self._metric_duration, "⏱", "0s")
+        self._update_metric(self._metric_tokens, "🎫", "0")
+        self._update_metric(self._metric_tools, "🔧", "0")
+        self._update_metric(self._metric_files, "📁", "0")
+        self._update_metric(self._metric_agents, "🤖", "0")
+
+        # Clear tabs
+        self._clear_tabs()
 
 
 class TracingSection(QWidget):
@@ -665,47 +1642,24 @@ class TracingSection(QWidget):
             self._populate_tree(self._traces_data)
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        """Handle click on tree item - show details."""
+        """Handle click on tree item - show details.
+
+        In sessions view: Uses TracingDataService for rich session summary
+        In traces view: Shows trace details with prompts
+        """
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
             return
 
         if self._view_mode == "sessions":
-            # Session clicked - find associated trace to show prompts
+            # Session clicked - use TracingDataService for full summary
             session_id = data.get("session_id")
 
-            # Search for a trace where child_session_id matches this session
-            # (the trace that CREATED this session via delegation)
-            matching_trace = None
-            for trace in self._traces_data:
-                if trace.get("child_session_id") == session_id:
-                    matching_trace = trace
-                    break
-
-            # Also check if this session directly contains traces
-            if not matching_trace:
-                for trace in self._traces_data:
-                    if trace.get("session_id") == session_id:
-                        matching_trace = trace
-                        break
-
-            if matching_trace:
-                # Found a trace - show its prompts
-                self._detail_panel.show_trace(
-                    agent=matching_trace.get(
-                        "subagent_type", data.get("agent_type", "unknown")
-                    ),
-                    duration_ms=matching_trace.get("duration_ms"),
-                    tokens_in=matching_trace.get("tokens_in"),
-                    tokens_out=matching_trace.get("tokens_out"),
-                    status=matching_trace.get("status", ""),
-                    prompt_input=matching_trace.get("prompt_input", ""),
-                    prompt_output=matching_trace.get("prompt_output"),
-                    tools_used=matching_trace.get("tools_used", []),
-                )
+            if session_id:
+                # Use new show_session_summary for rich data
+                self._detail_panel.show_session_summary(session_id)
             else:
-                # No trace found - show session info as fallback
-                # For ROOT sessions, prompt_input may be stored in data
+                # Fallback to legacy method if no session_id
                 self._detail_panel.show_session(
                     title=data.get("title", ""),
                     agent_type=data.get("agent_type"),
