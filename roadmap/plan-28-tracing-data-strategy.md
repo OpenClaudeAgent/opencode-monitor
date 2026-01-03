@@ -288,12 +288,40 @@ Chaque réponse suit ce format :
 
 ## Checklist de validation
 
-- [ ] Inventaire complet des données collectables documenté
-- [ ] Schema DuckDB migré avec nouvelles tables
-- [ ] Collecte enrichie pour tool_calls, file_operations, messages
-- [ ] TracingDataService implémenté avec toutes les méthodes
-- [ ] get_session_summary retourne tous les KPIs listés
-- [ ] Tables d'agrégation session_stats et daily_stats fonctionnelles
-- [ ] Temps de réponse < 100ms pour get_session_summary
-- [ ] Tests unitaires pour chaque méthode du service
-- [ ] Documentation du format de sortie
+- [x] Inventaire complet des données collectables documenté
+- [x] Schema DuckDB migré avec nouvelles tables
+- [x] Collecte enrichie pour tool_calls, file_operations, messages
+- [x] TracingDataService implémenté avec toutes les méthodes
+- [x] get_session_summary retourne tous les KPIs listés
+- [x] Tables d'agrégation session_stats et daily_stats fonctionnelles
+- [x] Temps de réponse < 100ms pour get_session_summary
+- [x] Tests unitaires pour chaque méthode du service
+- [x] Documentation du format de sortie
+
+## Implémentation (2026-01-03)
+
+### Fichiers créés/modifiés
+
+| Fichier | Action | Description |
+|---------|--------|-------------|
+| `src/opencode_monitor/analytics/tracing_service.py` | Créé | TracingDataService complet (916 lignes) |
+| `src/opencode_monitor/analytics/db.py` | Modifié | +3 tables, +colonnes, +index |
+| `src/opencode_monitor/analytics/loader.py` | Modifié | +load_file_operations() |
+| `src/opencode_monitor/analytics/__init__.py` | Modifié | Export TracingDataService |
+| `tests/test_tracing_service.py` | Créé | 22 tests (100% pass) |
+
+### Nouvelles tables DuckDB
+
+- `file_operations` : tracking read/write/edit avec risk_level
+- `session_stats` : agrégation pré-calculée par session
+- `daily_stats` : agrégation quotidienne
+
+### Nouvelles colonnes
+
+- `parts` : arguments, result_summary, error_message
+- `sessions` : ended_at, duration_ms, is_root, project_name
+
+### Tests
+
+- 22 tests créés, 22 passent
+- Tests de performance validant < 100ms

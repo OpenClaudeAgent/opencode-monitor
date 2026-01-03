@@ -40,7 +40,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 25 | Open Session in Terminal | [plan-25](./plan-25-open-session-terminal.md) | `feature/open-terminal` | v2.18.0 | Termine |
 | 26 | DB Concurrency (menubar sync) | [plan-26](./plan-26-db-concurrency.md) | `feature/db-concurrency` | v0.8.2 | Termine |
 | 27 | Root Sessions Tracing | [plan-27](./plan-27-root-sessions-tracing.md) | `feature/root-sessions-tracing` | v0.8.1 | Termine |
-| 28 | Tracing Data Strategy | [plan-28](./plan-28-tracing-data-strategy.md) | `feature/tracing-data` | - | En attente |
+| 28 | Tracing Data Strategy | [plan-28](./plan-28-tracing-data-strategy.md) | `feature/tracing-data` | v0.9.0 | Termine |
 | 29 | Tracing UI Adaptation | [plan-29](./plan-29-tracing-ui-adaptation.md) | `feature/tracing-ui` | - | En attente |
 | 30 | Tracing Bugfixes | [plan-30](./plan-30-tracing-bugfixes.md) | `feature/tracing-bugfixes` | - | En attente |
 | 31 | Tracing UX Refinement | [plan-31](./plan-31-tracing-ux-refinement.md) | `feature/tracing-ux` | - | En attente |
@@ -67,6 +67,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-03 | Plan-28 termine - TracingDataService avec schema enrichi, 3 tables agregation, 22 tests v0.9.0 |
 | 2026-01-03 | Ajout plans 28-32 - Suite Tracing complète : Data Strategy → UI Adaptation → Bugfixes → UX Refinement → Datadog Vision |
 | 2026-01-03 | Plan-26 termine - DB Concurrency avec SyncChecker polling, menubar seul writer, dashboard read-only v0.8.2 |
 | 2026-01-03 | Plan-27 termine - Root Sessions Tracing avec icones distinctives (🌳 ROOT, 🔗 CHILD) et prompts hierarchiques v0.8.1 |
