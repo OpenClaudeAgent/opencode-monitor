@@ -24,13 +24,32 @@ def get_db_path() -> Path:
     return config_dir / "analytics.duckdb"
 
 
-# Global singleton connection
+# Global singleton connection - DEPRECATED
+# WARNING: This singleton keeps a connection open indefinitely, which
+# blocks dashboard readers. Use AnalyticsDB() directly with context manager.
 _db_instance: Optional["AnalyticsDB"] = None
 _db_lock = threading.Lock()
 
 
 def get_analytics_db() -> "AnalyticsDB":
-    """Get the singleton AnalyticsDB instance."""
+    """Get the singleton AnalyticsDB instance.
+
+    DEPRECATED: This function keeps a connection open indefinitely,
+    which blocks concurrent readers (like the dashboard).
+
+    Prefer using AnalyticsDB directly with context manager:
+
+        with AnalyticsDB(read_only=True) as db:
+            stats = db.get_stats()
+
+    Or manage connection lifecycle explicitly:
+
+        db = AnalyticsDB()
+        try:
+            # ... use db ...
+        finally:
+            db.close()
+    """
     global _db_instance
     with _db_lock:
         if _db_instance is None:
@@ -41,7 +60,16 @@ def get_analytics_db() -> "AnalyticsDB":
 class AnalyticsDB:
     """Manages the DuckDB database for analytics.
 
-    Use get_analytics_db() to get the singleton instance.
+    Supports context manager for automatic connection cleanup:
+
+        with AnalyticsDB(read_only=True) as db:
+            stats = db.get_stats()
+        # Connection automatically closed
+
+    IMPORTANT for concurrency:
+    - DuckDB does not allow concurrent readers when a writer holds a lock
+    - The menubar is the sole writer; dashboard opens read_only connections
+    - Always close connections promptly to avoid blocking readers
     """
 
     def __init__(self, db_path: Optional[Path] = None, read_only: bool = False):
@@ -55,6 +83,15 @@ class AnalyticsDB:
         self._conn: Optional[duckdb.DuckDBPyConnection] = None
         self._lock = threading.Lock()
         self._read_only = read_only
+
+    def __enter__(self) -> "AnalyticsDB":
+        """Context manager entry - connects to database."""
+        self.connect()
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+        """Context manager exit - closes connection."""
+        self.close()
 
     def connect(self, read_only: Optional[bool] = None) -> duckdb.DuckDBPyConnection:
         """Get or create a database connection (thread-safe).
