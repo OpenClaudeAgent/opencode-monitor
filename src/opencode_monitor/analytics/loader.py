@@ -41,7 +41,12 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                 directory,
                 title,
                 epoch_ms(time.created) as created_at,
-                epoch_ms(time.updated) as updated_at
+                epoch_ms(time.updated) as updated_at,
+                parentID as parent_id,
+                version,
+                COALESCE(summary.additions, 0) as additions,
+                COALESCE(summary.deletions, 0) as deletions,
+                COALESCE(summary.files, 0) as files_changed
             FROM read_json_auto('{json_pattern}', 
                                 maximum_object_size=50000000,
                                 ignore_errors=true)
@@ -85,7 +90,11 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                 COALESCE(tokens.cache.read, 0) as tokens_cache_read,
                 COALESCE(tokens.cache.write, 0) as tokens_cache_write,
                 epoch_ms(time.created) as created_at,
-                epoch_ms(time.completed) as completed_at
+                epoch_ms(time.completed) as completed_at,
+                mode,
+                COALESCE(cost, 0) as cost,
+                finish as finish_reason,
+                path.cwd as working_dir
             FROM read_json_auto('{json_pattern}', 
                                 maximum_object_size=50000000,
                                 ignore_errors=true)
