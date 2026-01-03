@@ -193,9 +193,11 @@ class MonitoringSection(QWidget):
 
             for agent in agents_data:
                 status = agent.get("status", "idle")
-                title = agent.get("title", "Unknown")
-                directory = agent.get("dir", "")
-                agent_id = agent.get("agent_id", "")
+                title = agent.get("title") or "Unknown"
+                directory = agent.get("dir") or ""
+                agent_id = agent.get("agent_id") or ""
+                tools = agent.get("tools") or []
+                todos_total = agent.get("todos_total") or 0
 
                 # Add row with placeholder for status (will be replaced by widget)
                 self._agents_table.add_row(
@@ -203,8 +205,8 @@ class MonitoringSection(QWidget):
                         title,
                         directory,
                         "",  # Placeholder for status badge
-                        str(len(agent.get("tools", []))),
-                        str(agent.get("todos_total", 0)),
+                        str(len(tools)),
+                        str(todos_total),
                     ],
                     full_values=[title, directory, "", "", ""],
                 )
