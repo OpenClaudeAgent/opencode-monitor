@@ -412,6 +412,12 @@ def assert_widget_content():
 
 SIGNAL_WAIT_MS = 100  # Standard wait time for signal processing
 
+# Section indices (order in sidebar and pages)
+SECTION_MONITORING = 0
+SECTION_SECURITY = 1
+SECTION_ANALYTICS = 2
+SECTION_TRACING = 3
+
 
 @pytest.fixture
 def wait_for_signal():
@@ -432,16 +438,60 @@ def wait_for_signal():
 
 
 @pytest.fixture
-def click_sidebar_item():
-    """Fixture to click a sidebar navigation item."""
-    from PyQt6 import QtCore as qt_core
+def click_nav(qtbot):
+    """Helper to click sidebar navigation buttons.
 
-    def clicker(qtbot, sidebar, index: int) -> None:
-        buttons = sidebar._buttons
-        if 0 <= index < len(buttons):
-            qtbot.mouseClick(buttons[index], qt_core.Qt.MouseButton.LeftButton)
+    This simulates real user interaction by clicking on sidebar nav items
+    instead of directly manipulating internal state.
 
-    return clicker
+    Usage:
+        click_nav(dashboard_window, SECTION_MONITORING)
+        click_nav(dashboard_window, SECTION_TRACING)
+    """
+    from PyQt6.QtCore import Qt
+
+    def _click(dashboard_window, section_index: int) -> None:
+        """Click on sidebar nav item to navigate to section.
+
+        Args:
+            dashboard_window: The dashboard window
+            section_index: 0=Monitoring, 1=Security, 2=Analytics, 3=Tracing
+        """
+        sidebar = dashboard_window._sidebar
+        nav_items = sidebar._nav_items
+        if 0 <= section_index < len(nav_items):
+            qtbot.mouseClick(nav_items[section_index], Qt.MouseButton.LeftButton)
+            qtbot.wait(SIGNAL_WAIT_MS)
+
+    return _click
+
+
+@pytest.fixture
+def click_tab(qtbot):
+    """Helper to click on QTabWidget tabs.
+
+    This simulates real user interaction by clicking on tab bar
+    instead of directly calling setCurrentIndex().
+
+    Usage:
+        click_tab(detail._tabs, 0)  # Click first tab
+        click_tab(detail._tabs, 1)  # Click second tab
+    """
+    from PyQt6.QtCore import Qt
+
+    def _click(tab_widget, tab_index: int) -> None:
+        """Click on a tab by index.
+
+        Args:
+            tab_widget: QTabWidget instance
+            tab_index: Index of the tab to click
+        """
+        tab_bar = tab_widget.tabBar()
+        tab_rect = tab_bar.tabRect(tab_index)
+        qtbot.mouseClick(tab_bar, Qt.MouseButton.LeftButton, pos=tab_rect.center())
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+    return _click
 
 
 # =============================================================================

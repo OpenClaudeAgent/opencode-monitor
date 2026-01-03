@@ -12,15 +12,10 @@ Tests verify that:
 import pytest
 from PyQt6.QtCore import Qt
 
+from .conftest import SIGNAL_WAIT_MS, SECTION_TRACING, SECTION_MONITORING
 from .fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-SIGNAL_WAIT_MS = 100
 
 
 # =============================================================================
@@ -36,14 +31,13 @@ class TestTracingSectionExists:
         assert hasattr(dashboard_window, "_tracing")
         assert dashboard_window._tracing is not None
 
-    def test_tracing_section_in_pages(self, dashboard_window, qtbot):
+    def test_tracing_section_in_pages(self, dashboard_window, qtbot, click_nav):
         """Tracing section is in the pages stack."""
-        # Tracing should be at index 1 (after Monitoring)
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        # Navigate to Tracing via sidebar click (index 3)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         # Verify we can navigate to it
-        assert dashboard_window._pages.currentIndex() == 1
+        assert dashboard_window._pages.currentIndex() == SECTION_TRACING
 
     def test_tracing_section_has_tree(self, dashboard_window, qtbot):
         """Tracing section has a tree widget."""
@@ -62,12 +56,11 @@ class TestTracingEmptyState:
     """Test tracing section empty state behavior."""
 
     def test_tracing_section_shows_empty_state_without_data(
-        self, dashboard_window, qtbot
+        self, dashboard_window, qtbot, click_nav
     ):
         """Empty state appears when no tracing data."""
-        # Navigate to Tracing section
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        # Navigate to Tracing section via sidebar click
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
 
@@ -88,10 +81,11 @@ class TestTracingEmptyState:
         assert tracing._tree.isHidden(), "Tree should be hidden with empty data"
         assert not tracing._empty.isHidden(), "Empty state should not be hidden"
 
-    def test_tracing_empty_state_has_correct_message(self, dashboard_window, qtbot):
+    def test_tracing_empty_state_has_correct_message(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Empty state shows appropriate message."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
 
@@ -115,11 +109,10 @@ class TestTracingSessionList:
     """Test session list display with data."""
 
     def test_tracing_section_shows_session_list_with_data(
-        self, dashboard_window, qtbot
+        self, dashboard_window, qtbot, click_nav
     ):
         """Session tree populates when data is provided."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -134,10 +127,9 @@ class TestTracingSessionList:
         # Should have at least one top-level item
         assert tracing._tree.topLevelItemCount() >= 1
 
-    def test_session_tree_shows_hierarchy(self, dashboard_window, qtbot):
+    def test_session_tree_shows_hierarchy(self, dashboard_window, qtbot, click_nav):
         """Session tree displays hierarchical structure."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -157,11 +149,10 @@ class TestTracingSessionSelection:
     """Test session selection and detail panel update."""
 
     def test_tracing_session_selection_shows_detail_panel(
-        self, dashboard_window, qtbot
+        self, dashboard_window, qtbot, click_nav
     ):
         """Clicking a session updates detail panel."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -186,10 +177,11 @@ class TestTracingSessionSelection:
         # Could be project name or session info
         assert header_text, "Header should be set"
 
-    def test_session_selection_updates_metrics(self, dashboard_window, qtbot):
+    def test_session_selection_updates_metrics(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Selecting a session updates the metrics in detail panel."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -221,10 +213,11 @@ class TestTracingTabsNavigation:
         assert hasattr(detail, "_tabs")
         assert detail._tabs.count() == 6
 
-    def test_tracing_tabs_navigation(self, dashboard_window, qtbot):
+    def test_tracing_tabs_navigation(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
         """Can navigate between tabs."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -234,11 +227,10 @@ class TestTracingTabsNavigation:
         detail = tracing._detail_panel
         tabs = detail._tabs
 
-        # Navigate to each tab
+        # Navigate to each tab by clicking on tab bar
         tab_names = ["transcript", "tokens", "tools", "files", "agents", "timeline"]
         for i, name in enumerate(tab_names):
-            tabs.setCurrentIndex(i)
-            qtbot.wait(50)
+            click_tab(tabs, i)
             assert tabs.currentIndex() == i, f"Should be on {name} tab"
 
     def test_transcript_tab_is_default(self, dashboard_window, qtbot):
@@ -301,11 +293,10 @@ class TestTracingTabsNavigation:
 class TestTracingDataPersistence:
     """Test that tracing data persists across navigation."""
 
-    def test_data_persists_after_navigation(self, dashboard_window, qtbot):
+    def test_data_persists_after_navigation(self, dashboard_window, qtbot, click_nav):
         """Tracing data remains after navigating away and back."""
         # Navigate to Tracing
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         # Set data
         tracing = dashboard_window._tracing
@@ -317,12 +308,10 @@ class TestTracingDataPersistence:
         assert initial_count > 0
 
         # Navigate away to Monitoring
-        dashboard_window._pages.setCurrentIndex(0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_MONITORING)
 
         # Navigate back to Tracing
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         # Data should still be there
         assert tracing._tree.topLevelItemCount() == initial_count
@@ -336,10 +325,9 @@ class TestTracingSignals:
         tracing = dashboard_window._tracing
         assert hasattr(tracing, "open_terminal_requested")
 
-    def test_double_click_emits_signal(self, dashboard_window, qtbot):
+    def test_double_click_emits_signal(self, dashboard_window, qtbot, click_nav):
         """Double-clicking item emits open_terminal_requested signal."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -370,10 +358,11 @@ class TestTracingSignals:
 class TestTracingTabsContent:
     """Test that tabs display actual content when data is loaded."""
 
-    def test_transcript_tab_accessible_after_selection(self, dashboard_window, qtbot):
+    def test_transcript_tab_accessible_after_selection(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
         """Transcript tab is accessible and can receive content."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -392,15 +381,15 @@ class TestTracingTabsContent:
         transcript = detail._transcript_tab
         assert transcript is not None
 
-        # Tab should be visible when selected
-        detail._tabs.setCurrentIndex(0)
-        qtbot.wait(50)
+        # Tab should be visible when selected (click on tab bar)
+        click_tab(detail._tabs, 0)
         assert detail._tabs.currentIndex() == 0
 
-    def test_tokens_tab_shows_token_widgets(self, dashboard_window, qtbot):
+    def test_tokens_tab_shows_token_widgets(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
         """Tokens tab has widgets for displaying token metrics."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -414,18 +403,18 @@ class TestTracingTabsContent:
             tracing._on_item_clicked(root_item, 0)
             qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Navigate to tokens tab
+        # Navigate to tokens tab (click on tab bar)
         detail = tracing._detail_panel
-        detail._tabs.setCurrentIndex(1)  # tokens tab
-        qtbot.wait(50)
+        click_tab(detail._tabs, 1)  # tokens tab
 
         tokens_tab = detail._tokens_tab
         assert tokens_tab is not None
 
-    def test_tools_tab_shows_tool_widgets(self, dashboard_window, qtbot):
+    def test_tools_tab_shows_tool_widgets(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
         """Tools tab has widgets for displaying tool usage."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -439,18 +428,16 @@ class TestTracingTabsContent:
             tracing._on_item_clicked(root_item, 0)
             qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Navigate to tools tab
+        # Navigate to tools tab (click on tab bar)
         detail = tracing._detail_panel
-        detail._tabs.setCurrentIndex(2)  # tools tab
-        qtbot.wait(50)
+        click_tab(detail._tabs, 2)  # tools tab
 
         tools_tab = detail._tools_tab
         assert tools_tab is not None
 
-    def test_files_tab_accessible(self, dashboard_window, qtbot):
+    def test_files_tab_accessible(self, dashboard_window, qtbot, click_nav, click_tab):
         """Files tab is accessible after session selection."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -464,18 +451,16 @@ class TestTracingTabsContent:
             tracing._on_item_clicked(root_item, 0)
             qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Navigate to files tab
+        # Navigate to files tab (click on tab bar)
         detail = tracing._detail_panel
-        detail._tabs.setCurrentIndex(3)  # files tab
-        qtbot.wait(50)
+        click_tab(detail._tabs, 3)  # files tab
 
         files_tab = detail._files_tab
         assert files_tab is not None
 
-    def test_agents_tab_accessible(self, dashboard_window, qtbot):
+    def test_agents_tab_accessible(self, dashboard_window, qtbot, click_nav, click_tab):
         """Agents tab is accessible after session selection."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -489,18 +474,18 @@ class TestTracingTabsContent:
             tracing._on_item_clicked(root_item, 0)
             qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Navigate to agents tab
+        # Navigate to agents tab (click on tab bar)
         detail = tracing._detail_panel
-        detail._tabs.setCurrentIndex(4)  # agents tab
-        qtbot.wait(50)
+        click_tab(detail._tabs, 4)  # agents tab
 
         agents_tab = detail._agents_tab
         assert agents_tab is not None
 
-    def test_timeline_tab_accessible(self, dashboard_window, qtbot):
+    def test_timeline_tab_accessible(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
         """Timeline tab is accessible after session selection."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -514,18 +499,18 @@ class TestTracingTabsContent:
             tracing._on_item_clicked(root_item, 0)
             qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Navigate to timeline tab
+        # Navigate to timeline tab (click on tab bar)
         detail = tracing._detail_panel
-        detail._tabs.setCurrentIndex(5)  # timeline tab
-        qtbot.wait(50)
+        click_tab(detail._tabs, 5)  # timeline tab
 
         timeline_tab = detail._timeline_tab
         assert timeline_tab is not None
 
-    def test_detail_header_updates_on_selection(self, dashboard_window, qtbot):
+    def test_detail_header_updates_on_selection(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Detail panel header updates when session is selected."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -549,10 +534,9 @@ class TestTracingTabsContent:
             "Header should update on selection"
         )
 
-    def test_metrics_update_on_selection(self, dashboard_window, qtbot):
+    def test_metrics_update_on_selection(self, dashboard_window, qtbot, click_nav):
         """Detail panel metrics update when session is selected."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -581,10 +565,9 @@ class TestTracingTabsContent:
 class TestTracingTreeContent:
     """Test that session tree displays correct hierarchical content."""
 
-    def test_tree_root_item_has_session_info(self, dashboard_window, qtbot):
+    def test_tree_root_item_has_session_info(self, dashboard_window, qtbot, click_nav):
         """Root tree items contain session information."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -599,10 +582,9 @@ class TestTracingTreeContent:
         root_text = root_item.text(0)
         assert root_text, "Root item should have text"
 
-    def test_tree_shows_agent_children(self, dashboard_window, qtbot):
+    def test_tree_shows_agent_children(self, dashboard_window, qtbot, click_nav):
         """Tree shows child agents under root session."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
@@ -618,10 +600,9 @@ class TestTracingTreeContent:
             child_text = first_child.text(0)
             assert child_text, "Child item should have text"
 
-    def test_tree_item_has_data(self, dashboard_window, qtbot):
+    def test_tree_item_has_data(self, dashboard_window, qtbot, click_nav):
         """Tree items have associated data for selection handling."""
-        dashboard_window._pages.setCurrentIndex(1)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()

@@ -11,15 +11,16 @@ Tests verify that the dashboard:
 
 import pytest
 
+from .conftest import (
+    SIGNAL_WAIT_MS,
+    SECTION_MONITORING,
+    SECTION_SECURITY,
+    SECTION_ANALYTICS,
+    SECTION_TRACING,
+)
 from .fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-SIGNAL_WAIT_MS = 100
 
 
 # =============================================================================
@@ -30,24 +31,24 @@ SIGNAL_WAIT_MS = 100
 class TestRobustnessNavigation:
     """Test dashboard handles data during navigation gracefully."""
 
-    def test_data_during_navigation_no_crash(self, dashboard_window, qtbot):
+    def test_data_during_navigation_no_crash(self, dashboard_window, qtbot, click_nav):
         """Emitting data while navigating doesn't crash."""
         monitoring_data = MockAPIResponses.realistic_monitoring()
         tracing_data = MockAPIResponses.realistic_tracing()
         analytics_data = MockAPIResponses.realistic_analytics()
 
         for _ in range(5):
-            # Navigate rapidly and emit data
-            dashboard_window._pages.setCurrentIndex(0)
+            # Navigate rapidly and emit data via sidebar clicks
+            click_nav(dashboard_window, SECTION_MONITORING)
             dashboard_window._signals.monitoring_updated.emit(monitoring_data)
 
-            dashboard_window._pages.setCurrentIndex(1)
+            click_nav(dashboard_window, SECTION_TRACING)
             dashboard_window._signals.tracing_updated.emit(tracing_data)
 
-            dashboard_window._pages.setCurrentIndex(2)
+            click_nav(dashboard_window, SECTION_ANALYTICS)
             dashboard_window._signals.analytics_updated.emit(analytics_data)
 
-            dashboard_window._pages.setCurrentIndex(3)
+            click_nav(dashboard_window, SECTION_SECURITY)
             qtbot.wait(10)
 
         # Should not crash - window still visible
@@ -127,12 +128,12 @@ class TestRobustnessNullData:
 
         assert dashboard_window.isVisible()
 
-    def test_partial_data_no_crash(self, dashboard_window, qtbot):
+    def test_partial_data_no_crash(self, dashboard_window, qtbot, click_nav):
         """Dashboard handles partial data (from MockAPIResponses)."""
         data = MockAPIResponses.partial_data()
 
         # Navigate to tracing and emit partial data
-        dashboard_window._pages.setCurrentIndex(1)
+        click_nav(dashboard_window, SECTION_TRACING)
         dashboard_window._signals.tracing_updated.emit(
             {
                 "traces": [],
@@ -195,12 +196,12 @@ class TestRobustnessExtremeValues:
         agents_text = metrics._cards["agents"]._value_label.text()
         assert agents_text  # Not empty
 
-    def test_extreme_data_fixture(self, dashboard_window, qtbot):
+    def test_extreme_data_fixture(self, dashboard_window, qtbot, click_nav):
         """Dashboard handles extreme_data fixture without crash."""
         data = MockAPIResponses.extreme_data()
 
         # Navigate to tracing
-        dashboard_window._pages.setCurrentIndex(1)
+        click_nav(dashboard_window, SECTION_TRACING)
 
         tracing_data = {
             "traces": data.get("traces", [])[:10],  # Limit for test speed

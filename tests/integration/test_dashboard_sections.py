@@ -12,16 +12,16 @@ Tests verify that:
 import pytest
 from PyQt6.QtCore import Qt
 
+from .conftest import (
+    SIGNAL_WAIT_MS,
+    SECTION_MONITORING,
+    SECTION_SECURITY,
+    SECTION_ANALYTICS,
+    SECTION_TRACING,
+)
 from .fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
-
-
-# =============================================================================
-# Constants
-# =============================================================================
-
-SIGNAL_WAIT_MS = 100
 
 # Expected test data values (from MockAPIResponses)
 EXPECTED_MONITORING = {
@@ -60,13 +60,8 @@ EXPECTED_SECURITY = {
 
 
 # =============================================================================
-# Helper Functions (delegates to MockAPIResponses)
+# Helper Functions
 # =============================================================================
-
-
-def create_realistic_monitoring_data():
-    """Create realistic monitoring data with agents, tools, and waiting items."""
-    return MockAPIResponses.realistic_monitoring()
 
 
 def create_empty_monitoring_data():
@@ -84,16 +79,6 @@ def create_empty_monitoring_data():
     }
 
 
-def create_realistic_analytics_data():
-    """Create realistic analytics data with agents, tools, and skills."""
-    return MockAPIResponses.realistic_analytics()
-
-
-def create_realistic_security_data():
-    """Create realistic security data with commands and risk levels."""
-    return MockAPIResponses.realistic_security()
-
-
 # =============================================================================
 # Monitoring Section Tests
 # =============================================================================
@@ -104,7 +89,7 @@ class TestMonitoringSectionMetrics:
 
     def test_metrics_display_correct_values(self, dashboard_window, qtbot):
         """Verify each metric card shows the injected data."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -121,7 +106,7 @@ class TestMonitoringSectionMetrics:
     def test_metrics_update_when_data_changes(self, dashboard_window, qtbot):
         """Verify metrics update when new data arrives."""
         # Initial data
-        data1 = create_realistic_monitoring_data()
+        data1 = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data1)
         qtbot.wait(50)
 
@@ -130,7 +115,7 @@ class TestMonitoringSectionMetrics:
         assert metrics._cards["agents"]._value_label.text() == "3"
 
         # Updated data with more agents
-        data2 = create_realistic_monitoring_data()
+        data2 = MockAPIResponses.realistic_monitoring()
         data2["agents"] = 10
         data2["busy"] = 8
         dashboard_window._signals.monitoring_updated.emit(data2)
@@ -146,7 +131,7 @@ class TestMonitoringAgentsTable:
 
     def test_agents_table_shows_all_agents(self, dashboard_window, qtbot):
         """Verify agents table contains all agents from data."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -163,7 +148,7 @@ class TestMonitoringAgentsTable:
 
     def test_agents_table_shows_status_badges(self, dashboard_window, qtbot):
         """Verify status column contains StatusBadge widgets."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -181,7 +166,7 @@ class TestMonitoringAgentsTable:
 
     def test_agents_table_visible_with_data(self, dashboard_window, qtbot):
         """Table is visible when data exists, empty state is hidden."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -205,7 +190,7 @@ class TestMonitoringToolsTable:
 
     def test_tools_table_shows_running_tools(self, dashboard_window, qtbot):
         """Verify tools table contains all running tools."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -234,7 +219,7 @@ class TestMonitoringToolsTable:
 
     def test_tools_table_shows_duration(self, dashboard_window, qtbot):
         """Verify duration column shows formatted time."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -268,7 +253,7 @@ class TestMonitoringWaitingTable:
 
     def test_waiting_table_shows_pending_questions(self, dashboard_window, qtbot):
         """Verify waiting table contains agents waiting for user input."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -305,7 +290,7 @@ class TestMonitoringWaitingTable:
 
     def test_waiting_empty_state_when_none_waiting(self, dashboard_window, qtbot):
         """Empty state appears when no agents waiting."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         data["waiting_data"] = []
         data["waiting"] = 0
         dashboard_window._signals.monitoring_updated.emit(data)
@@ -326,7 +311,7 @@ class TestAnalyticsSectionMetrics:
 
     def test_metrics_display_correct_values(self, dashboard_window, qtbot):
         """Verify each analytics metric card shows the injected data."""
-        data = create_realistic_analytics_data()
+        data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -343,7 +328,7 @@ class TestAnalyticsAgentsTable:
 
     def test_agents_table_shows_usage_by_agent(self, dashboard_window, qtbot):
         """Verify agents table shows token usage per agent."""
-        data = create_realistic_analytics_data()
+        data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -360,13 +345,12 @@ class TestAnalyticsAgentsTable:
         tokens_text = table.item(0, 2).text()
         assert "1" in tokens_text and ("M" in tokens_text or "K" in tokens_text)
 
-    def test_agents_table_empty_state(self, dashboard_window, qtbot):
+    def test_agents_table_empty_state(self, dashboard_window, qtbot, click_nav):
         """Empty state when no agent data - table hidden, empty state shown."""
         # Navigate to Analytics section first
-        dashboard_window._pages.setCurrentIndex(2)
-        qtbot.wait(50)
+        click_nav(dashboard_window, SECTION_ANALYTICS)
 
-        data = create_realistic_analytics_data()
+        data = MockAPIResponses.realistic_analytics()
         data["agents"] = []
         dashboard_window._signals.analytics_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
@@ -383,7 +367,7 @@ class TestAnalyticsToolsTable:
 
     def test_tools_table_shows_tool_usage(self, dashboard_window, qtbot):
         """Verify tools table shows invocation stats."""
-        data = create_realistic_analytics_data()
+        data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -402,11 +386,10 @@ class TestAnalyticsToolsTable:
 class TestAnalyticsPeriodSelector:
     """Test period selector interactions."""
 
-    def test_period_selector_exists(self, dashboard_window, qtbot):
+    def test_period_selector_exists(self, dashboard_window, qtbot, click_nav):
         """Period selector widget exists and has correct options."""
         # Navigate to Analytics section
-        dashboard_window._pages.setCurrentIndex(2)
-        qtbot.wait(50)
+        click_nav(dashboard_window, SECTION_ANALYTICS)
 
         analytics = dashboard_window._analytics
         assert hasattr(analytics, "_period_control")
@@ -443,13 +426,12 @@ class TestAnalyticsPeriodSelector:
 class TestSecuritySectionData:
     """Test security section displays risk data correctly."""
 
-    def test_security_section_receives_data(self, dashboard_window, qtbot):
+    def test_security_section_receives_data(self, dashboard_window, qtbot, click_nav):
         """Verify security section can receive and process data."""
         # Navigate to Security section first
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -460,12 +442,11 @@ class TestSecuritySectionData:
         # Verify section is visible after navigation
         assert security.isVisible() or dashboard_window._pages.currentIndex() == 3
 
-    def test_security_section_stats_processed(self, dashboard_window, qtbot):
+    def test_security_section_stats_processed(self, dashboard_window, qtbot, click_nav):
         """Verify security stats are processed correctly."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -475,12 +456,13 @@ class TestSecuritySectionData:
         # Note: exact UI verification depends on SecuritySection implementation
         assert security is not None
 
-    def test_security_section_with_critical_commands(self, dashboard_window, qtbot):
+    def test_security_section_with_critical_commands(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Verify security section handles critical commands."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         # Ensure we have critical commands
         assert data["stats"]["critical"] == EXPECTED_SECURITY["critical"]
 
@@ -498,12 +480,11 @@ class TestSecuritySectionData:
 class TestSecuritySectionTables:
     """Test security tables display correct data with reinforced assertions."""
 
-    def test_commands_table_shows_commands(self, dashboard_window, qtbot):
+    def test_commands_table_shows_commands(self, dashboard_window, qtbot, click_nav):
         """Verify commands table shows commands from data."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -523,13 +504,12 @@ class TestSecuritySectionTables:
                 assert "rm" in cmd_text or "curl" in cmd_text or len(cmd_text) > 0
 
     def test_commands_table_shows_risk_levels(
-        self, dashboard_window, qtbot, assert_widget_content
+        self, dashboard_window, qtbot, assert_widget_content, click_nav
     ):
         """Verify commands table shows risk badges correctly."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -539,6 +519,8 @@ class TestSecuritySectionTables:
         if hasattr(security, "_commands_table"):
             table = security._commands_table
             if table.rowCount() > 0:
+                found_risk_indicator = False
+
                 # Look for risk badge widget in risk column (usually column 1 or 2)
                 for col in range(table.columnCount()):
                     widget = table.cellWidget(0, col)
@@ -548,28 +530,29 @@ class TestSecuritySectionTables:
                             level in text
                             for level in ["critical", "high", "medium", "low"]
                         ):
-                            # Found risk badge
-                            assert True
-                            return
+                            found_risk_indicator = True
+                            break
 
                 # If no widget, check text items for risk level
-                for col in range(table.columnCount()):
-                    item = table.item(0, col)
-                    if item:
-                        text = item.text().lower()
-                        if any(
-                            level in text
-                            for level in ["critical", "high", "medium", "low"]
-                        ):
-                            assert True
-                            return
+                if not found_risk_indicator:
+                    for col in range(table.columnCount()):
+                        item = table.item(0, col)
+                        if item:
+                            text = item.text().lower()
+                            if any(
+                                level in text
+                                for level in ["critical", "high", "medium", "low"]
+                            ):
+                                found_risk_indicator = True
+                                break
 
-    def test_files_table_shows_operations(self, dashboard_window, qtbot):
+                assert found_risk_indicator, "Expected risk level indicator in table"
+
+    def test_files_table_shows_operations(self, dashboard_window, qtbot, click_nav):
         """Verify files table shows read/write operations if present."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -582,12 +565,11 @@ class TestSecuritySectionTables:
             if data.get("files"):
                 assert table.rowCount() >= 0  # May be filtered
 
-    def test_security_metrics_display(self, dashboard_window, qtbot):
+    def test_security_metrics_display(self, dashboard_window, qtbot, click_nav):
         """Verify security metrics show correct values."""
-        dashboard_window._pages.setCurrentIndex(3)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_SECURITY)
 
-        data = create_realistic_security_data()
+        data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -616,28 +598,27 @@ class TestSectionVisibilityOnNavigation:
         assert dashboard_window._pages.currentIndex() == 0
         assert dashboard_window._monitoring.isVisible()
 
-    def test_analytics_visible_after_navigation(self, dashboard_window, qtbot):
+    def test_analytics_visible_after_navigation(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Analytics section visible after navigating to it."""
-        # Navigate to Analytics (index 2)
-        dashboard_window._pages.setCurrentIndex(2)
-        qtbot.wait(50)
+        # Navigate to Analytics via sidebar click
+        click_nav(dashboard_window, SECTION_ANALYTICS)
 
-        assert dashboard_window._pages.currentIndex() == 2
+        assert dashboard_window._pages.currentIndex() == SECTION_ANALYTICS
 
-    def test_data_persists_across_navigation(self, dashboard_window, qtbot):
+    def test_data_persists_across_navigation(self, dashboard_window, qtbot, click_nav):
         """Data remains after navigating away and back."""
         # Set monitoring data
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(50)
 
-        # Navigate away to Analytics
-        dashboard_window._pages.setCurrentIndex(2)
-        qtbot.wait(50)
+        # Navigate away to Analytics via sidebar click
+        click_nav(dashboard_window, SECTION_ANALYTICS)
 
-        # Navigate back to Monitoring
-        dashboard_window._pages.setCurrentIndex(0)
-        qtbot.wait(50)
+        # Navigate back to Monitoring via sidebar click
+        click_nav(dashboard_window, SECTION_MONITORING)
 
         # Data should still be there
         metrics = dashboard_window._monitoring._metrics
@@ -649,7 +630,7 @@ class TestSidebarStatusUpdate:
 
     def test_sidebar_shows_agent_count(self, dashboard_window, qtbot):
         """Sidebar status updates with agent count."""
-        data = create_realistic_monitoring_data()
+        data = MockAPIResponses.realistic_monitoring()
         dashboard_window._on_monitoring_data(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
