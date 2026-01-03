@@ -33,26 +33,44 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
     cutoff_ts = int((datetime.now() - timedelta(days=max_days)).timestamp() * 1000)
 
     try:
+        # Load base columns (always present in all JSON files)
         conn.execute(f"""
-            INSERT OR REPLACE INTO sessions
+            INSERT OR REPLACE INTO sessions (id, project_id, directory, title, created_at, updated_at)
             SELECT
                 id,
                 projectID as project_id,
                 directory,
                 title,
                 epoch_ms(time.created) as created_at,
-                epoch_ms(time.updated) as updated_at,
-                parentID as parent_id,
-                version,
-                COALESCE(summary.additions, 0) as additions,
-                COALESCE(summary.deletions, 0) as deletions,
-                COALESCE(summary.files, 0) as files_changed
+                epoch_ms(time.updated) as updated_at
             FROM read_json_auto('{json_pattern}', 
                                 maximum_object_size=50000000,
                                 ignore_errors=true)
             WHERE id IS NOT NULL
               AND time.created >= {cutoff_ts}
         """)
+
+        # Update enriched columns if available in JSON (newer OpenCode versions)
+        try:
+            conn.execute(f"""
+                UPDATE sessions SET
+                    parent_id = src.parentID,
+                    version = src.version,
+                    additions = COALESCE(src.summary.additions, 0),
+                    deletions = COALESCE(src.summary.deletions, 0),
+                    files_changed = COALESCE(src.summary.files, 0)
+                FROM (
+                    SELECT id, parentID, version, summary
+                    FROM read_json_auto('{json_pattern}',
+                                        maximum_object_size=50000000,
+                                        union_by_name=true,
+                                        ignore_errors=true)
+                    WHERE parentID IS NOT NULL OR version IS NOT NULL OR summary IS NOT NULL
+                ) src
+                WHERE sessions.id = src.id
+            """)
+        except Exception:
+            pass  # Enriched columns not available in this data
 
         count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
         info(f"Loaded {count} sessions")
@@ -74,8 +92,11 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
     cutoff_ts = int((datetime.now() - timedelta(days=max_days)).timestamp() * 1000)
 
     try:
+        # Load base columns (always present in all JSON files)
         conn.execute(f"""
-            INSERT OR REPLACE INTO messages
+            INSERT OR REPLACE INTO messages (id, session_id, parent_id, role, agent, model_id, provider_id,
+                                             tokens_input, tokens_output, tokens_reasoning,
+                                             tokens_cache_read, tokens_cache_write, created_at, completed_at)
             SELECT
                 id,
                 sessionID as session_id,
@@ -90,17 +111,34 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                 COALESCE(tokens.cache.read, 0) as tokens_cache_read,
                 COALESCE(tokens.cache.write, 0) as tokens_cache_write,
                 epoch_ms(time.created) as created_at,
-                epoch_ms(time.completed) as completed_at,
-                mode,
-                COALESCE(cost, 0) as cost,
-                finish as finish_reason,
-                path.cwd as working_dir
+                epoch_ms(time.completed) as completed_at
             FROM read_json_auto('{json_pattern}', 
                                 maximum_object_size=50000000,
                                 ignore_errors=true)
             WHERE id IS NOT NULL
               AND time.created >= {cutoff_ts}
         """)
+
+        # Update enriched columns if available (newer OpenCode versions)
+        try:
+            conn.execute(f"""
+                UPDATE messages SET
+                    mode = src.mode,
+                    cost = COALESCE(src.cost, 0),
+                    finish_reason = src.finish,
+                    working_dir = src.path.cwd
+                FROM (
+                    SELECT id, mode, cost, finish, path
+                    FROM read_json_auto('{json_pattern}',
+                                        maximum_object_size=50000000,
+                                        union_by_name=true,
+                                        ignore_errors=true)
+                    WHERE mode IS NOT NULL OR cost IS NOT NULL OR finish IS NOT NULL OR path IS NOT NULL
+                ) src
+                WHERE messages.id = src.id
+            """)
+        except Exception:
+            pass  # Enriched columns not available in this data
 
         count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
         info(f"Loaded {count} messages")
