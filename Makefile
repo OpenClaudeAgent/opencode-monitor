@@ -2,17 +2,21 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run test coverage coverage-html clean roadmap
+.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html clean roadmap
 
 # Default target
 help:
 	@echo "OpenCode Monitor"
 	@echo ""
 	@echo "Usage:"
-	@echo "  make run            Run the menu bar app"
-	@echo "  make test           Run all tests"
-	@echo "  make coverage       Run tests with coverage report"
-	@echo "  make coverage-html  Run tests with HTML coverage report"
+	@echo "  make run                    Run the menu bar app"
+	@echo "  make test                   Run unit tests (excludes integration)"
+	@echo "  make test-unit              Run unit tests only"
+	@echo "  make test-integration       Run integration tests (headless)"
+	@echo "  make test-integration-visible  Run integration tests (visible UI)"
+	@echo "  make test-all               Run all tests (unit + integration)"
+	@echo "  make coverage               Run tests with coverage report"
+	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          Remove temp/build files"
@@ -26,7 +30,19 @@ run:
 # === Testing ===
 
 test:
-	@uv run python -m pytest tests/ -v
+	@uv run python -m pytest tests/ -v --ignore=tests/integration
+
+test-unit:
+	@uv run python -m pytest tests/ -v --ignore=tests/integration -m "not integration"
+
+test-integration:
+	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/integration/ -v -m integration
+
+test-integration-visible:
+	@uv run python -m pytest tests/integration/ -v -m integration
+
+test-all:
+	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/ -v
 
 coverage:
 	@uv run python -m pytest tests/ --cov=src/opencode_monitor --cov-report=term-missing
