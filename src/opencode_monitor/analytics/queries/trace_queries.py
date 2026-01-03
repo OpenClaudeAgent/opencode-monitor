@@ -64,16 +64,19 @@ class TraceQueries(BaseQueries):
             List of AgentTrace objects ordered by start time
         """
         try:
+            # Join with delegations to get accurate parent_agent
             results = self._conn.execute(
                 """
                 SELECT
-                    trace_id, session_id, parent_trace_id, parent_agent,
-                    subagent_type, prompt_input, prompt_output,
-                    started_at, ended_at, duration_ms,
-                    tokens_in, tokens_out, status, tools_used, child_session_id
-                FROM agent_traces
-                WHERE session_id = ?
-                ORDER BY started_at ASC
+                    t.trace_id, t.session_id, t.parent_trace_id,
+                    COALESCE(d.parent_agent, t.parent_agent) as parent_agent,
+                    t.subagent_type, t.prompt_input, t.prompt_output,
+                    t.started_at, t.ended_at, t.duration_ms,
+                    t.tokens_in, t.tokens_out, t.status, t.tools_used, t.child_session_id
+                FROM agent_traces t
+                LEFT JOIN delegations d ON t.trace_id = d.id
+                WHERE t.session_id = ?
+                ORDER BY t.started_at ASC
                 """,
                 [session_id],
             ).fetchall()
@@ -186,16 +189,20 @@ class TraceQueries(BaseQueries):
             List of AgentTrace objects
         """
         try:
+            # Join with delegations to get accurate parent_agent
+            # delegations.id matches agent_traces.trace_id
             results = self._conn.execute(
                 """
                 SELECT
-                    trace_id, session_id, parent_trace_id, parent_agent,
-                    subagent_type, prompt_input, prompt_output,
-                    started_at, ended_at, duration_ms,
-                    tokens_in, tokens_out, status, tools_used, child_session_id
-                FROM agent_traces
-                WHERE started_at >= ? AND started_at <= ?
-                ORDER BY started_at DESC
+                    t.trace_id, t.session_id, t.parent_trace_id,
+                    COALESCE(d.parent_agent, t.parent_agent) as parent_agent,
+                    t.subagent_type, t.prompt_input, t.prompt_output,
+                    t.started_at, t.ended_at, t.duration_ms,
+                    t.tokens_in, t.tokens_out, t.status, t.tools_used, t.child_session_id
+                FROM agent_traces t
+                LEFT JOIN delegations d ON t.trace_id = d.id
+                WHERE t.started_at >= ? AND t.started_at <= ?
+                ORDER BY t.started_at DESC
                 """,
                 [start_date, end_date],
             ).fetchall()
@@ -215,16 +222,19 @@ class TraceQueries(BaseQueries):
             List of AgentTrace objects
         """
         try:
+            # Join with delegations to get accurate parent_agent
             results = self._conn.execute(
                 """
                 SELECT
-                    trace_id, session_id, parent_trace_id, parent_agent,
-                    subagent_type, prompt_input, prompt_output,
-                    started_at, ended_at, duration_ms,
-                    tokens_in, tokens_out, status, tools_used, child_session_id
-                FROM agent_traces
-                WHERE subagent_type = ?
-                ORDER BY started_at DESC
+                    t.trace_id, t.session_id, t.parent_trace_id,
+                    COALESCE(d.parent_agent, t.parent_agent) as parent_agent,
+                    t.subagent_type, t.prompt_input, t.prompt_output,
+                    t.started_at, t.ended_at, t.duration_ms,
+                    t.tokens_in, t.tokens_out, t.status, t.tools_used, t.child_session_id
+                FROM agent_traces t
+                LEFT JOIN delegations d ON t.trace_id = d.id
+                WHERE t.subagent_type = ?
+                ORDER BY t.started_at DESC
                 """,
                 [subagent_type],
             ).fetchall()
@@ -244,15 +254,18 @@ class TraceQueries(BaseQueries):
             AgentTrace with full prompts, or None if not found
         """
         try:
+            # Join with delegations to get accurate parent_agent
             result = self._conn.execute(
                 """
                 SELECT
-                    trace_id, session_id, parent_trace_id, parent_agent,
-                    subagent_type, prompt_input, prompt_output,
-                    started_at, ended_at, duration_ms,
-                    tokens_in, tokens_out, status, tools_used, child_session_id
-                FROM agent_traces
-                WHERE trace_id = ?
+                    t.trace_id, t.session_id, t.parent_trace_id,
+                    COALESCE(d.parent_agent, t.parent_agent) as parent_agent,
+                    t.subagent_type, t.prompt_input, t.prompt_output,
+                    t.started_at, t.ended_at, t.duration_ms,
+                    t.tokens_in, t.tokens_out, t.status, t.tools_used, t.child_session_id
+                FROM agent_traces t
+                LEFT JOIN delegations d ON t.trace_id = d.id
+                WHERE t.trace_id = ?
                 """,
                 [trace_id],
             ).fetchone()

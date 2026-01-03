@@ -263,25 +263,27 @@ class AnalyticsAPIServer:
                     # Calculate start date (DuckDB doesn't support ? in INTERVAL)
                     start_date = datetime.now() - timedelta(days=days)
 
+                    # Join with delegations to get accurate parent_agent
                     rows = conn.execute(
                         """
                         SELECT 
-                            trace_id,
-                            session_id,
-                            parent_trace_id,
-                            parent_agent,
-                            subagent_type,
-                            started_at,
-                            ended_at,
-                            duration_ms,
-                            tokens_in,
-                            tokens_out,
-                            status,
-                            prompt_input,
-                            prompt_output
-                        FROM agent_traces
-                        WHERE started_at >= ?
-                        ORDER BY started_at DESC
+                            t.trace_id,
+                            t.session_id,
+                            t.parent_trace_id,
+                            COALESCE(d.parent_agent, t.parent_agent) as parent_agent,
+                            t.subagent_type,
+                            t.started_at,
+                            t.ended_at,
+                            t.duration_ms,
+                            t.tokens_in,
+                            t.tokens_out,
+                            t.status,
+                            t.prompt_input,
+                            t.prompt_output
+                        FROM agent_traces t
+                        LEFT JOIN delegations d ON t.trace_id = d.id
+                        WHERE t.started_at >= ?
+                        ORDER BY t.started_at DESC
                         LIMIT ?
                     """,
                         [start_date, limit],

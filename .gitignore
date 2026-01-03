@@ -29,3 +29,6 @@ htmlcov/
 *.egg-info/
 .env
 .lsmcp/
+
+# lsmcp cache
+.lsmcp/cache
