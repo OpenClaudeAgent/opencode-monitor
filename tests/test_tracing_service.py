@@ -547,6 +547,53 @@ class TestTracingConfig:
 # =============================================================================
 
 
+class TestPerformance:
+    """Tests for performance requirements."""
+
+    def test_get_session_summary_under_100ms(
+        self, db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
+        """get_session_summary should complete in under 100ms."""
+        import time
+
+        service = TracingDataService(db=populated_db)
+
+        # Warm up
+        service.get_session_summary("ses_001")
+
+        # Measure
+        start = time.perf_counter()
+        for _ in range(10):
+            service.get_session_summary("ses_001")
+        elapsed = (time.perf_counter() - start) * 1000 / 10  # Average ms
+
+        assert elapsed < 100, (
+            f"get_session_summary took {elapsed:.1f}ms (target: <100ms)"
+        )
+
+    def test_get_global_stats_under_100ms(
+        self, db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
+        """get_global_stats should complete in under 100ms."""
+        import time
+        from datetime import datetime
+
+        service = TracingDataService(db=populated_db)
+        start_date = datetime(2026, 1, 1)
+        end_date = datetime(2026, 1, 2)
+
+        # Warm up
+        service.get_global_stats(start_date, end_date)
+
+        # Measure
+        start = time.perf_counter()
+        for _ in range(10):
+            service.get_global_stats(start_date, end_date)
+        elapsed = (time.perf_counter() - start) * 1000 / 10  # Average ms
+
+        assert elapsed < 100, f"get_global_stats took {elapsed:.1f}ms (target: <100ms)"
+
+
 class TestResponseFormat:
     """Tests for standardized response format."""
 
