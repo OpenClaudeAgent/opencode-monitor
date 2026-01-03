@@ -23,7 +23,7 @@ from ..utils.logger import info, error, debug
 from ..security.auditor import start_auditor
 from ..analytics.collector import start_collector
 
-from .handlers import HandlersMixin
+from .handlers import HandlersMixin, AnalyticsSyncManager
 from .menu import MenuMixin
 
 
@@ -77,6 +77,10 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
 
         # Start analytics collector (incremental background loading)
         start_collector()
+
+        # Start analytics sync manager (sole DB writer)
+        self._sync_manager = AnalyticsSyncManager()
+        self._sync_manager.start_background_sync(max_days=30)
 
         # Build initial menu
         self._build_static_menu()

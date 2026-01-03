@@ -7,10 +7,12 @@ This module provides the HandlersMixin class with:
 - Security report handlers
 - Analytics handlers
 - Manual refresh handler
+- AnalyticsSyncManager: DB sync manager (only writer to analytics DB)
 """
 
 import subprocess
 import threading
+import time
 from typing import TYPE_CHECKING
 
 from ..security.analyzer import SecurityAlert, RiskLevel
@@ -20,6 +22,78 @@ from ..ui.terminal import focus_iterm2
 from ..dashboard import show_dashboard
 from ..analytics import AnalyticsDB, load_opencode_data, generate_report
 from ..utils.logger import info, error, debug
+
+
+class AnalyticsSyncManager:
+    """Manages analytics DB sync - only process that writes to DB.
+
+    The menubar is the sole writer to the analytics database. It:
+    - Syncs data from OpenCode storage periodically
+    - Updates sync_meta table to signal dashboard readers
+    - Handles background sync with thread safety
+    """
+
+    SYNC_INTERVAL_S = 300  # 5 minutes fallback
+
+    def __init__(self):
+        """Initialize the sync manager."""
+        self._db = AnalyticsDB(read_only=False)
+        self._last_sync = 0.0
+        self._lock = threading.Lock()
+
+    def sync_incremental(self, max_days: int = 7) -> dict:
+        """Sync recent data from OpenCode storage.
+
+        Args:
+            max_days: Maximum days of data to sync.
+
+        Returns:
+            Dict with sync results (sessions count, etc).
+        """
+        with self._lock:
+            try:
+                result = load_opencode_data(
+                    db=self._db,
+                    clear_first=False,
+                    max_days=max_days,
+                    skip_parts=True,
+                )
+
+                # Mark the sync as completed
+                self._db.update_sync_timestamp()
+                self._last_sync = time.time()
+
+                sessions = result.get("sessions", 0)
+                info(f"[Menubar] Analytics sync complete: {sessions} sessions")
+                return result
+            except Exception as e:
+                error(f"[Menubar] Sync error: {e}")
+                return {}
+
+    def needs_sync(self) -> bool:
+        """Check if periodic sync is needed.
+
+        Returns:
+            True if more than SYNC_INTERVAL_S since last sync.
+        """
+        return time.time() - self._last_sync > self.SYNC_INTERVAL_S
+
+    def start_background_sync(self, max_days: int = 30) -> None:
+        """Start sync in background thread.
+
+        Args:
+            max_days: Maximum days of data to sync.
+        """
+
+        def _sync():
+            self.sync_incremental(max_days=max_days)
+
+        threading.Thread(target=_sync, daemon=True).start()
+
+    def close(self) -> None:
+        """Close the database connection."""
+        self._db.close()
+
 
 if TYPE_CHECKING:
     from .core import OpenCodeApp
