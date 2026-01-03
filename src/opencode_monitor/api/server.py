@@ -15,10 +15,7 @@ from werkzeug.serving import make_server
 
 from ..analytics import TracingDataService, get_analytics_db
 from ..utils.logger import info, error, debug
-
-# API Configuration
-API_HOST = "127.0.0.1"
-API_PORT = 19876  # High port, unlikely to conflict
+from .config import API_HOST, API_PORT
 
 
 class AnalyticsAPIServer:

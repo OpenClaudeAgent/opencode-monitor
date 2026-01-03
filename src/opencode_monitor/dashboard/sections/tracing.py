@@ -5,8 +5,14 @@ Displays hierarchical view of agent delegations with timing and prompts.
 Provides detailed session analysis with tabs for different metrics.
 """
 
+import os
+import re
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
+
+# Pre-compiled regex patterns
+_AGENT_PATTERN = re.compile(r"\(@(\w+)")  # Extract agent type from title
+_AGENT_SUFFIX_PATTERN = re.compile(r"\s*\(@\w+.*\)$")  # Remove agent suffix from title
 
 from PyQt6.QtWidgets import (
     QWidget,
@@ -33,6 +39,7 @@ from PyQt6.QtGui import QColor
 
 from ..widgets import EmptyState
 from ..styles import COLORS, SPACING, FONTS, RADIUS, UI
+from ...utils.logger import debug
 
 if TYPE_CHECKING:
     from ...analytics import TracingDataService
@@ -1194,8 +1201,6 @@ class TraceDetailPanel(QFrame):
 
     def _load_tab_data(self, tab_index: int) -> None:
         """Load data for a specific tab via API."""
-        from ...utils.logger import debug
-
         if not self._current_session_id:
             debug("[TraceDetailPanel] _load_tab_data: no session_id")
             return
@@ -1261,8 +1266,6 @@ class TraceDetailPanel(QFrame):
                     if events:
                         self._timeline_tab.load_data(events)
         except Exception as e:
-            from ...utils.logger import debug
-
             debug(f"Failed to load tab data: {e}")
 
     def show_session_summary(
@@ -1281,9 +1284,6 @@ class TraceDetailPanel(QFrame):
             tree_data: Optional data from tree item for consistent metrics
                        (children_count, trace_count, tokens, duration, agent_type)
         """
-        import os
-        from ...utils.logger import debug
-
         debug(f"[TraceDetailPanel] show_session_summary called for: {session_id}")
         self._current_session_id = session_id
         self._tree_data = tree_data or {}
@@ -1670,7 +1670,6 @@ class TraceDetailPanel(QFrame):
         prompt_input: Optional[str] = None,
     ) -> None:
         """Display session details (legacy method for compatibility)."""
-        import os
 
         self._current_session_id = None
         self._clear_tabs()
@@ -2132,8 +2131,6 @@ class TracingSection(QWidget):
                 if not directory:
                     return "Unknown"
                 # Get the last folder name
-                import os
-
                 return os.path.basename(directory.rstrip("/"))
 
             def extract_agent_from_title(title: Optional[str]) -> Optional[str]:
@@ -2141,9 +2138,7 @@ class TracingSection(QWidget):
                 if not title:
                     return None
                 # Look for pattern (@agent_type) or (@agent_type subagent)
-                import re
-
-                match = re.search(r"\(@(\w+)", title)
+                match = _AGENT_PATTERN.search(title)
                 if match:
                     return match.group(1)
                 return None
@@ -2243,9 +2238,7 @@ class TracingSection(QWidget):
                         label = f"{icon} subagent"
 
                     if title:
-                        import re
-
-                        clean_title = re.sub(r"\s*\(@\w+.*\)$", "", title)
+                        clean_title = _AGENT_SUFFIX_PATTERN.sub("", title)
                         short_title = (
                             clean_title[:35] + "..."
                             if len(clean_title) > 35

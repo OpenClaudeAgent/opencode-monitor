@@ -12,11 +12,7 @@ from typing import Optional, Any
 from datetime import datetime
 
 from ..utils.logger import debug, error
-
-# API Configuration (must match server.py)
-API_HOST = "127.0.0.1"
-API_PORT = 19876
-API_TIMEOUT = 30  # seconds (some queries take time)
+from .config import API_HOST, API_PORT, API_TIMEOUT
 
 
 class AnalyticsAPIClient:
