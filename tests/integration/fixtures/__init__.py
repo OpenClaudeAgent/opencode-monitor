@@ -21,3 +21,9 @@ __all__ = [
     "create_monitoring_data",
     "create_security_data",
 ]
+
+# Convenience re-exports for realistic data (from MockAPIResponses)
+realistic_monitoring = MockAPIResponses.realistic_monitoring
+realistic_analytics = MockAPIResponses.realistic_analytics
+realistic_security = MockAPIResponses.realistic_security
+realistic_tracing = MockAPIResponses.realistic_tracing

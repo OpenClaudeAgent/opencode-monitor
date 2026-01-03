@@ -302,6 +302,13 @@ def dashboard_window_hidden(
 # =============================================================================
 
 
+# =============================================================================
+# Constants
+# =============================================================================
+
+SIGNAL_WAIT_MS = 100  # Standard wait time for signal processing
+
+
 @pytest.fixture
 def wait_for_signal():
     """Fixture to wait for Qt signals with timeout."""
@@ -310,7 +317,11 @@ def wait_for_signal():
         try:
             with qtbot.waitSignal(signal, timeout=timeout):
                 return True
-        except Exception:
+        except TimeoutError:
+            # Signal was not emitted within timeout
+            return False
+        except BaseException:
+            # Catch other exceptions (including pytest internal ones)
             return False
 
     return waiter
