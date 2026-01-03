@@ -46,6 +46,20 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 31 | Tracing UX Refinement | [plan-31](./plan-31-tracing-ux-refinement.md) | `feature/tracing-ui` | v0.9.1 | Termine |
 | 32 | Tracing Datadog Vision | [plan-32](./plan-32-tracing-datadog-vision.md) | `feature/tracing-vision` | - | En attente |
 | 33 | Infrastructure Tests Integration | [plan-33](./plan-33-integration-tests.md) | `feature/integration-tests` | - | En attente |
+| 34 | Parts Enrichment (reasoning, step-finish) | [plan-34](./plan-34-parts-enrichment.md) | `feature/parts-enrichment` | - | En attente |
+| 35 | Todos & Projects Loading | [plan-35](./plan-35-todos-projects-loading.md) | `feature/todos-projects` | - | En attente |
+| 36 | Schema Cleanup & Consolidation | [plan-36](./plan-36-schema-cleanup.md) | `feature/schema-cleanup` | - | En attente |
+| 37 | API Consolidation | [plan-37](./plan-37-api-consolidation.md) | `feature/api-consolidation` | - | En attente |
+
+## Sprint actif
+
+Voir [SPRINTS.md](./SPRINTS.md) pour le planning detaille.
+
+**Sprint 01 - Data Enrichment** (2026-01-06 → 2026-01-17)
+- Plan 34 : Parts Enrichment
+- Plan 35 : Todos & Projects Loading
+- Plan 36 : Schema Cleanup
+- Plan 37 : API Consolidation
 
 ## Priorite
 
@@ -68,6 +82,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-03 | Ajout plans 34-37 + Sprint 01 Data Enrichment - Parts enrichment (reasoning, step-finish, patch), Todos/Projects loading, Schema cleanup, API consolidation |
 | 2026-01-03 | Ajout plan-33 (infrastructure tests integration) - pytest-qt, mock API, parallelisation, mode headless/visible |
 | 2026-01-03 | Plan-30/31 termines - Bugfixes et UX refinement valides (integres au refactoring Plan 29) v0.9.1 |
 | 2026-01-03 | Plan-29 termine - Refactoring tracing.py en package modulaire (13 fichiers), HTTP API, visualisation prompts v0.9.1 |
