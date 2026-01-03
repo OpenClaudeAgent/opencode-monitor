@@ -766,11 +766,12 @@ class DashboardWindow(QMainWindow):
             total_tokens_in = sum(t.get("tokens_in", 0) or 0 for t in all_traces)
             total_tokens_out = sum(t.get("tokens_out", 0) or 0 for t in all_traces)
 
-            # Build children: messages + agent traces
+            # Build children: agent traces only (messages loaded lazily in TranscriptTab)
+            # Note: Loading messages here caused API overload (20+ simultaneous requests
+            # to single-threaded Flask server). Messages are now loaded via get_session_summary
+            # when user clicks on a session, which is a single request per selection.
             children = []
-
-            # Get messages for this session (timeline)
-            messages = api_client.get_session_messages(root_session_id) or []
+            messages = []  # Messages loaded lazily via TranscriptTab, not in tree
 
             # Group messages into conversation turns (user prompt + assistant response)
             # Each turn starts with a user message and includes all following assistant messages
@@ -866,28 +867,9 @@ class DashboardWindow(QMainWindow):
                 if trace_parent == "user" and session_agent:
                     trace_parent = session_agent
 
-                # Get tool operations for this agent's session
-                agent_session_id = agent_trace.get(
-                    "child_session_id"
-                ) or agent_trace.get("session_id")
+                # Tool operations are displayed in the ToolsTab panel when user
+                # clicks on an agent, not in the tree (to avoid API overload)
                 tool_children = []
-
-                if agent_session_id:
-                    operations = (
-                        api_client.get_session_operations(agent_session_id) or []
-                    )
-                    for op in operations[:20]:  # Limit to 20 tools per agent
-                        tool_node = {
-                            "session_id": agent_session_id,
-                            "node_type": "tool",
-                            "tool_name": op.get("tool_name", ""),
-                            "display_info": op.get("display_info", ""),
-                            "status": op.get("status", "completed"),
-                            "created_at": op.get("timestamp"),
-                            "duration_ms": op.get("duration_ms", 0),
-                            "children": [],
-                        }
-                        tool_children.append(tool_node)
 
                 child_node = {
                     "session_id": agent_trace.get("session_id"),
@@ -915,7 +897,8 @@ class DashboardWindow(QMainWindow):
             # Sort all children by timestamp
             children.sort(key=lambda c: c.get("created_at") or "", reverse=False)
 
-            # Skip sessions without any children
+            # Skip sessions without any children (agents)
+            # Note: Messages are loaded lazily via TranscriptTab, not in the tree
             if not children:
                 continue
 
