@@ -159,12 +159,14 @@ class AnalyticsDB:
             )
         """)
 
-        # Parts table for tool calls (base columns only)
+        # Parts table for message content and tool calls
         conn.execute("""
             CREATE TABLE IF NOT EXISTS parts (
                 id VARCHAR PRIMARY KEY,
+                session_id VARCHAR,
                 message_id VARCHAR,
                 part_type VARCHAR,
+                content VARCHAR,
                 tool_name VARCHAR,
                 tool_status VARCHAR,
                 created_at TIMESTAMP
@@ -444,6 +446,7 @@ class AnalyticsDB:
 
         # Parts - new columns
         add_column("parts", "session_id", "VARCHAR")
+        add_column("parts", "content", "TEXT")  # Text content for prompts/responses
         add_column("parts", "call_id", "VARCHAR")
         add_column("parts", "ended_at", "TIMESTAMP")
         add_column("parts", "duration_ms", "INTEGER")

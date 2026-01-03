@@ -696,13 +696,13 @@ class DashboardWindow(QMainWindow):
             error(traceback.format_exc())
 
     def _build_session_hierarchy(
-        self, traces: list, sessions: list, delegations: list | None = None
+        self, traces: list, sessions: list, delegations: list
     ) -> list:
         """Build session hierarchy from traces grouped by root session.
 
-        Creates a tree structure where each root session contains its
-        sub-agent traces as children. Uses parent_trace_id (root_ses_XXX)
-        to group traces.
+        Creates a tree structure where each root session contains:
+        - Messages (user prompts and assistant responses)
+        - Sub-agent traces (Task invocations)
 
         Args:
             traces: List of agent trace dicts
@@ -710,21 +710,22 @@ class DashboardWindow(QMainWindow):
             delegations: List of delegation dicts (for future use)
 
         Returns:
-            List of root session nodes with agent traces as children
+            List of root session nodes with messages and agents as children
         """
+        from ..api import get_api_client
+
+        api_client = get_api_client()
+
         # Group traces by their root session (extracted from parent_trace_id)
-        # parent_trace_id format: "root_ses_XXX" where XXX matches session_id
         traces_by_root: dict[str, list] = {}
 
         for trace in traces:
             parent_trace_id = trace.get("parent_trace_id", "")
 
             # Extract root session ID from parent_trace_id
-            # Format: "root_ses_47ced5014ffe04Zv07QUKoJeDe" -> "ses_47ced5014ffe04Zv07QUKoJeDe"
             if parent_trace_id.startswith("root_"):
                 root_session_id = parent_trace_id[5:]  # Remove "root_" prefix
             else:
-                # Use the trace's own session_id as root
                 root_session_id = trace.get("session_id", "unknown")
 
             if root_session_id not in traces_by_root:
@@ -765,36 +766,140 @@ class DashboardWindow(QMainWindow):
             total_tokens_in = sum(t.get("tokens_in", 0) or 0 for t in all_traces)
             total_tokens_out = sum(t.get("tokens_out", 0) or 0 for t in all_traces)
 
-            # Build children from agent traces (non-user traces)
+            # Build children: messages + agent traces
             children = []
+
+            # Get messages for this session (timeline)
+            messages = api_client.get_session_messages(root_session_id) or []
+
+            # Group messages into conversation turns (user prompt + assistant response)
+            # Each turn starts with a user message and includes all following assistant messages
+            turns = []
+            current_turn = None
+
+            for msg in messages:
+                msg_type = msg.get("type", "message")
+                role = msg.get("role", "")
+                content = msg.get("content", "")
+                timestamp = msg.get("timestamp", "")
+                agent = msg.get(
+                    "agent", ""
+                )  # Agent name (coordinateur, executeur, etc.)
+
+                # Skip tool messages and empty content
+                if msg_type == "tool" or not content:
+                    continue
+
+                if msg_type == "text":
+                    if role == "user":
+                        # Start a new turn with user message
+                        if current_turn:
+                            turns.append(current_turn)
+                        current_turn = {
+                            "user_content": content,
+                            "user_timestamp": timestamp,
+                            "user_tokens_in": msg.get("tokens_in", 0),
+                            "assistant_content": "",  # Will accumulate all responses
+                            "assistant_timestamp": None,
+                            "assistant_tokens_out": 0,
+                            "agent": agent or "assistant",  # Agent who will respond
+                        }
+                    elif role == "assistant" and current_turn:
+                        # Accumulate ALL assistant responses (not just the last one)
+                        if current_turn["assistant_content"]:
+                            current_turn["assistant_content"] += "\n\n---\n\n" + content
+                        else:
+                            current_turn["assistant_content"] = content
+                        current_turn["assistant_timestamp"] = timestamp
+                        current_turn["assistant_tokens_out"] += (
+                            msg.get("tokens_out", 0) or 0
+                        )
+                        # Update agent name from assistant message (more reliable)
+                        if agent:
+                            current_turn["agent"] = agent
+
+            # Don't forget the last turn
+            if current_turn:
+                turns.append(current_turn)
+
+            # Add turns as children (conversation exchanges)
+            for turn in turns:
+                user_content = turn["user_content"] or ""
+                assistant_content = turn["assistant_content"]
+
+                # Truncate for display
+                user_short = user_content[:80].replace("\n", " ")
+                if len(user_content) > 80:
+                    user_short += "..."
+
+                if assistant_content:
+                    assistant_short = assistant_content[:60].replace("\n", " ")
+                    if len(assistant_content) > 60:
+                        assistant_short += "..."
+                    title = f"{user_short} → {assistant_short}"
+                else:
+                    title = f"{user_short} → (waiting...)"
+
+                child_node = {
+                    "session_id": root_session_id,
+                    "node_type": "turn",
+                    "title": title,
+                    "user_content": user_content,
+                    "assistant_content": assistant_content,
+                    "created_at": turn["user_timestamp"],
+                    "tokens_in": turn["user_tokens_in"],
+                    "tokens_out": turn["assistant_tokens_out"],
+                    "agent": turn.get("agent", "assistant"),  # Agent who responded
+                    "children": [],
+                }
+                children.append(child_node)
+
+            # Determine session's main agent from turns (for parent_agent correction)
+            session_agent = None
+            if turns:
+                session_agent = turns[0].get("agent")
+
+            # Add agent traces as children
             for agent_trace in agent_traces:
+                # Use session's agent as parent if trace says "user" but session has an agent
+                trace_parent = agent_trace.get("parent_agent", "user")
+                if trace_parent == "user" and session_agent:
+                    trace_parent = session_agent
+
                 child_node = {
                     "session_id": agent_trace.get("session_id"),
                     "trace_id": agent_trace.get("trace_id"),
+                    "node_type": "agent",
                     "title": agent_trace.get("subagent_type", "agent"),
                     "agent_type": agent_trace.get("subagent_type"),
-                    "parent_agent": agent_trace.get("parent_agent"),
+                    "parent_agent": trace_parent,
                     "created_at": agent_trace.get("started_at"),
                     "duration_ms": agent_trace.get("duration_ms", 0),
                     "tokens_in": agent_trace.get("tokens_in", 0),
                     "tokens_out": agent_trace.get("tokens_out", 0),
                     "status": agent_trace.get("status"),
                     "trace_count": 1,
-                    "children": [],  # Could be expanded for deeper hierarchy
+                    "prompt_input": agent_trace.get(
+                        "prompt_input"
+                    ),  # Real prompt from Task tool
+                    "prompt_output": agent_trace.get(
+                        "prompt_output"
+                    ),  # Agent's response
+                    "children": [],
                 }
                 children.append(child_node)
 
-            # Sort children by time
+            # Sort all children by timestamp
             children.sort(key=lambda c: c.get("created_at") or "", reverse=False)
 
-            # Skip sessions without sub-agent traces (only user trace)
-            # These are sessions without Task invocations - no useful hierarchy
+            # Skip sessions without any children
             if not children:
                 continue
 
             # Build root node
             node = {
                 "session_id": root_session_id,
+                "node_type": "session",
                 "title": session.get("title") or "Session",
                 "agent_type": "user",
                 "parent_agent": None,

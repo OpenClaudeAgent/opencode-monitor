@@ -229,45 +229,68 @@ class TracingDataService:
         }
 
     def get_session_prompts(self, session_id: str) -> dict:
-        """Get user prompt and final output for a session.
+        """Get first user prompt and last assistant response for a session.
 
-        Note: The analytics DB stores metadata only, not message content.
-        Message content would require reading the raw OpenCode JSON files.
+        Retrieves actual content from the parts table.
 
         Args:
             session_id: The session ID to query
 
         Returns:
-            Dict with session metadata (content not available in analytics DB)
+            Dict with prompt_input (first user message) and prompt_output (last response)
         """
         try:
-            # Get session info for context
-            session = self._get_session_info(session_id)
-            title = session.get("title", "") if session else ""
-
-            # Count messages to show activity
-            msg_count = self._conn.execute(
+            # Get first user message content
+            first_user = self._conn.execute(
                 """
-                SELECT COUNT(*) as total,
-                       SUM(CASE WHEN role = 'user' THEN 1 ELSE 0 END) as user_msgs,
-                       SUM(CASE WHEN role = 'assistant' THEN 1 ELSE 0 END) as assistant_msgs
-                FROM messages
-                WHERE session_id = ?
+                SELECT p.content
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE p.session_id = ?
+                  AND p.part_type = 'text'
+                  AND m.role = 'user'
+                  AND p.content IS NOT NULL
+                ORDER BY p.created_at ASC
+                LIMIT 1
                 """,
                 [session_id],
             ).fetchone()
 
-            total = msg_count[0] if msg_count else 0
-            user_msgs = msg_count[1] if msg_count else 0
-            assistant_msgs = msg_count[2] if msg_count else 0
+            # Get last assistant message content
+            last_assistant = self._conn.execute(
+                """
+                SELECT p.content
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE p.session_id = ?
+                  AND p.part_type = 'text'
+                  AND m.role = 'assistant'
+                  AND p.content IS NOT NULL
+                ORDER BY p.created_at DESC
+                LIMIT 1
+                """,
+                [session_id],
+            ).fetchone()
+
+            prompt_input = first_user[0] if first_user else None
+            prompt_output = last_assistant[0] if last_assistant else None
+
+            # Fallback to session title if no content found
+            if not prompt_input:
+                session = self._get_session_info(session_id)
+                prompt_input = (
+                    session.get("title", "(No prompt content)")
+                    if session
+                    else "(No prompt content)"
+                )
 
             return {
                 "meta": {
                     "session_id": session_id,
                     "generated_at": datetime.now().isoformat(),
                 },
-                "prompt_input": title or f"Session with {user_msgs} user messages",
-                "prompt_output": f"Session completed with {assistant_msgs} assistant responses ({total} total messages)",
+                "prompt_input": prompt_input,
+                "prompt_output": prompt_output or "(No response yet)",
             }
         except Exception as e:
             debug(f"get_session_prompts failed: {e}")
@@ -276,6 +299,87 @@ class TracingDataService:
                 "prompt_input": "(Unable to load prompt data)",
                 "prompt_output": None,
             }
+
+    def get_session_messages(self, session_id: str) -> list[dict]:
+        """Get all messages with content for a session.
+
+        Returns the full conversation history including:
+        - User prompts
+        - Assistant responses
+        - Tool calls (without content, just metadata)
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            List of message dicts with role, content, timestamp, etc.
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    m.id as message_id,
+                    m.role,
+                    m.agent,
+                    p.part_type,
+                    p.content,
+                    p.tool_name,
+                    p.tool_status,
+                    COALESCE(p.created_at, m.created_at) as created_at,
+                    m.tokens_input,
+                    m.tokens_output
+                FROM messages m
+                LEFT JOIN parts p ON p.message_id = m.id
+                WHERE m.session_id = ?
+                ORDER BY COALESCE(p.created_at, m.created_at) ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            messages = []
+            seen_messages = set()
+
+            for row in results:
+                msg_id = row[0]
+                role = row[1]
+                agent = row[2]
+                part_type = row[3]
+                content = row[4]
+                tool_name = row[5]
+                tool_status = row[6]
+                created_at = row[7]
+                tokens_in = row[8] or 0
+                tokens_out = row[9] or 0
+
+                # Skip duplicate message entries (one message can have multiple parts)
+                entry_key = f"{msg_id}_{part_type}_{tool_name or ''}"
+                if entry_key in seen_messages:
+                    continue
+                seen_messages.add(entry_key)
+
+                msg = {
+                    "message_id": msg_id,
+                    "role": role,
+                    "agent": agent,
+                    "type": part_type or "message",
+                    "timestamp": created_at.isoformat() if created_at else None,
+                    "tokens_in": tokens_in,
+                    "tokens_out": tokens_out,
+                }
+
+                if part_type == "text" and content:
+                    msg["content"] = content
+                elif part_type == "tool" and tool_name:
+                    msg["tool_name"] = tool_name
+                    msg["tool_status"] = tool_status
+
+                messages.append(msg)
+
+            return messages
+
+        except Exception as e:
+            debug(f"get_session_messages failed: {e}")
+            return []
 
     def get_session_timeline(self, session_id: str) -> list[dict]:
         """Get timeline of events for a session.

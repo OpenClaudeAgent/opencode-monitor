@@ -172,7 +172,7 @@ class AnalyticsAPIServer:
 
         @self._app.route("/api/session/<session_id>/prompts", methods=["GET"])
         def get_session_prompts(session_id: str):
-            """Get session prompts."""
+            """Get session prompts (first user prompt + last response)."""
             try:
                 with self._db_lock:
                     service = self._get_service()
@@ -180,6 +180,18 @@ class AnalyticsAPIServer:
                 return jsonify({"success": True, "data": data})
             except Exception as e:
                 error(f"[API] Error getting session prompts: {e}")
+                return jsonify({"success": False, "error": str(e)}), 500
+
+        @self._app.route("/api/session/<session_id>/messages", methods=["GET"])
+        def get_session_messages(session_id: str):
+            """Get all messages with content for a session."""
+            try:
+                with self._db_lock:
+                    service = self._get_service()
+                    data = service.get_session_messages(session_id)
+                return jsonify({"success": True, "data": data})
+            except Exception as e:
+                error(f"[API] Error getting session messages: {e}")
                 return jsonify({"success": False, "error": str(e)}), 500
 
         @self._app.route("/api/sessions", methods=["GET"])
@@ -255,7 +267,9 @@ class AnalyticsAPIServer:
                             duration_ms,
                             tokens_in,
                             tokens_out,
-                            status
+                            status,
+                            prompt_input,
+                            prompt_output
                         FROM agent_traces
                         WHERE started_at >= ?
                         ORDER BY started_at DESC
@@ -277,6 +291,8 @@ class AnalyticsAPIServer:
                             "tokens_in": row[8],
                             "tokens_out": row[9],
                             "status": row[10],
+                            "prompt_input": row[11],
+                            "prompt_output": row[12],
                         }
                         for row in rows
                     ]

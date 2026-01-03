@@ -155,39 +155,129 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
 
 
 def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
-    """Load part data using DuckDB's JSON reader."""
+    """Load part data by iterating through message directories.
+
+    Loads both:
+    - Text parts (user prompts, assistant responses)
+    - Tool parts (tool invocations)
+
+    Uses Python file iteration instead of DuckDB's read_json_auto
+    for better performance with large numbers of files.
+    """
     conn = db.connect()
     part_dir = storage_path / "part"
 
     if not part_dir.exists():
         return 0
 
-    json_pattern = str(part_dir) + "/**/*.json"
+    cutoff = datetime.now() - timedelta(days=max_days)
+    cutoff_ts = cutoff.timestamp()
+
+    text_count = 0
+    tool_count = 0
+    batch = []
+    batch_size = 500
 
     try:
-        # Load tool parts - type is 'tool' not 'tool-invocation'
-        conn.execute(f"""
-            INSERT OR REPLACE INTO parts
-            SELECT
-                id,
-                messageID as message_id,
-                type as part_type,
-                tool as tool_name,
-                state->>'status' as tool_status,
-                epoch_ms(time.start) as created_at
-            FROM read_json_auto('{json_pattern}', 
-                                maximum_object_size=50000000,
-                                union_by_name=true,
-                                ignore_errors=true)
-            WHERE id IS NOT NULL
-              AND type = 'tool'
-              AND tool IS NOT NULL
-        """)
+        # Iterate through message directories
+        for msg_dir in part_dir.iterdir():
+            if not msg_dir.is_dir():
+                continue
 
-        count = conn.execute("SELECT COUNT(*) FROM parts").fetchone()[0]
-        info(f"Loaded {count} parts")
-        return count
-    except Exception as e:  # Intentional catch-all: DuckDB can raise various errors
+            # Check directory modification time for quick filtering
+            try:
+                if msg_dir.stat().st_mtime < cutoff_ts:
+                    continue
+            except OSError:
+                continue
+
+            # Process part files in this message directory
+            for part_file in msg_dir.iterdir():
+                if not part_file.suffix == ".json":
+                    continue
+
+                try:
+                    with open(part_file, "r") as f:
+                        data = json.load(f)
+
+                    part_id = data.get("id")
+                    if not part_id:
+                        continue
+
+                    session_id = data.get("sessionID")
+                    message_id = data.get("messageID")
+                    part_type = data.get("type")
+
+                    # Get timestamp
+                    time_data = data.get("time", {})
+                    ts = time_data.get("start") or time_data.get("created")
+                    created_at = ms_to_datetime(ts) if ts else None
+
+                    if part_type == "text":
+                        content = data.get("text")
+                        if content:
+                            batch.append(
+                                (
+                                    part_id,
+                                    session_id,
+                                    message_id,
+                                    part_type,
+                                    content,
+                                    None,
+                                    None,
+                                    created_at,
+                                )
+                            )
+                            text_count += 1
+                    elif part_type == "tool":
+                        tool_name = data.get("tool")
+                        state = data.get("state", {})
+                        tool_status = (
+                            state.get("status") if isinstance(state, dict) else None
+                        )
+                        if tool_name:
+                            batch.append(
+                                (
+                                    part_id,
+                                    session_id,
+                                    message_id,
+                                    part_type,
+                                    None,
+                                    tool_name,
+                                    tool_status,
+                                    created_at,
+                                )
+                            )
+                            tool_count += 1
+
+                    # Batch insert
+                    if len(batch) >= batch_size:
+                        conn.executemany(
+                            """INSERT OR REPLACE INTO parts 
+                               (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                            batch,
+                        )
+                        batch = []
+
+                except (json.JSONDecodeError, OSError) as e:
+                    debug(f"Error reading part file {part_file}: {e}")
+                    continue
+
+        # Insert remaining batch
+        if batch:
+            conn.executemany(
+                """INSERT OR REPLACE INTO parts 
+                   (id, session_id, message_id, part_type, content, tool_name, tool_status, created_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                batch,
+            )
+
+        total = text_count + tool_count
+        info(f"Loaded {total} parts ({text_count} text, {tool_count} tools)")
+        return total
+
+    except Exception as e:  # Intentional catch-all: various errors possible
         error(f"Parts load failed: {e}")
         return 0
 

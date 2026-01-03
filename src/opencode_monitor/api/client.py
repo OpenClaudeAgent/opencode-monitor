@@ -141,8 +141,16 @@ class AnalyticsAPIClient:
         return self._request(f"/api/session/{session_id}/timeline")
 
     def get_session_prompts(self, session_id: str) -> Optional[dict]:
-        """Get session prompts."""
+        """Get session prompts (first user prompt + last response)."""
         return self._request(f"/api/session/{session_id}/prompts")
+
+    def get_session_messages(self, session_id: str) -> Optional[list]:
+        """Get all messages with content for a session.
+
+        Returns:
+            List of message dicts with role, content, timestamp, etc.
+        """
+        return self._request(f"/api/session/{session_id}/messages")
 
     def get_sessions(self, days: int = 30, limit: int = 100) -> Optional[list]:
         """Get list of sessions.

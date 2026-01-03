@@ -239,45 +239,6 @@ class HorizontalBar(QFrame):
         layout.addWidget(value_widget)
 
 
-class PromptsTab(QWidget):
-    """Tab displaying user prompt and final output."""
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._loaded = False
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["md"])
-
-        # User prompt section
-        self._input_section = CollapsibleTextEdit("💬 User Prompt")
-        layout.addWidget(self._input_section)
-
-        # Final output section
-        self._output_section = CollapsibleTextEdit("📤 Final Output")
-        layout.addWidget(self._output_section)
-
-        layout.addStretch()
-
-    def load_data(self, data: dict) -> None:
-        """Load prompts data from TracingDataService response."""
-        self._loaded = True
-        prompt_input = data.get("prompt_input", "")
-        prompt_output = data.get("prompt_output", "")
-
-        self._input_section.set_text(prompt_input or "(No user prompt)")
-        self._output_section.set_text(prompt_output or "(No output yet)")
-
-    def is_loaded(self) -> bool:
-        return self._loaded
-
-    def clear(self) -> None:
-        self._loaded = False
-        self._input_section.set_text("")
-        self._output_section.set_text("")
-
-
 class TokensTab(QWidget):
     """Tab displaying token usage breakdown with mini-charts."""
 
@@ -840,6 +801,134 @@ class TimelineTab(QWidget):
         self._list.clear()
 
 
+class TranscriptTab(QWidget):
+    """Tab displaying full conversation transcript."""
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._loaded = False
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, SPACING["md"], 0, 0)
+        layout.setSpacing(SPACING["md"])
+
+        # Scroll area for long transcripts
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        scroll.setStyleSheet(f"""
+            QScrollArea {{
+                background-color: transparent;
+                border: none;
+            }}
+            QScrollBar:vertical {{
+                background-color: {COLORS["bg_surface"]};
+                width: 8px;
+                border-radius: 4px;
+            }}
+            QScrollBar::handle:vertical {{
+                background-color: {COLORS["border_default"]};
+                border-radius: 4px;
+                min-height: 30px;
+            }}
+        """)
+
+        # Content widget
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(
+            SPACING["md"], SPACING["md"], SPACING["md"], SPACING["md"]
+        )
+        self._content_layout.setSpacing(SPACING["lg"])
+
+        scroll.setWidget(self._content)
+        layout.addWidget(scroll)
+
+    def load_data(self, data: dict) -> None:
+        """Load transcript data.
+
+        Args:
+            data: Dict with user_content and assistant_content
+        """
+        self._loaded = True
+
+        # Clear existing content
+        while self._content_layout.count():
+            child = self._content_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+        user_content = data.get("user_content", "")
+        assistant_content = data.get("assistant_content", "")
+
+        # User section
+        if user_content:
+            user_header = QLabel("💬 User Prompt")
+            user_header.setStyleSheet(f"""
+                color: {COLORS.get("info", "#60A5FA")};
+                font-size: {FONTS["size_md"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+            """)
+            self._content_layout.addWidget(user_header)
+
+            user_text = QTextEdit()
+            user_text.setPlainText(user_content)
+            user_text.setReadOnly(True)
+            user_text.setMinimumHeight(100)
+            user_text.setStyleSheet(f"""
+                QTextEdit {{
+                    background-color: {COLORS["bg_hover"]};
+                    color: {COLORS["text_primary"]};
+                    border: 1px solid {COLORS["border_default"]};
+                    border-radius: {RADIUS["md"]}px;
+                    padding: {SPACING["md"]}px;
+                    font-family: {FONTS["family"]};
+                    font-size: {FONTS["size_sm"]}px;
+                }}
+            """)
+            self._content_layout.addWidget(user_text)
+
+        # Assistant section
+        if assistant_content:
+            assistant_header = QLabel("🤖 Assistant Response")
+            assistant_header.setStyleSheet(f"""
+                color: {COLORS.get("success", "#34D399")};
+                font-size: {FONTS["size_md"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                margin-top: {SPACING["md"]}px;
+            """)
+            self._content_layout.addWidget(assistant_header)
+
+            assistant_text = QTextEdit()
+            assistant_text.setPlainText(assistant_content)
+            assistant_text.setReadOnly(True)
+            assistant_text.setMinimumHeight(150)
+            assistant_text.setStyleSheet(f"""
+                QTextEdit {{
+                    background-color: {COLORS["bg_hover"]};
+                    color: {COLORS["text_primary"]};
+                    border: 1px solid {COLORS["border_default"]};
+                    border-radius: {RADIUS["md"]}px;
+                    padding: {SPACING["md"]}px;
+                    font-family: {FONTS["family"]};
+                    font-size: {FONTS["size_sm"]}px;
+                }}
+            """)
+            self._content_layout.addWidget(assistant_text)
+
+        self._content_layout.addStretch()
+
+    def is_loaded(self) -> bool:
+        return self._loaded
+
+    def clear(self) -> None:
+        self._loaded = False
+        while self._content_layout.count():
+            child = self._content_layout.takeAt(0)
+            if child.widget():
+                child.widget().deleteLater()
+
+
 # =============================================================================
 # Main TraceDetailPanel with Tabs
 # =============================================================================
@@ -1061,7 +1150,7 @@ class TraceDetailPanel(QFrame):
         """)
 
         # Create tabs
-        self._prompts_tab = PromptsTab()
+        self._transcript_tab = TranscriptTab()
         self._tokens_tab = TokensTab()
         self._tools_tab = ToolsTab()
         self._files_tab = FilesTab()
@@ -1069,7 +1158,7 @@ class TraceDetailPanel(QFrame):
         self._timeline_tab = TimelineTab()
 
         # Short tab labels to avoid truncation
-        self._tabs.addTab(self._prompts_tab, "💬")
+        self._tabs.addTab(self._transcript_tab, "📜")
         self._tabs.addTab(self._tokens_tab, "📊")
         self._tabs.addTab(self._tools_tab, "🔧")
         self._tabs.addTab(self._files_tab, "📁")
@@ -1077,7 +1166,7 @@ class TraceDetailPanel(QFrame):
         self._tabs.addTab(self._timeline_tab, "⏱")
 
         # Add tooltips for clarity
-        self._tabs.setTabToolTip(0, "Prompts - User input and final output")
+        self._tabs.setTabToolTip(0, "Transcript - Full conversation")
         self._tabs.setTabToolTip(1, "Tokens - Usage breakdown")
         self._tabs.setTabToolTip(2, "Tools - Tool calls")
         self._tabs.setTabToolTip(3, "Files - File operations")
@@ -1118,23 +1207,32 @@ class TraceDetailPanel(QFrame):
             return
 
         try:
-            if tab_index == 0:  # Prompts
-                if not self._prompts_tab.is_loaded():
+            # Tab indices after removing PromptsTab:
+            # 0 = Transcript, 1 = Tokens, 2 = Tools, 3 = Files, 4 = Agents, 5 = Timeline
+            if tab_index == 0:  # Transcript
+                if not self._transcript_tab.is_loaded():
                     debug(
-                        f"[TraceDetailPanel] Loading prompts for {self._current_session_id}"
+                        f"[TraceDetailPanel] Loading prompts for transcript {self._current_session_id}"
                     )
                     prompts_data = client.get_session_prompts(self._current_session_id)
                     debug(
                         f"[TraceDetailPanel] Prompts data: {prompts_data is not None}"
                     )
                     if prompts_data:
-                        self._prompts_tab.load_data(prompts_data)
-                    else:
-                        # Show empty state if no data
-                        self._prompts_tab.load_data(
+                        # Convert prompts data to transcript format
+                        self._transcript_tab.load_data(
                             {
-                                "prompt_input": "(No prompt data available)",
-                                "prompt_output": "(Session may be empty or API unavailable)",
+                                "user_content": prompts_data.get("prompt_input", ""),
+                                "assistant_content": prompts_data.get(
+                                    "prompt_output", ""
+                                ),
+                            }
+                        )
+                    else:
+                        self._transcript_tab.load_data(
+                            {
+                                "user_content": "(No prompt data available)",
+                                "assistant_content": "(Session may be empty or API unavailable)",
                             }
                         )
             elif tab_index == 1:  # Tokens
@@ -1175,10 +1273,13 @@ class TraceDetailPanel(QFrame):
         This is the main entry point for displaying session details.
         Loads summary data and updates all metrics. Tab data is lazy loaded.
 
+        For root sessions: fetches data from API
+        For child sessions (sub-agents): uses tree_data directly
+
         Args:
             session_id: The session ID to display
             tree_data: Optional data from tree item for consistent metrics
-                       (children_count, trace_count, tokens, duration)
+                       (children_count, trace_count, tokens, duration, agent_type)
         """
         import os
         from ...utils.logger import debug
@@ -1190,7 +1291,17 @@ class TraceDetailPanel(QFrame):
         # Clear all tabs
         self._clear_tabs()
 
-        # Get summary from API
+        # Check if this is a child session (sub-agent trace)
+        # Child sessions have agent_type != None and != "user"
+        agent_type = self._tree_data.get("agent_type")
+        is_child = agent_type is not None and agent_type != "user"
+
+        if is_child:
+            # For child sessions, use tree_data directly (more accurate for specific trace)
+            self._show_child_session(tree_data or {})
+            return
+
+        # For root sessions, get summary from API
         client = self._get_api_client()
 
         if not client.is_available:
@@ -1219,11 +1330,7 @@ class TraceDetailPanel(QFrame):
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"
 
-        if title:
-            header_text = f"🌳 {project_name}"
-        else:
-            header_text = f"🌳 {project_name}"
-
+        header_text = f"🌳 {project_name}"
         self._header.setText(header_text)
         self._header.setStyleSheet(f"""
             font-size: {FONTS["size_lg"]}px;
@@ -1233,6 +1340,96 @@ class TraceDetailPanel(QFrame):
 
         # Update status badge
         status = s.get("status", "completed")
+        self._update_status_badge(status)
+
+        # Update metrics - prefer tree_data for consistency with tree display
+        duration_ms = self._tree_data.get("duration_ms") or s.get("duration_ms", 0)
+        total_tokens = s.get("total_tokens", 0)
+        total_tools = s.get("total_tool_calls", 0)
+        total_files = s.get("total_files", 0)
+        agents_count = self._tree_data.get("children_count", s.get("unique_agents", 0))
+
+        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(self._metric_tools, "🔧", str(total_tools))
+        self._update_metric(self._metric_files, "📁", str(total_files))
+        self._update_metric(self._metric_agents, "🤖", str(agents_count))
+
+        # Load data for current tab
+        self._load_tab_data(self._tabs.currentIndex())
+
+    def _show_child_session(self, tree_data: dict) -> None:
+        """Show details for a child session (sub-agent trace).
+
+        Child sessions are individual agent invocations within a parent session.
+        We display their specific metrics from tree_data.
+        """
+        agent_type = tree_data.get("agent_type", "agent")
+        parent_agent = tree_data.get("parent_agent", "user")
+        title = tree_data.get("title", "")
+        status = tree_data.get("status", "completed")
+        session_id = tree_data.get("session_id")
+
+        # Update header - show delegation chain
+        if parent_agent:
+            header_text = f"🔗 {parent_agent} → {agent_type}"
+        else:
+            header_text = f"🤖 {agent_type}"
+
+        self._header.setText(header_text)
+        self._header.setStyleSheet(f"""
+            font_size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+
+        # Update status badge
+        self._update_status_badge(status)
+
+        # Update metrics from tree_data (use 'or 0' to handle None values)
+        duration_ms = tree_data.get("duration_ms") or 0
+        tokens_in = tree_data.get("tokens_in") or 0
+        tokens_out = tree_data.get("tokens_out") or 0
+        total_tokens = tokens_in + tokens_out
+        children_count = tree_data.get("children_count") or 0
+
+        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(self._metric_tools, "🔧", "-")  # Not available for child
+        self._update_metric(self._metric_files, "📁", "-")  # Not available for child
+        self._update_metric(self._metric_agents, "🤖", str(children_count))
+
+        # Get prompts directly from tree_data (loaded from agent_traces table)
+        prompt_input = tree_data.get("prompt_input")
+        prompt_output = tree_data.get("prompt_output")
+
+        # Fallback if no prompts found
+        if not prompt_input:
+            prompt_input = title if title else f"Task delegated to {agent_type}"
+        if not prompt_output:
+            prompt_output = (
+                f"Agent: {agent_type}\n"
+                f"Duration: {format_duration(duration_ms)}\n"
+                f"Tokens: {format_tokens_short(tokens_in)} in / {format_tokens_short(tokens_out)} out\n"
+                f"Status: {status}"
+            )
+
+        # Store data for transcript tab
+        self._current_data = {
+            "user_content": prompt_input,
+            "assistant_content": prompt_output,
+        }
+
+        # Load transcript tab with local data
+        self._transcript_tab.load_data(self._current_data)
+        self._tabs.setCurrentIndex(0)
+
+    def _update_status_badge(self, status: str) -> None:
+        """Update the status badge appearance."""
         if status == "completed":
             self._status_badge.setText("✅ Completed")
             self._status_badge.setStyleSheet(f"""
@@ -1253,8 +1450,20 @@ class TraceDetailPanel(QFrame):
                 background-color: {COLORS["warning_muted"]};
                 color: {COLORS["warning"]};
             """)
+        elif status == "error":
+            self._status_badge.setText("❌ Error")
+            self._status_badge.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                background-color: {COLORS["error_muted"]};
+                color: {COLORS["error"]};
+            """)
         else:
-            self._status_badge.setText(f"● {status.capitalize()}")
+            self._status_badge.setText(
+                f"● {status.capitalize() if status else 'Unknown'}"
+            )
             self._status_badge.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
                 font-weight: {FONTS["weight_semibold"]};
@@ -1265,25 +1474,113 @@ class TraceDetailPanel(QFrame):
             """)
         self._status_badge.show()
 
-        # Update metrics - prefer tree_data for consistency with tree display
-        # Tree data has accurate duration and agent count from hierarchy
-        duration_ms = self._tree_data.get("duration_ms") or s.get("duration_ms", 0)
-        total_tokens = s.get("total_tokens", 0)
-        total_tools = s.get("total_tool_calls", 0)
-        total_files = s.get("total_files", 0)
-        # Use children_count from tree (sub-agents invoked) instead of API's unique_agents
-        agents_count = self._tree_data.get("children_count", s.get("unique_agents", 0))
+    def show_turn(
+        self,
+        user_content: str,
+        assistant_content: Optional[str],
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Display a conversation turn (user prompt + assistant response).
 
-        self._update_metric(self._metric_duration, "⏱", format_duration(duration_ms))
+        Args:
+            user_content: User's prompt
+            assistant_content: Assistant's response (can be None if pending)
+            tokens_in: Input tokens
+            tokens_out: Output tokens
+            timestamp: Turn timestamp (ISO format)
+        """
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Update header
+        self._header.setText("💬 Conversation Turn")
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+
+        # Hide status badge
+        self._status_badge.hide()
+
+        # Update metrics
+        total_tokens = (tokens_in or 0) + (tokens_out or 0)
+        self._update_metric(self._metric_duration, "⏱", "-")
         self._update_metric(
             self._metric_tokens, "🎫", format_tokens_short(total_tokens)
         )
-        self._update_metric(self._metric_tools, "🔧", str(total_tools))
-        self._update_metric(self._metric_files, "📁", str(total_files))
-        self._update_metric(self._metric_agents, "🤖", str(agents_count))
+        self._update_metric(self._metric_tools, "🔧", "-")
+        self._update_metric(self._metric_files, "📁", "-")
+        self._update_metric(self._metric_agents, "🤖", "-")
 
-        # Load data for current tab
-        self._load_tab_data(self._tabs.currentIndex())
+        # Store data for reference
+        self._current_data = {
+            "user_content": user_content,
+            "assistant_content": assistant_content or "(Waiting for response...)",
+        }
+
+        # Load full content into transcript tab
+        self._transcript_tab.load_data(self._current_data)
+
+        # Show transcript tab by default for turns (index 0 now)
+        self._tabs.setCurrentIndex(0)
+
+    def show_message(
+        self,
+        role: str,
+        content: str,
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Display message content (user prompt or assistant response).
+
+        Args:
+            role: "user" or "assistant"
+            content: Full message content
+            tokens_in: Input tokens for this message
+            tokens_out: Output tokens for this message
+            timestamp: Message timestamp (ISO format)
+        """
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Update header based on role
+        if role == "user":
+            self._header.setText("💬 User Message")
+            header_color = COLORS.get("info", "#60A5FA")
+        else:
+            self._header.setText("🤖 Assistant Response")
+            header_color = COLORS.get("success", "#34D399")
+
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {header_color};
+        """)
+
+        # Hide status badge for messages
+        self._status_badge.hide()
+
+        # Update metrics
+        total_tokens = (tokens_in or 0) + (tokens_out or 0)
+        self._update_metric(self._metric_duration, "⏱", "-")
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(self._metric_tools, "🔧", "-")
+        self._update_metric(self._metric_files, "📁", "-")
+        self._update_metric(self._metric_agents, "🤖", "-")
+
+        # Load content into transcript tab
+        self._current_data = {
+            "user_content": content if role == "user" else "",
+            "assistant_content": content if role == "assistant" else "",
+        }
+        self._transcript_tab.load_data(self._current_data)
+        self._tabs.setCurrentIndex(0)
 
     def show_trace(
         self,
@@ -1351,14 +1648,14 @@ class TraceDetailPanel(QFrame):
         self._update_metric(self._metric_files, "📁", "-")
         self._update_metric(self._metric_agents, "🤖", "1")
 
-        # Store for prompts tab
+        # Store for transcript tab
         self._current_data = {
-            "prompt_input": prompt_input,
-            "prompt_output": prompt_output,
+            "user_content": prompt_input,
+            "assistant_content": prompt_output or "",
         }
 
-        # Load prompts tab (default)
-        self._prompts_tab.load_data(self._current_data)
+        # Load transcript tab (default)
+        self._transcript_tab.load_data(self._current_data)
         self._tabs.setCurrentIndex(0)
 
     def show_session(
@@ -1416,7 +1713,7 @@ class TraceDetailPanel(QFrame):
         self._update_metric(self._metric_files, "📁", str(trace_count))
         self._update_metric(self._metric_agents, "🤖", str(children_count))
 
-        # Store for prompts tab
+        # Store for transcript tab
         output_text = f"Directory: {directory}\n"
         if is_root:
             output_text += "Type: Direct user conversation\n"
@@ -1424,17 +1721,17 @@ class TraceDetailPanel(QFrame):
         output_text += f"Sub-agents: {children_count}"
 
         self._current_data = {
-            "prompt_input": prompt_input or title or "(No prompt)",
-            "prompt_output": output_text,
+            "user_content": prompt_input or title or "(No prompt)",
+            "assistant_content": output_text,
         }
 
-        # Load prompts tab
-        self._prompts_tab.load_data(self._current_data)
+        # Load transcript tab
+        self._transcript_tab.load_data(self._current_data)
         self._tabs.setCurrentIndex(0)
 
     def _clear_tabs(self) -> None:
         """Clear all tab data."""
-        self._prompts_tab.clear()
+        self._transcript_tab.clear()
         self._tokens_tab.clear()
         self._tools_tab.clear()
         self._files_tab.clear()
@@ -1640,22 +1937,46 @@ class TracingSection(QWidget):
             return
 
         if self._view_mode == "sessions":
-            # Session clicked - use TracingDataService for full summary
+            node_type = data.get("node_type", "session")
             session_id = data.get("session_id")
 
-            if session_id:
-                # Pass tree data for consistent display
-                # Use duration_ms for children, total_duration_ms for root
+            if node_type == "turn":
+                # Turn clicked - show conversation exchange in detail panel
+                self._detail_panel.show_turn(
+                    user_content=data.get("user_content", ""),
+                    assistant_content=data.get("assistant_content"),
+                    tokens_in=data.get("tokens_in", 0),
+                    tokens_out=data.get("tokens_out", 0),
+                    timestamp=data.get("created_at"),
+                )
+            elif node_type == "message":
+                # Single message clicked (legacy)
+                self._detail_panel.show_message(
+                    role=data.get("role", ""),
+                    content=data.get("content", data.get("title", "")),
+                    tokens_in=data.get("tokens_in", 0),
+                    tokens_out=data.get("tokens_out", 0),
+                    timestamp=data.get("created_at"),
+                )
+            elif session_id:
+                # Session/Agent clicked - use TracingDataService for full summary
                 duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
                 tree_data = {
+                    "node_type": node_type,
                     "children_count": len(data.get("children", [])),
                     "trace_count": data.get("trace_count", 0),
                     "tokens_in": data.get("tokens_in", 0),
                     "tokens_out": data.get("tokens_out", 0),
                     "duration_ms": duration,
                     "agent_type": data.get("agent_type"),
+                    "parent_agent": data.get("parent_agent"),
                     "title": data.get("title", ""),
                     "status": data.get("status"),
+                    "prompt_input": data.get(
+                        "prompt_input"
+                    ),  # Real prompt from Task tool
+                    "prompt_output": data.get("prompt_output"),  # Agent's response
+                    "session_id": session_id,
                 }
                 self._detail_panel.show_session_summary(session_id, tree_data=tree_data)
             else:
@@ -1838,6 +2159,7 @@ class TracingSection(QWidget):
                 else:
                     item = QTreeWidgetItem(self._tree)
 
+                node_type = session.get("node_type", "session")
                 agent_type = session.get("agent_type")
                 parent_agent = session.get("parent_agent")
                 title = session.get("title") or ""
@@ -1850,30 +2172,77 @@ class TracingSection(QWidget):
                     # Root session: show with tree icon (direct user conversation)
                     project = get_project_name(directory)
                     item.setText(0, f"🌳 {project}")
-                    # Color root items with primary accent
                     item.setForeground(0, QColor(COLORS["tree_root"]))
-                else:
-                    # Child session: show agent delegation chain + title
-                    # Try to extract agent from title if not in delegation table
-                    effective_agent = agent_type or extract_agent_from_title(title)
+                elif node_type == "turn":
+                    # Conversation turn: show delegation (user → agent)
+                    icon = "💬"
+                    color = COLORS.get("text_primary", "#E5E7EB")
+                    # Show user → agent_name (coordinateur, executeur, etc.)
+                    responding_agent = session.get("agent", "assistant")
+                    label = f"{icon} user → {responding_agent}"
+                    item.setText(0, label)
+                    item.setForeground(0, QColor(color))
 
-                    # Use different icons based on depth for visual hierarchy
-                    if depth == 1:
-                        icon = "🔗"  # Link for first level delegation
+                    # Tooltip with full conversation
+                    user_content = session.get("user_content", "")
+                    assistant_content = session.get("assistant_content", "")
+                    tooltip = f"User:\n{user_content[:400]}"
+                    if len(user_content) > 400:
+                        tooltip += "..."
+                    if assistant_content:
+                        tooltip += f"\n\nAssistant:\n{assistant_content[:400]}"
+                        if len(assistant_content) > 400:
+                            tooltip += "..."
+                    item.setToolTip(0, tooltip)
+                elif node_type == "message":
+                    # Single message node (legacy)
+                    role = session.get("role", "")
+                    if role == "user":
+                        icon = "💬"
+                        color = COLORS.get("info", "#60A5FA")
                     else:
-                        icon = "└─"  # Tree branch for deeper levels
+                        icon = "🤖"
+                        color = COLORS.get("success", "#34D399")
+
+                    label = f"{icon} {title}"
+                    item.setText(0, label)
+                    item.setForeground(0, QColor(color))
+
+                    full_content = session.get("content", title)
+                    if full_content:
+                        item.setToolTip(
+                            0,
+                            full_content[:500] + "..."
+                            if len(full_content) > 500
+                            else full_content,
+                        )
+                elif node_type == "agent":
+                    # Agent delegation node
+                    effective_agent = agent_type or extract_agent_from_title(title)
+                    icon = "🔗" if depth == 1 else "└─"
 
                     if effective_agent and parent_agent:
-                        # Show: parent → child (who called who)
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
                     else:
                         label = f"{icon} subagent"
 
-                    # Add truncated title (remove the (@agent) part for cleaner display)
+                    item.setText(0, label)
+                    item.setForeground(0, QColor(COLORS["tree_child"]))
+                else:
+                    # Fallback for other node types
+                    effective_agent = agent_type or extract_agent_from_title(title)
+                    icon = "🔗" if depth == 1 else "└─"
+
+                    if effective_agent and parent_agent:
+                        label = f"{icon} {parent_agent} → {effective_agent}"
+                    elif effective_agent:
+                        label = f"{icon} {effective_agent}"
+                    else:
+                        label = f"{icon} subagent"
+
                     if title:
-                        # Remove (@agent...) suffix
                         import re
 
                         clean_title = re.sub(r"\s*\(@\w+.*\)$", "", title)
@@ -1886,33 +2255,45 @@ class TracingSection(QWidget):
                             label = f"{label}: {short_title}"
 
                     item.setText(0, label)
-                    # Color child items with softer purple
                     item.setForeground(0, QColor(COLORS["tree_child"]))
 
                 # Date - secondary color
                 item.setText(1, format_datetime(created_at))
                 item.setForeground(1, QColor(COLORS["text_secondary"]))
 
-                # Child sessions count
-                if children_count > 0:
-                    item.setText(2, str(children_count))
-                    item.setForeground(2, QColor(COLORS["accent_primary"]))
-                else:
-                    item.setText(2, "-")
-                    item.setForeground(2, QColor(COLORS["text_muted"]))
-
-                # Trace count
-                if trace_count > 0:
-                    item.setText(3, str(trace_count))
-                    item.setForeground(3, QColor(COLORS["text_secondary"]))
-                else:
+                # For messages, show tokens instead of children count
+                if node_type == "message":
+                    tokens_in = session.get("tokens_in") or 0
+                    tokens_out = session.get("tokens_out") or 0
+                    if tokens_in or tokens_out:
+                        item.setText(2, f"{tokens_in}→{tokens_out}")
+                        item.setForeground(2, QColor(COLORS["text_muted"]))
+                    else:
+                        item.setText(2, "-")
+                        item.setForeground(2, QColor(COLORS["text_muted"]))
                     item.setText(3, "-")
                     item.setForeground(3, QColor(COLORS["text_muted"]))
+                else:
+                    # Child sessions count
+                    if children_count > 0:
+                        item.setText(2, str(children_count))
+                        item.setForeground(2, QColor(COLORS["accent_primary"]))
+                    else:
+                        item.setText(2, "-")
+                        item.setForeground(2, QColor(COLORS["text_muted"]))
+
+                    # Trace count
+                    if trace_count > 0:
+                        item.setText(3, str(trace_count))
+                        item.setForeground(3, QColor(COLORS["text_secondary"]))
+                    else:
+                        item.setText(3, "-")
+                        item.setForeground(3, QColor(COLORS["text_muted"]))
 
                 # Store session data for detail panel
                 item.setData(0, Qt.ItemDataRole.UserRole, session)
 
-                # Tooltip with full path
+                # Tooltip with full path for sessions
                 if directory:
                     item.setToolTip(0, directory)
 
