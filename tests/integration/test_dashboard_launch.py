@@ -30,9 +30,9 @@ class TestDashboardWindowCreation:
         min_width = dashboard_window.minimumWidth()
         min_height = dashboard_window.minimumHeight()
 
-        # Should have reasonable minimum dimensions
-        assert min_width > 0
-        assert min_height > 0
+        # Should have reasonable minimum dimensions (at least 800x600)
+        assert min_width >= 800, f"Expected minimum width >= 800, got {min_width}"
+        assert min_height >= 600, f"Expected minimum height >= 600, got {min_height}"
 
     def test_window_has_default_size(self, dashboard_window):
         """Test that the window starts with default size."""
