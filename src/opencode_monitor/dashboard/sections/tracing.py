@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QProgressBar,
     QFrame,
     QPushButton,
+    QHeaderView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtGui import QFont, QColor
@@ -573,6 +574,13 @@ class TracingSection(QWidget):
                 color: {COLORS["text_secondary"]};
             }}
         """)
+
+        # Make columns resizable
+        header = self._tree.header()
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        header.setStretchLastSection(True)
+        header.setMinimumSectionSize(50)
+
         top_layout.addWidget(self._tree)
 
         # Empty state

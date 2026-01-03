@@ -469,6 +469,26 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
         except Exception:  # Intentional catch-all: skip lookup failures
             pass
 
+    # Resolve tokens from child session messages
+    for trace in traces:
+        if not trace.child_session_id:
+            continue
+        try:
+            # Sum tokens from all messages in the child session
+            result = conn.execute(
+                """SELECT 
+                    COALESCE(SUM(tokens_input), 0) as total_in,
+                    COALESCE(SUM(tokens_output), 0) as total_out
+                FROM messages 
+                WHERE session_id = ?""",
+                [trace.child_session_id],
+            ).fetchone()
+            if result and (result[0] > 0 or result[1] > 0):
+                trace.tokens_in = result[0]
+                trace.tokens_out = result[1]
+        except Exception:  # Intentional catch-all: skip token lookup failures
+            pass
+
     # Insert traces
     for trace in traces:
         try:
