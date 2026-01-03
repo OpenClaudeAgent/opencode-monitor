@@ -45,6 +45,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 30 | Tracing Bugfixes | [plan-30](./plan-30-tracing-bugfixes.md) | `feature/tracing-ui` | v0.9.1 | Termine |
 | 31 | Tracing UX Refinement | [plan-31](./plan-31-tracing-ux-refinement.md) | `feature/tracing-ui` | v0.9.1 | Termine |
 | 32 | Tracing Datadog Vision | [plan-32](./plan-32-tracing-datadog-vision.md) | `feature/tracing-vision` | - | En attente |
+| 33 | Infrastructure Tests Integration | [plan-33](./plan-33-integration-tests.md) | `feature/integration-tests` | - | En attente |
 
 ## Priorite
 
@@ -67,6 +68,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-03 | Ajout plan-33 (infrastructure tests integration) - pytest-qt, mock API, parallelisation, mode headless/visible |
 | 2026-01-03 | Plan-30/31 termines - Bugfixes et UX refinement valides (integres au refactoring Plan 29) v0.9.1 |
 | 2026-01-03 | Plan-29 termine - Refactoring tracing.py en package modulaire (13 fichiers), HTTP API, visualisation prompts v0.9.1 |
 | 2026-01-03 | Plan-28 termine - TracingDataService avec schema enrichi, 3 tables agregation, 22 tests v0.9.0 |
