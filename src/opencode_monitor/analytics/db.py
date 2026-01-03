@@ -12,6 +12,8 @@ from typing import Optional
 
 import duckdb
 
+from datetime import datetime
+
 from ..utils.logger import info, debug, error
 
 
@@ -274,6 +276,22 @@ class AnalyticsDB:
             ON agent_traces(child_session_id)
         """)
 
+        # Sync metadata table (for dashboard polling)
+        # This allows the dashboard to detect when menubar has synced new data
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS sync_meta (
+                id INTEGER PRIMARY KEY DEFAULT 1,
+                last_sync TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                sync_count INTEGER DEFAULT 0
+            )
+        """)
+        # Insert initial row if empty
+        conn.execute("""
+            INSERT INTO sync_meta (id, last_sync, sync_count)
+            SELECT 1, CURRENT_TIMESTAMP, 0
+            WHERE NOT EXISTS (SELECT 1 FROM sync_meta WHERE id = 1)
+        """)
+
         debug("Analytics database schema created")
 
     def _migrate_columns(self, conn: duckdb.DuckDBPyConnection) -> None:
@@ -402,3 +420,26 @@ class AnalyticsDB:
             return True
         age_hours = (time.time() - last_refresh) / 3600
         return age_hours > max_age_hours
+
+    def update_sync_timestamp(self) -> None:
+        """Mark that a sync just completed (called by menubar only).
+
+        This updates the sync_meta table to signal to dashboard readers
+        that new data is available.
+        """
+        conn = self.connect()
+        conn.execute("""
+            UPDATE sync_meta
+            SET last_sync = CURRENT_TIMESTAMP, sync_count = sync_count + 1
+            WHERE id = 1
+        """)
+
+    def get_sync_timestamp(self) -> Optional[datetime]:
+        """Get last sync timestamp (for dashboard polling).
+
+        Returns:
+            The timestamp of the last sync, or None if no sync has occurred.
+        """
+        conn = self.connect()
+        result = conn.execute("SELECT last_sync FROM sync_meta WHERE id = 1").fetchone()
+        return result[0] if result else None

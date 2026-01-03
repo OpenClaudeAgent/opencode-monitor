@@ -6,36 +6,20 @@ Modern design with:
 - Page-based content switching
 - Status indicators and header
 - Real-time data refresh
+
+Note: Dashboard operates in read-only mode. Data sync is handled by
+the menubar app which has write access to the database. The dashboard
+polls sync_meta table to detect when new data is available.
 """
 
 import threading
-from dataclasses import dataclass
+import time
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Callable, Optional
 
 # Import analytics modules at top level to avoid deadlock in threads
 from ..analytics.db import AnalyticsDB
 from ..analytics.queries.trace_queries import TraceQueries
-from ..analytics.loader import load_opencode_data
-
-
-@dataclass
-class SyncConfig:
-    """Configuration for OpenCode data synchronization.
-
-    Extracted as a dataclass for testability - allows injecting
-    different configurations in tests without modifying code.
-
-    Attributes:
-        clear_first: Whether to clear existing data before sync
-        max_days: Maximum number of days to sync
-        skip_parts: Skip loading parts (slow with many files)
-    """
-
-    clear_first: bool = False
-    max_days: int = 30
-    skip_parts: bool = True
-
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -66,31 +50,71 @@ class DataSignals(QObject):
     security_updated = pyqtSignal(dict)
     analytics_updated = pyqtSignal(dict)
     tracing_updated = pyqtSignal(dict)
-    sync_completed = pyqtSignal(dict)  # OpenCode data sync status
+
+
+class SyncChecker:
+    """Polls sync_meta to detect when menubar has synced new data.
+
+    The dashboard operates in read-only mode. The menubar updates sync_meta
+    when it syncs new data. This class polls that table and triggers a
+    refresh when new data is detected.
+    """
+
+    POLL_FAST_MS = 2000  # During activity
+    POLL_SLOW_MS = 5000  # At rest
+    IDLE_THRESHOLD_S = 30  # Switch to slow after 30s without change
+
+    def __init__(self, on_sync_detected: Callable[[], None]):
+        """Initialize the sync checker.
+
+        Args:
+            on_sync_detected: Callback to invoke when new sync is detected.
+        """
+        self._on_sync = on_sync_detected
+        self._known_sync: Optional[datetime] = None
+        self._last_change_time = time.time()
+
+        self._timer = QTimer()
+        self._timer.timeout.connect(self._check)
+        self._timer.start(self.POLL_FAST_MS)
+
+    def _check(self) -> None:
+        """Check if sync timestamp has changed."""
+        try:
+            db = AnalyticsDB(read_only=True)
+            current = db.get_sync_timestamp()
+            db.close()
+
+            if current != self._known_sync:
+                self._known_sync = current
+                self._last_change_time = time.time()
+                self._timer.setInterval(self.POLL_FAST_MS)  # Active mode
+                self._on_sync()  # Trigger refresh
+            elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
+                self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
+        except Exception:
+            pass  # DB may be locked momentarily
+
+    def stop(self) -> None:
+        """Stop the sync checker."""
+        self._timer.stop()
 
 
 class DashboardWindow(QMainWindow):
     """Main dashboard window with sidebar navigation."""
 
-    def __init__(
-        self,
-        parent: QWidget | None = None,
-        sync_config: SyncConfig | None = None,
-    ):
+    def __init__(self, parent: QWidget | None = None):
         """Initialize dashboard window.
 
         Args:
             parent: Parent widget (optional)
-            sync_config: Configuration for OpenCode data sync (optional).
-                        If not provided, uses default SyncConfig().
-                        Inject a custom config for testing.
         """
         super().__init__(parent)
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
         self._agent_tty_map: dict[str, str] = {}  # agent_id -> tty mapping
-        self._sync_config = sync_config or SyncConfig()
+        self._sync_checker: Optional[SyncChecker] = None
 
         self._setup_window()
         self._setup_ui()
@@ -186,7 +210,6 @@ class DashboardWindow(QMainWindow):
         self._signals.security_updated.connect(self._on_security_data)
         self._signals.analytics_updated.connect(self._on_analytics_data)
         self._signals.tracing_updated.connect(self._on_tracing_data)
-        self._signals.sync_completed.connect(self._on_sync_completed)
 
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
@@ -194,11 +217,6 @@ class DashboardWindow(QMainWindow):
         # Connect terminal focus signal
         self._monitoring.open_terminal_requested.connect(self._on_open_terminal)
         self._tracing.open_terminal_requested.connect(self._on_open_terminal_session)
-
-    def _on_sync_completed(self, result: dict) -> None:
-        """Handle OpenCode data sync completion - refresh all data."""
-        # Refresh all sections to pick up new data
-        self._refresh_all_data()
 
     def _on_open_terminal(self, agent_id: str) -> None:
         """Handle request to open terminal for an agent."""
@@ -233,31 +251,8 @@ class DashboardWindow(QMainWindow):
         self._refresh_timer.timeout.connect(self._refresh_all_data)
         self._refresh_timer.start(UI["refresh_interval_ms"])
 
-    def _sync_opencode_data(self) -> None:
-        """Sync OpenCode storage data to analytics database.
-
-        This runs on startup to ensure the dashboard shows the latest data.
-        Uses configuration from self._sync_config for testability.
-        """
-        try:
-            from ..utils.logger import info, error
-
-            cfg = self._sync_config
-            info(f"[Dashboard] Syncing OpenCode data (max_days={cfg.max_days})...")
-            result = load_opencode_data(
-                clear_first=cfg.clear_first,
-                max_days=cfg.max_days,
-                skip_parts=cfg.skip_parts,
-            )
-            info(f"[Dashboard] Sync complete: {result}")
-
-            # Emit signal to trigger data refresh
-            self._signals.sync_completed.emit(result)
-
-        except Exception as e:
-            from ..utils.logger import error
-
-            error(f"[Dashboard] Sync error: {e}")
+        # Start sync checker to detect when menubar syncs new data
+        self._sync_checker = SyncChecker(on_sync_detected=self._refresh_all_data)
 
     def _refresh_all_data(self) -> None:
         """Refresh all section data in background threads."""
@@ -712,6 +707,8 @@ class DashboardWindow(QMainWindow):
         """Handle window close."""
         if self._refresh_timer:
             self._refresh_timer.stop()
+        if self._sync_checker:
+            self._sync_checker.stop()
         if a0:
             a0.accept()
 
