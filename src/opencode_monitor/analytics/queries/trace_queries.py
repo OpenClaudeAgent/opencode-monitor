@@ -440,9 +440,15 @@ class TraceQueries(BaseQueries):
                     d.parent_agent,
                     d.child_agent,
                     (SELECT COUNT(*) FROM agent_traces t WHERE t.session_id = s.id) as trace_count,
-                    (SELECT prompt_input FROM agent_traces t 
-                     WHERE t.child_session_id = s.id AND t.trace_id LIKE 'root_%' 
-                     LIMIT 1) as root_prompt
+                    -- Get prompt: for ROOT from root trace, for CHILD from delegation trace
+                    COALESCE(
+                        (SELECT prompt_input FROM agent_traces t 
+                         WHERE t.child_session_id = s.id AND t.trace_id LIKE 'root_%' 
+                         LIMIT 1),
+                        (SELECT prompt_input FROM agent_traces t 
+                         WHERE t.child_session_id = s.id AND t.trace_id NOT LIKE 'root_%' 
+                         LIMIT 1)
+                    ) as root_prompt
                 FROM sessions s
                 LEFT JOIN delegations d ON s.id = d.child_session_id
                 WHERE s.id IN (SELECT session_id FROM relevant_sessions)
