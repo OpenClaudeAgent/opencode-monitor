@@ -8,6 +8,25 @@ the real Analytics API responses for dashboard testing.
 from datetime import datetime, timedelta
 from typing import Any
 
+# ==============================================================================
+# Fixed Test Constants
+# ==============================================================================
+
+# Fixed test date for reproducible tests (avoids datetime.now() non-determinism)
+FIXED_TEST_DATE = datetime(2024, 1, 15, 10, 30, 0)
+
+# Expected values from realistic_tracing() for assertions in tests
+EXPECTED_TRACING = {
+    "root_session_title": "Implement feature X",
+    "root_session_id": "sess-root-001",
+    "child_agent_type": "executor",
+    "total_sessions": 3,
+    "total_traces": 3,
+    "root_tokens_in": 5000,
+    "root_tokens_out": 8000,
+    "root_duration_ms": 125000,
+}
+
 
 def create_session_data(
     session_id: str = "sess-001",
@@ -29,7 +48,7 @@ def create_session_data(
         Session data dict matching API response format
     """
     if created_at is None:
-        created_at = datetime.now()
+        created_at = FIXED_TEST_DATE
 
     return {
         "id": session_id,
@@ -69,7 +88,7 @@ def create_trace_data(
         Trace data dict matching API response format
     """
     if started_at is None:
-        started_at = datetime.now()
+        started_at = FIXED_TEST_DATE
 
     return {
         "trace_id": trace_id,
@@ -236,6 +255,25 @@ class MockAPIResponses:
     """Pre-built API responses for common test scenarios."""
 
     @staticmethod
+    def empty_monitoring() -> dict[str, Any]:
+        """Empty monitoring data for testing empty states.
+
+        Use this for tests that need to verify empty state behavior
+        in the monitoring section (agents_empty, tools_empty, waiting_empty).
+        """
+        return {
+            "instances": 0,
+            "agents": 0,
+            "busy": 0,
+            "waiting": 0,
+            "idle": 0,
+            "todos": 0,
+            "agents_data": [],
+            "tools_data": [],
+            "waiting_data": [],
+        }
+
+    @staticmethod
     def empty() -> dict[str, Any]:
         """Empty responses for testing initial state."""
         return {
@@ -268,7 +306,6 @@ class MockAPIResponses:
 
         Tests dashboard resilience when API returns incomplete data.
         """
-        now = datetime.now()
         return {
             "health": True,
             "stats": {"sessions": 5},  # Missing traces, messages
@@ -277,7 +314,7 @@ class MockAPIResponses:
                 {
                     "id": "sess-partial-001",
                     "title": None,  # Missing title
-                    "created_at": now.isoformat(),
+                    "created_at": FIXED_TEST_DATE.isoformat(),
                     "tokens_in": None,  # Missing tokens
                     "tokens_out": 0,
                     "directory": None,
@@ -293,13 +330,13 @@ class MockAPIResponses:
 
         Tests dashboard handling of very large numbers and long strings.
         """
-        now = datetime.now()
+        base_date = FIXED_TEST_DATE
 
         # Create session with extreme values
         session = create_session_data(
             "sess-extreme",
             "A" * 500,  # Very long title (500 chars)
-            now,
+            base_date,
             tokens_in=999_999_999,  # Very large number
             tokens_out=999_999_999,
         )
@@ -315,7 +352,7 @@ class MockAPIResponses:
                 duration_ms=i * 1000,
                 tokens_in=100_000,
                 tokens_out=50_000,
-                started_at=now - timedelta(minutes=i),
+                started_at=base_date - timedelta(minutes=i),
             )
             for i in range(100)
         ]
@@ -631,18 +668,68 @@ class MockAPIResponses:
         }
 
     @staticmethod
-    def realistic_tracing() -> dict[str, Any]:
-        """Create realistic tracing data with session hierarchy."""
-        now = datetime.now()
+    def malformed_types() -> dict[str, Any]:
+        """Responses with incorrect types for resilience testing.
 
-        # Create session hierarchy for TracingSection
-        session_hierarchy = [
+        Tests dashboard handling of type mismatches from malformed API responses.
+        """
+        return {
+            "health": True,
+            "sessions": [
+                {
+                    "id": 12345,  # int instead of string
+                    "title": None,  # null
+                    "created_at": "not-a-date",  # invalid format
+                    "tokens_in": "not_a_number",  # string instead of int
+                    "tokens_out": -100,  # negative
+                }
+            ],
+            "traces": [],
+            "global_stats": None,
+        }
+
+    @staticmethod
+    def missing_required_fields() -> dict[str, Any]:
+        """Responses with missing required fields.
+
+        Tests dashboard resilience when required fields are absent.
+        """
+        return {
+            "health": True,
+            "sessions": [
+                {"id": "sess-001"}  # Missing title, tokens, etc.
+            ],
+            "traces": [
+                {"trace_id": "trace-001"}  # Missing session_id, status, etc.
+            ],
+        }
+
+    @staticmethod
+    def api_becomes_unavailable() -> dict[str, Any]:
+        """Simulates API that was working then fails.
+
+        Tests dashboard handling when API becomes unavailable mid-session.
+        Use this after initial successful responses to simulate connection loss.
+        """
+        return {
+            "health": False,
+            "stats": None,
+            "global_stats": None,
+            "sessions": None,  # None = error, [] = empty
+            "traces": None,
+            "error": "Connection refused",
+        }
+
+    @staticmethod
+    def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
+        """Create hierarchical session structure for tracing tests."""
+        return [
             {
                 "session_id": "sess-root-001",
                 "node_type": "session",
                 "title": "Implement feature X",
                 "directory": "/home/dev/my-project",
-                "created_at": now.isoformat(),
+                "created_at": base_date.isoformat(),
                 "status": "completed",
                 "duration_ms": 125000,
                 "tokens_in": 5000,
@@ -657,7 +744,7 @@ class MockAPIResponses:
                         "title": "Execute implementation",
                         "agent_type": "executor",
                         "parent_agent": "user",
-                        "created_at": (now - timedelta(minutes=5)).isoformat(),
+                        "created_at": (base_date - timedelta(minutes=5)).isoformat(),
                         "status": "completed",
                         "duration_ms": 45000,
                         "tokens_in": 2000,
@@ -671,7 +758,7 @@ class MockAPIResponses:
                         "title": "Run tests",
                         "agent_type": "tester",
                         "parent_agent": "executor",
-                        "created_at": (now - timedelta(minutes=3)).isoformat(),
+                        "created_at": (base_date - timedelta(minutes=3)).isoformat(),
                         "status": "completed",
                         "duration_ms": 30000,
                         "tokens_in": 1500,
@@ -683,8 +770,10 @@ class MockAPIResponses:
             },
         ]
 
-        # Create traces list
-        traces = [
+    @staticmethod
+    def _create_traces_from_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
+        """Create trace records matching the session hierarchy."""
+        return [
             {
                 "trace_id": "trace-001",
                 "session_id": "sess-root-001",
@@ -694,7 +783,7 @@ class MockAPIResponses:
                 "duration_ms": 125000,
                 "tokens_in": 5000,
                 "tokens_out": 8000,
-                "started_at": now.isoformat(),
+                "started_at": base_date.isoformat(),
             },
             {
                 "trace_id": "trace-002",
@@ -705,7 +794,7 @@ class MockAPIResponses:
                 "duration_ms": 45000,
                 "tokens_in": 2000,
                 "tokens_out": 3000,
-                "started_at": (now - timedelta(minutes=5)).isoformat(),
+                "started_at": (base_date - timedelta(minutes=5)).isoformat(),
             },
             {
                 "trace_id": "trace-003",
@@ -716,17 +805,19 @@ class MockAPIResponses:
                 "duration_ms": 30000,
                 "tokens_in": 1500,
                 "tokens_out": 2500,
-                "started_at": (now - timedelta(minutes=3)).isoformat(),
+                "started_at": (base_date - timedelta(minutes=3)).isoformat(),
             },
         ]
 
-        # Create sessions list
-        sessions = [
+    @staticmethod
+    def _create_sessions_list(base_date: datetime) -> list[dict[str, Any]]:
+        """Create flat sessions list for tracing tests."""
+        return [
             {
                 "id": "sess-root-001",
                 "title": "Implement feature X",
                 "directory": "/home/dev/my-project",
-                "created_at": now.isoformat(),
+                "created_at": base_date.isoformat(),
                 "tokens_in": 5000,
                 "tokens_out": 8000,
             },
@@ -734,7 +825,7 @@ class MockAPIResponses:
                 "id": "sess-child-001",
                 "title": "Execute implementation",
                 "directory": "/home/dev/my-project",
-                "created_at": (now - timedelta(minutes=5)).isoformat(),
+                "created_at": (base_date - timedelta(minutes=5)).isoformat(),
                 "tokens_in": 2000,
                 "tokens_out": 3000,
             },
@@ -742,20 +833,16 @@ class MockAPIResponses:
                 "id": "sess-child-002",
                 "title": "Run tests",
                 "directory": "/home/dev/my-project",
-                "created_at": (now - timedelta(minutes=3)).isoformat(),
+                "created_at": (base_date - timedelta(minutes=3)).isoformat(),
                 "tokens_in": 1500,
                 "tokens_out": 2500,
             },
         ]
 
+    @staticmethod
+    def _create_session_details(base_date: datetime) -> dict[str, Any]:
+        """Create detailed session data (tokens, tools, files, agents, timeline)."""
         return {
-            "traces": traces,
-            "sessions": sessions,
-            "session_hierarchy": session_hierarchy,
-            "total_traces": 3,
-            "unique_agents": 3,
-            "total_duration_ms": 200000,
-            # Session detail data for MockAnalyticsAPIClient methods
             "session_tokens": {
                 "sess-root-001": {
                     "input": 5000,
@@ -816,52 +903,76 @@ class MockAPIResponses:
             },
             "session_timeline": {
                 "sess-root-001": [
-                    {"timestamp": now.isoformat(), "event": "session_start"},
+                    {"timestamp": base_date.isoformat(), "event": "session_start"},
                     {
-                        "timestamp": (now + timedelta(seconds=10)).isoformat(),
+                        "timestamp": (base_date + timedelta(seconds=10)).isoformat(),
                         "event": "agent_spawn",
                         "agent": "executor",
                     },
                     {
-                        "timestamp": (now + timedelta(minutes=2)).isoformat(),
+                        "timestamp": (base_date + timedelta(minutes=2)).isoformat(),
                         "event": "agent_spawn",
                         "agent": "tester",
                     },
                     {
-                        "timestamp": (now + timedelta(minutes=5)).isoformat(),
+                        "timestamp": (base_date + timedelta(minutes=5)).isoformat(),
                         "event": "session_end",
                     },
                 ],
                 "sess-child-001": [
                     {
-                        "timestamp": (now - timedelta(minutes=5)).isoformat(),
+                        "timestamp": (base_date - timedelta(minutes=5)).isoformat(),
                         "event": "session_start",
                     },
                     {
-                        "timestamp": (now - timedelta(minutes=4)).isoformat(),
+                        "timestamp": (base_date - timedelta(minutes=4)).isoformat(),
                         "event": "session_end",
                     },
                 ],
                 "sess-child-002": [
                     {
-                        "timestamp": (now - timedelta(minutes=3)).isoformat(),
+                        "timestamp": (base_date - timedelta(minutes=3)).isoformat(),
                         "event": "session_start",
                     },
                     {
-                        "timestamp": (now - timedelta(minutes=2)).isoformat(),
+                        "timestamp": (base_date - timedelta(minutes=2)).isoformat(),
                         "event": "session_end",
                     },
                 ],
             },
         }
 
+    @classmethod
+    def realistic_tracing(cls) -> dict[str, Any]:
+        """Create realistic tracing data with session hierarchy.
+
+        Uses FIXED_TEST_DATE for reproducible tests.
+        Data structure matches EXPECTED_TRACING constants for assertions.
+        """
+        base_date = FIXED_TEST_DATE
+
+        hierarchy = cls._create_session_hierarchy(base_date)
+        traces = cls._create_traces_from_hierarchy(base_date)
+        sessions = cls._create_sessions_list(base_date)
+        details = cls._create_session_details(base_date)
+
+        return {
+            "traces": traces,
+            "sessions": sessions,
+            "session_hierarchy": hierarchy,
+            "total_traces": 3,
+            "unique_agents": 3,
+            "total_duration_ms": 200000,
+            **details,
+        }
+
     @staticmethod
     def basic() -> dict[str, Any]:
         """Basic responses with minimal data for simple tests."""
-        now = datetime.now()
-        session = create_session_data("sess-001", "Test Session", now)
+        base_date = FIXED_TEST_DATE
+        session = create_session_data("sess-001", "Test Session", base_date)
         trace = create_trace_data(
-            "trace-001", "sess-001", "root_sess-001", "user", started_at=now
+            "trace-001", "sess-001", "root_sess-001", "user", started_at=base_date
         )
 
         return {
@@ -877,14 +988,14 @@ class MockAPIResponses:
                         "type": "text",
                         "role": "user",
                         "content": "Hello, test prompt",
-                        "timestamp": now.isoformat(),
+                        "timestamp": base_date.isoformat(),
                         "tokens_in": 10,
                     },
                     {
                         "type": "text",
                         "role": "assistant",
                         "content": "Test response",
-                        "timestamp": (now + timedelta(seconds=1)).isoformat(),
+                        "timestamp": (base_date + timedelta(seconds=1)).isoformat(),
                         "tokens_out": 20,
                     },
                 ]
@@ -895,11 +1006,11 @@ class MockAPIResponses:
     @staticmethod
     def complex() -> dict[str, Any]:
         """Complex responses with multiple sessions and agents."""
-        now = datetime.now()
+        base_date = FIXED_TEST_DATE
 
         sessions = [
             create_session_data(
-                f"sess-{i:03d}", f"Session {i}", now - timedelta(hours=i)
+                f"sess-{i:03d}", f"Session {i}", base_date - timedelta(hours=i)
             )
             for i in range(3)
         ]
@@ -908,7 +1019,7 @@ class MockAPIResponses:
         # Root session with user trace
         traces.append(
             create_trace_data(
-                "trace-001", "sess-000", "root_sess-000", "user", started_at=now
+                "trace-001", "sess-000", "root_sess-000", "user", started_at=base_date
             )
         )
         # Sub-agents
@@ -919,7 +1030,7 @@ class MockAPIResponses:
                     f"sess-{i + 1:03d}",
                     "root_sess-000",
                     agent_type,
-                    started_at=now - timedelta(minutes=i * 5),
+                    started_at=base_date - timedelta(minutes=i * 5),
                 )
             )
 
@@ -939,14 +1050,14 @@ class MockAPIResponses:
                         "type": "text",
                         "role": "user",
                         "content": "Complex task prompt",
-                        "timestamp": now.isoformat(),
+                        "timestamp": base_date.isoformat(),
                         "tokens_in": 100,
                     },
                     {
                         "type": "text",
                         "role": "assistant",
                         "content": "Starting complex task...",
-                        "timestamp": (now + timedelta(seconds=5)).isoformat(),
+                        "timestamp": (base_date + timedelta(seconds=5)).isoformat(),
                         "tokens_out": 200,
                         "agent": "coordinator",
                     },
@@ -958,14 +1069,14 @@ class MockAPIResponses:
                         "tool_name": "read",
                         "display_info": "src/main.py",
                         "status": "completed",
-                        "timestamp": now.isoformat(),
+                        "timestamp": base_date.isoformat(),
                         "duration_ms": 50,
                     },
                     {
                         "tool_name": "edit",
                         "display_info": "src/main.py",
                         "status": "completed",
-                        "timestamp": (now + timedelta(seconds=1)).isoformat(),
+                        "timestamp": (base_date + timedelta(seconds=1)).isoformat(),
                         "duration_ms": 100,
                     },
                 ]

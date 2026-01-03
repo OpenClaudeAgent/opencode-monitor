@@ -12,7 +12,12 @@ Tests verify that:
 import pytest
 from PyQt6.QtCore import Qt
 
-from .conftest import SIGNAL_WAIT_MS, SECTION_TRACING, SECTION_MONITORING
+from .conftest import (
+    SIGNAL_WAIT_MS,
+    SECTION_TRACING,
+    SECTION_MONITORING,
+    SECTION_ANALYTICS,
+)
 from .fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -140,9 +145,13 @@ class TestTracingSessionList:
         root_item = tracing._tree.topLevelItem(0)
         assert root_item is not None
 
-        # Root item should have text (project name)
+        # Root item should have text (project name or session title)
         root_text = root_item.text(0)
-        assert root_text, "Root item should have text"
+        assert root_text, f"Root item should have text, got empty string"
+        # Verify text is from mock data (could be project name like "my-project" or session title)
+        assert len(root_text) >= 3, (
+            f"Expected meaningful text (at least 3 chars), got: '{root_text}'"
+        )
 
 
 class TestTracingSessionSelection:
@@ -188,17 +197,24 @@ class TestTracingSessionSelection:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first item
+        # Select first item - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Detail panel metrics should exist
         detail = tracing._detail_panel
-        assert hasattr(detail, "_metric_duration")
-        assert hasattr(detail, "_metric_tokens")
+        assert hasattr(detail, "_metric_duration"), (
+            "Detail panel should have _metric_duration attribute"
+        )
+        assert hasattr(detail, "_metric_tokens"), (
+            "Detail panel should have _metric_tokens attribute"
+        )
 
 
 class TestTracingTabsNavigation:
@@ -241,78 +257,30 @@ class TestTracingTabsNavigation:
         # Tab 0 is transcript
         assert detail._tabs.currentIndex() == 0
 
-    def test_tab_has_transcript(self, dashboard_window, qtbot):
-        """Transcript tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_transcript_tab"), (
-            "Detail panel should have transcript tab"
-        )
-        assert detail._transcript_tab is not None, "Transcript tab should exist"
-        # Verify it's a valid widget
+    @pytest.mark.parametrize(
+        "tab_name,tab_index",
+        [
+            ("transcript", 0),
+            ("tokens", 1),
+            ("tools", 2),
+            ("files", 3),
+            ("agents", 4),
+            ("timeline", 5),
+        ],
+    )
+    def test_tab_exists_and_is_widget(
+        self, dashboard_window, qtbot, tab_name, tab_index
+    ):
+        """Each tab exists and is a valid QWidget."""
         from PyQt6.QtWidgets import QWidget
 
-        assert isinstance(detail._transcript_tab, QWidget), (
-            "Transcript tab should be a QWidget"
-        )
+        detail = dashboard_window._tracing._detail_panel
+        tab_attr = f"_{tab_name}_tab"
 
-    def test_tab_has_tokens(self, dashboard_window, qtbot):
-        """Tokens tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_tokens_tab"), "Detail panel should have tokens tab"
-        assert detail._tokens_tab is not None, "Tokens tab should exist"
-        from PyQt6.QtWidgets import QWidget
-
-        assert isinstance(detail._tokens_tab, QWidget), "Tokens tab should be a QWidget"
-
-    def test_tab_has_tools(self, dashboard_window, qtbot):
-        """Tools tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_tools_tab"), "Detail panel should have tools tab"
-        assert detail._tools_tab is not None, "Tools tab should exist"
-        from PyQt6.QtWidgets import QWidget
-
-        assert isinstance(detail._tools_tab, QWidget), "Tools tab should be a QWidget"
-
-    def test_tab_has_files(self, dashboard_window, qtbot):
-        """Files tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_files_tab"), "Detail panel should have files tab"
-        assert detail._files_tab is not None, "Files tab should exist"
-        from PyQt6.QtWidgets import QWidget
-
-        assert isinstance(detail._files_tab, QWidget), "Files tab should be a QWidget"
-
-    def test_tab_has_agents(self, dashboard_window, qtbot):
-        """Agents tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_agents_tab"), "Detail panel should have agents tab"
-        assert detail._agents_tab is not None, "Agents tab should exist"
-        from PyQt6.QtWidgets import QWidget
-
-        assert isinstance(detail._agents_tab, QWidget), "Agents tab should be a QWidget"
-
-    def test_tab_has_timeline(self, dashboard_window, qtbot):
-        """Timeline tab exists and is accessible."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        assert hasattr(detail, "_timeline_tab"), "Detail panel should have timeline tab"
-        assert detail._timeline_tab is not None, "Timeline tab should exist"
-        from PyQt6.QtWidgets import QWidget
-
-        assert isinstance(detail._timeline_tab, QWidget), (
-            "Timeline tab should be a QWidget"
-        )
+        assert hasattr(detail, tab_attr), f"Detail panel should have {tab_attr}"
+        tab = getattr(detail, tab_attr)
+        assert tab is not None, f"{tab_name} tab should not be None"
+        assert isinstance(tab, QWidget), f"{tab_name} tab should be a QWidget"
 
 
 class TestTracingDataPersistence:
@@ -365,11 +333,14 @@ class TestTracingSignals:
             lambda sid: signals_received.append(sid)
         )
 
-        # Get first item and double-click
+        # Get first item and double-click - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._on_item_double_clicked(root_item, 0)
-            qtbot.wait(50)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._on_item_double_clicked(root_item, 0)
+        qtbot.wait(50)
 
         # Signal may or may not be emitted depending on data
         # (session_id must be present in item data)
@@ -394,17 +365,20 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select a session
+        # Select a session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Verify transcript tab exists and is accessible
         detail = tracing._detail_panel
         transcript = detail._transcript_tab
-        assert transcript is not None
+        assert transcript is not None, "Transcript tab should not be None"
 
         # Tab should be visible when selected (click on tab bar)
         click_tab(detail._tabs, 0)
@@ -421,19 +395,22 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first session
+        # Select first session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Navigate to tokens tab (click on tab bar)
         detail = tracing._detail_panel
         click_tab(detail._tabs, 1)  # tokens tab
 
         tokens_tab = detail._tokens_tab
-        assert tokens_tab is not None
+        assert tokens_tab is not None, "Tokens tab should not be None"
 
     def test_tools_tab_shows_tool_widgets(
         self, dashboard_window, qtbot, click_nav, click_tab
@@ -446,19 +423,22 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first session
+        # Select first session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Navigate to tools tab (click on tab bar)
         detail = tracing._detail_panel
         click_tab(detail._tabs, 2)  # tools tab
 
         tools_tab = detail._tools_tab
-        assert tools_tab is not None
+        assert tools_tab is not None, "Tools tab should not be None"
 
     def test_files_tab_accessible(self, dashboard_window, qtbot, click_nav, click_tab):
         """Files tab is accessible after session selection."""
@@ -469,19 +449,22 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first session
+        # Select first session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Navigate to files tab (click on tab bar)
         detail = tracing._detail_panel
         click_tab(detail._tabs, 3)  # files tab
 
         files_tab = detail._files_tab
-        assert files_tab is not None
+        assert files_tab is not None, "Files tab should not be None"
 
     def test_agents_tab_accessible(self, dashboard_window, qtbot, click_nav, click_tab):
         """Agents tab is accessible after session selection."""
@@ -492,19 +475,22 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first session
+        # Select first session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Navigate to agents tab (click on tab bar)
         detail = tracing._detail_panel
         click_tab(detail._tabs, 4)  # agents tab
 
         agents_tab = detail._agents_tab
-        assert agents_tab is not None
+        assert agents_tab is not None, "Agents tab should not be None"
 
     def test_timeline_tab_accessible(
         self, dashboard_window, qtbot, click_nav, click_tab
@@ -517,19 +503,22 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Select first session
+        # Select first session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Navigate to timeline tab (click on tab bar)
         detail = tracing._detail_panel
         click_tab(detail._tabs, 5)  # timeline tab
 
         timeline_tab = detail._timeline_tab
-        assert timeline_tab is not None
+        assert timeline_tab is not None, "Timeline tab should not be None"
 
     def test_detail_header_updates_on_selection(
         self, dashboard_window, qtbot, click_nav
@@ -545,12 +534,15 @@ class TestTracingTabsContent:
         detail = tracing._detail_panel
         initial_header = detail._header.text()
 
-        # Select a session
+        # Select a session - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Header should have changed
         new_header = detail._header.text()
@@ -572,16 +564,23 @@ class TestTracingTabsContent:
 
         detail = tracing._detail_panel
 
-        # Select a session with known tokens
+        # Select a session with known tokens - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+        assert root_item is not None, (
+            "Expected at least one item in tree after data load"
+        )
+
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
 
         # Check metrics exist
-        assert hasattr(detail, "_metric_duration")
-        assert hasattr(detail, "_metric_tokens")
+        assert hasattr(detail, "_metric_duration"), (
+            "Detail panel should have _metric_duration attribute"
+        )
+        assert hasattr(detail, "_metric_tokens"), (
+            "Detail panel should have _metric_tokens attribute"
+        )
 
 
 # =============================================================================
@@ -603,11 +602,15 @@ class TestTracingTreeContent:
 
         # Get first root item
         root_item = tracing._tree.topLevelItem(0)
-        assert root_item is not None
+        assert root_item is not None, "Expected at least one root item in tree"
 
-        # Root item should have text
+        # Root item should have text (session title or project name)
         root_text = root_item.text(0)
-        assert root_text, "Root item should have text"
+        assert root_text, f"Root item should have text, got empty string"
+        # Verify text is from mock data (meaningful content)
+        assert len(root_text) >= 3, (
+            f"Expected meaningful text (at least 3 chars), got: '{root_text}'"
+        )
 
     def test_tree_shows_agent_children(self, dashboard_window, qtbot, click_nav):
         """Tree shows child agents under root session."""
@@ -618,14 +621,16 @@ class TestTracingTreeContent:
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Get first root item
+        # Get first root item - must exist with data
         root_item = tracing._tree.topLevelItem(0)
-        if root_item and root_item.childCount() > 0:
-            # Has children - verify they exist
+        assert root_item is not None, "Expected at least one root item in tree"
+
+        # If root has children, verify they exist and have text
+        if root_item.childCount() > 0:
             first_child = root_item.child(0)
-            assert first_child is not None
+            assert first_child is not None, "Child at index 0 should not be None"
             child_text = first_child.text(0)
-            assert child_text, "Child item should have text"
+            assert child_text, f"Child item should have text, got empty string"
 
     def test_tree_item_has_data(self, dashboard_window, qtbot, click_nav):
         """Tree items have associated data for selection handling."""
@@ -637,8 +642,86 @@ class TestTracingTreeContent:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         root_item = tracing._tree.topLevelItem(0)
-        if root_item:
-            # Tree items should have data attached
-            # The exact data depends on implementation
-            # Just verify item exists and can be accessed
-            assert root_item.columnCount() >= 1
+        assert root_item is not None, "Expected at least one root item in tree"
+
+        # Tree widget has 4 columns (name, tokens, duration, status)
+        assert root_item.columnCount() == 4, (
+            f"Expected 4 columns, got {root_item.columnCount()}"
+        )
+
+
+# =============================================================================
+# User Workflow Tests
+# =============================================================================
+
+
+class TestUserWorkflows:
+    """Test realistic user workflows end-to-end."""
+
+    def test_complete_session_exploration(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
+        """User explores a session through all tabs."""
+        # Navigate to Tracing
+        click_nav(dashboard_window, SECTION_TRACING)
+
+        # Load data
+        data = MockAPIResponses.realistic_tracing()
+        dashboard_window._signals.tracing_updated.emit(data)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        tracing = dashboard_window._tracing
+        detail = tracing._detail_panel
+
+        # Select first session
+        root_item = tracing._tree.topLevelItem(0)
+        assert root_item is not None, "Should have sessions"
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Explore ALL 6 tabs
+        for tab_index in range(6):
+            click_tab(detail._tabs, tab_index)
+            assert detail._tabs.currentIndex() == tab_index, (
+                f"Should be on tab {tab_index}"
+            )
+            qtbot.wait(50)
+
+        # Navigate away and back
+        click_nav(dashboard_window, SECTION_MONITORING)
+        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_TRACING)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Verify we're back on tracing
+        assert dashboard_window._pages.currentIndex() == SECTION_TRACING
+
+    def test_navigation_preserves_section_state(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Navigation away and back preserves section data."""
+        # Setup monitoring with data
+        click_nav(dashboard_window, SECTION_MONITORING)
+        data = MockAPIResponses.realistic_monitoring()
+        dashboard_window._signals.monitoring_updated.emit(data)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Verify data is there
+        metrics = dashboard_window._monitoring._metrics
+        initial_agents = metrics._cards["agents"]._value_label.text()
+        assert initial_agents == "3", (
+            f"Expected 3 agents initially, got {initial_agents}"
+        )
+
+        # Navigate to Analytics then back
+        click_nav(dashboard_window, SECTION_ANALYTICS)
+        qtbot.wait(SIGNAL_WAIT_MS)
+        click_nav(dashboard_window, SECTION_MONITORING)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Data should persist
+        final_agents = metrics._cards["agents"]._value_label.text()
+        assert final_agents == initial_agents, (
+            f"Data should persist: expected {initial_agents}, got {final_agents}"
+        )

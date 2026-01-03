@@ -59,24 +59,7 @@ EXPECTED_SECURITY = {
 }
 
 
-# =============================================================================
-# Helper Functions
-# =============================================================================
-
-
-def create_empty_monitoring_data():
-    """Create empty monitoring data for testing empty states."""
-    return {
-        "instances": 0,
-        "agents": 0,
-        "busy": 0,
-        "waiting": 0,
-        "idle": 0,
-        "todos": 0,
-        "agents_data": [],
-        "tools_data": [],
-        "waiting_data": [],
-    }
+# Helper function moved to MockAPIResponses.empty_monitoring()
 
 
 # =============================================================================
@@ -96,12 +79,24 @@ class TestMonitoringSectionMetrics:
         metrics = dashboard_window._monitoring._metrics
 
         # Check each metric card displays the correct value
-        assert metrics._cards["instances"]._value_label.text() == "2"
-        assert metrics._cards["agents"]._value_label.text() == "3"
-        assert metrics._cards["busy"]._value_label.text() == "2"
-        assert metrics._cards["waiting"]._value_label.text() == "1"
-        assert metrics._cards["idle"]._value_label.text() == "1"
-        assert metrics._cards["todos"]._value_label.text() == "7"
+        assert metrics._cards["instances"]._value_label.text() == "2", (
+            f"Expected instances=2, got {metrics._cards['instances']._value_label.text()}"
+        )
+        assert metrics._cards["agents"]._value_label.text() == "3", (
+            f"Expected agents=3, got {metrics._cards['agents']._value_label.text()}"
+        )
+        assert metrics._cards["busy"]._value_label.text() == "2", (
+            f"Expected busy=2, got {metrics._cards['busy']._value_label.text()}"
+        )
+        assert metrics._cards["waiting"]._value_label.text() == "1", (
+            f"Expected waiting=1, got {metrics._cards['waiting']._value_label.text()}"
+        )
+        assert metrics._cards["idle"]._value_label.text() == "1", (
+            f"Expected idle=1, got {metrics._cards['idle']._value_label.text()}"
+        )
+        assert metrics._cards["todos"]._value_label.text() == "7", (
+            f"Expected todos=7, got {metrics._cards['todos']._value_label.text()}"
+        )
 
     def test_metrics_update_when_data_changes(self, dashboard_window, qtbot):
         """Verify metrics update when new data arrives."""
@@ -176,7 +171,7 @@ class TestMonitoringAgentsTable:
 
     def test_agents_empty_state_when_no_agents(self, dashboard_window, qtbot):
         """Empty state appears when no agents."""
-        data = create_empty_monitoring_data()
+        data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -239,7 +234,7 @@ class TestMonitoringToolsTable:
 
     def test_tools_empty_state_when_no_tools(self, dashboard_window, qtbot):
         """Empty state appears when no tools running."""
-        data = create_empty_monitoring_data()
+        data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
@@ -438,8 +433,8 @@ class TestSecuritySectionData:
         # Section should have processed the data without errors
         security = dashboard_window._security
         assert security is not None, "Security section should exist"
-        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
-            "Security section should have a commands table"
+        assert hasattr(security, "_commands_table"), (
+            "Security section should have _commands_table attribute"
         )
 
         # Verify section is visible after navigation (Security = index 1)
@@ -461,8 +456,8 @@ class TestSecuritySectionData:
         # Security section should have received the stats
         assert security is not None, "Security section should exist"
         # Verify section has the expected structure
-        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
-            "Security section should have a commands table"
+        assert hasattr(security, "_commands_table"), (
+            "Security section should have _commands_table attribute"
         )
 
     def test_security_section_with_critical_commands(
@@ -481,13 +476,16 @@ class TestSecuritySectionData:
         security = dashboard_window._security
         assert security is not None, "Security section should exist"
         # Verify section has valid structure
-        assert hasattr(security, "_commands_table") or hasattr(security, "_table"), (
-            "Security section should have a commands table"
+        assert hasattr(security, "_commands_table"), (
+            "Security section should have _commands_table attribute"
         )
 
         # The section should process without errors
         # Critical items are included in the data
-        assert len(data["critical_items"]) == EXPECTED_SECURITY["critical"]
+        assert len(data["critical_items"]) == EXPECTED_SECURITY["critical"], (
+            f"Expected {EXPECTED_SECURITY['critical']} critical items, "
+            f"got {len(data['critical_items'])}"
+        )
 
 
 class TestSecuritySectionTables:
@@ -616,8 +614,12 @@ class TestSectionVisibilityOnNavigation:
 
     def test_monitoring_visible_initially(self, dashboard_window, qtbot):
         """Monitoring section is visible by default."""
-        assert dashboard_window._pages.currentIndex() == 0
-        assert dashboard_window._monitoring.isVisible()
+        assert dashboard_window._pages.currentIndex() == 0, (
+            f"Expected Monitoring (index 0), got index {dashboard_window._pages.currentIndex()}"
+        )
+        assert dashboard_window._monitoring.isVisible(), (
+            "Monitoring section should be visible by default"
+        )
 
     def test_analytics_visible_after_navigation(
         self, dashboard_window, qtbot, click_nav

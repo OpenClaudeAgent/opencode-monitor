@@ -307,6 +307,50 @@ def dashboard_window_hidden(
 # =============================================================================
 
 
+@pytest.fixture
+def select_first_session(qtbot):
+    """Helper to select first session in tracing tree.
+
+    Eliminates duplication of session selection pattern across tests.
+    Returns the selected root item for further assertions.
+
+    Usage:
+        def test_with_session(tracing_with_data, select_first_session):
+            tracing, _ = tracing_with_data
+            root_item = select_first_session(tracing)
+            # Now session is selected, detail panel is updated
+    """
+
+    def _select(tracing):
+        root_item = tracing._tree.topLevelItem(0)
+        assert root_item is not None, "Expected at least one session in tree"
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
+        return root_item
+
+    return _select
+
+
+@pytest.fixture
+def tracing_with_data(dashboard_window, qtbot, click_nav):
+    """Tracing section with realistic data loaded.
+
+    Navigates to tracing section and emits realistic tracing data.
+    Returns tuple of (tracing_section, dashboard_window) for flexibility.
+
+    Usage:
+        def test_with_tracing(tracing_with_data, select_first_session):
+            tracing, dashboard = tracing_with_data
+            root_item = select_first_session(tracing)
+    """
+    click_nav(dashboard_window, SECTION_TRACING)
+    data = MockAPIResponses.realistic_tracing()
+    dashboard_window._signals.tracing_updated.emit(data)
+    qtbot.wait(SIGNAL_WAIT_MS)
+    return dashboard_window._tracing, dashboard_window
+
+
 @pytest.fixture(params=["basic", "empty", "complex", "partial", "extreme"])
 def mock_api_client_variants(request):
     """Parametrized fixture for testing multiple data states.

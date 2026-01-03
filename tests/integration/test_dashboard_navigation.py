@@ -32,33 +32,51 @@ class TestSidebarNavigation:
         dashboard_window._on_section_changed(1)
 
         # Verify page changed
-        assert dashboard_window._pages.currentIndex() == 1
-        assert dashboard_window._pages.currentWidget() == dashboard_window._security
+        assert dashboard_window._pages.currentIndex() == 1, (
+            f"Expected Security (index 1), got index {dashboard_window._pages.currentIndex()}"
+        )
+        assert dashboard_window._pages.currentWidget() == dashboard_window._security, (
+            "Current widget should be security section"
+        )
 
     def test_click_analytics_shows_analytics_page(self, dashboard_window, qtbot):
         """Test that clicking Analytics in sidebar shows analytics page."""
         dashboard_window._on_section_changed(2)
 
-        assert dashboard_window._pages.currentIndex() == 2
-        assert dashboard_window._pages.currentWidget() == dashboard_window._analytics
+        assert dashboard_window._pages.currentIndex() == 2, (
+            f"Expected Analytics (index 2), got index {dashboard_window._pages.currentIndex()}"
+        )
+        assert dashboard_window._pages.currentWidget() == dashboard_window._analytics, (
+            "Current widget should be analytics section"
+        )
 
     def test_click_tracing_shows_tracing_page(self, dashboard_window, qtbot):
         """Test that clicking Tracing in sidebar shows tracing page."""
         dashboard_window._on_section_changed(3)
 
-        assert dashboard_window._pages.currentIndex() == 3
-        assert dashboard_window._pages.currentWidget() == dashboard_window._tracing
+        assert dashboard_window._pages.currentIndex() == 3, (
+            f"Expected Tracing (index 3), got index {dashboard_window._pages.currentIndex()}"
+        )
+        assert dashboard_window._pages.currentWidget() == dashboard_window._tracing, (
+            "Current widget should be tracing section"
+        )
 
     def test_can_navigate_back_to_monitoring(self, dashboard_window, qtbot):
         """Test that we can navigate back to monitoring from another page."""
         # Go to tracing
         dashboard_window._on_section_changed(3)
-        assert dashboard_window._pages.currentIndex() == 3
+        assert dashboard_window._pages.currentIndex() == 3, (
+            f"Expected Tracing (index 3), got index {dashboard_window._pages.currentIndex()}"
+        )
 
         # Go back to monitoring
         dashboard_window._on_section_changed(0)
-        assert dashboard_window._pages.currentIndex() == 0
-        assert dashboard_window._pages.currentWidget() == dashboard_window._monitoring
+        assert dashboard_window._pages.currentIndex() == 0, (
+            f"Expected Monitoring (index 0), got index {dashboard_window._pages.currentIndex()}"
+        )
+        assert (
+            dashboard_window._pages.currentWidget() == dashboard_window._monitoring
+        ), "Current widget should be monitoring section"
 
 
 class TestSidebarWidget:

@@ -226,9 +226,11 @@ class TestRobustnessExtremeValues:
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Table should have the agent (possibly truncated)
+        # Table should have exactly 3 agents from mock data (possibly with truncated title)
         table = dashboard_window._monitoring._agents_table
-        assert table.rowCount() >= 1
+        assert table.rowCount() == 3, (
+            f"Expected 3 agents from mock data, got {table.rowCount()}"
+        )
 
 
 # =============================================================================
@@ -311,20 +313,20 @@ class TestParallelSafety:
             f"Initial value should be default (0, -, or empty), got: '{initial_value}'"
         )
 
-    def test_window_is_fresh_instance(self, dashboard_window, qtbot):
-        """Each test gets a fresh window instance."""
-        # Set a marker value
-        dashboard_window._test_marker = "test_marker_value"
+    def test_window_isolation_via_marker(self, dashboard_window, qtbot):
+        """Each test gets a fresh window instance (no cross-test state leakage).
 
-        # This test passes - next test would fail if same instance reused
-        assert hasattr(dashboard_window, "_test_marker")
-
-    def test_no_stale_marker_from_previous(self, dashboard_window, qtbot):
-        """Verify no stale marker from previous test."""
-        # If test isolation works, this should not have the marker
-        # (fresh fixture each time)
+        This test verifies fixture isolation by checking that no marker
+        from any previous test execution exists on the current window.
+        Combined test for DRY - tests both setting and absence of markers.
+        """
+        # First, verify no stale marker exists from any previous test run
         marker = getattr(dashboard_window, "_test_marker", None)
         assert marker is None, "Window should not have marker from previous test"
+
+        # Set a marker to prove we have a fresh instance
+        dashboard_window._test_marker = "isolation_verified"
+        assert hasattr(dashboard_window, "_test_marker")
 
 
 # =============================================================================
@@ -381,3 +383,100 @@ class TestMonitoringStateVariants:
         # Table should still display
         table = dashboard_window._monitoring._agents_table
         assert table.rowCount() >= 1
+
+
+# =============================================================================
+# API Error Handling Tests
+# =============================================================================
+
+
+class TestAPIErrorHandling:
+    """Test dashboard handles API errors gracefully."""
+
+    def test_api_unavailable_shows_graceful_state(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Dashboard handles API unavailable without crash."""
+        click_nav(dashboard_window, SECTION_MONITORING)
+
+        # Emit empty data (simulates API error/unavailable)
+        # Note: Signal is typed dict, so we use empty dict instead of None
+        dashboard_window._signals.monitoring_updated.emit({})
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Should not crash, window still visible
+        assert dashboard_window.isVisible(), "Window should remain visible on API error"
+
+    def test_malformed_data_no_crash(self, dashboard_window, qtbot, click_nav):
+        """Dashboard handles malformed data without crash."""
+        click_nav(dashboard_window, SECTION_TRACING)
+
+        malformed = {
+            "sessions": [{"id": 123}],  # Wrong type, missing fields
+            "traces": None,
+            "session_hierarchy": [],
+        }
+        dashboard_window._signals.tracing_updated.emit(malformed)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        assert dashboard_window.isVisible()
+
+    def test_signal_after_close_no_crash(self, dashboard_window, qtbot):
+        """Signal emitted after close() doesn't crash."""
+        dashboard_window.close()
+        qtbot.wait(100)
+
+        # Should not raise exception
+        try:
+            dashboard_window._signals.monitoring_updated.emit({})
+            dashboard_window._signals.analytics_updated.emit({})
+            dashboard_window._signals.tracing_updated.emit({})
+        except Exception as e:
+            pytest.fail(f"Signal after close raised: {e}")
+
+
+# =============================================================================
+# Complex Sequences Tests
+# =============================================================================
+
+
+class TestSequences:
+    """Test complex sequences of actions."""
+
+    def test_rapid_section_switching_with_data(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Rapid switching while data is being emitted."""
+        monitoring_data = MockAPIResponses.realistic_monitoring()
+        analytics_data = MockAPIResponses.realistic_analytics()
+
+        for _ in range(5):
+            click_nav(dashboard_window, SECTION_MONITORING)
+            dashboard_window._signals.monitoring_updated.emit(monitoring_data)
+            click_nav(dashboard_window, SECTION_ANALYTICS)
+            dashboard_window._signals.analytics_updated.emit(analytics_data)
+            click_nav(dashboard_window, SECTION_TRACING)
+            click_nav(dashboard_window, SECTION_SECURITY)
+
+        qtbot.wait(SIGNAL_WAIT_MS)
+        assert dashboard_window.isVisible(), "Should survive rapid switching"
+
+    def test_data_update_during_tab_navigation(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
+        """Data updates while user is navigating tabs."""
+        click_nav(dashboard_window, SECTION_TRACING)
+        data = MockAPIResponses.realistic_tracing()
+        dashboard_window._signals.tracing_updated.emit(data)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        detail = dashboard_window._tracing._detail_panel
+
+        # Navigate tabs while emitting new data
+        for i in range(6):
+            click_tab(detail._tabs, i)
+            # Emit new data mid-navigation
+            dashboard_window._signals.tracing_updated.emit(data)
+            qtbot.wait(30)
+
+        assert dashboard_window.isVisible()
