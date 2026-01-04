@@ -7,13 +7,9 @@ Mocks rumps and external dependencies to test behavior without UI.
 Consolidated tests: Each test validates multiple related assertions for better coverage.
 """
 
-import asyncio
 import sys
-import importlib
 import pytest
-import time
-from unittest.mock import MagicMock, patch, AsyncMock, PropertyMock
-from dataclasses import dataclass
+from unittest.mock import MagicMock, patch, AsyncMock
 
 # Import RiskLevel at module level for parametrized tests
 from opencode_monitor.security.analyzer import RiskLevel

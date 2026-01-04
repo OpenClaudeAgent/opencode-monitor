@@ -9,7 +9,6 @@ These tests verify that:
 
 import time
 
-import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 

@@ -1,9 +1,7 @@
 """Tests for threading utilities."""
 
-import pytest
 import threading
 import time
-from unittest.mock import Mock
 
 from opencode_monitor.utils.threading import run_in_background, start_background_task
 

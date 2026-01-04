@@ -3,8 +3,7 @@ Tests for settings management module.
 """
 
 import json
-import pytest
-from unittest.mock import patch, mock_open, MagicMock
+from unittest.mock import patch
 
 from opencode_monitor.utils import settings
 from opencode_monitor.utils.settings import Settings, get_settings, save_settings

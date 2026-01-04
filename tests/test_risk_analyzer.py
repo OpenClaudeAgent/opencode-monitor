@@ -16,8 +16,6 @@ from opencode_monitor.security.analyzer import (
     analyze_command,
     get_level_emoji,
     format_alert_short,
-    SENSITIVE_FILE_PATTERNS,
-    SENSITIVE_URL_PATTERNS,
 )
 
 

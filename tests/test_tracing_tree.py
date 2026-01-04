@@ -18,7 +18,6 @@ CONSOLIDATED: 121 tests -> ~18 tests with multiple assertions each.
 
 import json
 from datetime import datetime
-from typing import Any
 
 import pytest
 

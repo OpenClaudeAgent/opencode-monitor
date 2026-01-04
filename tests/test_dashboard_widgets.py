@@ -8,11 +8,10 @@ Consolidated tests: ~22 tests with 4+ assertions each (from 61 tests)
 """
 
 import pytest
-from unittest.mock import patch, MagicMock
 
 # PyQt6 imports with QApplication fixture
-from PyQt6.QtWidgets import QApplication, QWidget, QPushButton, QLabel
-from PyQt6.QtCore import Qt, QSignalBlocker
+from PyQt6.QtWidgets import QWidget, QPushButton, QLabel
+from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
 

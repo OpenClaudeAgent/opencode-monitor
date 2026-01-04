@@ -12,7 +12,6 @@ import pytest
 from opencode_monitor.security.analyzer import (
     analyze_command,
     RiskAnalyzer,
-    RiskLevel,
     DANGEROUS_PATTERNS,
     SENSITIVE_FILE_PATTERNS,
     SENSITIVE_URL_PATTERNS,

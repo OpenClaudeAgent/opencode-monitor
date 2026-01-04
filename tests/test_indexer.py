@@ -11,24 +11,19 @@ Tests the core functionality:
 import json
 import tempfile
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer import (
     FileTracker,
-    FileInfo,
     FileParser,
     ParsedSession,
     ParsedMessage,
     ParsedPart,
     ParsedDelegation,
-    ParsedSkill,
-    ParsedTodo,
-    ParsedProject,
     TraceBuilder,
     UnifiedIndexer,
     ProcessingQueue,

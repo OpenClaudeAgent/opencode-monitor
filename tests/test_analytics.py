@@ -5,16 +5,14 @@ Tests the enriched data model with todos, projects, and new fields.
 """
 
 import json
-import tempfile
 import time
-from datetime import datetime
 from pathlib import Path
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.collector import AnalyticsCollector
-from opencode_monitor.analytics.models import Todo, Project, TodoStats, ProjectStats
+from opencode_monitor.analytics.models import Todo, Project
 from opencode_monitor.analytics.queries import AnalyticsQueries
 
 

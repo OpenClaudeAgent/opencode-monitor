@@ -17,9 +17,7 @@ from opencode_monitor.security.sequences import (
     SequenceAnalyzer,
     SecurityEvent,
     EventType,
-    SequenceMatch,
     create_event_from_audit_data,
-    KILL_CHAIN_PATTERNS,
 )
 
 

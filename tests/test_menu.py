@@ -7,7 +7,7 @@ Covers:
 """
 
 import pytest
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock
 from datetime import datetime, timezone, timedelta
 
 
@@ -46,10 +46,6 @@ sys.modules["rumps"] = mock_rumps
 from opencode_monitor.ui.menu import (
     truncate_with_tooltip,
     MenuBuilder,
-    TITLE_MAX_LENGTH,
-    TOOL_ARG_MAX_LENGTH,
-    TODO_CURRENT_MAX_LENGTH,
-    TODO_PENDING_MAX_LENGTH,
 )
 from opencode_monitor.core.models import (
     State,
@@ -61,7 +57,6 @@ from opencode_monitor.core.models import (
     Usage,
     UsagePeriod,
 )
-from opencode_monitor.security.analyzer import RiskLevel
 
 
 # =============================================================================

@@ -6,7 +6,6 @@ Uses parametrized tests for enum values and edge cases.
 """
 
 import pytest
-import time
 from opencode_monitor.core.models import (
     SessionStatus,
     TodoStatus,

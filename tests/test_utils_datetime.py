@@ -1,6 +1,5 @@
 """Tests for datetime utilities."""
 
-import pytest
 from datetime import datetime
 
 from opencode_monitor.utils.datetime import ms_to_datetime

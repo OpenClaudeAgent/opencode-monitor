@@ -16,8 +16,6 @@ import pytest
 from opencode_monitor.security.sequences import SecurityEvent, EventType
 from opencode_monitor.security.correlator import (
     EventCorrelator,
-    Correlation,
-    CORRELATION_PATTERNS,
 )
 
 

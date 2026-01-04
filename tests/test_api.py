@@ -13,14 +13,12 @@ Covers:
 """
 
 from datetime import datetime, timedelta
-from pathlib import Path
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.tracing import (
     TracingDataService,
-    TracingConfig,
 )
 
 

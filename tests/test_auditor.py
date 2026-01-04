@@ -11,11 +11,8 @@ Tests cover:
 """
 
 import json
-import threading
-import time
-from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, Mock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -24,10 +21,8 @@ from opencode_monitor.security.auditor import (
     get_auditor,
     start_auditor,
     stop_auditor,
-    OPENCODE_STORAGE,
-    SCAN_INTERVAL,
 )
-from opencode_monitor.security.analyzer import RiskLevel, RiskResult
+from opencode_monitor.security.analyzer import RiskResult
 
 
 # =====================================================

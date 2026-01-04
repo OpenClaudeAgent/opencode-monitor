@@ -7,10 +7,8 @@ import json
 import urllib.error
 from unittest.mock import MagicMock, mock_open, patch
 
-import pytest
 
-from opencode_monitor.core.usage import AUTH_FILE, fetch_usage, read_auth_token
-from opencode_monitor.core.models import Usage, UsagePeriod
+from opencode_monitor.core.usage import fetch_usage, read_auth_token
 
 
 # =============================================================================

@@ -14,8 +14,7 @@ Covers:
 - update_daily_stats()
 """
 
-from datetime import datetime, timedelta
-from pathlib import Path
+from datetime import datetime
 
 import pytest
 

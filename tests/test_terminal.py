@@ -5,7 +5,6 @@ Tests for terminal focus functionality.
 import subprocess
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from opencode_monitor.ui.terminal import focus_iterm2
 

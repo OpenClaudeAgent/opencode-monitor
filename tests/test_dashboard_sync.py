@@ -9,10 +9,8 @@ to detect when new data is available.
 """
 
 import pytest
-import time
 from unittest.mock import patch, MagicMock
 
-from PyQt6.QtWidgets import QApplication
 
 
 # =============================================================================

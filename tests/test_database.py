@@ -5,7 +5,6 @@ Tests use in-memory SQLite database for isolation and speed.
 """
 
 import sqlite3
-import tempfile
 from pathlib import Path
 
 import pytest
