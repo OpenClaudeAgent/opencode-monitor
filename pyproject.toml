@@ -45,5 +45,7 @@ markers = [
 
 [dependency-groups]
 dev = [
+    "pyinstrument>=5.1.1",
     "pytest>=9.0.2",
+    "vulture>=2.14",
 ]
