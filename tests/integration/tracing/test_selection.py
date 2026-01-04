@@ -68,13 +68,10 @@ class TestTracingSessionSelection:
         tracing._on_item_clicked(root_item, 0)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Detail panel metrics should exist
+        # Detail panel metrics bar should exist (refactored from _metric_duration/_metric_tokens)
         detail = tracing._detail_panel
-        assert hasattr(detail, "_metric_duration"), (
-            "Detail panel should have _metric_duration attribute"
-        )
-        assert hasattr(detail, "_metric_tokens"), (
-            "Detail panel should have _metric_tokens attribute"
+        assert hasattr(detail, "_metrics_bar"), (
+            "Detail panel should have _metrics_bar attribute"
         )
 
 

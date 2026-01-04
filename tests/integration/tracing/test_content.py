@@ -238,12 +238,9 @@ class TestTracingTabsContent:
         tracing._on_item_clicked(root_item, 0)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Check metrics exist
-        assert hasattr(detail, "_metric_duration"), (
-            "Detail panel should have _metric_duration attribute"
-        )
-        assert hasattr(detail, "_metric_tokens"), (
-            "Detail panel should have _metric_tokens attribute"
+        # Check metrics bar exists (refactored from _metric_duration/_metric_tokens)
+        assert hasattr(detail, "_metrics_bar"), (
+            "Detail panel should have _metrics_bar attribute"
         )
 
 
@@ -303,7 +300,7 @@ class TestTracingTreeContent:
         root_item = tracing._tree.topLevelItem(0)
         assert root_item is not None, "Expected at least one root item in tree"
 
-        # Tree widget has 4 columns (name, tokens, duration, status)
-        assert root_item.columnCount() == 4, (
-            f"Expected 4 columns, got {root_item.columnCount()}"
+        # Tree widget has 6 columns (Type/Name, Time, Duration, In, Out, Status)
+        assert root_item.columnCount() == 6, (
+            f"Expected 6 columns, got {root_item.columnCount()}"
         )
