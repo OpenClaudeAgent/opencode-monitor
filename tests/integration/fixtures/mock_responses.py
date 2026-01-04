@@ -209,7 +209,6 @@ class MockAPIResponses:
                     },
                 ]
             },
-            "session_operations": {"sess-001": []},
         }
 
     @staticmethod
@@ -249,24 +248,6 @@ class MockAPIResponses:
                         "timestamp": (base_date + timedelta(seconds=5)).isoformat(),
                         "tokens_out": 200,
                         "agent": "coordinator",
-                    },
-                ]
-            },
-            "session_operations": {
-                "sess-001": [
-                    {
-                        "tool_name": "read",
-                        "display_info": "src/main.py",
-                        "status": "completed",
-                        "timestamp": base_date.isoformat(),
-                        "duration_ms": 50,
-                    },
-                    {
-                        "tool_name": "edit",
-                        "display_info": "src/main.py",
-                        "status": "completed",
-                        "timestamp": (base_date + timedelta(seconds=1)).isoformat(),
-                        "duration_ms": 100,
                     },
                 ]
             },

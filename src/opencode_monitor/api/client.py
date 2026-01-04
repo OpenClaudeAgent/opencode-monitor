@@ -147,38 +147,6 @@ class AnalyticsAPIClient:
         """
         return self._request(f"/api/session/{session_id}/messages")
 
-    def get_session_operations(self, session_id: str) -> Optional[list]:
-        """Get tool operations for a session (for tree display).
-
-        Returns:
-            List of operation dicts with tool_name, display_info, status, etc.
-        """
-        return self._request(f"/api/session/{session_id}/operations")
-
-    def get_sessions(self, days: int = 30, limit: int = 100) -> Optional[list]:
-        """Get list of sessions.
-
-        Args:
-            days: Number of days to include
-            limit: Maximum number of sessions
-
-        Returns:
-            List of session dicts or None
-        """
-        return self._request("/api/sessions", {"days": days, "limit": limit})
-
-    def get_delegations(self, days: int = 30, limit: int = 1000) -> Optional[list]:
-        """Get agent delegations (parent-child session relationships).
-
-        Args:
-            days: Number of days to include
-            limit: Maximum number of delegations
-
-        Returns:
-            List of delegation dicts or None
-        """
-        return self._request("/api/delegations", {"days": days, "limit": limit})
-
     def get_tracing_tree(self, days: int = 30) -> Optional[list]:
         """Get hierarchical tracing tree for dashboard display.
 
@@ -192,20 +160,6 @@ class AnalyticsAPIClient:
             List of session nodes with children, or None
         """
         return self._request("/api/tracing/tree", {"days": days})
-
-    def get_conversation(self, session_id: str) -> Optional[dict]:
-        """Get full conversation timeline for a session.
-
-        Returns hierarchical view: session → exchanges → parts.
-        This is the main endpoint for detailed tracing view.
-
-        Args:
-            session_id: Session ID to fetch
-
-        Returns:
-            Conversation dict with session, exchanges, delegations, stats
-        """
-        return self._request(f"/api/tracing/conversation/{session_id}")
 
 
 # Global client instance

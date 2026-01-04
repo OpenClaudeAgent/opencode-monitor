@@ -65,13 +65,13 @@ class TestSectionVisibility:
         # 2. Make API calls and verify tracking
         patched_api_client.get_stats()
         patched_api_client.get_global_stats(days=7)
-        patched_api_client.get_sessions(days=30, limit=50)
+        patched_api_client.get_session_summary(session_id="test-123")
 
         calls = patched_api_client.get_call_log()
         assert len(calls) == 3
         assert calls[0] == ("get_stats", {})
         assert calls[1] == ("get_global_stats", {"days": 7})
-        assert calls[2] == ("get_sessions", {"days": 30, "limit": 50})
+        assert calls[2] == ("get_session_summary", {"session_id": "test-123"})
 
         # 3. Verify availability toggle works
         patched_api_client.set_available(False)

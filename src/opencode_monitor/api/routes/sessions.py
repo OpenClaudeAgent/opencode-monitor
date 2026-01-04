@@ -162,16 +162,3 @@ def get_session_messages(session_id: str):
     except Exception as e:
         error(f"[API] Error getting session messages: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
-
-
-@sessions_bp.route("/api/session/<session_id>/operations", methods=["GET"])
-def get_session_operations(session_id: str):
-    """Get tool operations for a session (for tree display)."""
-    try:
-        with get_db_lock():
-            service = get_service()
-            data = service.get_session_tool_operations(session_id)
-        return jsonify({"success": True, "data": data})
-    except Exception as e:
-        error(f"[API] Error getting session operations: {e}")
-        return jsonify({"success": False, "error": str(e)}), 500
