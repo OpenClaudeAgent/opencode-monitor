@@ -490,10 +490,16 @@ class TraceDetailPanel(QFrame):
         title = tree_data.get("title", "")
         status = tree_data.get("status", "completed")
 
-        # Update header - show delegation chain
-        if parent_agent:
-            # Use 💬 for user-initiated, 🔗 for agent delegations
-            icon = "💬" if parent_agent == "user" else "🔗"
+        # Update header - show delegation chain based on node_type from API
+        node_type = tree_data.get("node_type", "")
+        if node_type == "user_turn":
+            icon = "💬"
+            header_text = f"{icon} {parent_agent} → {agent_type}"
+        elif node_type == "delegation":
+            icon = "🔗"
+            header_text = f"{icon} {parent_agent} → {agent_type}"
+        elif parent_agent:
+            icon = "○"
             header_text = f"{icon} {parent_agent} → {agent_type}"
         else:
             header_text = f"🤖 {agent_type}"
@@ -505,9 +511,9 @@ class TraceDetailPanel(QFrame):
             color: {COLORS["text_primary"]};
         """)
 
-        # Update breadcrumb - show delegation path
+        # Update breadcrumb - show delegation path based on node_type
         breadcrumb_path = ["🌳 ROOT"]
-        if parent_agent and parent_agent != "user":
+        if node_type == "delegation" and parent_agent:
             breadcrumb_path.append(f"🔗 {parent_agent}")
         breadcrumb_path.append(f"🤖 {agent_type}")
         self._update_breadcrumb(breadcrumb_path)
@@ -842,6 +848,7 @@ class TraceDetailPanel(QFrame):
         trace_count: int,
         children_count: int,
         prompt_input: Optional[str] = None,
+        node_type: Optional[str] = None,
     ) -> None:
         """Display session details (legacy method for compatibility)."""
         self._current_session_id = None
@@ -850,11 +857,11 @@ class TraceDetailPanel(QFrame):
         # Determine if this is a ROOT session
         is_root = parent_agent is None and agent_type is None
 
-        # Update header
-        if agent_type and parent_agent:
-            # Use 💬 for user-initiated, 🔗 for agent delegations
-            icon = "💬" if parent_agent == "user" else "🔗"
-            header_text = f"{icon} {agent_type} ← {parent_agent}"
+        # Update header based on node_type from API
+        if node_type == "user_turn" and agent_type and parent_agent:
+            header_text = f"💬 {agent_type} ← {parent_agent}"
+        elif node_type == "delegation" and agent_type and parent_agent:
+            header_text = f"🔗 {agent_type} ← {parent_agent}"
         elif agent_type:
             header_text = f"Agent: {agent_type}"
         else:

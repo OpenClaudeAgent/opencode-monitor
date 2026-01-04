@@ -258,6 +258,7 @@ class TracingSection(QWidget):
                     trace_count=data.get("trace_count", 0),
                     children_count=len(data.get("children", [])),
                     prompt_input=data.get("prompt_input"),
+                    node_type=data.get("node_type"),
                 )
         else:
             self._detail_panel.show_trace(
@@ -278,77 +279,6 @@ class TracingSection(QWidget):
             session_id = trace_data.get("session_id", "")
             if session_id:
                 self.open_terminal_requested.emit(session_id)
-
-    def _populate_tree(self, traces: list[dict]) -> None:
-        """Populate tree widget with traces."""
-        trace_ids = {t.get("trace_id") for t in traces}
-        if hasattr(self, "_last_trace_ids") and self._last_trace_ids == trace_ids:
-            return
-        self._last_trace_ids = trace_ids
-
-        self._tree.setUpdatesEnabled(False)
-        try:
-            self._tree.clear()
-
-            if not traces:
-                self._tree.hide()
-                self._empty.show()
-                self._detail_panel.clear()
-                return
-
-            self._tree.show()
-            self._empty.hide()
-
-            self._max_duration_ms = (
-                max((t.get("duration_ms") or 0 for t in traces), default=1) or 1
-            )
-
-            traces_by_id: dict[str, dict] = {}
-            for t in traces:
-                tid = t.get("trace_id")
-                if tid:
-                    traces_by_id[tid] = t
-
-            children_by_parent: dict[str, list[dict]] = {}
-            root_traces: list[dict] = []
-
-            for trace in traces:
-                parent_id = trace.get("parent_trace_id")
-                if parent_id and parent_id in traces_by_id:
-                    if parent_id not in children_by_parent:
-                        children_by_parent[parent_id] = []
-                    children_by_parent[parent_id].append(trace)
-                else:
-                    root_traces.append(trace)
-
-            def sort_key(t: dict) -> tuple:
-                has_children = t.get("trace_id") in children_by_parent
-                started = t.get("started_at") or datetime.min
-                return (
-                    not has_children,
-                    -started.timestamp() if started != datetime.min else 0,
-                )
-
-            root_traces.sort(key=sort_key)
-
-            def add_with_children(parent_item: Optional[QTreeWidgetItem], trace: dict):
-                item = self._add_trace_item(parent_item, trace)
-                trace_id = trace.get("trace_id")
-                if trace_id and trace_id in children_by_parent:
-                    children = sorted(
-                        children_by_parent[trace_id],
-                        key=lambda t: t.get("started_at") or datetime.min,
-                        reverse=True,
-                    )
-                    for child in children:
-                        add_with_children(item, child)
-
-            for trace in root_traces:
-                add_with_children(None, trace)
-
-            self._tree.collapseAll()
-        finally:
-            self._tree.setUpdatesEnabled(True)
 
     def _populate_sessions_tree(self, sessions: list[dict]) -> None:
         """Populate tree widget with session hierarchy."""
@@ -453,21 +383,28 @@ class TracingSection(QWidget):
                             if len(full_content) > 500
                             else full_content,
                         )
-                elif node_type == "agent":
+                elif node_type == "user_turn":
+                    # User initiated conversation with agent
                     effective_agent = agent_type or extract_agent_from_title(title)
-                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
-                    if depth == 1:
-                        icon = "💬" if parent_agent == "user" else "🔗"
+                    icon = "💬"
+                    if effective_agent and parent_agent:
+                        label = f"{icon} {parent_agent} → {effective_agent}"
+                    elif effective_agent:
+                        label = f"{icon} {effective_agent}"
                     else:
-                        icon = "└─"
-
+                        label = f"{icon} agent"
+                    item.setText(0, label)
+                    item.setForeground(0, QColor(COLORS["tree_child"]))
+                elif node_type == "delegation":
+                    # Agent delegating to sub-agent
+                    effective_agent = agent_type or extract_agent_from_title(title)
+                    icon = "🔗"
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
                     else:
                         label = f"{icon} subagent"
-
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
                 elif node_type == "tool":
@@ -526,29 +463,17 @@ class TracingSection(QWidget):
                     item.setData(0, Qt.ItemDataRole.UserRole, session)
                     return item  # Tools don't have children
                 else:
+                    # Unknown node_type - display with generic icon
                     effective_agent = agent_type or extract_agent_from_title(title)
-                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
-                    if depth == 1:
-                        icon = "💬" if parent_agent == "user" else "🔗"
-                    else:
-                        icon = "└─"
-
+                    icon = "○"
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
+                    elif title:
+                        label = f"{icon} {title[:40]}"
                     else:
-                        label = f"{icon} subagent"
-
-                    if title:
-                        clean_title = AGENT_SUFFIX_PATTERN.sub("", title)
-                        short_title = (
-                            clean_title[:35] + "..."
-                            if len(clean_title) > 35
-                            else clean_title
-                        )
-                        if short_title.strip():
-                            label = f"{label}: {short_title}"
+                        label = f"{icon} {node_type or 'unknown'}"
 
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
@@ -589,6 +514,7 @@ class TracingSection(QWidget):
                     item.setToolTip(0, directory)
 
                 # Add all children (agents and tools are now both in children)
+                # Order is determined by API - dashboard just displays
                 for child in session.get("children", []):
                     add_session_item(item, child, is_root=False, depth=depth + 1)
 
