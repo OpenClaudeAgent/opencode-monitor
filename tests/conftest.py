@@ -126,6 +126,39 @@ def mock_rumps():
     return rumps_mock
 
 
+# Store original rumps module state at conftest import time
+_original_rumps = sys.modules.get("rumps")
+_rumps_was_real = _original_rumps is not None and hasattr(_original_rumps, "__file__")
+
+
+def pytest_runtest_setup(item):
+    """Reset rumps module before tests that need real/fresh imports.
+
+    test_menu.py modifies sys.modules["rumps"] at import time with a mock.
+    This pollutes subsequent tests. We reset it for affected test files.
+    """
+    # List of test files that need fresh rumps imports (not the mock from test_menu.py)
+    needs_fresh_rumps = ["test_tooltips", "test_db_concurrency"]
+
+    if any(name in str(item.fspath) for name in needs_fresh_rumps):
+        # Remove any mock rumps before these tests
+        if "rumps" in sys.modules:
+            current = sys.modules["rumps"]
+            if not hasattr(current, "__file__"):  # It's a mock
+                del sys.modules["rumps"]
+                # Only clear modules that actually import rumps (not all ui/app modules)
+                # This prevents breaking unrelated tests like test_terminal
+                rumps_dependent_modules = [
+                    "opencode_monitor.ui.menu",
+                    "opencode_monitor.app",
+                    "opencode_monitor.app.core",
+                    "opencode_monitor.app.menu",
+                ]
+                for mod in rumps_dependent_modules:
+                    if mod in sys.modules:
+                        del sys.modules[mod]
+
+
 # =============================================================================
 # Security Auditor Mock Infrastructure
 # =============================================================================
