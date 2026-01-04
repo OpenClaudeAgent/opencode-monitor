@@ -101,33 +101,32 @@ class TestTracingTabsNavigation:
             )
 
     @pytest.mark.parametrize(
-        "tab_name,tab_index,expected_tab_text",
+        "tab_name,tab_index,expected_tooltip",
         [
-            ("transcript", 0, None),
-            ("tokens", 1, None),
-            ("tools", 2, None),
-            ("files", 3, None),
-            ("agents", 4, None),
-            ("timeline", 5, None),
+            ("transcript", 0, "Transcript - Full conversation"),
+            ("tokens", 1, "Tokens - Usage breakdown"),
+            ("tools", 2, "Tools - Tool calls"),
+            ("files", 3, "Files - File operations"),
+            ("agents", 4, "Agents - Agent hierarchy"),
+            ("timeline", 5, "Timeline - Event timeline"),
         ],
     )
-    def test_tab_widget_type_and_accessibility(
-        self, dashboard_window, tab_name, tab_index, expected_tab_text
+    def test_tab_widget_type_accessibility_and_tooltip(
+        self, dashboard_window, tab_name, tab_index, expected_tooltip
     ):
-        """Each tab exists, is accessible, and is a valid QWidget.
+        """Each tab exists, is accessible, is a valid QWidget, and has tooltip.
 
         Parametrized test with strict assertions:
-        - Tab attribute exists on detail panel
+        - Tab is accessible via attribute (direct access, raises AttributeError if missing)
         - Tab is not None
         - Tab is a QWidget subclass
         - Tab is the same widget as in QTabWidget at corresponding index
+        - Tab has correct tooltip configured
         """
         detail = dashboard_window._tracing._detail_panel
         tab_attr = f"_{tab_name}_tab"
 
-        # Strict attribute check
-        assert hasattr(detail, tab_attr), f"Detail panel missing attribute '{tab_attr}'"
-
+        # Direct attribute access (raises AttributeError if missing)
         tab = getattr(detail, tab_attr)
 
         # Not None check
@@ -145,22 +144,8 @@ class TestTracingTabsNavigation:
             f"got {type(widget_at_index).__name__}"
         )
 
-    def test_tab_tooltips_are_set(self, dashboard_window):
-        """Verify all tabs have tooltips configured."""
-        detail = dashboard_window._tracing._detail_panel
-        tabs = detail._tabs
-
-        expected_tooltips = [
-            "Transcript - Full conversation",
-            "Tokens - Usage breakdown",
-            "Tools - Tool calls",
-            "Files - File operations",
-            "Agents - Agent hierarchy",
-            "Timeline - Event timeline",
-        ]
-
-        for i, expected in enumerate(expected_tooltips):
-            tooltip = tabs.tabToolTip(i)
-            assert tooltip == expected, (
-                f"Tab {i} tooltip should be '{expected}', got '{tooltip}'"
-            )
+        # Verify tooltip is set correctly
+        tooltip = detail._tabs.tabToolTip(tab_index)
+        assert tooltip == expected_tooltip, (
+            f"Tab {tab_index} tooltip should be '{expected_tooltip}', got '{tooltip}'"
+        )

@@ -107,12 +107,16 @@ class TestDataRobustness:
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Metrics should display (possibly formatted as "999K" or "999M")
+        # Metrics should display formatted values (999999 or "999K" or similar)
         metrics = monitoring._metrics
         agents_text = metrics._cards["agents"]._value_label.text()
         todos_text = metrics._cards["todos"]._value_label.text()
-        assert len(agents_text) > 0, "Agents metric should display"
-        assert len(todos_text) > 0, "Todos metric should display"
+        assert "999" in agents_text, (
+            f"Agents metric should show 999K/999999, got: {agents_text}"
+        )
+        assert "999" in todos_text, (
+            f"Todos metric should show 999M/999999999, got: {todos_text}"
+        )
 
         # --- Scenario 2: Extreme data fixture (stress test) ---
         click_nav(dashboard_window, SECTION_TRACING)
@@ -130,9 +134,9 @@ class TestDataRobustness:
         dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Tracing should render extreme data without crash
+        # Tracing should render exactly 10 traces (limited slice)
         tracing = dashboard_window._tracing
-        assert len(tracing._traces_data) <= 10
+        assert len(tracing._traces_data) == 10
         # Dashboard should remain responsive
         assert dashboard_window.isVisible()
 
@@ -147,9 +151,9 @@ class TestDataRobustness:
         # Table should render 3 agents (long title may be truncated)
         table = monitoring._agents_table
         assert table.rowCount() == 3
-        # Cell should contain text (possibly truncated)
+        # Cell should contain the long title (possibly truncated but still "A"s)
         cell_text = table.item(0, 0).text()
-        assert len(cell_text) > 0
+        assert "A" in cell_text, f"Expected long title with A's, got: {cell_text}"
 
     def test_handles_unicode_content(self, dashboard_window, qtbot):
         """Dashboard handles unicode and emoji in all text fields."""
@@ -176,10 +180,13 @@ class TestDataRobustness:
 
         # Should render correctly
         assert table.rowCount() == 3
-        # Directory column should have content
+        # Directory column should have the CJK path
         dir_item = table.item(0, 1)
         assert dir_item is not None
-        assert len(dir_item.text()) > 0
+        dir_text = dir_item.text()
+        assert "/home/用户/项目" in dir_text or "用户" in dir_text, (
+            f"Expected CJK path, got: {dir_text}"
+        )
 
         # --- Scenario 3: Unicode in waiting question ---
         data["waiting_data"][0]["question"] = "¿Está seguro? 日本語テスト 🎉"
@@ -188,8 +195,8 @@ class TestDataRobustness:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         waiting_table = monitoring._waiting_table
-        # Should have at least 1 waiting item
-        assert waiting_table.rowCount() >= 1
+        # Should have exactly 1 waiting item (from realistic_monitoring fixture)
+        assert waiting_table.rowCount() == 1
         # Question should be displayed
         question_item = waiting_table.item(0, 1)
         assert question_item is not None

@@ -106,19 +106,17 @@ class TestAnalyticsToolsTable:
 class TestAnalyticsPeriodSelector:
     """Test period selector interactions."""
 
-    def test_period_selector_exists(self, dashboard_window, qtbot, click_nav):
-        """Period selector widget exists and has correct options."""
-        # Navigate to Analytics section
+    def test_period_selector_exists_with_default_7d(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Period selector widget exists with 3 options, default is 7 days."""
         click_nav(dashboard_window, SECTION_ANALYTICS)
 
         analytics = dashboard_window._analytics
-        assert hasattr(analytics, "_period_control")
-        # Check it has the expected 3 period options
-        assert len(analytics._period_control._buttons) == 3
 
-    def test_period_selector_default_is_7d(self, dashboard_window, qtbot):
-        """Default period is 7 days."""
-        analytics = dashboard_window._analytics
+        # Access directly - will fail if missing
+        period_control = analytics._period_control
+        assert len(period_control._buttons) == 3
         assert analytics.get_current_period() == 7
 
     def test_period_selector_emits_signal_on_change(self, dashboard_window, qtbot):

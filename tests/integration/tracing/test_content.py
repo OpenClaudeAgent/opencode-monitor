@@ -23,6 +23,9 @@ TREE_COLUMN_COUNT = 6
 ROOT_SESSION_LABEL = "🌳 my-project"
 CHILD_COUNT = 2  # executor + tester delegations
 
+# Detail panel header (fallback when session_summaries not mocked)
+DETAIL_HEADER_FALLBACK = "🌳 Session"
+
 
 class TestTracingTabsContent:
     """Test that tabs display actual content when data is loaded."""
@@ -97,7 +100,9 @@ class TestTracingTabsContent:
             f"Header should change after selection. "
             f"Initial: '{initial_header}', New: '{new_header}'"
         )
-        assert len(new_header) > 0
+        assert new_header == DETAIL_HEADER_FALLBACK, (
+            f"Expected header '{DETAIL_HEADER_FALLBACK}', got '{new_header}'"
+        )
 
         # Metrics bar should exist
         assert isinstance(detail._metrics_bar, QWidget)

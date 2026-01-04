@@ -21,6 +21,7 @@ EXPECTED_SECURITY = {
     "total_commands": 89,
     "critical": 2,
     "high": 7,
+    "commands_count": 5,  # Number of commands in mock data
     "first_command": "rm -rf /tmp/cache/*",
 }
 
@@ -44,10 +45,11 @@ class TestSecuritySection:
             f"got index {dashboard_window._pages.currentIndex()}"
         )
 
-        # Verify section structure
+        # Verify section structure - direct attribute access validates existence
         security = dashboard_window._security
         assert security is not None, "Security section should exist"
-        assert hasattr(security, "_commands_table"), (
+        commands_table = security._commands_table
+        assert commands_table is not None, (
             "Security section should have _commands_table attribute"
         )
 
@@ -71,8 +73,11 @@ class TestSecuritySection:
         security = dashboard_window._security
         table = security._commands_table
 
-        # Table should have rows matching commands
-        assert table.rowCount() >= 1, "Commands table should have at least one row"
+        # Table should have rows matching commands count from mock data
+        assert table.rowCount() == EXPECTED_SECURITY["commands_count"], (
+            f"Expected {EXPECTED_SECURITY['commands_count']} commands, "
+            f"got {table.rowCount()}"
+        )
 
         # First command should contain expected security command pattern
         first_cmd = table.item(0, 0)
@@ -129,7 +134,7 @@ class TestSecuritySection:
             table = security._files_table
             expected_files = len(data.get("files", []))
             if expected_files > 0:
-                assert table.rowCount() > 0, (
+                assert table.rowCount() == expected_files, (
                     f"Expected files in table, got {table.rowCount()} rows"
                 )
                 files_checked = True

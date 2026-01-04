@@ -56,9 +56,12 @@ class TestSidebarWidget:
         # Verify nav items structure (4 sections)
         assert len(sidebar._nav_items) == 4
 
-        # Verify set_status method exists and works
+        # Verify set_status method updates status text
         sidebar.set_status(True, "3 agents")
+        assert sidebar._status_text.text() == "3 agents"
+
         sidebar.set_status(False, "Idle")
+        assert sidebar._status_text.text() == "Idle"
 
         # Test signal emission
         with qtbot.waitSignal(sidebar.section_changed, timeout=1000) as blocker:
@@ -92,21 +95,3 @@ class TestPageSwitchingPerformance:
 
         # Should end up on last page
         assert dashboard_window._pages.currentIndex() == 3
-
-
-class TestSidebarStatus:
-    """Test sidebar status indicator."""
-
-    def test_sidebar_status_updates(self, dashboard_window, qtbot):
-        """Test that sidebar status can be updated with different states."""
-        sidebar = dashboard_window._sidebar
-
-        # Update to active status
-        sidebar.set_status(True, "3 agents")
-        qtbot.wait(50)
-
-        # Update to idle status
-        sidebar.set_status(False, "Idle")
-        qtbot.wait(50)
-
-        # Both calls should complete without errors

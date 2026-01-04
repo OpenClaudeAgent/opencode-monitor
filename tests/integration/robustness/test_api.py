@@ -21,46 +21,71 @@ pytestmark = pytest.mark.integration
 class TestAPIErrorHandling:
     """Test dashboard handles API errors gracefully."""
 
-    def test_api_unavailable_shows_graceful_state(
-        self, dashboard_window, qtbot, click_nav
+    @pytest.mark.parametrize(
+        "section,signal_name,malformed_data",
+        [
+            pytest.param(
+                SECTION_MONITORING,
+                "monitoring_updated",
+                {},  # Empty data simulating API unavailable
+                id="api_unavailable_empty_dict",
+            ),
+            pytest.param(
+                SECTION_TRACING,
+                "tracing_updated",
+                {
+                    "sessions": [{"id": 123}],  # Wrong type, missing fields
+                    "traces": None,
+                    "session_hierarchy": [],
+                },
+                id="malformed_types_and_nulls",
+            ),
+            pytest.param(
+                SECTION_MONITORING,
+                "monitoring_updated",
+                {
+                    "instances": "not_an_int",  # Wrong type
+                    "agents_data": None,  # Null instead of list
+                },
+                id="malformed_monitoring_types",
+            ),
+        ],
+    )
+    def test_malformed_data_resilience(
+        self, dashboard_window, qtbot, click_nav, section, signal_name, malformed_data
     ):
-        """Dashboard handles API unavailable without crash."""
-        click_nav(dashboard_window, SECTION_MONITORING)
+        """Dashboard handles malformed/unavailable data without crash."""
+        click_nav(dashboard_window, section)
 
-        # Emit empty data (simulates API error/unavailable)
-        # Note: Signal is typed dict, so we use empty dict instead of None
-        dashboard_window._signals.monitoring_updated.emit({})
+        signal = getattr(dashboard_window._signals, signal_name)
+        signal.emit(malformed_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Should not crash, window still visible
-        assert dashboard_window.isVisible(), "Window should remain visible on API error"
+        # Verify resilience: window visible and responsive
+        assert dashboard_window.isVisible(), "Window should remain visible"
+        assert dashboard_window.isEnabled(), "Window should remain enabled"
+        # Verify no modal error dialogs blocking the UI
+        assert dashboard_window.isActiveWindow() or not dashboard_window.isMinimized()
 
-    def test_malformed_data_no_crash(self, dashboard_window, qtbot, click_nav):
-        """Dashboard handles malformed data without crash."""
-        click_nav(dashboard_window, SECTION_TRACING)
+    def test_signals_after_close_are_safe(self, dashboard_window, qtbot):
+        """Signals emitted after close() don't crash or raise exceptions."""
+        # Capture initial state
+        was_visible = dashboard_window.isVisible()
+        assert was_visible, "Window should start visible"
 
-        malformed = {
-            "sessions": [{"id": 123}],  # Wrong type, missing fields
-            "traces": None,
-            "session_hierarchy": [],
-        }
-        dashboard_window._signals.tracing_updated.emit(malformed)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        assert dashboard_window.isVisible()
-
-    def test_signal_after_close_no_crash(self, dashboard_window, qtbot):
-        """Signal emitted after close() doesn't crash."""
         dashboard_window.close()
         qtbot.wait(100)
 
-        # Should not raise exception
-        try:
-            dashboard_window._signals.monitoring_updated.emit({})
-            dashboard_window._signals.analytics_updated.emit({})
-            dashboard_window._signals.tracing_updated.emit({})
-        except Exception as e:
-            pytest.fail(f"Signal after close raised: {e}")
+        # Verify closed state
+        assert not dashboard_window.isVisible(), "Window should be closed"
+
+        # Emit all signals - none should raise
+        dashboard_window._signals.monitoring_updated.emit({})
+        dashboard_window._signals.analytics_updated.emit({})
+        dashboard_window._signals.tracing_updated.emit({})
+
+        # Window should remain closed (no accidental re-show)
+        assert not dashboard_window.isVisible(), "Window should stay closed"
 
 
 class TestMonitoringStateVariants:
@@ -106,9 +131,17 @@ class TestMonitoringStateVariants:
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Should not crash
-        assert dashboard_window.isVisible()
+        monitoring = dashboard_window._monitoring
 
-        # Table should still display
-        table = dashboard_window._monitoring._agents_table
-        assert table.rowCount() >= 1
+        # Verify dashboard remains functional
+        assert dashboard_window.isVisible(), "Window should remain visible"
+
+        # Verify metrics display correctly (1 busy, 1 idle from mock data)
+        assert monitoring._metrics._cards["busy"]._value_label.text() == "1"
+        assert monitoring._metrics._cards["idle"]._value_label.text() == "1"
+
+        # Table should display all 4 agents from mock data
+        table = monitoring._agents_table
+        assert table.rowCount() == 4, (
+            "Should display all 4 agents including error states"
+        )

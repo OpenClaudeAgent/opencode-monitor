@@ -43,11 +43,11 @@ class TestDashboardWindowLifecycle:
         # Title
         assert dashboard_window.windowTitle() == "OpenCode Monitor"
 
-        # Minimum size constraints
+        # Minimum size constraints (as defined in dimensions.py)
         min_width = dashboard_window.minimumWidth()
         min_height = dashboard_window.minimumHeight()
-        assert min_width >= 800, f"Expected min width >= 800, got {min_width}"
-        assert min_height >= 600, f"Expected min height >= 600, got {min_height}"
+        assert min_width == 1000, f"Expected min width == 1000, got {min_width}"
+        assert min_height == 700, f"Expected min height == 700, got {min_height}"
 
         # Current size respects minimums
         assert dashboard_window.width() >= min_width
@@ -72,8 +72,10 @@ class TestDashboardWindowLifecycle:
         # Sync checker (has internal timer)
         sync_checker = dashboard_window._sync_checker
         assert sync_checker is not None, "sync_checker should exist"
-        assert hasattr(sync_checker, "_timer"), "sync_checker should have _timer"
-        assert isinstance(sync_checker._timer, QTimer)
+        assert isinstance(sync_checker._timer, QTimer), (
+            "sync_checker should have _timer"
+        )
+        assert sync_checker._timer.isActive(), "sync_checker timer should be active"
 
     def test_timers_stop_on_close(self, dashboard_window, qtbot):
         """Test that timers are properly stopped when window is closed.
