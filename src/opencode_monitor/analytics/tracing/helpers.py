@@ -3,14 +3,109 @@
 Contains private utility methods used across query modules.
 """
 
+import json
+import os
 from datetime import datetime
 from typing import Optional, TYPE_CHECKING
+from urllib.parse import urlparse
 
 from ...utils.logger import debug
 
 if TYPE_CHECKING:
     from .config import TracingConfig
     import duckdb
+
+
+def extract_tool_display_info(
+    tool_name: str | None,
+    arguments: str | None,
+    content: str | None = None,
+) -> str:
+    """Extract human-readable display info from tool arguments.
+
+    This is the canonical implementation used across the codebase.
+    Supports file operations, commands, searches, web fetches, and delegations.
+
+    Args:
+        tool_name: Name of the tool (bash, read, write, edit, etc.)
+        arguments: JSON string of tool arguments
+        content: Optional tool result content (unused but kept for API compat)
+
+    Returns:
+        Short display string for the tool operation, or empty string if unavailable
+    """
+    if not tool_name:
+        return ""
+
+    # Try to parse arguments as JSON
+    args: dict = {}
+    if arguments:
+        try:
+            args = json.loads(arguments)
+        except (json.JSONDecodeError, TypeError):
+            pass
+
+    # File-based tools (read, edit, write, glob)
+    if tool_name in ("read", "edit", "write"):
+        file_path = args.get("filePath", args.get("file_path", ""))
+        if file_path:
+            return os.path.basename(file_path)
+        return ""
+
+    if tool_name == "glob":
+        pattern = args.get("pattern", "")
+        path = args.get("path", "")
+        if pattern:
+            return pattern[:40]
+        if path:
+            return path[:40]
+        return ""
+
+    # Command-based tools
+    if tool_name == "bash":
+        command = args.get("command", "")
+        if command:
+            # Take first line, truncate to reasonable length
+            short_cmd = command.split("\n")[0][:60]
+            if len(command) > 60 or "\n" in command:
+                short_cmd += "..."
+            return short_cmd
+        return ""
+
+    # Search tools
+    if tool_name == "grep":
+        pattern = args.get("pattern", "")
+        if pattern:
+            return f"/{pattern}/"[:40]
+        return ""
+
+    # Web fetch tools
+    if tool_name in ("webfetch", "web_fetch"):
+        url = args.get("url", "")
+        if url:
+            try:
+                parsed = urlparse(url)
+                return parsed.netloc[:30]
+            except Exception:
+                return url[:30]
+        return ""
+
+    # Context7 docs tools
+    if tool_name == "context7_query-docs":
+        library_id = args.get("libraryId", "")
+        return library_id[:80] if library_id else ""
+
+    # Task/delegation tools
+    if tool_name == "task":
+        subagent = args.get("subagent_type", args.get("description", ""))
+        return subagent[:50] if subagent else ""
+
+    # Generic fallback: show first arg value if available
+    if args:
+        first_value = str(list(args.values())[0])[:30]
+        return first_value
+
+    return ""
 
 
 class HelpersMixin:
@@ -440,82 +535,14 @@ class HelpersMixin:
     ) -> str:
         """Extract display-friendly info from tool content/arguments.
 
+        Delegates to the standalone `extract_tool_display_info` function.
+
         Args:
             tool_name: Name of the tool (read, edit, bash, etc.)
-            content: Tool result content
+            content: Tool result content (kept for API compatibility)
             arguments: Tool arguments (JSON string)
 
         Returns:
             Short display string for the tool operation
         """
-        import json
-        import os
-
-        # Try to parse arguments as JSON
-        args = {}
-        if arguments:
-            try:
-                args = json.loads(arguments)
-            except (json.JSONDecodeError, TypeError):
-                pass
-
-        # Extract based on tool type
-        if tool_name == "read":
-            file_path = args.get("filePath", args.get("file_path", ""))
-            if file_path:
-                return os.path.basename(file_path)
-            return "file"
-
-        elif tool_name == "edit":
-            file_path = args.get("filePath", args.get("file_path", ""))
-            if file_path:
-                return os.path.basename(file_path)
-            return "file"
-
-        elif tool_name == "write":
-            file_path = args.get("filePath", args.get("file_path", ""))
-            if file_path:
-                return os.path.basename(file_path)
-            return "file"
-
-        elif tool_name == "bash":
-            command = args.get("command", "")
-            if command:
-                # Truncate long commands
-                short_cmd = command.split("\n")[0][:50]
-                if len(command) > 50:
-                    short_cmd += "..."
-                return short_cmd
-            return "command"
-
-        elif tool_name == "glob":
-            pattern = args.get("pattern", "")
-            return pattern[:40] if pattern else "pattern"
-
-        elif tool_name == "grep":
-            pattern = args.get("pattern", "")
-            return pattern[:40] if pattern else "search"
-
-        elif tool_name == "task":
-            subagent = args.get("subagent_type", args.get("description", ""))
-            return subagent[:30] if subagent else "agent"
-
-        elif tool_name in ("webfetch", "web_fetch"):
-            url = args.get("url", "")
-            if url:
-                # Extract domain
-                try:
-                    from urllib.parse import urlparse
-
-                    parsed = urlparse(url)
-                    return parsed.netloc[:30]
-                except Exception:
-                    return url[:30]
-            return "url"
-
-        else:
-            # For other tools, try to show something meaningful
-            if args:
-                first_value = str(list(args.values())[0])[:30]
-                return first_value
-            return ""
+        return extract_tool_display_info(tool_name, arguments, content)

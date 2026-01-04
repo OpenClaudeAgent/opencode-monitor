@@ -5,13 +5,13 @@ This module extracts the tree-building logic from server.py into a dedicated cla
 for better separation of concerns and testability.
 """
 
-import json
 import re
 from datetime import datetime, timedelta
 from threading import Lock
 from typing import Any
 
 from ..analytics import get_analytics_db
+from ..analytics.tracing.helpers import extract_tool_display_info
 
 
 # Minimum timestamp for sorting items without timestamps
@@ -745,48 +745,4 @@ def count_traces(node: dict) -> int:
     return 1 + sum(count_traces(c) for c in node.get("children", []))
 
 
-def extract_tool_display_info(tool_name: str | None, arguments: str | None) -> str:
-    """Extract human-readable display info from tool arguments.
-
-    Args:
-        tool_name: Name of the tool (bash, read, write, etc.)
-        arguments: JSON string of tool arguments.
-
-    Returns:
-        Human-readable display string.
-    """
-    if not arguments or not tool_name:
-        return ""
-
-    try:
-        args = json.loads(arguments)
-
-        # URL-based tools
-        if tool_name in ("webfetch", "context7_query-docs"):
-            url = args.get("url") or args.get("libraryId", "")
-            return url[:80] if url else ""
-
-        # File-based tools
-        if tool_name in ("read", "write", "edit", "glob"):
-            path = args.get("filePath") or args.get("path", "")
-            return path[:80] if path else ""
-
-        # Command-based tools
-        if tool_name == "bash":
-            cmd = args.get("command", "")
-            return cmd[:60] if cmd else ""
-
-        # Search tools
-        if tool_name == "grep":
-            pattern = args.get("pattern", "")
-            return f"/{pattern}/"[:40] if pattern else ""
-
-        # Task/delegation tools
-        if tool_name == "task":
-            desc = args.get("description", "")
-            return desc[:50] if desc else ""
-
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        pass
-
-    return ""
+# Note: extract_tool_display_info is imported from analytics.tracing.helpers
