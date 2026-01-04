@@ -2,6 +2,9 @@
 
 import threading
 import time
+from typing import Any
+
+import pytest
 
 from opencode_monitor.utils.threading import run_in_background, start_background_task
 
@@ -9,86 +12,58 @@ from opencode_monitor.utils.threading import run_in_background, start_background
 class TestRunInBackground:
     """Tests for run_in_background decorator."""
 
-    def test_function_runs_in_background(self):
-        """Test that decorated function runs in a separate thread."""
-        results = []
+    def test_decorator_properties(self):
+        """Test decorator creates daemon thread, runs in background, preserves metadata."""
+        results: dict[str, Any] = {"thread_id": None, "daemon": None}
         main_thread_id = threading.current_thread().ident
 
         @run_in_background
-        def capture_thread_id():
-            results.append(threading.current_thread().ident)
-
-        capture_thread_id()
-        time.sleep(0.1)  # Give thread time to execute
-
-        assert len(results) == 1
-        assert results[0] != main_thread_id
-
-    def test_function_is_daemon(self):
-        """Test that background thread is a daemon thread."""
-        thread_info = {}
-
-        @run_in_background
-        def capture_daemon_status():
-            thread_info["daemon"] = threading.current_thread().daemon
-            time.sleep(0.5)  # Keep thread alive for inspection
-
-        capture_daemon_status()
-        time.sleep(0.1)
-
-        assert thread_info.get("daemon") is True
-
-    def test_preserves_function_name(self):
-        """Test that decorator preserves function metadata."""
-
-        @run_in_background
         def my_special_function():
-            pass
+            results["thread_id"] = threading.current_thread().ident
+            results["daemon"] = threading.current_thread().daemon
+            time.sleep(0.2)
 
+        # Verify decorator preserves function name
         assert my_special_function.__name__ == "my_special_function"
 
-    def test_accepts_arguments(self):
-        """Test that decorated function accepts arguments."""
-        results = []
+        # Verify returns None immediately (non-blocking)
+        return_value = my_special_function()
+        assert return_value == None
+
+        time.sleep(0.1)
+
+        # Verify runs in different thread
+        assert results["thread_id"] != main_thread_id
+        # Verify thread is daemon
+        assert results["daemon"] == True
+
+    @pytest.mark.parametrize(
+        "args,kwargs,expected",
+        [
+            ((5, 3), {}, 8),
+            ((10, 20), {}, 30),
+            ((1,), {"b": 7}, 8),
+            ((), {"a": 100, "b": 200}, 300),
+        ],
+        ids=["positional", "large-positional", "mixed", "kwargs-only"],
+    )
+    def test_with_arguments(self, args, kwargs, expected):
+        """Test decorated function handles args and kwargs correctly."""
+        results: list[int] = []
 
         @run_in_background
         def add_numbers(a, b):
             results.append(a + b)
 
-        add_numbers(5, 3)
+        add_numbers(*args, **kwargs)
         time.sleep(0.1)
 
         assert len(results) == 1
-        assert results[0] == 8
+        assert results[0] == expected
 
-    def test_accepts_kwargs(self):
-        """Test that decorated function accepts keyword arguments."""
-        results = []
-
-        @run_in_background
-        def greet(name, greeting="Hello"):
-            results.append(f"{greeting}, {name}!")
-
-        greet("World", greeting="Hi")
-        time.sleep(0.1)
-
-        assert len(results) == 1
-        assert results[0] == "Hi, World!"
-
-    def test_returns_none(self):
-        """Test that decorated function returns None immediately."""
-
-        @run_in_background
-        def slow_function():
-            time.sleep(1)
-            return "result"
-
-        result = slow_function()
-        assert result is None
-
-    def test_multiple_calls_run_concurrently(self):
-        """Test that multiple calls run in parallel."""
-        results = []
+    def test_concurrent_execution(self):
+        """Test multiple calls run in parallel, not sequentially."""
+        results: list[int] = []
         start_time = time.time()
 
         @run_in_background
@@ -105,70 +80,40 @@ class TestRunInBackground:
         time.sleep(0.3)
         elapsed = time.time() - start_time
 
-        # Should complete faster than sequential execution
-        assert elapsed < 0.4  # 3 * 0.1 = 0.3, add buffer
+        # Should complete faster than sequential (3 * 0.1 = 0.3s)
+        assert elapsed < 0.4
         assert sorted(results) == [1, 2, 3]
 
 
 class TestStartBackgroundTask:
     """Tests for start_background_task function."""
 
-    def test_starts_function_in_background(self):
-        """Test that function runs in a separate thread."""
-        results = []
+    def test_thread_properties_and_lifecycle(self):
+        """Test returns started daemon Thread that can be joined."""
+        results: dict[str, Any] = {"thread_id": None, "started": False}
         main_thread_id = threading.current_thread().ident
+        started_event = threading.Event()
 
-        def capture_thread_id():
-            results.append(threading.current_thread().ident)
-
-        start_background_task(capture_thread_id)
-        time.sleep(0.1)
-
-        assert len(results) == 1
-        assert results[0] != main_thread_id
-
-    def test_returns_thread_object(self):
-        """Test that function returns the Thread object."""
-
-        def dummy():
-            pass
-
-        thread = start_background_task(dummy)
-
-        assert isinstance(thread, threading.Thread)
-
-    def test_returned_thread_is_daemon(self):
-        """Test that returned thread is a daemon."""
-
-        def slow_function():
-            time.sleep(1)
-
-        thread = start_background_task(slow_function)
-
-        assert thread.daemon is True
-
-    def test_thread_is_started(self):
-        """Test that thread is automatically started."""
-        started = threading.Event()
-
-        def signal_started():
-            started.set()
-
-        thread = start_background_task(signal_started)
-
-        # Should be either running or finished
-        assert started.wait(timeout=0.5) is True
-
-    def test_thread_can_be_joined(self):
-        """Test that returned thread can be joined."""
-        results = []
-
-        def append_value():
+        def task_function():
+            results["thread_id"] = threading.current_thread().ident
+            results["started"] = True
+            started_event.set()
             time.sleep(0.05)
-            results.append("done")
 
-        thread = start_background_task(append_value)
+        thread = start_background_task(task_function)
+
+        # Verify returns Thread object
+        assert type(thread).__name__ == "Thread"
+        # Verify thread is daemon
+        assert thread.daemon == True
+
+        # Verify thread is started (wait for signal)
+        wait_result = started_event.wait(timeout=0.5)
+        assert wait_result == True
+
+        # Verify can be joined
         thread.join(timeout=1)
 
-        assert len(results) == 1
-        assert results[0] == "done"
+        # Verify ran in different thread
+        assert results["thread_id"] != main_thread_id
+        assert results["started"] == True

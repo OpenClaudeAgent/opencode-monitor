@@ -9,6 +9,7 @@ Consolidated tests: Each test validates multiple related assertions for better c
 
 import sys
 import pytest
+from typing import cast
 from unittest.mock import MagicMock, patch, AsyncMock
 
 # Import RiskLevel at module level for parametrized tests
@@ -261,16 +262,21 @@ def create_app_with_mocks(mock_dependencies, skip_monitor=True):
     return app
 
 
+def get_title(app) -> str:
+    """Get app title as string (handles None case for type checker)."""
+    return str(app.title) if app.title else ""
+
+
 # =============================================================================
-# Group 1: Init (5 → 2 tests)
+# Group 1: Init (2 → 1 test)
 # =============================================================================
 
 
 class TestOpenCodeAppInit:
     """Tests for OpenCodeApp.__init__"""
 
-    def test_init_sets_state_and_constants(self, mock_dependencies):
-        """App should initialize with default state values and correct constants."""
+    def test_init_full(self, mock_dependencies):
+        """App should initialize with default state, constants, and start services."""
         from opencode_monitor.app import OpenCodeApp
 
         app = create_app_with_mocks(mock_dependencies)
@@ -289,23 +295,15 @@ class TestOpenCodeAppInit:
         assert OpenCodeApp.USAGE_INTERVALS == [30, 60, 120, 300, 600]
         assert app._PORT_NAMES_LIMIT == 50
 
-    def test_init_starts_services(self, mock_dependencies):
-        """App should start auditor and monitor thread on init."""
-        app = create_app_with_mocks(mock_dependencies)
-
-        # Auditor started
+        # Services started
         mock_dependencies["start_auditor"].assert_called_once()
-
-        # MenuBuilder created
         mock_dependencies["menu_builder"].assert_called_once()
-
-        # Thread created and started
         assert app._monitor_thread is not None
         assert app._monitor_thread.daemon is True
 
 
 # =============================================================================
-# Group 2: Static Menu (4 → 1 test)
+# Group 2: Static Menu (1 test - unchanged)
 # =============================================================================
 
 
@@ -316,21 +314,15 @@ class TestBuildStaticMenu:
         """Should create preferences menu, refresh item, quit item, and initial menu."""
         app = create_app_with_mocks(mock_dependencies)
 
-        # Preferences menu exists
+        # All menu items exist
         assert hasattr(app, "_prefs_menu")
-
-        # Refresh item exists
         assert hasattr(app, "_refresh_item")
-
-        # Quit item exists
         assert hasattr(app, "_quit_item")
-
-        # Menu is set
         assert hasattr(app, "menu")
 
 
 # =============================================================================
-# Group 3: Interval Callback (4 → 1 test)
+# Group 3: Interval Callback (1 test - unchanged)
 # =============================================================================
 
 
@@ -369,30 +361,12 @@ class TestMakeIntervalCallback:
 
 
 # =============================================================================
-# Group 4: Ask Timeout Callback (4 → 2 tests)
+# Group 4: Ask Timeout Callback (2 → 1 test)
 # =============================================================================
 
 
 class TestMakeAskTimeoutCallback:
     """Tests for OpenCodeApp._make_ask_timeout_callback"""
-
-    def test_make_ask_timeout_callback_full_behavior(self, mock_dependencies):
-        """Callback should update settings and set sender state."""
-        app = create_app_with_mocks(mock_dependencies)
-
-        callback = app._make_ask_timeout_callback(3600)  # 1 hour
-
-        mock_sender = MagicMock()
-        mock_sender.parent.values.return_value = [MagicMock(), MagicMock()]
-
-        callback(mock_sender)
-
-        # Settings updated
-        assert mock_dependencies["settings"].ask_user_timeout == 3600
-        mock_dependencies["save_settings"].assert_called_once()
-
-        # Sender state set
-        assert mock_sender.state == 1
 
     @pytest.mark.parametrize(
         "timeout_seconds,expected_format",
@@ -403,26 +377,38 @@ class TestMakeAskTimeoutCallback:
             (900, "15m"),  # 15 minutes
         ],
     )
-    def test_callback_logs_correct_time_format(
+    def test_make_ask_timeout_callback_full(
         self, mock_dependencies, timeout_seconds, expected_format
     ):
-        """Callback should log timeout in correct format (hours or minutes)."""
+        """Callback should update settings, set sender state, and log correct format."""
         app = create_app_with_mocks(mock_dependencies)
 
         callback = app._make_ask_timeout_callback(timeout_seconds)
 
+        mock_item1 = MagicMock()
+        mock_item2 = MagicMock()
         mock_sender = MagicMock()
-        mock_sender.parent.values.return_value = []
+        mock_sender.parent.values.return_value = [mock_item1, mock_item2]
 
         callback(mock_sender)
 
+        # Settings updated
+        assert mock_dependencies["settings"].ask_user_timeout == timeout_seconds
+        mock_dependencies["save_settings"].assert_called()
+
+        # States managed
+        assert mock_item1.state == 0
+        assert mock_item2.state == 0
+        assert mock_sender.state == 1
+
+        # Logging with correct format
         mock_dependencies["info"].assert_called()
         call_args = str(mock_dependencies["info"].call_args)
         assert expected_format in call_args
 
 
 # =============================================================================
-# Group 5: UI Refresh (2 → 1 test)
+# Group 5: UI Refresh (1 test - unchanged)
 # =============================================================================
 
 
@@ -458,38 +444,12 @@ class TestUIRefresh:
 
 
 # =============================================================================
-# Group 6: Build Menu (8 → 2 tests)
+# Group 6: Build Menu (2 → 1 test)
 # =============================================================================
 
 
 class TestBuildMenu:
     """Tests for OpenCodeApp._build_menu"""
-
-    def test_build_menu_structure(self, mock_dependencies):
-        """Should use MenuBuilder, clear existing menu, add items and separators."""
-        mock_item1 = MockMenuItem("Item 1")
-        mock_item2 = MockMenuItem("Item 2")
-        mock_dependencies["builder_instance"].build_dynamic_items.return_value = [
-            mock_item1,
-            mock_item2,
-        ]
-
-        app = create_app_with_mocks(mock_dependencies)
-
-        app._build_menu()
-
-        # Uses MenuBuilder
-        mock_dependencies["builder_instance"].build_dynamic_items.assert_called()
-        mock_dependencies["builder_instance"].build_security_menu.assert_called()
-
-        # Clears existing menu
-        assert app.menu._clear_called is True
-
-        # Items added (dynamic + separators + static)
-        assert len(app.menu._add_calls) >= 2
-
-        # Separators added
-        assert None in app.menu._add_calls
 
     @pytest.mark.parametrize(
         "critical,high,expected_flag",
@@ -499,10 +459,14 @@ class TestBuildMenu:
             (0, 0, False),  # No alerts → flag False
         ],
     )
-    def test_build_menu_critical_alert_flag(
-        self, mock_dependencies, critical, high, expected_flag
-    ):
-        """Should update _has_critical_alert based on auditor stats."""
+    def test_build_menu_full(self, mock_dependencies, critical, high, expected_flag):
+        """Should use MenuBuilder, clear menu, add items, and update critical flag."""
+        mock_item1 = MockMenuItem("Item 1")
+        mock_item2 = MockMenuItem("Item 2")
+        mock_dependencies["builder_instance"].build_dynamic_items.return_value = [
+            mock_item1,
+            mock_item2,
+        ]
         mock_dependencies["auditor"].get_stats.return_value = {
             "critical": critical,
             "high": high,
@@ -514,11 +478,22 @@ class TestBuildMenu:
 
         app._build_menu()
 
+        # Uses MenuBuilder
+        mock_dependencies["builder_instance"].build_dynamic_items.assert_called()
+        mock_dependencies["builder_instance"].build_security_menu.assert_called()
+
+        # Menu cleared and items added (cast to MockMenu for test access)
+        menu = cast(MockMenu, app.menu)
+        assert menu._clear_called is True
+        assert len(menu._add_calls) >= 2
+        assert None in menu._add_calls  # Separators
+
+        # Critical flag updated
         assert app._has_critical_alert is expected_flag
 
 
 # =============================================================================
-# Group 7: Update Title - Usage (4 → 1 test)
+# Group 7: Update Title - Usage (1 test - unchanged)
 # =============================================================================
 
 
@@ -549,13 +524,14 @@ class TestUpdateTitleUsage:
 
         app._update_title()
 
-        assert expected_emoji in app.title
+        title = get_title(app)
+        assert expected_emoji in title
         if expected_percent:
-            assert expected_percent in app.title
+            assert expected_percent in title
 
 
 # =============================================================================
-# Group 8: Update Title - Default (3 → 1 test)
+# Group 8: Update Title - Default (1 test - unchanged)
 # =============================================================================
 
 
@@ -590,13 +566,14 @@ class TestUpdateTitleDefault:
 
         app._update_title()
 
-        assert "🤖" in app.title
+        title = get_title(app)
+        assert "🤖" in title
         if state_config.get("usage_error"):
-            assert "%" not in app.title
+            assert "%" not in title
 
 
 # =============================================================================
-# Group 9: Update Title - Permission (7 → 2 tests)
+# Group 9: Update Title - Permission (2 → 1 test)
 # =============================================================================
 
 
@@ -604,18 +581,18 @@ class TestUpdateTitlePermission:
     """Tests for permission detection in OpenCodeApp._update_title"""
 
     @pytest.mark.parametrize(
-        "tool_name,elapsed_ms,expected_lock",
+        "tool_name,elapsed_ms,expected_lock,check_position",
         [
-            ("bash", 10000, True),  # bash > threshold → lock
-            ("bash", 2000, False),  # bash < threshold → no lock
-            ("task", 60000, False),  # task excluded even if long
-            (None, 0, False),  # no tools → no lock
+            ("bash", 10000, True, True),  # bash > threshold → lock, check position
+            ("bash", 2000, False, False),  # bash < threshold → no lock
+            ("task", 60000, False, False),  # task excluded even if long
+            (None, 0, False, False),  # no tools → no lock
         ],
     )
-    def test_update_title_permission_detection(
-        self, mock_dependencies, tool_name, elapsed_ms, expected_lock
+    def test_update_title_permission_full(
+        self, mock_dependencies, tool_name, elapsed_ms, expected_lock, check_position
     ):
-        """Should show lock emoji based on tool type and elapsed time."""
+        """Should show lock emoji based on tool type and elapsed time, positioned after busy count."""
         from opencode_monitor.core.models import (
             State,
             Instance,
@@ -646,44 +623,18 @@ class TestUpdateTitlePermission:
 
         app._update_title()
 
+        title = get_title(app)
         if expected_lock:
-            assert "🔒" in app.title
+            assert "🔒" in title
+            if check_position:
+                # Lock should appear after busy count
+                assert title.index("1") < title.index("🔒")
         else:
-            assert "🔒" not in app.title
-
-    def test_update_title_lock_position(self, mock_dependencies):
-        """Lock emoji should appear after busy count in title."""
-        from opencode_monitor.core.models import (
-            State,
-            Instance,
-            Agent,
-            Tool,
-            SessionStatus,
-            Todos,
-        )
-
-        app = create_app_with_mocks(mock_dependencies)
-
-        tool = Tool(name="bash", arg="ls", elapsed_ms=10000)
-        agent = Agent(
-            id="1",
-            title="test",
-            dir=".",
-            full_dir="/test",
-            status=SessionStatus.BUSY,
-            tools=[tool],
-        )
-        instance = Instance(port=1234, agents=[agent])
-        app._state = State(instances=[instance], todos=Todos(), connected=True)
-
-        app._update_title()
-
-        # Title should be like "🤖 1 🔒" - Lock after busy count
-        assert app.title.index("1") < app.title.index("🔒")
+            assert "🔒" not in title
 
 
 # =============================================================================
-# Group 10: Update Title - Idle (3 → 1 test)
+# Group 10: Update Title - Idle (1 test - unchanged)
 # =============================================================================
 
 
@@ -733,77 +684,25 @@ class TestUpdateTitleIdle:
 
         app._update_title()
 
+        title = get_title(app)
         if expected_idle_display:
-            assert "💤" in app.title
-            assert f"💤 {idle_count}" in app.title
+            assert "💤" in title
+            assert f"💤 {idle_count}" in title
             # Idle should come after busy count
-            busy_index = app.title.index("1")
-            idle_index = app.title.index("💤")
+            busy_index = title.index("1")
+            idle_index = title.index("💤")
             assert busy_index < idle_index
         else:
-            assert "💤" not in app.title
+            assert "💤" not in title
 
 
 # =============================================================================
-# Group 11: Security Alerts (7 → 3 tests)
+# Group 11: Security Alerts (3 → 1 test)
 # =============================================================================
 
 
 class TestAddSecurityAlert:
     """Tests for OpenCodeApp._add_security_alert"""
-
-    def test_add_security_alert_storage_behavior(self, mock_dependencies):
-        """Should store alerts at front, limit max, and set critical flag."""
-        from opencode_monitor.security.analyzer import SecurityAlert, RiskLevel
-
-        app = create_app_with_mocks(mock_dependencies)
-        app._max_alerts = 5
-
-        # Add multiple alerts
-        for i in range(10):
-            alert = SecurityAlert(
-                command=f"command_{i}",
-                tool="bash",
-                score=100 if i == 9 else 50,
-                level=RiskLevel.CRITICAL if i == 9 else RiskLevel.HIGH,
-                reason="Test",
-            )
-            app._add_security_alert(alert)
-
-        # Limited to max_alerts
-        assert len(app._security_alerts) == 5
-
-        # Newest at front
-        assert app._security_alerts[0].command == "command_9"
-
-        # Critical flag set
-        assert app._has_critical_alert is True
-
-    def test_add_security_alert_prevents_duplicates(self, mock_dependencies):
-        """Should not add duplicate alerts with same command."""
-        from opencode_monitor.security.analyzer import SecurityAlert, RiskLevel
-
-        app = create_app_with_mocks(mock_dependencies)
-
-        alert1 = SecurityAlert(
-            command="rm -rf /",
-            tool="bash",
-            score=100,
-            level=RiskLevel.CRITICAL,
-            reason="Dangerous",
-        )
-        alert2 = SecurityAlert(
-            command="rm -rf /",  # Same command
-            tool="bash",
-            score=100,
-            level=RiskLevel.CRITICAL,
-            reason="Also dangerous",
-        )
-
-        app._add_security_alert(alert1)
-        app._add_security_alert(alert2)
-
-        assert len(app._security_alerts) == 1
 
     @pytest.mark.parametrize(
         "level,expected_log_text",
@@ -812,56 +711,62 @@ class TestAddSecurityAlert:
             (RiskLevel.HIGH, "HIGH"),
         ],
     )
-    def test_add_security_alert_logging(
-        self, mock_dependencies, level, expected_log_text
-    ):
-        """Should log alerts with correct level."""
+    def test_add_security_alert_full(self, mock_dependencies, level, expected_log_text):
+        """Should store alerts, limit max, prevent duplicates, set critical flag, and log."""
         from opencode_monitor.security.analyzer import SecurityAlert, RiskLevel
 
         app = create_app_with_mocks(mock_dependencies)
+        app._max_alerts = 5
 
-        alert = SecurityAlert(
-            command="test command",
-            tool="bash",
-            score=100 if level == RiskLevel.CRITICAL else 60,
-            level=level,
-            reason="Test reason",
-        )
+        # Add multiple alerts to test storage and limiting
+        for i in range(7):
+            alert = SecurityAlert(
+                command=f"command_{i}",
+                tool="bash",
+                score=100 if level == RiskLevel.CRITICAL else 60,
+                level=level,
+                reason="Test",
+            )
+            app._add_security_alert(alert)
 
-        app._add_security_alert(alert)
+        # Limited to max_alerts
+        assert len(app._security_alerts) == 5
 
+        # Newest at front
+        assert app._security_alerts[0].command == "command_6"
+
+        # Critical flag set correctly
+        expected_critical = level == RiskLevel.CRITICAL
+        assert app._has_critical_alert is expected_critical
+
+        # Logging with correct level
         mock_dependencies["info"].assert_called()
         call_args = str(mock_dependencies["info"].call_args)
         assert expected_log_text in call_args
 
+        # Test duplicate prevention
+        duplicate_alert = SecurityAlert(
+            command="command_6",  # Same as last added
+            tool="bash",
+            score=100,
+            level=level,
+            reason="Duplicate",
+        )
+        initial_count = len(app._security_alerts)
+        app._add_security_alert(duplicate_alert)
+        assert len(app._security_alerts) == initial_count  # No change
+
 
 # =============================================================================
-# Group 12: Security Reports (7 → 2 tests)
+# Group 12: Security Reports (2 → 1 test)
 # =============================================================================
 
 
 class TestSecurityReports:
     """Tests for security report and export functionality"""
 
-    def test_show_security_report_full_flow(self, mock_dependencies):
-        """Should generate report, write to temp file, and open it."""
-        with patch("subprocess.run") as mock_run, patch("builtins.open", MagicMock()):
-            app = create_app_with_mocks(mock_dependencies)
-            mock_dependencies["auditor"].generate_report.return_value = "Report content"
-
-            app._show_security_report(None)
-
-            # Report generated
-            mock_dependencies["auditor"].generate_report.assert_called_once()
-
-            # File opened with system command
-            mock_run.assert_called_once()
-            args = mock_run.call_args[0][0]
-            assert args[0] == "open"
-            assert "opencode_security_report.txt" in args[1]
-
-    def test_export_all_commands_full_flow(self, mock_dependencies):
-        """Should fetch all data, use reporter, write to config dir, and open file."""
+    def test_security_reports_full(self, mock_dependencies):
+        """Should generate report/export, write to temp/config file, and open it."""
         with (
             patch("subprocess.run") as mock_run,
             patch("builtins.open", MagicMock()) as mock_open,
@@ -874,11 +779,23 @@ class TestSecurityReports:
             mock_reporter_class.return_value = mock_reporter
 
             app = create_app_with_mocks(mock_dependencies)
+            mock_dependencies["auditor"].generate_report.return_value = "Report content"
             mock_dependencies["auditor"].get_all_commands.return_value = []
             mock_dependencies["auditor"].get_all_reads.return_value = []
             mock_dependencies["auditor"].get_all_writes.return_value = []
             mock_dependencies["auditor"].get_all_webfetches.return_value = []
 
+            # Test show_security_report
+            app._show_security_report(None)
+            mock_dependencies["auditor"].generate_report.assert_called_once()
+            mock_run.assert_called()
+            args = mock_run.call_args[0][0]
+            assert args[0] == "open"
+            assert "opencode_security_report.txt" in args[1]
+
+            mock_run.reset_mock()
+
+            # Test export_all_commands
             app._export_all_commands(None)
 
             # All data fetched
@@ -898,19 +815,17 @@ class TestSecurityReports:
             # Reporter used
             mock_reporter.generate_full_export.assert_called_once()
 
-            # Written to config dir
+            # Written to config dir and file opened
             mock_open.assert_called()
             call_args = mock_open.call_args[0][0]
             assert ".config/opencode-monitor" in call_args
             assert "security_audit_" in call_args
-
-            # File opened
             mock_run.assert_called_once()
             assert mock_run.call_args[0][0][0] == "open"
 
 
 # =============================================================================
-# Group 13: Main (2 → 1 test)
+# Group 13: Main (1 test - unchanged)
 # =============================================================================
 
 
@@ -931,48 +846,23 @@ class TestMain:
 
 
 # =============================================================================
-# Group 14: Monitor Loop (14 → 4 tests)
+# Group 14: Monitor Loop (4 → 2 tests)
 # =============================================================================
 
 
 class TestMonitorLoop:
     """Tests for OpenCodeApp._run_monitor_loop"""
 
-    def test_monitor_loop_updates_state(self, mock_dependencies):
-        """Should fetch instances and update state, setting needs_refresh."""
-        from opencode_monitor.core.models import State
-
-        async def mock_fetch_coro():
-            return State(connected=True)
-
-        app = create_app_with_mocks(mock_dependencies)
-        app._needs_refresh = False
-
-        call_count = [0]
-
-        def stop_after_one(*args):
-            call_count[0] += 1
-            if call_count[0] >= 1:
-                app._running = False
-            return 0
-
-        with (
-            patch(
-                "opencode_monitor.app.core.fetch_all_instances",
-                return_value=mock_fetch_coro(),
-            ),
-            patch("time.sleep", side_effect=stop_after_one),
-        ):
-            app._running = True
-            app._run_monitor_loop()
-
-        # State updated
-        assert app._state is not None
-        assert app._state.connected is True
-
-    def test_monitor_loop_tracks_busy_agents(self, mock_dependencies):
-        """Should track busy agents for notification purposes."""
-        from opencode_monitor.core.models import State, Instance, Agent, SessionStatus
+    def test_monitor_loop_updates_state_and_tracks_agents(self, mock_dependencies):
+        """Should fetch instances, update state, track busy agents, and update usage."""
+        from opencode_monitor.core.models import (
+            State,
+            Instance,
+            Agent,
+            SessionStatus,
+            Usage,
+            UsagePeriod,
+        )
 
         busy_agent = Agent(
             id="busy-agent-1",
@@ -994,8 +884,14 @@ class TestMonitorLoop:
         )
 
         mock_fetch = AsyncMock(return_value=state)
+        mock_dependencies["fetch_usage"].return_value = Usage(
+            five_hour=UsagePeriod(utilization=75)
+        )
+        mock_dependencies["settings"].usage_refresh_interval = 0  # Always update
 
         app = create_app_with_mocks(mock_dependencies)
+        app._needs_refresh = False
+        app._last_usage_update = 0
 
         call_count = [0]
 
@@ -1012,38 +908,15 @@ class TestMonitorLoop:
             app._running = True
             app._run_monitor_loop()
 
+        # State updated
+        assert app._state is not None
+        assert app._state.connected is True
+
         # Busy agent tracked, idle not
         assert "busy-agent-1" in app._previous_busy_agents
         assert "idle-agent-1" not in app._previous_busy_agents
 
-    def test_monitor_loop_updates_usage(self, mock_dependencies):
-        """Should update usage when interval elapsed."""
-        from opencode_monitor.core.models import State, Usage, UsagePeriod
-
-        async def mock_fetch():
-            return State(connected=True)
-
-        mock_dependencies["fetch_instances"].return_value = mock_fetch()
-        mock_dependencies["fetch_usage"].return_value = Usage(
-            five_hour=UsagePeriod(utilization=75)
-        )
-        mock_dependencies["settings"].usage_refresh_interval = 0  # Always update
-
-        app = create_app_with_mocks(mock_dependencies)
-        app._last_usage_update = 0
-
-        call_count = [0]
-
-        def stop_after_one(*args):
-            call_count[0] += 1
-            if call_count[0] >= 1:
-                app._running = False
-            return 0
-
-        with patch("time.sleep", side_effect=stop_after_one):
-            app._running = True
-            app._run_monitor_loop()
-
+        # Usage fetched
         mock_dependencies["fetch_usage"].assert_called()
 
     @pytest.mark.parametrize(
@@ -1094,69 +967,52 @@ class TestMonitorLoop:
 
 
 # =============================================================================
-# Group 15: Thread Safety (2 → 1 test)
+# Group 15: Thread Safety & On Refresh (2 → 1 test)
 # =============================================================================
 
 
-class TestThreadSafety:
-    """Tests for thread safety in state access"""
+class TestThreadSafetyAndRefresh:
+    """Tests for thread safety and refresh behavior"""
 
-    def test_state_and_usage_access_uses_lock(self, mock_dependencies):
-        """State and usage access should use lock for thread safety."""
+    def test_state_access_and_refresh(self, mock_dependencies):
+        """State/usage access should use lock, and refresh should set flag and log."""
         from opencode_monitor.core.models import State, Usage, UsagePeriod
 
         app = create_app_with_mocks(mock_dependencies)
 
-        # Verify lock exists
+        # Verify lock exists and works
         assert hasattr(app, "_state_lock")
 
-        # Simulate locked state access
         with app._state_lock:
             app._state = State(connected=True)
             state = app._state
 
         assert state.connected is True
 
-        # Simulate locked usage access
         with app._state_lock:
             app._usage = Usage(five_hour=UsagePeriod(utilization=75))
             usage = app._usage
 
         assert usage.five_hour.utilization == 75
 
-
-# =============================================================================
-# Group 16: On Refresh (2 → 1 test)
-# =============================================================================
-
-
-class TestOnRefresh:
-    """Tests for OpenCodeApp._on_refresh"""
-
-    def test_on_refresh_behavior(self, mock_dependencies):
-        """Should log manual refresh request and set _needs_refresh."""
-        app = create_app_with_mocks(mock_dependencies)
+        # Test refresh behavior
         app._needs_refresh = False
-
         app._on_refresh(None)
 
-        # Logged
         mock_dependencies["info"].assert_called()
-
-        # Flag set
         assert app._needs_refresh is True
 
 
 # =============================================================================
-# Additional Tests (kept for coverage)
+# Group 16: Additional Coverage (5 → 2 tests)
 # =============================================================================
 
 
-class TestUpdateTitleComplex:
-    """Test title with multiple status elements"""
+class TestAdditionalCoverage:
+    """Additional tests for complete coverage"""
 
-    def test_title_with_all_elements(self, mock_dependencies):
-        """Should combine busy count, todos, permission, and usage."""
+    def test_title_with_all_elements_and_edge_cases(self, mock_dependencies):
+        """Should handle complex title, empty instances, and focus terminal."""
         from opencode_monitor.core.models import (
             State,
             Instance,
@@ -1169,7 +1025,7 @@ class TestUpdateTitleComplex:
 
         app = create_app_with_mocks(mock_dependencies)
 
-        # Create state with busy agent, todos, and ask_user
+        # Test complex title with all elements
         agent = Agent(
             id="1",
             title="test",
@@ -1189,19 +1045,25 @@ class TestUpdateTitleComplex:
 
         app._update_title()
 
-        # Should contain all elements
-        assert "1" in app.title  # busy count
-        assert "4" in app.title  # todos (3 + 1)
-        assert "60%" in app.title  # usage
-        assert "🟡" in app.title  # yellow for 50-70%
-        assert "🔔" in app.title  # pending ask_user
+        title = get_title(app)
+        assert "1" in title  # busy count
+        assert "4" in title  # todos (3 + 1)
+        assert "60%" in title  # usage
+        assert "🟡" in title  # yellow for 50-70%
+        assert "🔔" in title  # pending ask_user
 
+        # Test empty state
+        app._state = State(instances=[], todos=Todos(), connected=True)
+        app._usage = None
+        app._update_title()
+        assert get_title(app) == "🤖"
 
-class TestUpdateSessionCache:
-    """Tests for OpenCodeApp._update_session_cache"""
+        # Test focus terminal
+        app._focus_terminal("/dev/ttys001")
+        mock_dependencies["focus_iterm2"].assert_called_once_with("/dev/ttys001")
 
-    def test_session_cache_cleanup_and_limit(self, mock_dependencies):
-        """Should remove sessions from dead ports and limit cache size."""
+    def test_session_cache_and_max_alerts(self, mock_dependencies):
+        """Should manage session cache, handle max alerts boundary correctly."""
         from opencode_monitor.core.models import (
             State,
             Instance,
@@ -1209,17 +1071,16 @@ class TestUpdateSessionCache:
             SessionStatus,
             Todos,
         )
+        from opencode_monitor.security.analyzer import SecurityAlert, RiskLevel
 
         app = create_app_with_mocks(mock_dependencies)
 
-        # Add sessions from multiple ports
+        # Test session cache cleanup and limit
         app._known_active_sessions = {"session_1": 1234, "session_2": 5678}
 
-        # Add many sessions to exceed limit
         for i in range(app._KNOWN_SESSIONS_LIMIT + 5):
             app._known_active_sessions[f"old_session_{i}"] = 1234
 
-        # New state only has port 5678
         agent = Agent(
             id="new_busy_session",
             title="test",
@@ -1232,53 +1093,15 @@ class TestUpdateSessionCache:
 
         app._update_session_cache(new_state)
 
-        # session_1 removed (port 1234 is dead)
+        # session_1 removed (port 1234 dead), session_2 kept (port 5678 alive)
         assert "session_1" not in app._known_active_sessions
-
-        # session_2 kept (port 5678 still active)
         assert "session_2" in app._known_active_sessions
-
-        # Cache not exceeding limit
         assert len(app._known_active_sessions) <= app._KNOWN_SESSIONS_LIMIT
-
-        # New busy session added
         assert "new_busy_session" in app._known_active_sessions
 
-
-class TestFocusTerminal:
-    """Tests for OpenCodeApp._focus_terminal"""
-
-    def test_focus_terminal_calls_focus_iterm2(self, mock_dependencies):
-        """Should call focus_iterm2 with tty."""
-        app = create_app_with_mocks(mock_dependencies)
-
-        app._focus_terminal("/dev/ttys001")
-
-        mock_dependencies["focus_iterm2"].assert_called_once_with("/dev/ttys001")
-
-
-class TestEdgeCases:
-    """Edge case tests"""
-
-    def test_empty_instances_and_none_usage(self, mock_dependencies):
-        """Should handle state with no instances and None usage gracefully."""
-        from opencode_monitor.core.models import State, Todos
-
-        app = create_app_with_mocks(mock_dependencies)
-        app._state = State(instances=[], todos=Todos(), connected=True)
-        app._usage = None
-
-        app._update_title()
-
-        # Should not crash, just show base emoji
-        assert app.title == "🤖"
-
-    def test_max_alerts_boundary(self, mock_dependencies):
-        """Should handle exactly max_alerts alerts and trim oldest."""
-        from opencode_monitor.security.analyzer import SecurityAlert, RiskLevel
-
-        app = create_app_with_mocks(mock_dependencies)
+        # Test max alerts boundary
         app._max_alerts = 3
+        app._security_alerts = []
 
         for i in range(3):
             alert = SecurityAlert(
@@ -1292,7 +1115,7 @@ class TestEdgeCases:
 
         assert len(app._security_alerts) == 3
 
-        # Add one more
+        # Add one more - should trim oldest
         alert = SecurityAlert(
             command="cmd_new",
             tool="bash",
@@ -1302,8 +1125,5 @@ class TestEdgeCases:
         )
         app._add_security_alert(alert)
 
-        # Still at max
         assert len(app._security_alerts) == 3
-
-        # Newest first
         assert app._security_alerts[0].command == "cmd_new"

@@ -8,7 +8,9 @@ These tests verify that:
 """
 
 import time
+from datetime import datetime
 
+import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 
@@ -16,224 +18,190 @@ from opencode_monitor.analytics.db import AnalyticsDB
 class TestSyncMeta:
     """Tests for the sync_meta table functionality."""
 
-    def test_sync_meta_table_created(self, tmp_path):
-        """sync_meta table should be created on init."""
+    def test_sync_meta_table_initial_state(self, tmp_path):
+        """sync_meta table should have correct initial structure and values."""
         db = AnalyticsDB(db_path=tmp_path / "test.duckdb")
         conn = db.connect()
+
+        # Query full row
         result = conn.execute("SELECT * FROM sync_meta WHERE id = 1").fetchone()
 
-        assert result is not None
+        # Verify row exists and structure: (id, last_sync, sync_count)
         assert result[0] == 1  # id
-        assert result[1] is not None  # last_sync timestamp
         assert result[2] == 0  # sync_count starts at 0
 
-        db.close()
-
-    def test_update_sync_timestamp(self, tmp_path):
-        """update_sync_timestamp should update the timestamp."""
-        db = AnalyticsDB(db_path=tmp_path / "test.duckdb")
-        db.connect()
-
-        before = db.get_sync_timestamp()
-        assert before is not None
-        time.sleep(0.1)  # Ensure timestamp changes
-        db.update_sync_timestamp()
-        after = db.get_sync_timestamp()
-        assert after is not None
-
-        assert after > before
+        # Verify timestamp is a valid datetime with sensible values
+        ts = db.get_sync_timestamp()
+        assert ts.year >= 2024
+        assert 1 <= ts.month <= 12
+        assert 1 <= ts.day <= 31
+        assert 0 <= ts.hour <= 23
+        assert 0 <= ts.minute <= 59
 
         db.close()
 
-    def test_sync_count_increments(self, tmp_path):
-        """sync_count should increment on each update."""
+    @pytest.mark.parametrize("update_count", [1, 2, 3])
+    def test_sync_count_increments(self, tmp_path, update_count):
+        """sync_count should increment correctly after N updates."""
         db = AnalyticsDB(db_path=tmp_path / "test.duckdb")
         conn = db.connect()
 
+        # Get initial state
+        initial = conn.execute(
+            "SELECT sync_count FROM sync_meta WHERE id = 1"
+        ).fetchone()
+        assert initial[0] == 0  # Starts at 0
+
+        # Perform N updates and collect timestamps
+        timestamps = []
+        for _ in range(update_count):
+            time.sleep(0.05)  # Ensure timestamp changes
+            db.update_sync_timestamp()
+            timestamps.append(db.get_sync_timestamp())
+
+        # Verify correct number of timestamps collected
+        assert len(timestamps) == update_count
+
+        # Verify sync_count equals number of updates
         result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
         ).fetchone()
-        assert result is not None
-        count_before = result[0]
+        assert result[0] == update_count
 
-        db.update_sync_timestamp()
+        # Verify all timestamps are valid datetimes
+        for ts in timestamps:
+            assert ts.year >= 2024
 
-        result = conn.execute(
-            "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()
-        assert result is not None
-        count_after = result[0]
-
-        assert count_after == count_before + 1
-
-        db.close()
-
-    def test_get_sync_timestamp_returns_datetime(self, tmp_path):
-        """get_sync_timestamp should return a datetime object."""
-        from datetime import datetime
-
-        db = AnalyticsDB(db_path=tmp_path / "test.duckdb")
-        db.connect()
-
-        ts = db.get_sync_timestamp()
-        assert isinstance(ts, datetime)
+        # Verify timestamps are strictly increasing
+        for i in range(1, len(timestamps)):
+            assert timestamps[i] > timestamps[i - 1]
 
         db.close()
 
 
 class TestReadOnlyAccess:
-    """Tests for read-only database access.
+    """Tests for read-only database access patterns."""
 
-    Note: DuckDB doesn't allow mixing read_only and read_write connections
-    in the same process. In production, menubar (writer) and dashboard (reader)
-    run in separate processes, so this works fine.
-
-    These tests verify the behavior in separate process scenarios.
-    """
-
-    def test_reader_after_writer_closes(self, tmp_path):
-        """Reader should work after writer has closed connection."""
+    @pytest.mark.parametrize(
+        "scenario,write_count,expected_final_count",
+        [
+            ("single_write_then_read", 1, 1),
+            ("multiple_writes_then_read", 2, 2),
+            ("three_writes_then_read", 3, 3),
+        ],
+    )
+    def test_reader_sees_correct_data_after_writes(
+        self, tmp_path, scenario, write_count, expected_final_count
+    ):
+        """Reader should see exact sync_count after N sequential writes."""
         db_path = tmp_path / "test.duckdb"
+        timestamps = []
 
-        # First create DB and write data
-        writer = AnalyticsDB(db_path=db_path, read_only=False)
-        writer.connect()
-        writer.update_sync_timestamp()
-        writer.close()  # Writer closes
+        # Perform sequential writes with separate connections
+        for i in range(write_count):
+            writer = AnalyticsDB(db_path=db_path, read_only=False)
+            conn = writer.connect()
 
-        # Then open as reader (simulates dashboard in separate process)
-        reader = AnalyticsDB(db_path=db_path, read_only=True)
-        reader.connect()
+            # Verify writer mode
+            assert writer._read_only is False
 
-        # Reader should be able to read what writer wrote
-        ts = reader.get_sync_timestamp()
-        assert ts is not None
+            if i > 0:
+                time.sleep(0.05)  # Ensure timestamp changes
+            writer.update_sync_timestamp()
+            timestamps.append(writer.get_sync_timestamp())
+            writer.close()
 
-        reader.close()
+            # Verify connection closed
+            assert writer._conn is None
 
-    def test_multiple_sequential_writes(self, tmp_path):
-        """Multiple writes should work sequentially."""
-        db_path = tmp_path / "test.duckdb"
+        # Verify correct number of writes
+        assert len(timestamps) == write_count
 
-        # First write
-        db1 = AnalyticsDB(db_path=db_path, read_only=False)
-        db1.connect()
-        db1.update_sync_timestamp()
-        ts1 = db1.get_sync_timestamp()
-        assert ts1 is not None
-        db1.close()
-
-        time.sleep(0.1)
-
-        # Second write
-        db2 = AnalyticsDB(db_path=db_path, read_only=False)
-        db2.connect()
-        db2.update_sync_timestamp()
-        ts2 = db2.get_sync_timestamp()
-        assert ts2 is not None
-        db2.close()
-
-        assert ts2 > ts1
-
-    def test_reader_sees_latest_data(self, tmp_path):
-        """Reader should see data written by previous writer."""
-        db_path = tmp_path / "test.duckdb"
-
-        # Write initial data
-        writer = AnalyticsDB(db_path=db_path, read_only=False)
-        conn = writer.connect()
-        writer.update_sync_timestamp()
-        result = conn.execute(
-            "SELECT sync_count FROM sync_meta WHERE id = 1"
-        ).fetchone()
-        assert result is not None
-        count1 = result[0]
-        writer.close()
-
-        # Write more data
-        writer2 = AnalyticsDB(db_path=db_path, read_only=False)
-        writer2.connect()
-        writer2.update_sync_timestamp()
-        writer2.close()
-
-        # Reader should see both updates
+        # Reader verifies final state
         reader = AnalyticsDB(db_path=db_path, read_only=True)
         conn = reader.connect()
+
+        # Verify reader mode
+        assert reader._read_only is True
+
         result = conn.execute(
             "SELECT sync_count FROM sync_meta WHERE id = 1"
         ).fetchone()
-        assert result is not None
-        count2 = result[0]
-        reader.close()
+        assert result[0] == expected_final_count
 
-        assert count2 == count1 + 1
+        # Verify reader can read timestamp
+        final_ts = reader.get_sync_timestamp()
+        assert final_ts.year >= 2024
+
+        # Verify timestamps were strictly increasing
+        for i in range(1, len(timestamps)):
+            assert timestamps[i] > timestamps[i - 1]
+
+        reader.close()
 
 
 class TestContextManager:
     """Tests for the context manager support."""
 
-    def test_context_manager_opens_and_closes(self, tmp_path):
-        """Context manager should automatically open and close connection."""
+    @pytest.mark.parametrize(
+        "scenario,read_only,raise_exception",
+        [
+            ("normal_write_mode", False, False),
+            ("exception_during_write", False, True),
+            ("read_only_mode", True, False),
+        ],
+    )
+    def test_context_manager_lifecycle(
+        self, tmp_path, scenario, read_only, raise_exception
+    ):
+        """Context manager should correctly manage connection lifecycle."""
         db_path = tmp_path / "test.duckdb"
 
-        with AnalyticsDB(db_path=db_path, read_only=False) as db:
-            # Connection should be open inside context
-            assert db._conn is not None
-            ts = db.get_sync_timestamp()
-            assert ts is not None
+        # Create DB first for read_only scenarios
+        if read_only:
+            with AnalyticsDB(db_path=db_path, read_only=False) as writer:
+                writer.update_sync_timestamp()
+                # Verify write inside context
+                ts_before = writer.get_sync_timestamp()
+                assert ts_before.year >= 2024
 
-        # Connection should be closed after context
+        db = AnalyticsDB(db_path=db_path, read_only=read_only)
+
+        # Verify initial state before context
         assert db._conn is None
+        assert db._read_only == read_only
 
-    def test_context_manager_closes_on_exception(self, tmp_path):
-        """Context manager should close connection even on exception."""
-        db_path = tmp_path / "test.duckdb"
-
-        db = AnalyticsDB(db_path=db_path, read_only=False)
         try:
             with db:
-                assert db._conn is not None
-                raise ValueError("Test exception")
+                # Verify connection state inside context
+                ts = db.get_sync_timestamp()
+                assert ts.year >= 2024
+                assert ts.month >= 1
+                if raise_exception:
+                    raise ValueError("Test exception")
         except ValueError:
             pass
 
-        # Connection should be closed even after exception
+        # Connection should always be closed after context
         assert db._conn is None
-
-    def test_context_manager_read_only(self, tmp_path):
-        """Context manager should work with read_only mode."""
-        db_path = tmp_path / "test.duckdb"
-
-        # Create DB first
-        with AnalyticsDB(db_path=db_path, read_only=False) as writer:
-            writer.update_sync_timestamp()
-
-        # Read with context manager
-        with AnalyticsDB(db_path=db_path, read_only=True) as reader:
-            ts = reader.get_sync_timestamp()
-            assert ts is not None
+        # Mode should remain unchanged
+        assert db._read_only == read_only
 
 
 class TestAnalyticsSyncManager:
     """Tests for the AnalyticsSyncManager class."""
 
-    def test_needs_sync_initially(self, tmp_path, monkeypatch):
-        """needs_sync should return True initially."""
-        from opencode_monitor.app.handlers import AnalyticsSyncManager
-
-        # Patch the default db path to use tmp_path
-        monkeypatch.setattr(
-            "opencode_monitor.analytics.db.get_db_path",
-            lambda: tmp_path / "analytics.duckdb",
-        )
-
-        manager = AnalyticsSyncManager()
-        assert manager.needs_sync() is True
-
-        manager.close()
-
-    def test_needs_sync_false_after_sync(self, tmp_path, monkeypatch):
-        """needs_sync should return False after sync if within interval."""
+    @pytest.mark.parametrize(
+        "scenario,simulate_recent_sync,expected_needs_sync",
+        [
+            ("initial_state", False, True),
+            ("after_recent_sync", True, False),
+        ],
+    )
+    def test_needs_sync_state(
+        self, tmp_path, monkeypatch, scenario, simulate_recent_sync, expected_needs_sync
+    ):
+        """needs_sync should return correct value based on sync state."""
         from opencode_monitor.app.handlers import AnalyticsSyncManager
 
         monkeypatch.setattr(
@@ -243,45 +211,64 @@ class TestAnalyticsSyncManager:
 
         manager = AnalyticsSyncManager()
 
-        # Simulate a sync happened just now
-        manager._last_sync = time.time()
+        # Verify initial _last_sync state
+        if simulate_recent_sync:
+            manager._last_sync = time.time()
+            assert manager._last_sync > 0
+        else:
+            assert manager._last_sync == 0
 
-        # Should not need sync
-        assert manager.needs_sync() is False
+        # Verify needs_sync returns expected value
+        result = manager.needs_sync()
+        assert result == expected_needs_sync
+        assert type(result) is bool
 
         manager.close()
 
-    def test_sync_manager_opens_and_closes_connection(self, tmp_path, monkeypatch):
-        """Sync manager should open/close connection for each sync.
-
-        This is critical for allowing the dashboard to read concurrently.
-        The manager no longer holds a persistent connection.
-        """
+    def test_sync_manager_updates_timestamp(self, tmp_path, monkeypatch):
+        """Sync manager should update timestamp after sync_incremental."""
         from opencode_monitor.app.handlers import AnalyticsSyncManager
+
+        db_path = tmp_path / "analytics.duckdb"
 
         monkeypatch.setattr(
             "opencode_monitor.analytics.db.get_db_path",
-            lambda: tmp_path / "analytics.duckdb",
+            lambda: db_path,
         )
 
-        # Create DB first
-        with AnalyticsDB(db_path=tmp_path / "analytics.duckdb", read_only=False) as db:
+        # Create DB and get initial timestamp
+        with AnalyticsDB(db_path=db_path, read_only=False) as db:
             ts1 = db.get_sync_timestamp()
-            assert ts1 is not None
+            initial_year = ts1.year
+            initial_count = db._conn.execute(
+                "SELECT sync_count FROM sync_meta WHERE id = 1"
+            ).fetchone()[0]
 
+        assert initial_year >= 2024
+        assert initial_count == 0
+
+        # Manager should not hold persistent _db reference
         manager = AnalyticsSyncManager()
+        assert hasattr(manager, "_db") is False
+        assert manager._last_sync == 0
 
-        # Manager should not hold a persistent _db reference
-        assert not hasattr(manager, "_db")
-
-        # After sync (even empty), timestamp should be updated
         time.sleep(0.1)
         manager.sync_incremental(max_days=1)
 
-        # Verify by opening a new connection
-        with AnalyticsDB(db_path=tmp_path / "analytics.duckdb", read_only=True) as db2:
+        # Verify _last_sync was updated
+        assert manager._last_sync > 0
+
+        # Verify timestamp was updated in DB
+        with AnalyticsDB(db_path=db_path, read_only=True) as db2:
             ts2 = db2.get_sync_timestamp()
-            assert ts2 is not None
-            assert ts2 > ts1
+            assert ts2.year >= 2024
+            # Compare as ISO strings for strict ordering
+            assert ts2.isoformat() > ts1.isoformat()
+
+            # Verify sync_count incremented
+            final_count = db2._conn.execute(
+                "SELECT sync_count FROM sync_meta WHERE id = 1"
+            ).fetchone()[0]
+            assert final_count == initial_count + 1
 
         manager.close()
