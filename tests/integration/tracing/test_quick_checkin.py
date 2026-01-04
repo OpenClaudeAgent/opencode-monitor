@@ -154,17 +154,6 @@ def quick_checkin_tracing_data() -> dict:
     the dashboard expects. Every value is from the real session.
     """
     return {
-        "traces": [],
-        "sessions": [
-            {
-                "id": SESSION_ID,
-                "title": SESSION_TITLE,
-                "directory": SESSION_DIRECTORY,
-                "created_at": "2026-01-04T15:44:31.235000",
-                "tokens_in": SESSION_TOKENS_IN,
-                "tokens_out": SESSION_TOKENS_OUT,
-            }
-        ],
         "session_hierarchy": [
             {
                 "session_id": SESSION_ID,
@@ -363,9 +352,6 @@ def quick_checkin_tracing_data() -> dict:
                 ],
             }
         ],
-        "total_traces": TOTAL_USER_TURNS,
-        "unique_agents": 2,
-        "total_duration_ms": 193351,
     }
 
 
@@ -460,14 +446,14 @@ class TestQuickCheckinSession:
         assert tracing._tree.topLevelItemCount() == 1
 
         root = tracing._tree.topLevelItem(0)
-        
+
         # Root label
         assert root.text(0) == ROOT_LABEL
-        
+
         # Root node_type
         data = get_item_data(root)
         assert data.get("node_type") == "session"
-        
+
         # Exactly 5 children (user turns)
         assert root.childCount() == TOTAL_ROOT_CHILDREN
 
@@ -487,12 +473,14 @@ class TestQuickCheckinSession:
         for i, (expected_label, expected_children) in enumerate(expected):
             child = root.child(i)
             # Label
-            assert child.text(0) == expected_label, f"UT{i+1} label mismatch"
+            assert child.text(0) == expected_label, f"UT{i + 1} label mismatch"
             # Node type
             data = get_item_data(child)
-            assert data.get("node_type") == "user_turn", f"UT{i+1} node_type mismatch"
+            assert data.get("node_type") == "user_turn", f"UT{i + 1} node_type mismatch"
             # Child count
-            assert child.childCount() == expected_children, f"UT{i+1} child count mismatch"
+            assert child.childCount() == expected_children, (
+                f"UT{i + 1} child count mismatch"
+            )
 
     def test_ut2_webfetch_tools(self, dashboard_window, qtbot, click_nav):
         """UT2 tools: 2 webfetch with correct labels, node_types, tool_names."""
@@ -587,7 +575,9 @@ class TestQuickCheckinSession:
         delegations += find_items_by_node_type(tracing._tree, "delegation")
         assert len(delegations) == TOTAL_DELEGATIONS
 
-    def test_hierarchy_parent_child_relationships(self, dashboard_window, qtbot, click_nav):
+    def test_hierarchy_parent_child_relationships(
+        self, dashboard_window, qtbot, click_nav
+    ):
         """Verify parent-child relationships in the tree."""
         tracing = load_and_expand(dashboard_window, qtbot, click_nav)
         root = tracing._tree.topLevelItem(0)
@@ -595,7 +585,7 @@ class TestQuickCheckinSession:
         # All user turns are children of root
         for i in range(TOTAL_USER_TURNS):
             ut = root.child(i)
-            assert ut.parent() == root, f"UT{i+1} parent should be root"
+            assert ut.parent() == root, f"UT{i + 1} parent should be root"
 
         # UT2 tools are children of UT2
         ut2 = root.child(1)

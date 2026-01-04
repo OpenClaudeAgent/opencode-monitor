@@ -67,14 +67,7 @@ class TestTracingEmptyState:
         tracing = dashboard_window._tracing
 
         # Emit empty tracing data
-        empty_data = {
-            "traces": [],
-            "sessions": [],
-            "session_hierarchy": [],
-            "total_traces": 0,
-            "unique_agents": 0,
-            "total_duration_ms": 0,
-        }
+        empty_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(empty_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 

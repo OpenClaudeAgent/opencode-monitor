@@ -60,45 +60,6 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
     ]
 
 
-def _create_traces_from_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
-    """Create trace records matching the session hierarchy."""
-    return [
-        {
-            "trace_id": "trace-001",
-            "session_id": "sess-root-001",
-            "parent_trace_id": "root_sess-root-001",
-            "subagent_type": "user",
-            "status": "completed",
-            "duration_ms": 125000,
-            "tokens_in": 5000,
-            "tokens_out": 8000,
-            "started_at": base_date.isoformat(),
-        },
-        {
-            "trace_id": "trace-002",
-            "session_id": "sess-child-001",
-            "parent_trace_id": "trace-001",
-            "subagent_type": "executor",
-            "status": "completed",
-            "duration_ms": 45000,
-            "tokens_in": 2000,
-            "tokens_out": 3000,
-            "started_at": (base_date - timedelta(minutes=5)).isoformat(),
-        },
-        {
-            "trace_id": "trace-003",
-            "session_id": "sess-child-002",
-            "parent_trace_id": "trace-002",
-            "subagent_type": "tester",
-            "status": "completed",
-            "duration_ms": 30000,
-            "tokens_in": 1500,
-            "tokens_out": 2500,
-            "started_at": (base_date - timedelta(minutes=3)).isoformat(),
-        },
-    ]
-
-
 def _create_sessions_list(base_date: datetime) -> list[dict[str, Any]]:
     """Create flat sessions list for tracing tests."""
     return [
@@ -241,12 +202,10 @@ def realistic_tracing() -> dict[str, Any]:
     base_date = FIXED_TEST_DATE
 
     hierarchy = _create_session_hierarchy(base_date)
-    traces = _create_traces_from_hierarchy(base_date)
     sessions = _create_sessions_list(base_date)
     details = _create_session_details(base_date)
 
     return {
-        "traces": traces,
         "sessions": sessions,
         "session_hierarchy": hierarchy,
         "total_traces": 3,

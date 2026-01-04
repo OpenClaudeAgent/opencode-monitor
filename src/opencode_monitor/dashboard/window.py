@@ -635,20 +635,11 @@ class DashboardWindow(QMainWindow):
                 f"[Dashboard] Got tracing tree with {len(session_hierarchy)} root sessions"
             )
 
-            # Get global stats for summary metrics
-            global_stats = client.get_global_stats(days=30)
-            summary = global_stats.get("summary", {}) if global_stats else {}
-
-            data = {
-                "traces": [],  # Legacy - not needed with new API
-                "sessions": [],  # Legacy - not needed with new API
-                "session_hierarchy": session_hierarchy,
-                "total_traces": summary.get("total_traces", 0),
-                "unique_agents": summary.get("unique_agents", 0),
-                "total_duration_ms": summary.get("total_duration_ms", 0),
-            }
-
-            self._signals.tracing_updated.emit(data)
+            self._signals.tracing_updated.emit(
+                {
+                    "session_hierarchy": session_hierarchy,
+                }
+            )
 
         except Exception as e:
             error(f"[Dashboard] Tracing fetch error: {e}")
@@ -659,12 +650,7 @@ class DashboardWindow(QMainWindow):
     def _on_tracing_data(self, data: dict) -> None:
         """Handle tracing data update."""
         self._tracing.update_data(
-            traces=data.get("traces", []),
-            sessions=data.get("sessions", []),
             session_hierarchy=data.get("session_hierarchy", []),
-            _total_traces=data.get("total_traces", 0),
-            _unique_agents=data.get("unique_agents", 0),
-            _total_duration_ms=data.get("total_duration_ms", 0),
         )
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:

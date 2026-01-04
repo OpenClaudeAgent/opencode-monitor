@@ -23,9 +23,6 @@ TREE_COLUMN_COUNT = 6
 ROOT_SESSION_LABEL = "🌳 my-project"
 CHILD_COUNT = 2  # executor + tester delegations
 
-# Detail panel header (fallback when session_summaries not mocked)
-DETAIL_HEADER_FALLBACK = "🌳 Session"
-
 
 class TestTracingTabsContent:
     """Test that tabs display actual content when data is loaded."""
@@ -74,38 +71,8 @@ class TestTracingTabsContent:
         tab_widget = getattr(detail, tab_attr)
         assert isinstance(tab_widget, QWidget)
 
-    def test_detail_panel_updates_on_selection(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """Detail panel header and metrics update when session is selected."""
-        click_nav(dashboard_window, SECTION_TRACING)
-
-        tracing = dashboard_window._tracing
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        detail = tracing._detail_panel
-        initial_header = detail._header.text()
-
-        # Select root session
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        # Header should change to session info
-        new_header = detail._header.text()
-        assert new_header != initial_header, (
-            f"Header should change after selection. "
-            f"Initial: '{initial_header}', New: '{new_header}'"
-        )
-        assert new_header == DETAIL_HEADER_FALLBACK, (
-            f"Expected header '{DETAIL_HEADER_FALLBACK}', got '{new_header}'"
-        )
-
-        # Metrics bar should exist
-        assert isinstance(detail._metrics_bar, QWidget)
+    # NOTE: test_detail_panel_updates_on_selection removed - redundant with
+    # test_selection.py::test_session_selection_updates_detail_panel_and_metrics
 
 
 class TestTracingTreeContent:

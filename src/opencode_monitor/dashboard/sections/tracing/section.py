@@ -45,8 +45,6 @@ class TracingSection(QWidget):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._traces_data: list[dict] = []
-        self._sessions_data: list[dict] = []
         self._session_hierarchy: list[dict] = []
         self._max_duration_ms: int = 1  # Avoid division by zero
         self._view_mode: str = "sessions"  # Always sessions view
@@ -884,17 +882,14 @@ class TracingSection(QWidget):
 
     def update_data(
         self,
-        traces: list[dict],
-        sessions: list[dict],
         session_hierarchy: list[dict] | None = None,
-        _total_traces: int = 0,
-        _unique_agents: int = 0,
-        _total_duration_ms: int = 0,
     ) -> None:
-        """Update tracing data."""
-        self._traces_data = traces
-        self._sessions_data = sessions
+        """Update tracing data with session hierarchy.
+
+        Args:
+            session_hierarchy: Hierarchical tree of sessions from API
+        """
         self._session_hierarchy = session_hierarchy or []
 
-        # Populate tree with sessions hierarchy (always sessions view)
+        # Populate tree with sessions hierarchy
         self._populate_sessions_tree(self._session_hierarchy)

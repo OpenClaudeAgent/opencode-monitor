@@ -57,41 +57,47 @@ class TestDashboardWindowLifecycle:
         icon = dashboard_window.windowIcon()
         assert not icon.isNull(), "Window should have an icon set"
 
-    def test_timers_are_running(self, dashboard_window):
+    def test_timers_are_running(self, dashboard_window_with_timers):
         """Test that background timers are active after window creation.
+
+        Uses dashboard_window_with_timers fixture to verify production behavior
+        where timers run for background data refresh.
 
         Verifies:
         - refresh_timer is a QTimer and is active
         - sync_checker exists and has internal timer active
         """
         # Refresh timer
-        refresh_timer = dashboard_window._refresh_timer
+        refresh_timer = dashboard_window_with_timers._refresh_timer
         assert isinstance(refresh_timer, QTimer), "refresh_timer should be QTimer"
         assert refresh_timer.isActive(), "refresh_timer should be active"
 
         # Sync checker (has internal timer)
-        sync_checker = dashboard_window._sync_checker
+        sync_checker = dashboard_window_with_timers._sync_checker
         assert sync_checker is not None, "sync_checker should exist"
         assert isinstance(sync_checker._timer, QTimer), (
             "sync_checker should have _timer"
         )
         assert sync_checker._timer.isActive(), "sync_checker timer should be active"
 
-    def test_timers_stop_on_close(self, dashboard_window, qtbot):
+    def test_timers_stop_on_close(self, dashboard_window_with_timers, qtbot):
         """Test that timers are properly stopped when window is closed.
 
+        Uses dashboard_window_with_timers to verify cleanup of running timers.
         This validates cleanup to prevent resource leaks.
         """
+        window = dashboard_window_with_timers
+
         # Get references before close
-        refresh_timer = dashboard_window._refresh_timer
-        sync_checker = dashboard_window._sync_checker
+        refresh_timer = window._refresh_timer
+        sync_checker = window._sync_checker
 
         # Verify they're running first
         assert refresh_timer.isActive()
         assert sync_checker._timer.isActive()
 
         # Close the window
-        dashboard_window.close()
+        window.close()
 
         # Timers should be stopped
         assert not refresh_timer.isActive(), "refresh_timer should stop on close"
@@ -181,17 +187,18 @@ class TestDashboardComponents:
 class TestDashboardHidden:
     """Test dashboard creation without showing - validates headless init."""
 
-    def test_hidden_window_initializes_fully(self, dashboard_window_hidden):
+    def test_hidden_window_initializes_fully(self, dashboard_window_hidden_with_timers):
         """Test that hidden window initializes all components correctly.
 
         Use case: background data loading, headless testing, pre-caching.
+        Uses dashboard_window_hidden_with_timers to verify production behavior.
 
         Verifies:
         - Window is NOT visible
         - All sections are created with correct types
         - Timers are running (for background refresh)
         """
-        window = dashboard_window_hidden
+        window = dashboard_window_hidden_with_timers
 
         # Not visible
         assert not window.isVisible(), "Hidden window should not be visible"

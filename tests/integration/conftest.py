@@ -95,11 +95,6 @@ class MockAnalyticsAPIClient:
         self._log_call("get_sessions", days=days, limit=limit)
         return self._responses.get("sessions", [])
 
-    def get_traces(self, days: int = 30, limit: int = 500) -> Optional[list]:
-        """Return configured traces list."""
-        self._log_call("get_traces", days=days, limit=limit)
-        return self._responses.get("traces", [])
-
     def get_delegations(self, days: int = 30, limit: int = 1000) -> Optional[list]:
         """Return configured delegations list."""
         self._log_call("get_delegations", days=days, limit=limit)
@@ -151,6 +146,23 @@ class MockAnalyticsAPIClient:
         """Return configured session prompts."""
         self._log_call("get_session_prompts", session_id=session_id)
         return None
+
+    def get_session_operations(self, session_id: str) -> Optional[list]:
+        """Return configured session operations."""
+        self._log_call("get_session_operations", session_id=session_id)
+        operations = self._responses.get("session_operations", {})
+        return operations.get(session_id, [])
+
+    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
+        """Return configured tracing tree (session hierarchy)."""
+        self._log_call("get_tracing_tree", days=days)
+        return self._responses.get("session_hierarchy", [])
+
+    def get_conversation(self, session_id: str) -> Optional[dict]:
+        """Return configured conversation for a session."""
+        self._log_call("get_conversation", session_id=session_id)
+        conversations = self._responses.get("conversations", {})
+        return conversations.get(session_id)
 
     def get_call_log(self) -> list[tuple[str, dict]]:
         """Return log of all API calls made during test."""
@@ -283,6 +295,60 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
 
     window = DashboardWindow()
     qtbot.addWidget(window)
+
+    # Stop timers BEFORE yield to avoid interference during tests
+    # The 2000ms refresh timer could fire and overwrite manually emitted data
+    if window._refresh_timer:
+        window._refresh_timer.stop()
+    if window._sync_checker:
+        window._sync_checker.stop()
+
+    window.show()
+    qtbot.waitExposed(window)
+
+    yield window
+
+    # Cleanup
+    window.close()
+
+
+@pytest.fixture
+def dashboard_window_hidden(
+    qtbot, patched_api_client, patched_monitoring, patched_security
+):
+    """Create a dashboard window without showing it."""
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    window = DashboardWindow()
+    qtbot.addWidget(window)
+
+    # Stop timers BEFORE yield to avoid interference during tests
+    # The 2000ms refresh timer could fire and overwrite manually emitted data
+    if window._refresh_timer:
+        window._refresh_timer.stop()
+    if window._sync_checker:
+        window._sync_checker.stop()
+
+    yield window
+
+    # Cleanup
+    window.close()
+
+
+@pytest.fixture
+def dashboard_window_with_timers(
+    qtbot, patched_api_client, patched_monitoring, patched_security
+):
+    """Create a dashboard window WITH timers running.
+
+    Use this fixture ONLY for tests that specifically verify timer behavior.
+    For all other tests, use dashboard_window which stops timers to avoid
+    interference with manually emitted data.
+    """
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    window = DashboardWindow()
+    qtbot.addWidget(window)
     window.show()
     qtbot.waitExposed(window)
 
@@ -297,10 +363,13 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
 
 
 @pytest.fixture
-def dashboard_window_hidden(
+def dashboard_window_hidden_with_timers(
     qtbot, patched_api_client, patched_monitoring, patched_security
 ):
-    """Create a dashboard window without showing it."""
+    """Create a hidden dashboard window WITH timers running.
+
+    Use this fixture ONLY for tests that verify timer behavior on hidden windows.
+    """
     from opencode_monitor.dashboard.window import DashboardWindow
 
     window = DashboardWindow()

@@ -9,7 +9,7 @@ from datetime import timedelta
 from typing import Any
 
 from .constants import FIXED_TEST_DATE
-from .factories import create_global_stats, create_session_data, create_trace_data
+from .factories import create_global_stats, create_session_data
 from .monitoring import (
     empty_monitoring,
     realistic_monitoring,
@@ -43,7 +43,6 @@ class MockAPIResponses:
             "stats": {"sessions": 0, "traces": 0, "messages": 0},
             "global_stats": create_global_stats(0, 0, 0, 0, 0),
             "sessions": [],
-            "traces": [],
             "delegations": [],
         }
 
@@ -58,7 +57,6 @@ class MockAPIResponses:
             "stats": None,
             "global_stats": None,
             "sessions": None,  # None = error, [] = empty
-            "traces": None,
             "delegations": None,
         }
 
@@ -82,7 +80,6 @@ class MockAPIResponses:
                     "directory": None,
                 }
             ],
-            "traces": [],
             "delegations": [],
         }
 
@@ -103,22 +100,6 @@ class MockAPIResponses:
             tokens_out=999_999_999,
         )
 
-        # Create 100 traces for stress testing
-        traces = [
-            create_trace_data(
-                f"trace-extreme-{i:03d}",
-                "sess-extreme",
-                "root_sess-extreme",
-                ["executor", "tester", "quality", "coordinator"][i % 4],
-                "completed",
-                duration_ms=i * 1000,
-                tokens_in=100_000,
-                tokens_out=50_000,
-                started_at=base_date - timedelta(minutes=i),
-            )
-            for i in range(100)
-        ]
-
         return {
             "health": True,
             "stats": {"sessions": 999_999, "traces": 999_999, "messages": 999_999_999},
@@ -130,7 +111,6 @@ class MockAPIResponses:
                 100,  # unique agents
             ),
             "sessions": [session],
-            "traces": traces,
             "delegations": [],
         }
 
@@ -151,7 +131,6 @@ class MockAPIResponses:
                     "tokens_out": -100,  # negative
                 }
             ],
-            "traces": [],
             "global_stats": None,
         }
 
@@ -165,9 +144,6 @@ class MockAPIResponses:
             "health": True,
             "sessions": [
                 {"id": "sess-001"}  # Missing title, tokens, etc.
-            ],
-            "traces": [
-                {"trace_id": "trace-001"}  # Missing session_id, status, etc.
             ],
         }
 
@@ -183,7 +159,6 @@ class MockAPIResponses:
             "stats": None,
             "global_stats": None,
             "sessions": None,  # None = error, [] = empty
-            "traces": None,
             "error": "Connection refused",
         }
 
@@ -192,17 +167,30 @@ class MockAPIResponses:
         """Basic responses with minimal data for simple tests."""
         base_date = FIXED_TEST_DATE
         session = create_session_data("sess-001", "Test Session", base_date)
-        trace = create_trace_data(
-            "trace-001", "sess-001", "root_sess-001", "user", started_at=base_date
-        )
+
+        # Minimal session hierarchy for tracing tree (matches realistic_tracing structure)
+        session_hierarchy = [
+            {
+                "session_id": "sess-001",
+                "node_type": "session",
+                "title": "Test Session",
+                "directory": "/home/dev/my-project",
+                "created_at": base_date.isoformat(),
+                "status": "completed",
+                "duration_ms": 10000,
+                "tokens_in": 100,
+                "tokens_out": 200,
+                "children": [],
+            }
+        ]
 
         return {
             "health": True,
             "stats": {"sessions": 1, "traces": 1, "messages": 10},
             "global_stats": create_global_stats(1, 1, 10, 1000, 1),
             "sessions": [session],
-            "traces": [trace],
             "delegations": [],
+            "session_hierarchy": session_hierarchy,
             "session_messages": {
                 "sess-001": [
                     {
@@ -236,31 +224,11 @@ class MockAPIResponses:
             for i in range(3)
         ]
 
-        traces = []
-        # Root session with user trace
-        traces.append(
-            create_trace_data(
-                "trace-001", "sess-000", "root_sess-000", "user", started_at=base_date
-            )
-        )
-        # Sub-agents
-        for i, agent_type in enumerate(["executor", "tester", "quality"]):
-            traces.append(
-                create_trace_data(
-                    f"trace-{i + 2:03d}",
-                    f"sess-{i + 1:03d}",
-                    "root_sess-000",
-                    agent_type,
-                    started_at=base_date - timedelta(minutes=i * 5),
-                )
-            )
-
         return {
             "health": True,
             "stats": {"sessions": 3, "traces": 4, "messages": 100},
             "global_stats": create_global_stats(3, 4, 100, 25000, 4),
             "sessions": sessions,
-            "traces": traces,
             "delegations": [
                 {"parent_session_id": "sess-000", "child_session_id": "sess-001"},
                 {"parent_session_id": "sess-000", "child_session_id": "sess-002"},

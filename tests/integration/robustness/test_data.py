@@ -56,20 +56,13 @@ class TestDataRobustness:
         partial_data = MockAPIResponses.partial_data()
         click_nav(dashboard_window, SECTION_TRACING)
 
-        tracing_data = {
-            "traces": [],
-            "sessions": partial_data.get("sessions", []),
-            "session_hierarchy": [],
-            "total_traces": 0,
-            "unique_agents": 0,
-            "total_duration_ms": 0,
-        }
+        tracing_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Tracing section should show empty state (no traces)
+        # Tracing section should show empty state (no session hierarchy)
         tracing = dashboard_window._tracing
-        assert tracing._empty.isVisible() or len(tracing._traces_data) == 0
+        assert tracing._empty.isVisible() or len(tracing._session_hierarchy) == 0
 
         # --- Scenario 3: Empty lists (valid state, not null) ---
         empty_list_data = {
@@ -120,23 +113,33 @@ class TestDataRobustness:
 
         # --- Scenario 2: Extreme data fixture (stress test) ---
         click_nav(dashboard_window, SECTION_TRACING)
-        extreme_data = MockAPIResponses.extreme_data()
 
-        tracing_data = {
-            "traces": extreme_data.get("traces", [])[:10],  # Limit for test speed
-            "sessions": extreme_data.get("sessions", []),
-            "session_hierarchy": [],
-            "total_traces": len(extreme_data.get("traces", [])),
-            "unique_agents": 4,
-            "total_duration_ms": 1_000_000,
-        }
+        # Create 10 session hierarchy items for stress test
+        session_hierarchy = [
+            {
+                "session_id": f"sess-extreme-{i:03d}",
+                "node_type": "session",
+                "title": f"Extreme Session {i}",
+                "directory": "/home/dev/my-project",
+                "created_at": "2024-01-01T00:00:00",
+                "status": "completed",
+                "duration_ms": 1_000_000,
+                "tokens_in": 999_999,
+                "tokens_out": 999_999,
+                "children": [],
+            }
+            for i in range(10)
+        ]
+
+        tracing_data = {"session_hierarchy": session_hierarchy}
 
         dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Tracing should render exactly 10 traces (limited slice)
+        # Tracing should render exactly 10 sessions
         tracing = dashboard_window._tracing
-        assert len(tracing._traces_data) == 10
+        assert len(tracing._session_hierarchy) == 10
+        assert tracing._tree.topLevelItemCount() == 10
         # Dashboard should remain responsive
         assert dashboard_window.isVisible()
 

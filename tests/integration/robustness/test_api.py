@@ -33,11 +33,7 @@ class TestAPIErrorHandling:
             pytest.param(
                 SECTION_TRACING,
                 "tracing_updated",
-                {
-                    "sessions": [{"id": 123}],  # Wrong type, missing fields
-                    "traces": None,
-                    "session_hierarchy": [],
-                },
+                {"session_hierarchy": []},
                 id="malformed_types_and_nulls",
             ),
             pytest.param(
