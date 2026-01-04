@@ -239,13 +239,40 @@ class FileTracker:
         # Sort by mtime DESC (most recent first)
         files_with_mtime.sort(key=lambda x: x[0], reverse=True)
 
-        # Filter to only files needing indexing
+        # Load ALL indexed files for this type in ONE query (much faster than per-file)
+        conn = self._db.connect()
+        indexed_files = {}
+        try:
+            rows = conn.execute(
+                """
+                SELECT file_path, mtime, size FROM file_index
+                WHERE file_type = ?
+                """,
+                [file_type],
+            ).fetchall()
+            for row in rows:
+                indexed_files[row[0]] = (row[1], row[2])
+        finally:
+            pass  # Connection managed by pool
+
+        # Filter to only files needing indexing (in-memory comparison)
         unindexed: list[Path] = []
-        for _, path in files_with_mtime:
+        for mtime, path in files_with_mtime:
             if len(unindexed) >= limit:
                 break
-            if self.needs_indexing(path):
+            path_str = str(path)
+            if path_str not in indexed_files:
+                # New file - needs indexing
                 unindexed.append(path)
+            else:
+                # Check if changed
+                stored_mtime, stored_size = indexed_files[path_str]
+                try:
+                    current_size = path.stat().st_size
+                    if mtime != stored_mtime or current_size != stored_size:
+                        unindexed.append(path)
+                except OSError:
+                    continue
 
         return unindexed
 

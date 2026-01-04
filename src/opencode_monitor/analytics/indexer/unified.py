@@ -32,9 +32,9 @@ from ...utils.logger import debug, info, error
 OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
 
 # Backfill configuration
-BACKFILL_BATCH_SIZE = 100  # Max files per cycle
-BACKFILL_THROTTLE_MS = 100  # Pause between chunks
-BACKFILL_INTERVAL = 60  # Seconds between backfill cycles
+BACKFILL_BATCH_SIZE = 2000  # Max files per cycle (increased for large datasets)
+BACKFILL_THROTTLE_MS = 10  # Pause between chunks
+BACKFILL_INTERVAL = 5  # Seconds between backfill cycles
 
 
 class UnifiedIndexer:
