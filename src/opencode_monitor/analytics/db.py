@@ -5,7 +5,6 @@ Uses a singleton pattern to ensure only one connection to the database,
 avoiding DuckDB lock conflicts.
 """
 
-import os
 import threading
 from pathlib import Path
 from typing import Optional
@@ -14,7 +13,7 @@ import duckdb
 
 from datetime import datetime
 
-from ..utils.logger import info, debug, error
+from ..utils.logger import info, debug
 
 
 def get_db_path() -> Path:
@@ -89,7 +88,7 @@ class AnalyticsDB:
         self.connect()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb) -> None:
+    def __exit__(self, _exc_type, _exc_val, _exc_tb) -> None:
         """Context manager exit - closes connection."""
         self.close()
 

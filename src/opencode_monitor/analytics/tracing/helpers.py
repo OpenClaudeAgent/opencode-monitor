@@ -1,0 +1,521 @@
+"""Helper methods for tracing data service.
+
+Contains private utility methods used across query modules.
+"""
+
+from datetime import datetime
+from typing import Optional, TYPE_CHECKING
+
+from ...utils.logger import debug
+
+if TYPE_CHECKING:
+    from .config import TracingConfig
+    import duckdb
+
+
+class HelpersMixin:
+    """Mixin providing helper methods for TracingDataService.
+
+    Requires _conn property and _config attribute from the main class.
+    """
+
+    _config: "TracingConfig"
+
+    @property
+    def _conn(self) -> "duckdb.DuckDBPyConnection":
+        """Get database connection (implemented by main class)."""
+        raise NotImplementedError
+
+    def _get_session_info(self, session_id: str) -> Optional[dict]:
+        """Get basic session information."""
+        try:
+            result = self._conn.execute(
+                """
+                SELECT id, title, directory, created_at, updated_at, parent_id
+                FROM sessions
+                WHERE id = ?
+                """,
+                [session_id],
+            ).fetchone()
+
+            if result:
+                return {
+                    "id": result[0],
+                    "title": result[1],
+                    "directory": result[2],
+                    "created_at": result[3],
+                    "updated_at": result[4],
+                    "parent_id": result[5],
+                    "status": "completed" if result[4] else "running",
+                }
+            return None
+        except Exception:
+            return None
+
+    def _get_session_tokens_internal(self, session_id: str) -> dict:
+        """Get token metrics for a session."""
+        try:
+            result = self._conn.execute(
+                """
+                SELECT
+                    COUNT(*) as message_count,
+                    COALESCE(SUM(tokens_input), 0) as input,
+                    COALESCE(SUM(tokens_output), 0) as output,
+                    COALESCE(SUM(tokens_reasoning), 0) as reasoning,
+                    COALESCE(SUM(tokens_cache_read), 0) as cache_read,
+                    COALESCE(SUM(tokens_cache_write), 0) as cache_write
+                FROM messages
+                WHERE session_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+
+            input_tokens = result[1] or 0
+            output_tokens = result[2] or 0
+            cache_read = result[4] or 0
+            total_input = input_tokens + cache_read
+
+            # Get tokens by agent
+            agent_results = self._conn.execute(
+                """
+                SELECT
+                    COALESCE(agent, 'unknown') as agent,
+                    SUM(tokens_input + tokens_output) as tokens
+                FROM messages
+                WHERE session_id = ?
+                GROUP BY agent
+                ORDER BY tokens DESC
+                """,
+                [session_id],
+            ).fetchall()
+
+            return {
+                "message_count": result[0] or 0,
+                "input": input_tokens,
+                "output": output_tokens,
+                "reasoning": result[3] or 0,
+                "cache_read": cache_read,
+                "cache_write": result[5] or 0,
+                "total": input_tokens + output_tokens,
+                "cache_hit_ratio": round(
+                    (cache_read / total_input * 100) if total_input > 0 else 0, 1
+                ),
+                "by_agent": [
+                    {"agent": row[0], "tokens": row[1] or 0} for row in agent_results
+                ],
+            }
+        except Exception as e:
+            debug(f"_get_session_tokens_internal failed: {e}")
+            return {
+                "message_count": 0,
+                "input": 0,
+                "output": 0,
+                "reasoning": 0,
+                "cache_read": 0,
+                "cache_write": 0,
+                "total": 0,
+                "cache_hit_ratio": 0,
+                "by_agent": [],
+            }
+
+    def _get_session_tools_internal(self, session_id: str) -> dict:
+        """Get tool metrics for a session."""
+        try:
+            # Get overall stats
+            result = self._conn.execute(
+                """
+                SELECT
+                    COUNT(*) as total_calls,
+                    COUNT(DISTINCT tool_name) as unique_tools,
+                    SUM(CASE WHEN tool_status = 'completed' THEN 1 ELSE 0 END) as success,
+                    SUM(CASE WHEN tool_status = 'error' THEN 1 ELSE 0 END) as errors,
+                    AVG(duration_ms) as avg_duration
+                FROM parts
+                WHERE session_id = ? AND tool_name IS NOT NULL
+                """,
+                [session_id],
+            ).fetchone()
+
+            total = result[0] or 0
+            success = result[2] or 0
+
+            # Get top tools
+            top_tools = self._conn.execute(
+                """
+                SELECT
+                    tool_name,
+                    COUNT(*) as count,
+                    AVG(duration_ms) as avg_duration,
+                    SUM(CASE WHEN tool_status = 'error' THEN 1 ELSE 0 END) as errors
+                FROM parts
+                WHERE session_id = ? AND tool_name IS NOT NULL
+                GROUP BY tool_name
+                ORDER BY count DESC
+                LIMIT 10
+                """,
+                [session_id],
+            ).fetchall()
+
+            return {
+                "total_calls": total,
+                "unique_tools": result[1] or 0,
+                "success_count": success,
+                "error_count": result[3] or 0,
+                "success_rate": round((success / total * 100) if total > 0 else 0, 1),
+                "avg_duration_ms": int(result[4] or 0),
+                "top_tools": [
+                    {
+                        "name": row[0],
+                        "count": row[1],
+                        "avg_duration_ms": int(row[2] or 0),
+                        "error_count": row[3] or 0,
+                    }
+                    for row in top_tools
+                ],
+            }
+        except Exception as e:
+            debug(f"_get_session_tools_internal failed: {e}")
+            return {
+                "total_calls": 0,
+                "unique_tools": 0,
+                "success_count": 0,
+                "error_count": 0,
+                "success_rate": 0,
+                "avg_duration_ms": 0,
+                "top_tools": [],
+            }
+
+    def _get_session_files_internal(self, session_id: str) -> dict:
+        """Get file operation metrics for a session."""
+        try:
+            # First try file_operations table
+            result = self._conn.execute(
+                """
+                SELECT
+                    SUM(CASE WHEN operation = 'read' THEN 1 ELSE 0 END) as reads,
+                    SUM(CASE WHEN operation = 'write' THEN 1 ELSE 0 END) as writes,
+                    SUM(CASE WHEN operation = 'edit' THEN 1 ELSE 0 END) as edits,
+                    SUM(CASE WHEN risk_level IN ('high', 'critical') THEN 1 ELSE 0 END) as high_risk,
+                    COUNT(DISTINCT file_path) as unique_files
+                FROM file_operations
+                WHERE session_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+
+            # If no data, estimate from parts table
+            if (
+                not result
+                or (result[0] or 0) + (result[1] or 0) + (result[2] or 0) == 0
+            ):
+                result = self._conn.execute(
+                    """
+                    SELECT
+                        SUM(CASE WHEN tool_name = 'read' THEN 1 ELSE 0 END) as reads,
+                        SUM(CASE WHEN tool_name = 'write' THEN 1 ELSE 0 END) as writes,
+                        SUM(CASE WHEN tool_name = 'edit' THEN 1 ELSE 0 END) as edits,
+                        0 as high_risk,
+                        0 as unique_files
+                    FROM parts
+                    WHERE session_id = ? AND tool_name IN ('read', 'write', 'edit')
+                    """,
+                    [session_id],
+                ).fetchone()
+
+            # Get file extension breakdown
+            ext_results = self._conn.execute(
+                """
+                SELECT
+                    CASE
+                        WHEN tool_name = 'read' THEN 'read'
+                        WHEN tool_name = 'write' THEN 'write'
+                        WHEN tool_name = 'edit' THEN 'edit'
+                        ELSE 'other'
+                    END as operation,
+                    COUNT(*) as count
+                FROM parts
+                WHERE session_id = ? AND tool_name IN ('read', 'write', 'edit', 'glob', 'grep')
+                GROUP BY operation
+                """,
+                [session_id],
+            ).fetchall()
+
+            return {
+                "total_reads": result[0] or 0,
+                "total_writes": result[1] or 0,
+                "total_edits": result[2] or 0,
+                "high_risk_count": result[3] or 0,
+                "unique_files": result[4] or 0,
+                "by_operation": [
+                    {"operation": row[0], "count": row[1]} for row in ext_results
+                ],
+            }
+        except Exception as e:
+            debug(f"_get_session_files_internal failed: {e}")
+            return {
+                "total_reads": 0,
+                "total_writes": 0,
+                "total_edits": 0,
+                "high_risk_count": 0,
+                "unique_files": 0,
+                "by_operation": [],
+            }
+
+    def _get_session_agents_internal(self, session_id: str) -> dict:
+        """Get agent metrics for a session."""
+        try:
+            # Get unique agents from messages
+            agent_results = self._conn.execute(
+                """
+                SELECT
+                    COALESCE(agent, 'user') as agent,
+                    COUNT(*) as message_count,
+                    SUM(tokens_input + tokens_output) as tokens
+                FROM messages
+                WHERE session_id = ?
+                GROUP BY agent
+                ORDER BY message_count DESC
+                """,
+                [session_id],
+            ).fetchall()
+
+            # Get delegation depth from traces
+            depth_result = self._conn.execute(
+                """
+                WITH RECURSIVE trace_depth AS (
+                    SELECT trace_id, parent_trace_id, 0 as depth
+                    FROM agent_traces
+                    WHERE session_id = ? AND parent_trace_id IS NULL
+                    
+                    UNION ALL
+                    
+                    SELECT t.trace_id, t.parent_trace_id, td.depth + 1
+                    FROM agent_traces t
+                    JOIN trace_depth td ON t.parent_trace_id = td.trace_id
+                    WHERE td.depth < 10
+                )
+                SELECT MAX(depth) FROM trace_depth
+                """,
+                [session_id],
+            ).fetchone()
+
+            return {
+                "unique_count": len(agent_results),
+                "max_depth": depth_result[0] or 0 if depth_result else 0,
+                "agents": [
+                    {
+                        "agent": row[0],
+                        "message_count": row[1],
+                        "tokens": row[2] or 0,
+                    }
+                    for row in agent_results
+                ],
+            }
+        except Exception as e:
+            debug(f"_get_session_agents_internal failed: {e}")
+            return {
+                "unique_count": 0,
+                "max_depth": 0,
+                "agents": [],
+            }
+
+    def _calculate_duration(self, session_id: str) -> int:
+        """Calculate session duration in milliseconds."""
+        try:
+            result = self._conn.execute(
+                """
+                SELECT
+                    MIN(created_at) as first_event,
+                    MAX(COALESCE(completed_at, created_at)) as last_event
+                FROM messages
+                WHERE session_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+
+            if result and result[0] and result[1]:
+                delta = result[1] - result[0]
+                return int(delta.total_seconds() * 1000)
+            return 0
+        except Exception:
+            return 0
+
+    def _calculate_cost(self, tokens: dict) -> float:
+        """Calculate estimated cost in USD."""
+        input_cost = (tokens.get("input", 0) / 1000) * self._config.cost_per_1k_input
+        output_cost = (tokens.get("output", 0) / 1000) * self._config.cost_per_1k_output
+        cache_cost = (
+            tokens.get("cache_read", 0) / 1000
+        ) * self._config.cost_per_1k_cache
+        return input_cost + output_cost + cache_cost
+
+    def _tokens_chart_data(self, tokens: dict) -> list[dict]:
+        """Format tokens data for pie chart."""
+        return [
+            {"label": "Input", "value": tokens.get("input", 0), "color": "#3498db"},
+            {"label": "Output", "value": tokens.get("output", 0), "color": "#2ecc71"},
+            {
+                "label": "Cache",
+                "value": tokens.get("cache_read", 0),
+                "color": "#9b59b6",
+            },
+        ]
+
+    def _tools_chart_data(self, tools: dict) -> list[dict]:
+        """Format tools data for bar chart."""
+        return [
+            {"label": t["name"], "value": t["count"]}
+            for t in tools.get("top_tools", [])[:5]
+        ]
+
+    def _files_chart_data(self, files: dict) -> list[dict]:
+        """Format files data for pie chart."""
+        return [
+            {"label": "Read", "value": files.get("total_reads", 0), "color": "#3498db"},
+            {
+                "label": "Write",
+                "value": files.get("total_writes", 0),
+                "color": "#e74c3c",
+            },
+            {"label": "Edit", "value": files.get("total_edits", 0), "color": "#f39c12"},
+        ]
+
+    def _empty_response(self, session_id: str) -> dict:
+        """Return empty response structure."""
+        return {
+            "meta": {
+                "session_id": session_id,
+                "generated_at": datetime.now().isoformat(),
+                "error": "Session not found",
+            },
+            "summary": {},
+            "details": {},
+            "charts": {},
+        }
+
+    def _paginate(
+        self,
+        data: list,
+        page: int = 1,
+        per_page: int = 50,
+        total: Optional[int] = None,
+    ) -> dict:
+        """Apply pagination to a list and return standardized response.
+
+        Args:
+            data: Full list of items (or pre-sliced if total is provided)
+            page: Page number (1-based)
+            per_page: Items per page (max 200)
+            total: Total count if data is already sliced
+
+        Returns:
+            Dict with data and meta pagination info
+        """
+        per_page = min(per_page, 200)  # Max 200 per page
+        page = max(page, 1)  # Min page 1
+
+        if total is None:
+            total = len(data)
+            start = (page - 1) * per_page
+            end = start + per_page
+            paginated_data = data[start:end]
+        else:
+            paginated_data = data
+
+        total_pages = (total + per_page - 1) // per_page if total > 0 else 0
+
+        return {
+            "success": True,
+            "data": paginated_data,
+            "meta": {
+                "page": page,
+                "per_page": per_page,
+                "total": total,
+                "total_pages": total_pages,
+            },
+        }
+
+    def _extract_tool_display_info(
+        self, tool_name: str, content: str, arguments: str
+    ) -> str:
+        """Extract display-friendly info from tool content/arguments.
+
+        Args:
+            tool_name: Name of the tool (read, edit, bash, etc.)
+            content: Tool result content
+            arguments: Tool arguments (JSON string)
+
+        Returns:
+            Short display string for the tool operation
+        """
+        import json
+        import os
+
+        # Try to parse arguments as JSON
+        args = {}
+        if arguments:
+            try:
+                args = json.loads(arguments)
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+        # Extract based on tool type
+        if tool_name == "read":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "edit":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "write":
+            file_path = args.get("filePath", args.get("file_path", ""))
+            if file_path:
+                return os.path.basename(file_path)
+            return "file"
+
+        elif tool_name == "bash":
+            command = args.get("command", "")
+            if command:
+                # Truncate long commands
+                short_cmd = command.split("\n")[0][:50]
+                if len(command) > 50:
+                    short_cmd += "..."
+                return short_cmd
+            return "command"
+
+        elif tool_name == "glob":
+            pattern = args.get("pattern", "")
+            return pattern[:40] if pattern else "pattern"
+
+        elif tool_name == "grep":
+            pattern = args.get("pattern", "")
+            return pattern[:40] if pattern else "search"
+
+        elif tool_name == "task":
+            subagent = args.get("subagent_type", args.get("description", ""))
+            return subagent[:30] if subagent else "agent"
+
+        elif tool_name in ("webfetch", "web_fetch"):
+            url = args.get("url", "")
+            if url:
+                # Extract domain
+                try:
+                    from urllib.parse import urlparse
+
+                    parsed = urlparse(url)
+                    return parsed.netloc[:30]
+                except Exception:
+                    return url[:30]
+            return "url"
+
+        else:
+            # For other tools, try to show something meaningful
+            if args:
+                first_value = str(list(args.values())[0])[:30]
+                return first_value
+            return ""

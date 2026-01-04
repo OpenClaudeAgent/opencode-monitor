@@ -152,7 +152,7 @@ class Sidebar(QFrame):
 
         for i, (icon, text) in enumerate(nav_data):
             item = NavItem(icon, text)
-            item.clicked.connect(lambda checked, idx=i: self._on_item_clicked(idx))
+            item.clicked.connect(lambda _checked, idx=i: self._on_item_clicked(idx))
             self._nav_items.append(item)
             layout.addWidget(item)
 

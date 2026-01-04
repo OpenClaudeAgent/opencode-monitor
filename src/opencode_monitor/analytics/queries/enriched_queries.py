@@ -4,7 +4,6 @@ Enriched data queries.
 Queries for todos, projects, code stats, and cost metrics.
 """
 
-from datetime import datetime
 from typing import Optional
 
 from ..models import Project, ProjectStats, Todo, TodoStats

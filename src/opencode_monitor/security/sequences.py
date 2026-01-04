@@ -17,7 +17,7 @@ import time
 from collections import deque
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import List, Optional, Dict, Deque, Tuple
+from typing import List, Optional, Dict, Deque
 
 
 class EventType(Enum):

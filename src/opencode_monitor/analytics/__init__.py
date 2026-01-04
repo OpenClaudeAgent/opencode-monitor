@@ -9,7 +9,7 @@ Structure:
 - collector.py: Background incremental data collection
 - loader.py: Bulk data loading (legacy)
 - queries.py: SQL queries
-- tracing_service.py: Centralized tracing data service
+- tracing/: Centralized tracing data service package
 - report/: HTML report generation
 """
 
@@ -19,7 +19,7 @@ from .loader import load_opencode_data
 from .models import PeriodStats, TokenStats
 from .queries import AnalyticsQueries
 from .report import AnalyticsReport, generate_report
-from .tracing_service import TracingDataService, TracingConfig
+from .tracing import TracingDataService, TracingConfig
 
 __all__ = [
     # Database

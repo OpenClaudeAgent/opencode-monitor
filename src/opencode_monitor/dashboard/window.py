@@ -14,7 +14,7 @@ polls sync_meta table to detect when new data is available.
 
 import threading
 import time
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Callable, Optional
 
 # API client is used for all data fetching to avoid DuckDB concurrency issues
@@ -31,7 +31,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt
 from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont
 
-from .styles import get_stylesheet, COLORS, SPACING, UI, format_tokens
+from .styles import get_stylesheet, COLORS, UI
 from .widgets import Sidebar
 from .sections import (
     MonitoringSection,
@@ -374,10 +374,8 @@ class DashboardWindow(QMainWindow):
 
             # Update sidebar status
             if hasattr(self, "_sidebar"):
-                is_active = len(agents_data) > 0 or state.instance_count > 0
-                status_text = (
-                    f"{len(agents_data)} agents" if agents_data else "No agents"
-                )
+                len(agents_data) > 0 or state.instance_count > 0
+                (f"{len(agents_data)} agents" if agents_data else "No agents")
                 # Note: This should be called via signal for thread safety
                 # but for simplicity we'll keep it here
 
@@ -664,9 +662,9 @@ class DashboardWindow(QMainWindow):
             traces=data.get("traces", []),
             sessions=data.get("sessions", []),
             session_hierarchy=data.get("session_hierarchy", []),
-            total_traces=data.get("total_traces", 0),
-            unique_agents=data.get("unique_agents", 0),
-            total_duration_ms=data.get("total_duration_ms", 0),
+            _total_traces=data.get("total_traces", 0),
+            _unique_agents=data.get("unique_agents", 0),
+            _total_duration_ms=data.get("total_duration_ms", 0),
         )
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:

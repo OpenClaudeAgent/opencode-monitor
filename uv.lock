@@ -631,6 +631,9 @@ dev = [
 dev = [
     { name = "pyinstrument" },
     { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "pytest-qt" },
+    { name = "radon" },
     { name = "vulture" },
 ]
 
@@ -659,6 +662,9 @@ provides-extras = ["dev"]
 dev = [
     { name = "pyinstrument", specifier = ">=5.1.1" },
     { name = "pytest", specifier = ">=9.0.2" },
+    { name = "pytest-asyncio", specifier = ">=1.3.0" },
+    { name = "pytest-qt", specifier = ">=4.5.0" },
+    { name = "radon", specifier = ">=6.0.1" },
     { name = "vulture", specifier = ">=2.14" },
 ]
 

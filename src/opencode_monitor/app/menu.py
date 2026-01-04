@@ -19,7 +19,7 @@ from ..utils.logger import info
 from ..security.auditor import get_auditor
 
 if TYPE_CHECKING:
-    from .core import OpenCodeApp
+    pass
 
 
 class MenuMixin:

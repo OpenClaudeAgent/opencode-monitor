@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from ..models import PeriodStats
 
 if TYPE_CHECKING:
-    import plotly.graph_objects as go
+    pass
 
 
 # Chart color palette

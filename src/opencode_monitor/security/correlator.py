@@ -11,10 +11,9 @@ Each correlation enriches alerts with contextual information.
 """
 
 import re
-import time
 from collections import deque
 from dataclasses import dataclass, field
-from typing import List, Optional, Dict, Deque, Set
+from typing import List, Optional, Dict, Deque
 from pathlib import Path
 
 from .sequences import SecurityEvent, EventType

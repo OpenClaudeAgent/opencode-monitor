@@ -8,8 +8,7 @@ This solves DuckDB's multi-process concurrency limitations.
 import urllib.request
 import urllib.error
 import json
-from typing import Optional, Any
-from datetime import datetime
+from typing import Optional
 
 from ..utils.logger import debug, error
 from .config import API_HOST, API_PORT, API_TIMEOUT

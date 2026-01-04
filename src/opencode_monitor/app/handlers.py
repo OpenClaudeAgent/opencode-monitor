@@ -110,7 +110,7 @@ class AnalyticsSyncManager:
 
 
 if TYPE_CHECKING:
-    from .core import OpenCodeApp
+    pass
 
 
 class HandlersMixin:

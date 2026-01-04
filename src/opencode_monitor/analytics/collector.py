@@ -29,7 +29,7 @@ from typing import Optional, Set, Union, Any
 from watchdog.observers import Observer
 from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifiedEvent
 
-from .db import AnalyticsDB, get_analytics_db
+from .db import AnalyticsDB
 from ..utils.logger import info, error, debug
 from ..utils.datetime import ms_to_datetime
 

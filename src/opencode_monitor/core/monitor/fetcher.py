@@ -12,7 +12,7 @@ from ..models import Instance, Agent, SessionStatus, Todos, State, AgentTodos
 from ..client import OpenCodeClient
 
 from .ports import find_opencode_ports, get_tty_for_port
-from .ask_user import AskUserResult, check_pending_ask_user_from_disk
+from .ask_user import check_pending_ask_user_from_disk
 from .helpers import extract_tools_from_messages, count_todos
 
 

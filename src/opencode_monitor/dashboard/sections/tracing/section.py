@@ -5,7 +5,6 @@ Agent execution traces visualization with hierarchical view of agent delegations
 """
 
 import os
-from datetime import datetime
 from typing import Optional
 
 from PyQt6.QtWidgets import (
@@ -878,9 +877,9 @@ class TracingSection(QWidget):
         traces: list[dict],
         sessions: list[dict],
         session_hierarchy: list[dict] | None = None,
-        total_traces: int = 0,
-        unique_agents: int = 0,
-        total_duration_ms: int = 0,
+        _total_traces: int = 0,
+        _unique_agents: int = 0,
+        _total_duration_ms: int = 0,
     ) -> None:
         """Update tracing data."""
         self._traces_data = traces

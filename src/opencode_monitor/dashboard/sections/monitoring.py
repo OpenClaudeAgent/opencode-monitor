@@ -18,7 +18,7 @@ from ..widgets import (
     EmptyState,
     StatusBadge,
 )
-from ..styles import COLORS, SPACING, COL_WIDTH, UI, format_duration_ms
+from ..styles import SPACING, COL_WIDTH, format_duration_ms
 from .colors import get_operation_variant
 
 

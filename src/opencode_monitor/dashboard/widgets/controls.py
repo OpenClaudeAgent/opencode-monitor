@@ -155,7 +155,7 @@ class SegmentedControl(QWidget):
             btn.setCheckable(True)
             btn.setMinimumHeight(28)
             btn.setMinimumWidth(80)
-            btn.clicked.connect(lambda checked, idx=i: self._on_button_clicked(idx))
+            btn.clicked.connect(lambda _checked, idx=i: self._on_button_clicked(idx))
             self._buttons.append(btn)
             layout.addWidget(btn)
             self._update_button_style(btn, i == 0)

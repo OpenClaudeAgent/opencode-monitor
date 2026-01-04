@@ -23,7 +23,7 @@ from ..utils.logger import info, error, debug
 from ..security.auditor import start_auditor
 
 # Use new unified indexer instead of deprecated collector
-from ..analytics.indexer import start_indexer, stop_indexer, get_indexer
+from ..analytics.indexer import start_indexer
 
 from .handlers import HandlersMixin, AnalyticsSyncManager
 from .menu import MenuMixin
