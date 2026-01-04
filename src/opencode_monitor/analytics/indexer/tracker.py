@@ -10,7 +10,6 @@ Performance:
 - Persists across restarts
 """
 
-import os
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
@@ -190,6 +189,54 @@ class FileTracker:
             error: Error message describing the failure
         """
         self.mark_indexed(path, file_type, record_id=None, error_message=error)
+
+    def mark_indexed_batch(
+        self,
+        items: list[tuple[Path, str, str | None]],
+    ) -> int:
+        """Mark multiple files as indexed in a single batch INSERT.
+
+        Much faster than individual mark_indexed calls for large batches.
+
+        Args:
+            items: List of (path, file_type, record_id) tuples
+
+        Returns:
+            Number of files successfully marked
+        """
+        if not items:
+            return 0
+
+        records = []
+        for path, file_type, record_id in items:
+            try:
+                stat = path.stat()
+                records.append(
+                    (
+                        str(path),
+                        file_type,
+                        stat.st_mtime,
+                        stat.st_size,
+                        record_id,
+                        None,  # error_message
+                    )
+                )
+            except OSError:
+                continue
+
+        if not records:
+            return 0
+
+        conn = self._db.connect()
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO file_index
+            (file_path, file_type, mtime, size, record_id, error_message)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            records,
+        )
+        return len(records)
 
     def get_unindexed_files(
         self,

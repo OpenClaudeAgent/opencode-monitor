@@ -12,7 +12,6 @@ Performance:
 
 import threading
 import time
-from collections import defaultdict
 from pathlib import Path
 from typing import Callable, Optional
 from queue import Queue, Empty
@@ -22,7 +21,6 @@ from watchdog.events import (
     FileSystemEventHandler,
     FileCreatedEvent,
     FileModifiedEvent,
-    DirCreatedEvent,
 )
 
 from ...utils.logger import debug, info, error

@@ -248,10 +248,13 @@ class FileParser:
         if not part_type:
             return None
 
-        time_data = data.get("time", {})
         state = data.get("state", {})
-        start_time = time_data.get("start")
-        end_time = time_data.get("end")
+        # Tool timing is in state.time, not top-level time
+        state_time = state.get("time", {}) if isinstance(state, dict) else {}
+        top_level_time = data.get("time", {})
+        # Prefer state.time for tools, fallback to top-level time for text parts
+        start_time = state_time.get("start") or top_level_time.get("start")
+        end_time = state_time.get("end") or top_level_time.get("end")
 
         # Calculate duration
         duration_ms = None
@@ -269,15 +272,19 @@ class FileParser:
             content = data.get("text")
         elif part_type == "tool":
             tool_name = data.get("tool")
-            if not tool_name:
-                return None
             tool_status = state.get("status") if isinstance(state, dict) else None
             tool_input = state.get("input", {}) if isinstance(state, dict) else {}
             arguments = json.dumps(tool_input) if tool_input else None
             error_message = state.get("error") if isinstance(state, dict) else None
+        elif part_type == "reasoning":
+            # Reasoning content from Claude's extended thinking
+            content = data.get("reasoning")
+        elif part_type in ("step-start", "step-finish"):
+            # Step markers - store step name in content
+            content = data.get("step")
         else:
-            # Skip other types
-            return None
+            # Other types (thinking, etc.) - store raw content if available
+            content = data.get("content") or data.get("text")
 
         return ParsedPart(
             id=data["id"],
