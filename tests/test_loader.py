@@ -9,6 +9,9 @@ Covers:
 - load_skills()
 - load_delegations()
 - load_opencode_data()
+- extract_root_sessions()
+- get_first_user_message()
+- load_traces()
 """
 
 import json
@@ -55,6 +58,12 @@ def current_timestamp() -> int:
     return int(time.time() * 1000)
 
 
+@pytest.fixture
+def old_timestamp() -> int:
+    """Timestamp 60 days ago in milliseconds."""
+    return int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
+
+
 # =============================================================================
 # Helper Functions
 # =============================================================================
@@ -68,6 +77,7 @@ def create_session_file(
     directory: str = "/test/path",
     created_ts: int | None = None,
     updated_ts: int | None = None,
+    parent_id: str | None = None,
 ) -> Path:
     """Create a session JSON file."""
     now_ms = int(time.time() * 1000)
@@ -83,6 +93,7 @@ def create_session_file(
         "projectID": project_id,
         "directory": directory,
         "title": title,
+        "parentID": parent_id,
         "time": {"created": created_ts, "updated": updated_ts},
     }
     session_file.write_text(json.dumps(data))
@@ -98,6 +109,7 @@ def create_message_file(
     created_ts: int | None = None,
     tokens_input: int = 100,
     tokens_output: int = 50,
+    summary: dict | None = None,
 ) -> Path:
     """Create a message JSON file."""
     now_ms = int(time.time() * 1000)
@@ -123,6 +135,8 @@ def create_message_file(
         },
         "time": {"created": created_ts, "completed": created_ts + 1000},
     }
+    if summary:
+        data["summary"] = summary
     message_file.write_text(json.dumps(data))
     return message_file
 
@@ -133,7 +147,10 @@ def create_part_file(
     message_id: str = "msg_001",
     tool: str = "bash",
     tool_status: str = "completed",
+    part_type: str = "tool",
     start_ts: int | None = None,
+    session_id: str | None = None,
+    state: dict | None = None,
 ) -> Path:
     """Create a part JSON file."""
     now_ms = int(time.time() * 1000)
@@ -146,11 +163,13 @@ def create_part_file(
     data = {
         "id": part_id,
         "messageID": message_id,
-        "type": "tool",
+        "type": part_type,
         "tool": tool,
-        "state": {"status": tool_status},
+        "state": state or {"status": tool_status},
         "time": {"start": start_ts},
     }
+    if session_id:
+        data["sessionID"] = session_id
     part_file.write_text(json.dumps(data))
     return part_file
 
@@ -164,24 +183,15 @@ def create_skill_part_file(
     start_ts: int | None = None,
 ) -> Path:
     """Create a skill tool invocation part file."""
-    now_ms = int(time.time() * 1000)
-    start_ts = start_ts or now_ms
-
-    msg_subdir = part_dir / message_id
-    msg_subdir.mkdir(parents=True, exist_ok=True)
-
-    part_file = msg_subdir / f"{part_id}.json"
-    data = {
-        "id": part_id,
-        "messageID": message_id,
-        "sessionID": session_id,
-        "type": "tool",
-        "tool": "skill",
-        "state": {"input": {"name": skill_name}},
-        "time": {"start": start_ts},
-    }
-    part_file.write_text(json.dumps(data))
-    return part_file
+    return create_part_file(
+        part_dir,
+        part_id,
+        message_id=message_id,
+        tool="skill",
+        start_ts=start_ts,
+        session_id=session_id,
+        state={"input": {"name": skill_name}},
+    )
 
 
 def create_delegation_part_file(
@@ -219,327 +229,319 @@ def create_delegation_part_file(
 
 
 # =============================================================================
-# Tests: get_opencode_storage_path
+# Test: get_opencode_storage_path
 # =============================================================================
 
 
 class TestGetOpencodeStoragePath:
     """Tests for get_opencode_storage_path function."""
 
-    def test_returns_path_object(self):
-        """Function returns a Path object."""
+    def test_returns_valid_storage_path_structure(self):
+        """Function returns a valid Path with correct structure in home directory."""
         result = get_opencode_storage_path()
-        assert isinstance(result, Path)
 
-    def test_path_ends_with_storage(self):
-        """Path ends with opencode/storage."""
-        result = get_opencode_storage_path()
+        # Verify exact structure
         assert result.name == "storage"
         assert result.parent.name == "opencode"
-
-    def test_path_is_in_home(self):
-        """Path is inside user's home directory."""
-        result = get_opencode_storage_path()
         assert str(Path.home()) in str(result)
+        # Verify it's an absolute path
+        assert result.is_absolute() == True
+        # Verify path ends with opencode/storage (could be .config or .local/share)
+        assert str(result).endswith("opencode/storage")
 
 
 # =============================================================================
-# Tests: load_sessions_fast
+# Test: Loaders return zero on missing directories
 # =============================================================================
 
 
-class TestLoadSessionsFast:
-    """Tests for load_sessions_fast function."""
+class TestLoadersDirectoryNotExists:
+    """Tests for loaders when directories don't exist."""
 
+    @pytest.mark.parametrize(
+        "loader_func,expected_count",
+        [
+            (load_sessions_fast, 0),
+            (load_messages_fast, 0),
+            (load_parts_fast, 0),
+            (load_skills, 0),
+            (load_delegations, 0),
+        ],
+    )
     def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path
+        self, db: AnalyticsDB, storage_path: Path, loader_func, expected_count
     ):
-        """Returns 0 when session directory doesn't exist."""
-        result = load_sessions_fast(db, storage_path)
-        assert result == 0
+        """All loaders return 0 when their directory doesn't exist."""
+        result = loader_func(db, storage_path)
+        assert result == expected_count
 
-    def test_loads_valid_sessions(self, db, storage_path: Path, current_timestamp: int):
-        """Loads sessions from valid JSON files."""
+
+# =============================================================================
+# Test: Load valid data (sessions, messages, parts)
+# =============================================================================
+
+
+class TestLoadValidData:
+    """Tests for loading valid data from JSON files."""
+
+    def test_loads_sessions_with_correct_data(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Loads sessions from valid JSON files with correct data in database."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
 
-        # Create 3 session files
+        # Create 3 session files with specific data
         for i in range(3):
             create_session_file(
                 session_dir,
                 f"ses_{i}",
+                project_id=f"proj_{i}",
                 title=f"Session {i}",
-                created_ts=current_timestamp,
+                directory=f"/path/{i}",
+                created_ts=current_timestamp + i * 1000,
             )
 
         result = load_sessions_fast(db, storage_path)
+
+        # Verify count
         assert result == 3
 
         # Verify data in database
         conn = db.connect()
-        sessions = conn.execute("SELECT id, title FROM sessions ORDER BY id").fetchall()
+        sessions = conn.execute(
+            "SELECT id, title, project_id, directory FROM sessions ORDER BY id"
+        ).fetchall()
+
+        # Verify session count
         assert len(sessions) == 3
+
+        # Verify first session completely
         assert sessions[0][0] == "ses_0"
         assert sessions[0][1] == "Session 0"
+        assert sessions[0][2] == "proj_0"
+        assert sessions[0][3] == "/path/0"
 
-    def test_skips_old_sessions(self, db, storage_path: Path, current_timestamp: int):
-        """Skips sessions older than max_days."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
+        # Verify second session
+        assert sessions[1][0] == "ses_1"
+        assert sessions[1][1] == "Session 1"
+        assert sessions[1][2] == "proj_1"
 
-        # Create recent session
-        create_session_file(
-            session_dir, "ses_recent", title="Recent", created_ts=current_timestamp
-        )
+        # Verify third session
+        assert sessions[2][0] == "ses_2"
+        assert sessions[2][1] == "Session 2"
 
-        # Create old session (60 days ago)
-        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
-        create_session_file(session_dir, "ses_old", title="Old", created_ts=old_ts)
-
-        result = load_sessions_fast(db, storage_path, max_days=30)
-        assert result == 1
-
-        conn = db.connect()
-        sessions = conn.execute("SELECT id FROM sessions").fetchall()
-        assert len(sessions) == 1
-        assert sessions[0][0] == "ses_recent"
-
-    def test_handles_invalid_json_returns_zero(
-        self, db, storage_path: Path, current_timestamp: int
+    def test_loads_messages_with_token_metrics(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Returns 0 when JSON is malformed (DuckDB strict JSON parsing)."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create valid session
-        create_session_file(
-            session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
-        )
-
-        # Create invalid JSON file
-        invalid_dir = session_dir / "ses_invalid"
-        invalid_dir.mkdir()
-        invalid_file = invalid_dir / "session.json"
-        invalid_file.write_text("{ invalid json }")
-
-        # DuckDB's read_json_auto doesn't support ignore_errors for standard JSON
-        result = load_sessions_fast(db, storage_path)
-        # Returns 0 because malformed JSON causes query to fail
-        assert result == 0
-
-    def test_handles_missing_required_fields(
-        self, db, storage_path: Path, current_timestamp: int
-    ):
-        """Handles sessions with missing required fields."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create session with missing id field
-        missing_id_dir = session_dir / "ses_missing"
-        missing_id_dir.mkdir()
-        missing_file = missing_id_dir / "session.json"
-        missing_file.write_text(
-            json.dumps(
-                {
-                    "projectID": "proj",
-                    "title": "Missing ID",
-                    "time": {
-                        "created": current_timestamp,
-                        "updated": current_timestamp,
-                    },
-                }
-            )
-        )
-
-        # Create valid session
-        create_session_file(
-            session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
-        )
-
-        result = load_sessions_fast(db, storage_path)
-        # Only valid session should be loaded (WHERE id IS NOT NULL)
-        assert result == 1
-
-
-# =============================================================================
-# Tests: load_messages_fast
-# =============================================================================
-
-
-class TestLoadMessagesFast:
-    """Tests for load_messages_fast function."""
-
-    def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path
-    ):
-        """Returns 0 when message directory doesn't exist."""
-        result = load_messages_fast(db, storage_path)
-        assert result == 0
-
-    def test_loads_valid_messages(self, db, storage_path: Path, current_timestamp: int):
-        """Loads messages from valid JSON files."""
+        """Loads messages with correct token metrics from JSON files."""
         message_dir = storage_path / "message"
         message_dir.mkdir()
 
-        # Create 3 message files
-        for i in range(3):
-            create_message_file(
-                message_dir,
-                f"msg_{i}",
-                session_id=f"ses_{i}",
-                created_ts=current_timestamp,
-            )
+        # Create messages with specific token values
+        create_message_file(
+            message_dir,
+            "msg_001",
+            session_id="ses_001",
+            role="assistant",
+            agent="executor",
+            tokens_input=500,
+            tokens_output=200,
+            created_ts=current_timestamp,
+        )
+        create_message_file(
+            message_dir,
+            "msg_002",
+            session_id="ses_001",
+            role="user",
+            tokens_input=50,
+            tokens_output=0,
+            created_ts=current_timestamp + 1000,
+        )
 
         result = load_messages_fast(db, storage_path)
-        assert result == 3
+
+        # Verify count
+        assert result == 2
 
         # Verify data in database
         conn = db.connect()
         messages = conn.execute(
-            "SELECT id, session_id, role FROM messages ORDER BY id"
+            "SELECT id, session_id, role, agent, tokens_input, tokens_output FROM messages ORDER BY id"
         ).fetchall()
-        assert len(messages) == 3
-        assert messages[0][0] == "msg_0"
-        assert messages[0][1] == "ses_0"
+
+        # Verify message count
+        assert len(messages) == 2
+
+        # Verify first message completely
+        assert messages[0][0] == "msg_001"
+        assert messages[0][1] == "ses_001"
         assert messages[0][2] == "assistant"
+        assert messages[0][3] == "executor"
+        assert messages[0][4] == 500
+        assert messages[0][5] == 200
 
-    def test_loads_token_metrics(self, db, storage_path: Path, current_timestamp: int):
-        """Loads token metrics correctly."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
+        # Verify second message
+        assert messages[1][0] == "msg_002"
+        assert messages[1][1] == "ses_001"
+        assert messages[1][2] == "user"
+        assert messages[1][4] == 50
+        assert messages[1][5] == 0
 
-        create_message_file(
-            message_dir,
-            "msg_tokens",
-            created_ts=current_timestamp,
-            tokens_input=500,
-            tokens_output=200,
-        )
-
-        load_messages_fast(db, storage_path)
-
-        conn = db.connect()
-        msg = conn.execute(
-            "SELECT tokens_input, tokens_output FROM messages WHERE id = 'msg_tokens'"
-        ).fetchone()
-        assert msg is not None
-        assert msg[0] == 500
-        assert msg[1] == 200
-
-    def test_skips_old_messages(self, db, storage_path: Path, current_timestamp: int):
-        """Skips messages older than max_days."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        # Create recent message
-        create_message_file(message_dir, "msg_recent", created_ts=current_timestamp)
-
-        # Create old message (60 days ago)
-        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
-        create_message_file(message_dir, "msg_old", created_ts=old_ts)
-
-        result = load_messages_fast(db, storage_path, max_days=30)
-        assert result == 1
-
-
-# =============================================================================
-# Tests: load_parts_fast
-# =============================================================================
-
-
-class TestLoadPartsFast:
-    """Tests for load_parts_fast function."""
-
-    def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path
-    ):
-        """Returns 0 when part directory doesn't exist."""
-        result = load_parts_fast(db, storage_path)
-        assert result == 0
-
-    def test_loads_valid_parts(self, db, storage_path: Path, current_timestamp: int):
-        """Loads parts from valid JSON files."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create 3 part files
-        for i in range(3):
-            create_part_file(
-                part_dir,
-                f"prt_{i}",
-                message_id=f"msg_{i}",
-                tool="bash",
-                start_ts=current_timestamp,
-            )
-
-        result = load_parts_fast(db, storage_path)
-        assert result == 3
-
-        # Verify data in database
-        conn = db.connect()
-        parts = conn.execute("SELECT id, tool_name FROM parts ORDER BY id").fetchall()
-        assert len(parts) == 3
-        assert parts[0][0] == "prt_0"
-        assert parts[0][1] == "bash"
-
-    def test_only_loads_tool_type_parts(
-        self, db, storage_path: Path, current_timestamp: int
-    ):
-        """Only loads parts with type='tool'."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create tool part
-        create_part_file(part_dir, "prt_tool", tool="bash", start_ts=current_timestamp)
-
-        # Create non-tool part (text type)
-        msg_subdir = part_dir / "msg_text"
-        msg_subdir.mkdir()
-        text_part = msg_subdir / "prt_text.json"
-        text_part.write_text(
-            json.dumps(
-                {
-                    "id": "prt_text",
-                    "messageID": "msg_text",
-                    "type": "text",
-                    "time": {"start": current_timestamp},
-                }
-            )
-        )
-
-        result = load_parts_fast(db, storage_path)
-        # Only tool parts should be loaded
-        assert result == 1
-
-        conn = db.connect()
-        parts = conn.execute("SELECT id FROM parts").fetchall()
-        assert len(parts) == 1
-        assert parts[0][0] == "prt_tool"
-
-
-# =============================================================================
-# Tests: load_skills
-# =============================================================================
-
-
-class TestLoadSkills:
-    """Tests for load_skills function."""
-
-    def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path
-    ):
-        """Returns 0 when part directory doesn't exist."""
-        result = load_skills(db, storage_path)
-        assert result == 0
-
-    def test_loads_skill_invocations(
+    def test_loads_only_tool_type_parts(
         self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Loads skill tool invocations."""
+        """Loads only parts with type='tool', ignoring other types."""
         part_dir = storage_path / "part"
         part_dir.mkdir()
 
-        # Create skill parts
+        # Create multiple tool parts
+        create_part_file(
+            part_dir,
+            "prt_bash",
+            message_id="msg_001",
+            tool="bash",
+            start_ts=current_timestamp,
+        )
+        create_part_file(
+            part_dir,
+            "prt_read",
+            message_id="msg_001",
+            tool="read",
+            start_ts=current_timestamp + 1000,
+        )
+
+        # Create text part (should be ignored)
+        create_part_file(
+            part_dir,
+            "prt_text",
+            message_id="msg_002",
+            tool="text",
+            part_type="text",
+            start_ts=current_timestamp,
+        )
+
+        result = load_parts_fast(db, storage_path)
+
+        # Only tool parts should be loaded (2 tools, 1 text ignored)
+        assert result == 2
+
+        conn = db.connect()
+        parts = conn.execute(
+            "SELECT id, tool_name, message_id FROM parts ORDER BY id"
+        ).fetchall()
+
+        # Verify parts count
+        assert len(parts) == 2
+
+        # Verify first part
+        assert parts[0][0] == "prt_bash"
+        assert parts[0][1] == "bash"
+        assert parts[0][2] == "msg_001"
+
+        # Verify second part
+        assert parts[1][0] == "prt_read"
+        assert parts[1][1] == "read"
+        assert parts[1][2] == "msg_001"
+
+        # Verify text part was NOT loaded
+        text_parts = conn.execute(
+            "SELECT id FROM parts WHERE id = 'prt_text'"
+        ).fetchall()
+        assert len(text_parts) == 0
+
+
+# =============================================================================
+# Test: Skip old data
+# =============================================================================
+
+
+class TestSkipOldData:
+    """Tests for skipping old data based on max_days parameter."""
+
+    @pytest.mark.parametrize(
+        "loader_func,create_recent,create_old",
+        [
+            (
+                load_sessions_fast,
+                lambda d, ts: create_session_file(
+                    d / "session", "ses_recent", created_ts=ts
+                ),
+                lambda d, ts: create_session_file(
+                    d / "session", "ses_old", created_ts=ts
+                ),
+            ),
+            (
+                load_messages_fast,
+                lambda d, ts: create_message_file(
+                    d / "message", "msg_recent", created_ts=ts
+                ),
+                lambda d, ts: create_message_file(
+                    d / "message", "msg_old", created_ts=ts
+                ),
+            ),
+            (
+                load_skills,
+                lambda d, ts: create_skill_part_file(
+                    d / "part", "prt_recent", "msg_r", "ses_r", "skill-r", ts
+                ),
+                lambda d, ts: create_skill_part_file(
+                    d / "part", "prt_old", "msg_o", "ses_o", "skill-o", ts
+                ),
+            ),
+            (
+                load_delegations,
+                lambda d, ts: create_delegation_part_file(
+                    d / "part", "prt_recent", "msg_r", "ses_r", "tester", start_ts=ts
+                ),
+                lambda d, ts: create_delegation_part_file(
+                    d / "part", "prt_old", "msg_o", "ses_o", "old-agent", start_ts=ts
+                ),
+            ),
+        ],
+    )
+    def test_skips_old_data_based_on_max_days(
+        self,
+        db: AnalyticsDB,
+        storage_path: Path,
+        current_timestamp: int,
+        old_timestamp: int,
+        loader_func,
+        create_recent,
+        create_old,
+    ):
+        """All loaders skip data older than max_days."""
+        # Create directories
+        (storage_path / "session").mkdir(exist_ok=True)
+        (storage_path / "message").mkdir(exist_ok=True)
+        (storage_path / "part").mkdir(exist_ok=True)
+
+        # Create recent and old data
+        create_recent(storage_path, current_timestamp)
+        create_old(storage_path, old_timestamp)
+
+        result = loader_func(db, storage_path, max_days=30)
+
+        # Only recent data should be loaded
+        assert result == 1
+
+
+# =============================================================================
+# Test: Skills loading
+# =============================================================================
+
+
+class TestSkillsLoading:
+    """Comprehensive tests for skills loading."""
+
+    def test_loads_skills_with_filtering_and_validation(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Loads skill invocations with proper filtering and data validation."""
+        part_dir = storage_path / "part"
+        part_dir.mkdir()
+
+        # Create valid skill parts
         create_skill_part_file(
             part_dir,
             "prt_skill_1",
@@ -554,303 +556,190 @@ class TestLoadSkills:
             "msg_002",
             "ses_001",
             "agentic-flow",
-            current_timestamp,
+            current_timestamp + 1000,
         )
-
-        result = load_skills(db, storage_path)
-        assert result == 2
-
-        # Verify data in database
-        conn = db.connect()
-        skills = conn.execute(
-            "SELECT skill_name FROM skills ORDER BY skill_name"
-        ).fetchall()
-        assert len(skills) == 2
-        assert skills[0][0] == "agentic-flow"
-        assert skills[1][0] == "functional-testing"
-
-    def test_ignores_non_skill_tools(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Ignores non-skill tool invocations."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create skill part
         create_skill_part_file(
-            part_dir, "prt_skill", "msg_001", "ses_001", "test-skill", current_timestamp
+            part_dir,
+            "prt_skill_3",
+            "msg_003",
+            "ses_002",
+            "clean-code",
+            current_timestamp + 2000,
         )
 
-        # Create non-skill tool part
+        # Create non-skill tool part (should be ignored)
         create_part_file(part_dir, "prt_bash", tool="bash", start_ts=current_timestamp)
 
-        result = load_skills(db, storage_path)
-        assert result == 1  # Only skill part
-
-    def test_skips_old_skills(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Skips skills older than max_days."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create recent skill
-        create_skill_part_file(
-            part_dir,
-            "prt_recent",
-            "msg_001",
-            "ses_001",
-            "recent-skill",
-            current_timestamp,
-        )
-
-        # Create old skill (60 days ago)
-        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
-        create_skill_part_file(
-            part_dir, "prt_old", "msg_002", "ses_002", "old-skill", old_ts
-        )
-
-        result = load_skills(db, storage_path, max_days=30)
-        assert result == 1
-
-    def test_handles_invalid_json(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Continues when encountering invalid JSON files."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create valid skill
-        create_skill_part_file(
-            part_dir,
-            "prt_valid",
-            "msg_001",
-            "ses_001",
-            "valid-skill",
-            current_timestamp,
-        )
-
-        # Create invalid JSON file
-        invalid_dir = part_dir / "msg_invalid"
-        invalid_dir.mkdir()
-        invalid_file = invalid_dir / "prt_invalid.json"
-        invalid_file.write_text("{ not valid json }")
-
-        result = load_skills(db, storage_path)
-        assert result == 1  # Only valid skill
-
-    def test_handles_missing_skill_name(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Skips skills with missing skill name."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create valid skill
-        create_skill_part_file(
-            part_dir,
-            "prt_valid",
-            "msg_001",
-            "ses_001",
-            "valid-skill",
-            current_timestamp,
-        )
-
-        # Create skill with missing name
+        # Create skill with missing name (should be ignored)
         missing_dir = part_dir / "msg_missing"
         missing_dir.mkdir()
-        missing_file = missing_dir / "prt_missing.json"
-        missing_file.write_text(
+        (missing_dir / "prt_missing.json").write_text(
             json.dumps(
                 {
                     "id": "prt_missing",
                     "messageID": "msg_missing",
                     "sessionID": "ses_001",
                     "tool": "skill",
-                    "state": {"input": {}},  # Missing "name" field
+                    "state": {"input": {}},
                     "time": {"start": current_timestamp},
                 }
             )
         )
 
+        # Create invalid JSON (should be ignored)
+        invalid_dir = part_dir / "msg_invalid"
+        invalid_dir.mkdir()
+        (invalid_dir / "prt_invalid.json").write_text("{ not valid json }")
+
         result = load_skills(db, storage_path)
-        assert result == 1  # Only valid skill
+
+        # Only 3 valid skills should be loaded
+        assert result == 3
+
+        # Verify data in database (id is auto-generated, so don't test it)
+        conn = db.connect()
+        skills = conn.execute(
+            "SELECT skill_name, session_id, message_id FROM skills ORDER BY skill_name"
+        ).fetchall()
+
+        # Verify skills count
+        assert len(skills) == 3
+
+        # Verify first skill (agentic-flow)
+        assert skills[0][0] == "agentic-flow"
+        assert skills[0][1] == "ses_001"
+        assert skills[0][2] == "msg_002"
+
+        # Verify second skill (clean-code)
+        assert skills[1][0] == "clean-code"
+        assert skills[1][1] == "ses_002"
+        assert skills[1][2] == "msg_003"
+
+        # Verify third skill (functional-testing)
+        assert skills[2][0] == "functional-testing"
+        assert skills[2][1] == "ses_001"
+        assert skills[2][2] == "msg_001"
+
+        # Verify non-skill and invalid parts were NOT loaded
+        non_skill = conn.execute(
+            "SELECT COUNT(*) FROM skills WHERE skill_name IS NULL OR skill_name = ''"
+        ).fetchone()
+        assert non_skill[0] == 0
 
 
 # =============================================================================
-# Tests: load_delegations
+# Test: Delegations loading
 # =============================================================================
 
 
-class TestLoadDelegations:
-    """Tests for load_delegations function."""
+class TestDelegationsLoading:
+    """Comprehensive tests for delegations loading."""
 
-    def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path
-    ):
-        """Returns 0 when part directory doesn't exist."""
-        result = load_delegations(db, storage_path)
-        assert result == 0
-
-    def test_loads_delegation_tasks(
+    def test_loads_delegations_with_parent_resolution(
         self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Loads task tool invocations (delegations)."""
+        """Loads delegations with proper filtering and parent agent resolution."""
+        # First insert messages to be parents
+        conn = db.connect()
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES ('msg_parent', 'ses_001', 'assistant', 'executor', CURRENT_TIMESTAMP)"""
+        )
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES ('msg_coord', 'ses_001', 'assistant', 'coordinator', CURRENT_TIMESTAMP)"""
+        )
+
         part_dir = storage_path / "part"
         part_dir.mkdir()
 
-        # Create delegation parts
+        # Create valid delegation parts
         create_delegation_part_file(
             part_dir,
             "prt_del_1",
-            "msg_001",
+            "msg_parent",
             "ses_001",
             "tester",
-            "child_ses_001",
+            "child_001",
             current_timestamp,
         )
         create_delegation_part_file(
             part_dir,
             "prt_del_2",
-            "msg_002",
+            "msg_coord",
             "ses_001",
             "refactoring",
-            "child_ses_002",
-            current_timestamp,
+            "child_002",
+            current_timestamp + 1000,
         )
-
-        result = load_delegations(db, storage_path)
-        assert result == 2
-
-        # Verify data in database
-        conn = db.connect()
-        delegations = conn.execute(
-            "SELECT id, child_agent FROM delegations ORDER BY id"
-        ).fetchall()
-        assert len(delegations) == 2
-        assert delegations[0][1] == "tester"
-        assert delegations[1][1] == "refactoring"
-
-    def test_ignores_non_task_tools(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Ignores non-task tool invocations."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create task delegation
         create_delegation_part_file(
             part_dir,
-            "prt_task",
-            "msg_001",
+            "prt_del_3",
+            "msg_unknown",
             "ses_001",
-            "tester",
-            start_ts=current_timestamp,
+            "quality",
+            "child_003",
+            current_timestamp + 2000,
         )
 
-        # Create non-task tool part
+        # Create non-task tool (should be ignored)
         create_part_file(part_dir, "prt_bash", tool="bash", start_ts=current_timestamp)
 
-        result = load_delegations(db, storage_path)
-        assert result == 1  # Only task delegation
-
-    def test_skips_old_delegations(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Skips delegations older than max_days."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create recent delegation
-        create_delegation_part_file(
-            part_dir,
-            "prt_recent",
-            "msg_001",
-            "ses_001",
-            "tester",
-            start_ts=current_timestamp,
-        )
-
-        # Create old delegation (60 days ago)
-        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
-        create_delegation_part_file(
-            part_dir, "prt_old", "msg_002", "ses_002", "old-agent", start_ts=old_ts
-        )
-
-        result = load_delegations(db, storage_path, max_days=30)
-        assert result == 1
-
-    def test_handles_missing_subagent_type(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Skips delegations with missing subagent_type."""
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create valid delegation
-        create_delegation_part_file(
-            part_dir,
-            "prt_valid",
-            "msg_001",
-            "ses_001",
-            "tester",
-            start_ts=current_timestamp,
-        )
-
-        # Create delegation with missing subagent_type
+        # Create delegation with missing subagent_type (should be ignored)
         missing_dir = part_dir / "msg_missing"
         missing_dir.mkdir()
-        missing_file = missing_dir / "prt_missing.json"
-        missing_file.write_text(
+        (missing_dir / "prt_missing.json").write_text(
             json.dumps(
                 {
                     "id": "prt_missing",
                     "messageID": "msg_missing",
                     "sessionID": "ses_001",
                     "tool": "task",
-                    "state": {"input": {}},  # Missing subagent_type
+                    "state": {"input": {}},
                     "time": {"start": current_timestamp},
                 }
             )
         )
 
         result = load_delegations(db, storage_path)
-        assert result == 1  # Only valid delegation
 
-    def test_resolves_parent_agent_from_messages(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Resolves parent_agent from messages table."""
-        # First insert a message to be the parent
-        conn = db.connect()
-        conn.execute(
-            """INSERT INTO messages (id, session_id, role, agent, created_at)
-               VALUES ('msg_parent', 'ses_001', 'assistant', 'executor', CURRENT_TIMESTAMP)"""
-        )
+        # Only 3 valid delegations should be loaded
+        assert result == 3
 
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
+        # Verify data in database
+        delegations = conn.execute(
+            "SELECT id, child_agent, parent_agent, session_id, child_session_id FROM delegations ORDER BY id"
+        ).fetchall()
 
-        create_delegation_part_file(
-            part_dir,
-            "prt_del",
-            "msg_parent",  # Reference to existing message
-            "ses_001",
-            "tester",
-            start_ts=current_timestamp,
-        )
+        # Verify delegations count
+        assert len(delegations) == 3
 
-        load_delegations(db, storage_path)
+        # Verify first delegation (from executor)
+        assert delegations[0][0] == "prt_del_1"
+        assert delegations[0][1] == "tester"
+        assert delegations[0][2] == "executor"  # Resolved from message
+        assert delegations[0][3] == "ses_001"
+        assert delegations[0][4] == "child_001"
 
-        delegation = conn.execute(
-            "SELECT parent_agent FROM delegations WHERE id = 'prt_del'"
+        # Verify second delegation (from coordinator)
+        assert delegations[1][0] == "prt_del_2"
+        assert delegations[1][1] == "refactoring"
+        assert delegations[1][2] == "coordinator"  # Resolved from message
+        assert delegations[1][4] == "child_002"
+
+        # Verify third delegation (unknown parent)
+        assert delegations[2][0] == "prt_del_3"
+        assert delegations[2][1] == "quality"
+
+        # Verify non-task tools were NOT loaded as delegations
+        non_task = conn.execute(
+            "SELECT COUNT(*) FROM delegations WHERE child_agent = 'bash'"
         ).fetchone()
-        assert delegation is not None
-        assert delegation[0] == "executor"
+        assert non_task[0] == 0
 
 
 # =============================================================================
-# Tests: load_opencode_data
+# Test: load_opencode_data orchestration
 # =============================================================================
 
 
@@ -868,282 +757,151 @@ class TestLoadOpencodeData:
         assert result["error"] == "Storage not found"
         assert result["sessions"] == 0
         assert result["messages"] == 0
+        assert result["parts"] == 0
+        # Skills and delegations may not be in error response
+        assert result.get("skills", 0) == 0
+        assert result.get("delegations", 0) == 0
 
-    def test_creates_db_if_not_provided(self, storage_path: Path):
-        """Creates AnalyticsDB if not provided."""
-        # Create minimal structure
+    def test_clear_vs_preserve_data_behavior(self, db: AnalyticsDB, storage_path: Path):
+        """Tests clear_first=True vs False behavior."""
+        # Pre-populate database
+        conn = db.connect()
+        conn.execute(
+            """INSERT INTO sessions (id, title, created_at)
+               VALUES ('existing', 'Existing', CURRENT_TIMESTAMP)"""
+        )
+
+        # Create session directory (empty)
+        (storage_path / "session").mkdir()
+
+        # Test clear_first=True
+        load_opencode_data(db=db, storage_path=storage_path, clear_first=True)
+        count_after_clear = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+        assert count_after_clear[0] == 0
+
+        # Re-insert and test preserve
+        conn.execute(
+            """INSERT INTO sessions (id, title, created_at)
+               VALUES ('existing2', 'Existing2', CURRENT_TIMESTAMP)"""
+        )
+
+        load_opencode_data(db=db, storage_path=storage_path, clear_first=False)
+        count_after_preserve = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+        assert count_after_preserve[0] == 1
+
+    def test_loads_all_data_types_with_options(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Loads all data types correctly with skip_parts option."""
+        # Create directories
         session_dir = storage_path / "session"
         session_dir.mkdir()
+        message_dir = storage_path / "message"
+        message_dir.mkdir()
+        part_dir = storage_path / "part"
+        part_dir.mkdir()
+
+        # Create test data
+        create_session_file(
+            session_dir, "ses_001", title="Test", created_ts=current_timestamp
+        )
+        create_message_file(
+            message_dir, "msg_001", session_id="ses_001", created_ts=current_timestamp
+        )
+        create_part_file(part_dir, "prt_001", tool="bash", start_ts=current_timestamp)
+        create_skill_part_file(
+            part_dir, "prt_skill", "msg_002", "ses_001", "test-skill", current_timestamp
+        )
+        create_delegation_part_file(
+            part_dir,
+            "prt_del",
+            "msg_001",
+            "ses_001",
+            "tester",
+            start_ts=current_timestamp,
+        )
+
+        # Test with skip_parts=True (default)
+        result1 = load_opencode_data(db=db, storage_path=storage_path, clear_first=True)
+
+        assert result1["sessions"] == 1
+        assert result1["messages"] == 1
+        assert result1["parts"] == 0  # Skipped by default
+        assert result1["skills"] == 1
+        assert result1["delegations"] == 1
+        assert "error" not in result1
+
+        # Test with skip_parts=False
+        result2 = load_opencode_data(
+            db=db, storage_path=storage_path, clear_first=True, skip_parts=False
+        )
+
+        # All tool-type parts loaded (bash + skill + task = 3 parts)
+        assert result2["parts"] == 3
+
+    def test_uses_defaults_when_not_provided(self, db: AnalyticsDB, storage_path: Path):
+        """Uses default storage path and creates DB when not provided."""
+        (storage_path / "session").mkdir()
+
+        with patch(
+            "opencode_monitor.analytics.loaders.get_opencode_storage_path"
+        ) as mock_path:
+            mock_path.return_value = Path("/non/existent/path")
+            load_opencode_data(db=db)
+            mock_path.assert_called_once()
 
         with patch("opencode_monitor.analytics.loaders.AnalyticsDB") as mock_db_class:
             mock_db = MagicMock()
             mock_db.connect.return_value = MagicMock()
             mock_db_class.return_value = mock_db
-
             load_opencode_data(storage_path=storage_path)
-
             mock_db_class.assert_called_once()
-
-    def test_uses_default_storage_path(self, db: AnalyticsDB):
-        """Uses default storage path when not provided."""
-        with patch(
-            "opencode_monitor.analytics.loaders.get_opencode_storage_path"
-        ) as mock_get_path:
-            mock_get_path.return_value = Path("/non/existent/path")
-
-            load_opencode_data(db=db)
-
-            mock_get_path.assert_called_once()
-
-    def test_clears_data_when_requested(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Clears existing data when clear_first=True."""
-        # Pre-populate database
-        conn = db.connect()
-        conn.execute(
-            """INSERT INTO sessions (id, title, created_at)
-               VALUES ('existing', 'Existing', CURRENT_TIMESTAMP)"""
-        )
-
-        # Create session directory (empty)
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        load_opencode_data(db=db, storage_path=storage_path, clear_first=True)
-
-        result = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
-        assert result is not None
-        assert result[0] == 0  # Cleared
-
-    def test_preserves_data_when_clear_first_false(
-        self, db: AnalyticsDB, storage_path: Path
-    ):
-        """Preserves existing data when clear_first=False."""
-        # Pre-populate database
-        conn = db.connect()
-        conn.execute(
-            """INSERT INTO sessions (id, title, created_at)
-               VALUES ('existing', 'Existing', CURRENT_TIMESTAMP)"""
-        )
-
-        # Create session directory (empty)
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        load_opencode_data(db=db, storage_path=storage_path, clear_first=False)
-
-        result = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
-        assert result is not None
-        assert result[0] == 1  # Preserved
-
-    def test_loads_skills_and_delegations(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Loads skills and delegations (these work with enriched schema)."""
-        # Create session directory (empty - sessions will fail due to schema)
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create message directory (empty - messages will fail due to schema)
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        # Create part directory
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create skill
-        create_skill_part_file(
-            part_dir, "prt_skill", "msg_001", "ses_001", "test-skill", current_timestamp
-        )
-
-        # Create delegation
-        create_delegation_part_file(
-            part_dir,
-            "prt_del",
-            "msg_001",
-            "ses_001",
-            "tester",
-            start_ts=current_timestamp,
-        )
-
-        result = load_opencode_data(db=db, storage_path=storage_path)
-
-        # Skills and delegations work with enriched schema
-        assert result["skills"] == 1
-        assert result["delegations"] == 1
-
-    def test_loads_all_data_types(self, db, storage_path: Path, current_timestamp: int):
-        """Loads all data types correctly."""
-        # Create session
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-        create_session_file(
-            session_dir, "ses_001", title="Test", created_ts=current_timestamp
-        )
-
-        # Create message
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-        create_message_file(
-            message_dir, "msg_001", session_id="ses_001", created_ts=current_timestamp
-        )
-
-        # Create part directory
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-
-        # Create skill
-        create_skill_part_file(
-            part_dir, "prt_skill", "msg_001", "ses_001", "test-skill", current_timestamp
-        )
-
-        # Create delegation
-        create_delegation_part_file(
-            part_dir,
-            "prt_del",
-            "msg_001",
-            "ses_001",
-            "tester",
-            start_ts=current_timestamp,
-        )
-
-        result = load_opencode_data(db=db, storage_path=storage_path)
-
-        assert result["sessions"] == 1
-        assert result["messages"] == 1
-        assert result["skills"] == 1
-        assert result["delegations"] == 1
-
-    def test_skips_parts_by_default(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Skips parts loading by default (skip_parts=True)."""
-        # Create session
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create part
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-        create_part_file(part_dir, "prt_001", tool="bash", start_ts=current_timestamp)
-
-        result = load_opencode_data(db=db, storage_path=storage_path)
-
-        assert result["parts"] == 0  # Skipped by default
-
-    def test_loads_parts_when_requested(
-        self, db, storage_path: Path, current_timestamp: int
-    ):
-        """Loads parts when skip_parts=False."""
-        # Create session
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create part
-        part_dir = storage_path / "part"
-        part_dir.mkdir()
-        create_part_file(part_dir, "prt_001", tool="bash", start_ts=current_timestamp)
-
-        result = load_opencode_data(db=db, storage_path=storage_path, skip_parts=False)
-
-        assert result["parts"] == 1
-
-    def test_returns_complete_result_dict(self, db: AnalyticsDB, storage_path: Path):
-        """Returns dict with all expected keys."""
-        # Create minimal structure
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        result = load_opencode_data(db=db, storage_path=storage_path)
-
-        expected_keys = {"sessions", "messages", "parts", "delegations", "skills"}
-        assert expected_keys.issubset(result.keys())
 
 
 # =============================================================================
-# Edge Cases and Error Handling
+# Test: Edge cases and special content
 # =============================================================================
 
 
 class TestEdgeCases:
-    """Tests for edge cases and error handling."""
+    """Tests for edge cases and special content handling."""
 
     def test_handles_empty_directories(self, db: AnalyticsDB, storage_path: Path):
-        """Handles empty session/message/part directories."""
-        # Create empty directories
+        """Handles empty session/message/part directories gracefully."""
         (storage_path / "session").mkdir()
         (storage_path / "message").mkdir()
         (storage_path / "part").mkdir()
 
         result = load_opencode_data(db=db, storage_path=storage_path)
 
+        # Verify all counts are zero
         assert result["sessions"] == 0
         assert result["messages"] == 0
         assert result["parts"] == 0
+        assert result["skills"] == 0
+        assert result["delegations"] == 0
 
-    def test_handles_nested_structure(
-        self, db, storage_path: Path, current_timestamp: int
+        # Verify no error
+        assert "error" not in result
+
+        # Verify database is empty
+        conn = db.connect()
+        session_count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+        message_count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+        assert session_count[0] == 0
+        assert message_count[0] == 0
+
+    def test_handles_special_content_variations(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Handles nested directory structure correctly."""
+        """Handles unicode, special characters, and nested structures."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
 
-        # Create deeply nested session
-        nested_dir = session_dir / "proj_001" / "branch_main" / "ses_nested"
-        nested_dir.mkdir(parents=True)
-
-        session_file = nested_dir / "session.json"
-        session_file.write_text(
-            json.dumps(
-                {
-                    "id": "ses_nested",
-                    "projectID": "proj_001",
-                    "directory": "/test",
-                    "title": "Nested Session",
-                    "time": {
-                        "created": current_timestamp,
-                        "updated": current_timestamp,
-                    },
-                }
-            )
-        )
-
-        result = load_sessions_fast(db, storage_path)
-        assert result == 1
-
-    def test_handles_special_characters_in_paths(
-        self, db, storage_path: Path, current_timestamp: int
-    ):
-        """Handles special characters in file paths."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create session with special characters in directory
-        create_session_file(
-            session_dir,
-            "ses_special",
-            directory="/path/with spaces/and-dashes",
-            title="Session with 'quotes'",
-            created_ts=current_timestamp,
-        )
-
-        result = load_sessions_fast(db, storage_path)
-        assert result == 1
-
-    def test_handles_unicode_content(
-        self, db, storage_path: Path, current_timestamp: int
-    ):
-        """Handles unicode content in JSON files."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
+        # Unicode content
         session_subdir = session_dir / "ses_unicode"
         session_subdir.mkdir()
-
-        session_file = session_subdir / "session.json"
-        session_file.write_text(
+        (session_subdir / "session.json").write_text(
             json.dumps(
                 {
                     "id": "ses_unicode",
@@ -1160,29 +918,56 @@ class TestEdgeCases:
             encoding="utf-8",
         )
 
+        # Special characters in path
+        create_session_file(
+            session_dir,
+            "ses_special",
+            directory="/path/with spaces/and-dashes",
+            title="Session with 'quotes'",
+            created_ts=current_timestamp,
+        )
+
+        # Deeply nested structure
+        nested_dir = session_dir / "proj_001" / "branch_main" / "ses_nested"
+        nested_dir.mkdir(parents=True)
+        (nested_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_nested",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "Nested Session",
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
+        )
+
         result = load_sessions_fast(db, storage_path)
-        assert result == 1
+
+        assert result == 3
 
         conn = db.connect()
-        session = conn.execute(
-            "SELECT title FROM sessions WHERE id = 'ses_unicode'"
-        ).fetchone()
-        assert session is not None
-        assert "accents" in session[0]
+        sessions = conn.execute("SELECT id, title FROM sessions ORDER BY id").fetchall()
 
-    def test_handles_null_time_values(
+        assert len(sessions) == 3
+        # Verify unicode content
+        unicode_session = [s for s in sessions if s[0] == "ses_unicode"][0]
+        assert "accents" in unicode_session[1]
+
+    def test_handles_null_and_missing_values(
         self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Handles null/missing time values in skill parts."""
+        """Handles null/missing time values and optional fields."""
         part_dir = storage_path / "part"
         part_dir.mkdir()
 
-        # Create skill with no time.start
+        # Skill with empty time object
         msg_dir = part_dir / "msg_no_time"
         msg_dir.mkdir()
-
-        skill_file = msg_dir / "prt_no_time.json"
-        skill_file.write_text(
+        (msg_dir / "prt_no_time.json").write_text(
             json.dumps(
                 {
                     "id": "prt_no_time",
@@ -1190,12 +975,12 @@ class TestEdgeCases:
                     "sessionID": "ses_001",
                     "tool": "skill",
                     "state": {"input": {"name": "test-skill"}},
-                    "time": {},  # Empty time object
+                    "time": {},
                 }
             )
         )
 
-        # Create valid skill for comparison
+        # Valid skill for comparison
         create_skill_part_file(
             part_dir,
             "prt_valid",
@@ -1206,338 +991,294 @@ class TestEdgeCases:
         )
 
         result = load_skills(db, storage_path)
+
         # Both should load (null time means no cutoff filter)
         assert result >= 1
 
-    def test_handles_read_only_files(
-        self, db, storage_path: Path, current_timestamp: int
+    def test_handles_invalid_json_gracefully(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Handles read-only files gracefully."""
+        """Handles invalid JSON files without crashing."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
 
+        # Create valid session
         create_session_file(
-            session_dir, "ses_readonly", title="ReadOnly", created_ts=current_timestamp
+            session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
+        )
+
+        # Create invalid JSON file (DuckDB will fail on this)
+        invalid_dir = session_dir / "ses_invalid"
+        invalid_dir.mkdir()
+        (invalid_dir / "session.json").write_text("{ invalid json }")
+
+        # Returns 0 because malformed JSON causes query to fail
+        result = load_sessions_fast(db, storage_path)
+        assert result == 0
+
+    def test_handles_missing_required_fields(
+        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+    ):
+        """Handles sessions with missing required fields (WHERE id IS NOT NULL)."""
+        session_dir = storage_path / "session"
+        session_dir.mkdir()
+
+        # Session with missing id field
+        missing_id_dir = session_dir / "ses_missing"
+        missing_id_dir.mkdir()
+        (missing_id_dir / "session.json").write_text(
+            json.dumps(
+                {
+                    "projectID": "proj",
+                    "title": "Missing ID",
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
+        )
+
+        # Valid session
+        create_session_file(
+            session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
         )
 
         result = load_sessions_fast(db, storage_path)
+
+        # Only valid session should be loaded
         assert result == 1
 
 
 # =============================================================================
-# Helper Functions for Root Sessions
-# =============================================================================
-
-
-def create_root_session_file(
-    session_dir: Path,
-    project_id: str,
-    session_id: str,
-    title: str = "Root Session",
-    directory: str = "/test/path",
-    created_ts: int | None = None,
-    updated_ts: int | None = None,
-) -> Path:
-    """Create a ROOT session JSON file (no parentID)."""
-    now_ms = int(time.time() * 1000)
-    created_ts = created_ts or now_ms
-    updated_ts = updated_ts or now_ms
-
-    # Sessions are in project subdirectories
-    project_dir = session_dir / project_id
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    session_file = project_dir / f"{session_id}.json"
-    data = {
-        "id": session_id,
-        "projectID": project_id,
-        "directory": directory,
-        "title": title,
-        "parentID": None,  # ROOT session - no parent
-        "time": {"created": created_ts, "updated": updated_ts},
-    }
-    session_file.write_text(json.dumps(data))
-    return session_file
-
-
-def create_child_session_file(
-    session_dir: Path,
-    project_id: str,
-    session_id: str,
-    parent_id: str,
-    title: str = "Child Session",
-    directory: str = "/test/path",
-    created_ts: int | None = None,
-) -> Path:
-    """Create a CHILD session JSON file (with parentID)."""
-    now_ms = int(time.time() * 1000)
-    created_ts = created_ts or now_ms
-
-    project_dir = session_dir / project_id
-    project_dir.mkdir(parents=True, exist_ok=True)
-
-    session_file = project_dir / f"{session_id}.json"
-    data = {
-        "id": session_id,
-        "projectID": project_id,
-        "directory": directory,
-        "title": title,
-        "parentID": parent_id,  # CHILD session - has parent
-        "time": {"created": created_ts, "updated": created_ts},
-    }
-    session_file.write_text(json.dumps(data))
-    return session_file
-
-
-def create_user_message_file(
-    message_dir: Path,
-    session_id: str,
-    message_id: str,
-    summary_title: str = "User question",
-    summary_body: str = "This is the message body",
-    created_ts: int | None = None,
-) -> Path:
-    """Create a user message JSON file with summary."""
-    now_ms = int(time.time() * 1000)
-    created_ts = created_ts or now_ms
-
-    msg_session_dir = message_dir / session_id
-    msg_session_dir.mkdir(parents=True, exist_ok=True)
-
-    message_file = msg_session_dir / f"{message_id}.json"
-    data = {
-        "id": message_id,
-        "sessionID": session_id,
-        "role": "user",
-        "time": {"created": created_ts},
-        "summary": {
-            "title": summary_title,
-            "body": summary_body,
-        },
-    }
-    message_file.write_text(json.dumps(data))
-    return message_file
-
-
-# =============================================================================
-# Tests: get_first_user_message
+# Test: get_first_user_message
 # =============================================================================
 
 
 class TestGetFirstUserMessage:
-    """Tests for get_first_user_message function."""
+    """Comprehensive tests for get_first_user_message function."""
 
-    def test_returns_none_when_session_dir_not_exists(self, storage_path: Path):
-        """Returns None when session message directory doesn't exist."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        result = get_first_user_message(message_dir, "non_existent_session")
-        assert result is None
-
-    def test_returns_none_when_no_user_messages(
+    def test_extracts_first_user_message_with_all_scenarios(
         self, storage_path: Path, current_timestamp: int
     ):
-        """Returns None when no user messages exist."""
+        """Tests all scenarios for first user message extraction."""
         message_dir = storage_path / "message"
         message_dir.mkdir()
 
-        # Create assistant message only (not user)
+        # Scenario 1: Non-existent session
+        result_missing = get_first_user_message(message_dir, "non_existent_session")
+        assert result_missing is None
+
+        # Scenario 2: Only assistant messages (no user)
         create_message_file(
             message_dir,
             "msg_assistant",
-            session_id="ses_001",
+            session_id="ses_no_user",
             role="assistant",
             created_ts=current_timestamp,
         )
+        result_no_user = get_first_user_message(message_dir, "ses_no_user")
+        assert result_no_user is None
 
-        result = get_first_user_message(message_dir, "ses_001")
-        assert result is None
-
-    def test_returns_first_user_message_content(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Returns first user message content with title and body."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        # Create user message
-        create_user_message_file(
-            message_dir,
-            "ses_001",
-            "msg_user_001",
-            summary_title="Implement feature X",
-            summary_body="Please implement the feature X with tests",
-            created_ts=current_timestamp,
+        # Scenario 3: User message with title and body
+        ses_full_dir = message_dir / "ses_full"
+        ses_full_dir.mkdir()
+        (ses_full_dir / "msg_user.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_user",
+                    "sessionID": "ses_full",
+                    "role": "user",
+                    "time": {"created": current_timestamp},
+                    "summary": {
+                        "title": "Implement feature X",
+                        "body": "Please add tests",
+                    },
+                }
+            )
         )
+        result_full = get_first_user_message(message_dir, "ses_full")
+        assert result_full is not None
+        assert "Implement feature X" in result_full
+        assert "Please add tests" in result_full
 
-        result = get_first_user_message(message_dir, "ses_001")
-        assert result is not None
-        assert "Implement feature X" in result
-        assert "Please implement the feature X with tests" in result
-
-    def test_returns_first_chronologically(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Returns the first user message chronologically."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        # Create second message first (higher timestamp)
-        create_user_message_file(
-            message_dir,
-            "ses_001",
-            "msg_user_002",
-            summary_title="Second message",
-            created_ts=current_timestamp + 1000,
+        # Scenario 4: Title only (empty body)
+        ses_title_dir = message_dir / "ses_title"
+        ses_title_dir.mkdir()
+        (ses_title_dir / "msg_title.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_title",
+                    "sessionID": "ses_title",
+                    "role": "user",
+                    "time": {"created": current_timestamp},
+                    "summary": {"title": "Just a title", "body": ""},
+                }
+            )
         )
+        result_title = get_first_user_message(message_dir, "ses_title")
+        assert result_title == "Just a title"
 
-        # Create first message (lower timestamp)
-        create_user_message_file(
-            message_dir,
-            "ses_001",
-            "msg_user_001",
-            summary_title="First message",
-            created_ts=current_timestamp,
+        # Scenario 5: Multiple messages (returns first chronologically)
+        ses_multi_dir = message_dir / "ses_multi"
+        ses_multi_dir.mkdir()
+        (ses_multi_dir / "msg_second.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_second",
+                    "sessionID": "ses_multi",
+                    "role": "user",
+                    "time": {"created": current_timestamp + 1000},
+                    "summary": {"title": "Second message", "body": ""},
+                }
+            )
         )
-
-        result = get_first_user_message(message_dir, "ses_001")
-        assert result is not None
-        assert "First message" in result
-        assert "Second message" not in result
-
-    def test_returns_title_only_when_no_body(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Returns title only when body is empty."""
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        create_user_message_file(
-            message_dir,
-            "ses_001",
-            "msg_user_001",
-            summary_title="Just a title",
-            summary_body="",
-            created_ts=current_timestamp,
+        (ses_multi_dir / "msg_first.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_first",
+                    "sessionID": "ses_multi",
+                    "role": "user",
+                    "time": {"created": current_timestamp},
+                    "summary": {"title": "First message", "body": ""},
+                }
+            )
         )
-
-        result = get_first_user_message(message_dir, "ses_001")
-        assert result == "Just a title"
+        result_multi = get_first_user_message(message_dir, "ses_multi")
+        assert result_multi is not None
+        assert "First message" in result_multi
+        assert "Second message" not in result_multi
 
 
 # =============================================================================
-# Tests: extract_root_sessions
+# Test: extract_root_sessions
 # =============================================================================
 
 
 class TestExtractRootSessions:
-    """Tests for extract_root_sessions function."""
+    """Comprehensive tests for extract_root_sessions function."""
 
-    def test_returns_empty_when_session_dir_not_exists(self, storage_path: Path):
-        """Returns empty list when session directory doesn't exist."""
-        result = extract_root_sessions(storage_path)
-        assert result == []
-
-    def test_extracts_root_sessions_only(
-        self, storage_path: Path, current_timestamp: int
+    def test_extracts_root_sessions_with_all_features(
+        self, storage_path: Path, current_timestamp: int, old_timestamp: int
     ):
-        """Extracts only ROOT sessions (no parentID)."""
+        """Tests root session extraction with filtering and data population."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
         message_dir = storage_path / "message"
         message_dir.mkdir()
 
-        # Create ROOT session
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_root",
-            title="Root Session",
-            created_ts=current_timestamp,
+        # Create ROOT session (no parentID)
+        proj_dir = session_dir / "proj_001"
+        proj_dir.mkdir()
+        (proj_dir / "ses_root.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_root",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "Root Session Title",
+                    "parentID": None,
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
         )
 
-        # Create CHILD session
-        create_child_session_file(
-            session_dir,
-            "proj_001",
-            "ses_child",
-            parent_id="ses_root",
-            title="Child Session",
-            created_ts=current_timestamp,
+        # Create CHILD session (with parentID - should be excluded)
+        (proj_dir / "ses_child.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_child",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "Child Session",
+                    "parentID": "ses_root",
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
         )
 
-        result = extract_root_sessions(storage_path)
+        # Create OLD ROOT session (should be excluded with max_days)
+        (proj_dir / "ses_old.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_old",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "Old Root",
+                    "parentID": None,
+                    "time": {"created": old_timestamp, "updated": old_timestamp},
+                }
+            )
+        )
 
-        # Only ROOT should be extracted
+        # Create user message for root session
+        ses_root_dir = message_dir / "ses_root"
+        ses_root_dir.mkdir()
+        (ses_root_dir / "msg_user.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_user",
+                    "sessionID": "ses_root",
+                    "role": "user",
+                    "time": {"created": current_timestamp},
+                    "summary": {
+                        "title": "Help me implement Plan 27",
+                        "body": "Add root session tracing",
+                    },
+                }
+            )
+        )
+
+        # Test extraction with max_days filter
+        result = extract_root_sessions(storage_path, max_days=30)
+
+        # Only recent ROOT session should be extracted
         assert len(result) == 1
-        assert result[0].trace_id == f"{ROOT_TRACE_PREFIX}ses_root"
-        assert result[0].subagent_type == ROOT_AGENT_TYPE
 
-    def test_root_session_has_correct_trace_id_prefix(
+        root = result[0]
+        # Verify trace ID format
+        assert root.trace_id == f"{ROOT_TRACE_PREFIX}ses_root"
+        assert root.trace_id.startswith(ROOT_TRACE_PREFIX)
+
+        # Verify agent type
+        assert root.subagent_type == ROOT_AGENT_TYPE
+
+        # Verify prompt from user message
+        assert "Help me implement Plan 27" in root.prompt_input
+        assert "root session tracing" in root.prompt_input
+
+        # Verify child_session_id self-reference
+        assert root.child_session_id == "ses_root"
+
+    def test_falls_back_to_title_when_no_message(
         self, storage_path: Path, current_timestamp: int
     ):
-        """Root session trace has correct prefix."""
+        """Falls back to session title when no user message exists."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
 
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_abc123",
-            created_ts=current_timestamp,
-        )
-
-        result = extract_root_sessions(storage_path)
-
-        assert len(result) == 1
-        assert result[0].trace_id.startswith(ROOT_TRACE_PREFIX)
-        assert "ses_abc123" in result[0].trace_id
-
-    def test_root_session_includes_prompt_from_first_message(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Root session includes prompt from first user message."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-        message_dir = storage_path / "message"
-        message_dir.mkdir()
-
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_with_prompt",
-            created_ts=current_timestamp,
-        )
-
-        create_user_message_file(
-            message_dir,
-            "ses_with_prompt",
-            "msg_user",
-            summary_title="Help me implement Plan 27",
-            summary_body="I need to add root session tracing",
-            created_ts=current_timestamp,
-        )
-
-        result = extract_root_sessions(storage_path)
-
-        assert len(result) == 1
-        assert "Help me implement Plan 27" in result[0].prompt_input
-        assert "root session tracing" in result[0].prompt_input
-
-    def test_root_session_falls_back_to_title_when_no_message(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Falls back to session title when no user message."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_no_msg",
-            title="OpenMonitor Planning",
-            created_ts=current_timestamp,
+        proj_dir = session_dir / "proj_001"
+        proj_dir.mkdir()
+        (proj_dir / "ses_no_msg.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_no_msg",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "OpenMonitor Planning",
+                    "parentID": None,
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
         )
 
         result = extract_root_sessions(storage_path)
@@ -1545,106 +1286,48 @@ class TestExtractRootSessions:
         assert len(result) == 1
         assert result[0].prompt_input == "OpenMonitor Planning"
 
-    def test_skips_old_sessions(self, storage_path: Path, current_timestamp: int):
-        """Skips sessions older than max_days."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        # Create recent ROOT session
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_recent",
-            created_ts=current_timestamp,
-        )
-
-        # Create old ROOT session (60 days ago)
-        old_ts = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_old",
-            created_ts=old_ts,
-        )
-
-        result = extract_root_sessions(storage_path, max_days=30)
-
-        assert len(result) == 1
-        assert "ses_recent" in result[0].trace_id
-
-    def test_root_session_has_child_session_id_self_reference(
-        self, storage_path: Path, current_timestamp: int
-    ):
-        """Root session has child_session_id pointing to itself for hierarchy."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
-
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_root",
-            created_ts=current_timestamp,
-        )
-
+    def test_returns_empty_when_no_sessions(self, storage_path: Path):
+        """Returns empty list when session directory doesn't exist."""
         result = extract_root_sessions(storage_path)
-
-        assert len(result) == 1
-        # child_session_id should be the session_id itself for linking children
-        assert result[0].child_session_id == "ses_root"
+        assert result == []
 
 
 # =============================================================================
-# Tests: load_traces with root sessions
+# Test: load_traces with root sessions
 # =============================================================================
 
 
 class TestLoadTracesWithRootSessions:
     """Tests for load_traces function including root sessions."""
 
-    def test_loads_root_sessions_into_traces_table(
+    def test_loads_both_root_and_delegation_traces(
         self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
-        """Root sessions are loaded into agent_traces table."""
+        """Loads both root sessions and delegation traces into agent_traces table."""
         session_dir = storage_path / "session"
         session_dir.mkdir()
         message_dir = storage_path / "message"
         message_dir.mkdir()
-
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_root",
-            title="Test Root",
-            created_ts=current_timestamp,
-        )
-
-        result = load_traces(db, storage_path)
-
-        assert result >= 1
-
-        conn = db.connect()
-        traces = conn.execute(
-            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id LIKE 'root_%'"
-        ).fetchall()
-
-        assert len(traces) >= 1
-        assert traces[0][1] == ROOT_AGENT_TYPE
-
-    def test_loads_both_root_and_delegation_traces(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
-    ):
-        """Loads both root sessions and delegation traces."""
-        session_dir = storage_path / "session"
-        session_dir.mkdir()
         part_dir = storage_path / "part"
         part_dir.mkdir()
 
         # Create ROOT session
-        create_root_session_file(
-            session_dir,
-            "proj_001",
-            "ses_root",
-            created_ts=current_timestamp,
+        proj_dir = session_dir / "proj_001"
+        proj_dir.mkdir()
+        (proj_dir / "ses_root.json").write_text(
+            json.dumps(
+                {
+                    "id": "ses_root",
+                    "projectID": "proj_001",
+                    "directory": "/test",
+                    "title": "Test Root",
+                    "parentID": None,
+                    "time": {
+                        "created": current_timestamp,
+                        "updated": current_timestamp,
+                    },
+                }
+            )
         )
 
         # Create delegation trace
@@ -1660,17 +1343,21 @@ class TestLoadTracesWithRootSessions:
 
         result = load_traces(db, storage_path)
 
-        assert result >= 2  # At least 1 root + 1 delegation
+        # At least 1 root + 1 delegation
+        assert result >= 2
 
         conn = db.connect()
-        root_traces = conn.execute(
-            "SELECT COUNT(*) FROM agent_traces WHERE trace_id LIKE 'root_%'"
-        ).fetchone()
-        delegation_traces = conn.execute(
-            "SELECT COUNT(*) FROM agent_traces WHERE trace_id NOT LIKE 'root_%'"
-        ).fetchone()
 
-        assert root_traces is not None
-        assert root_traces[0] >= 1
-        assert delegation_traces is not None
-        assert delegation_traces[0] >= 1
+        # Verify root traces
+        root_traces = conn.execute(
+            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id LIKE 'root_%'"
+        ).fetchall()
+        assert len(root_traces) >= 1
+        assert root_traces[0][1] == ROOT_AGENT_TYPE
+
+        # Verify delegation traces
+        delegation_traces = conn.execute(
+            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id NOT LIKE 'root_%'"
+        ).fetchall()
+        assert len(delegation_traces) >= 1
+        assert delegation_traces[0][1] == "tester"

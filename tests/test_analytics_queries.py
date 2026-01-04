@@ -1,29 +1,25 @@
 """
-Tests for AnalyticsQueries - Date filtering and query coverage tests.
+Tests for AnalyticsQueries - Consolidated test suite.
 
-These tests verify that:
-1. Tool and skill statistics respect date filtering
-2. All query modules have adequate test coverage
-
-Bug context: tools and skills queries were not filtering by date, causing
-data from several days ago to appear when selecting "24h" period.
+Tests verify:
+1. Date filtering for tools, skills, and delegations
+2. Query correctness with strict equality assertions
+3. Edge cases and empty results
 """
 
 import uuid
 from datetime import datetime, timedelta
+from typing import Any
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.queries import AnalyticsQueries
-from opencode_monitor.analytics.queries.agent_queries import AgentQueries
-from opencode_monitor.analytics.queries.base import BaseQueries
-from opencode_monitor.analytics.queries.delegation_queries import DelegationQueries
-from opencode_monitor.analytics.queries.dimension_queries import DimensionQueries
-from opencode_monitor.analytics.queries.enriched_queries import EnrichedQueries
-from opencode_monitor.analytics.queries.session_queries import SessionQueries
-from opencode_monitor.analytics.queries.time_series_queries import TimeSeriesQueries
-from opencode_monitor.analytics.queries.tool_queries import ToolQueries
+
+
+# =============================================================================
+# Fixtures
+# =============================================================================
 
 
 @pytest.fixture
@@ -31,7 +27,7 @@ def analytics_db(tmp_path):
     """Create an in-memory analytics database for testing."""
     db_path = tmp_path / "test_analytics.duckdb"
     db = AnalyticsDB(db_path=db_path)
-    db.connect()  # Initialize schema
+    db.connect()
     yield db
     db.close()
 
@@ -42,67 +38,111 @@ def queries(analytics_db):
     return AnalyticsQueries(analytics_db)
 
 
-def generate_id():
+# =============================================================================
+# Test Data Helpers
+# =============================================================================
+
+
+def generate_id() -> str:
     """Generate a unique ID for test data."""
     return str(uuid.uuid4())
 
 
-def insert_test_session(db: AnalyticsDB, session_id: str, created_at: datetime):
-    """Insert a test session."""
+def insert_session(
+    db: AnalyticsDB,
+    session_id: str,
+    created_at: datetime,
+    directory: str = "/test/dir",
+    title: str = "Test Session",
+    parent_id: str | None = None,
+    project_id: str | None = None,
+    additions: int = 0,
+    deletions: int = 0,
+    files_changed: int = 0,
+):
+    """Insert a test session with all optional fields."""
     conn = db.connect()
     conn.execute(
         """
-        INSERT INTO sessions (id, directory, title, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?)
+        INSERT INTO sessions (id, directory, title, created_at, updated_at, parent_id, project_id, additions, deletions, files_changed)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        [session_id, "/test/dir", "Test Session", created_at, created_at],
+        [
+            session_id,
+            directory,
+            title,
+            created_at,
+            created_at,
+            parent_id,
+            project_id,
+            additions,
+            deletions,
+            files_changed,
+        ],
     )
 
 
-def insert_test_message(
+def insert_message(
     db: AnalyticsDB,
     message_id: str,
     session_id: str,
     created_at: datetime,
     agent: str = "main",
+    tokens_input: int = 100,
+    tokens_output: int = 50,
+    cost: float = 0.0,
+    model_id: str | None = None,
+    provider_id: str | None = None,
 ):
-    """Insert a test message."""
+    """Insert a test message with all optional fields."""
     conn = db.connect()
     conn.execute(
         """
-        INSERT INTO messages (id, session_id, role, agent, created_at, tokens_input, tokens_output)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        INSERT INTO messages (id, session_id, role, agent, created_at, tokens_input, tokens_output, cost, model_id, provider_id)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        [message_id, session_id, "assistant", agent, created_at, 100, 50],
+        [
+            message_id,
+            session_id,
+            "assistant",
+            agent,
+            created_at,
+            tokens_input,
+            tokens_output,
+            cost,
+            model_id,
+            provider_id,
+        ],
     )
 
 
-def insert_test_tool(
+def insert_tool(
     db: AnalyticsDB,
     part_id: str,
     message_id: str,
     tool_name: str,
     created_at: datetime,
     status: str = "success",
+    duration_ms: int = 100,
 ):
     """Insert a test tool part."""
     conn = db.connect()
     conn.execute(
         """
-        INSERT INTO parts (id, message_id, part_type, tool_name, tool_status, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        INSERT INTO parts (id, message_id, part_type, tool_name, tool_status, created_at, duration_ms)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        [part_id, message_id, "tool", tool_name, status, created_at],
+        [part_id, message_id, "tool", tool_name, status, created_at, duration_ms],
     )
 
 
-def insert_test_skill(
+def insert_skill(
     db: AnalyticsDB,
     skill_id: str,
     message_id: str,
     session_id: str,
     skill_name: str,
-    loaded_at: datetime = None,
+    loaded_at: datetime | None = None,
 ):
     """Insert a test skill."""
     conn = db.connect()
@@ -115,372 +155,7 @@ def insert_test_skill(
     )
 
 
-# =============================================================================
-# Tool Stats Date Filtering Tests
-# =============================================================================
-
-
-class TestToolStatsDateFiltering:
-    """Tests for _get_tool_stats() date filtering."""
-
-    def test_tool_within_period_is_counted(self, analytics_db, queries):
-        """Tools used within the date range should be counted."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-
-        # Create session and message within period
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, yesterday)
-        insert_test_message(analytics_db, message_id, session_id, yesterday)
-
-        # Add tool invocation
-        insert_test_tool(analytics_db, generate_id(), message_id, "bash", yesterday)
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        tools = queries._get_tool_stats(start_date, end_date)
-
-        assert len(tools) == 1
-        assert tools[0].tool_name == "bash"
-        assert tools[0].invocations == 1
-
-    def test_tool_outside_period_is_excluded(self, analytics_db, queries):
-        """Tools used outside the date range should NOT be counted."""
-        now = datetime.now()
-        two_days_ago = now - timedelta(days=2)
-
-        # Create session and message OUTSIDE period (2 days ago)
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, two_days_ago)
-        insert_test_message(analytics_db, message_id, session_id, two_days_ago)
-
-        # Add tool invocation from 2 days ago
-        insert_test_tool(analytics_db, generate_id(), message_id, "bash", two_days_ago)
-
-        # Query for last 24 hours only
-        start_date = now - timedelta(days=1)
-        end_date = now
-        tools = queries._get_tool_stats(start_date, end_date)
-
-        # Should be empty - tool is outside period
-        assert len(tools) == 0
-
-    def test_mixed_tools_only_recent_counted(self, analytics_db, queries):
-        """Only tools within period should be counted when mixed data exists."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-        three_days_ago = now - timedelta(days=3)
-
-        # Recent tool (within period)
-        session1 = generate_id()
-        message1 = generate_id()
-        insert_test_session(analytics_db, session1, yesterday)
-        insert_test_message(analytics_db, message1, session1, yesterday)
-        insert_test_tool(analytics_db, generate_id(), message1, "read", yesterday)
-
-        # Old tool (outside period)
-        session2 = generate_id()
-        message2 = generate_id()
-        insert_test_session(analytics_db, session2, three_days_ago)
-        insert_test_message(analytics_db, message2, session2, three_days_ago)
-        insert_test_tool(analytics_db, generate_id(), message2, "bash", three_days_ago)
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        tools = queries._get_tool_stats(start_date, end_date)
-
-        # Only "read" should be counted
-        assert len(tools) == 1
-        assert tools[0].tool_name == "read"
-
-    def test_tool_failure_counts_filtered_by_date(self, analytics_db, queries):
-        """Tool failure counts should also respect date filtering."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-        three_days_ago = now - timedelta(days=3)
-
-        # Recent failed tool (within period)
-        session1 = generate_id()
-        message1 = generate_id()
-        insert_test_session(analytics_db, session1, yesterday)
-        insert_test_message(analytics_db, message1, session1, yesterday)
-        insert_test_tool(
-            analytics_db, generate_id(), message1, "bash", yesterday, status="error"
-        )
-
-        # Old failed tool (outside period)
-        session2 = generate_id()
-        message2 = generate_id()
-        insert_test_session(analytics_db, session2, three_days_ago)
-        insert_test_message(analytics_db, message2, session2, three_days_ago)
-        insert_test_tool(
-            analytics_db,
-            generate_id(),
-            message2,
-            "bash",
-            three_days_ago,
-            status="error",
-        )
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        tools = queries._get_tool_stats(start_date, end_date)
-
-        # Only 1 failure should be counted (the recent one)
-        assert len(tools) == 1
-        assert tools[0].failures == 1
-
-
-# =============================================================================
-# Skill Stats Date Filtering Tests
-# =============================================================================
-
-
-class TestSkillStatsDateFiltering:
-    """Tests for _get_skill_stats() date filtering."""
-
-    def test_skill_within_period_is_counted(self, analytics_db, queries):
-        """Skills loaded within the date range should be counted."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-
-        # Create session and message within period
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, yesterday)
-        insert_test_message(analytics_db, message_id, session_id, yesterday)
-
-        # Add skill load
-        insert_test_skill(
-            analytics_db, generate_id(), message_id, session_id, "qml", yesterday
-        )
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills = queries._get_skill_stats(start_date, end_date)
-
-        assert len(skills) == 1
-        assert skills[0].skill_name == "qml"
-        assert skills[0].load_count == 1
-
-    def test_skill_outside_period_is_excluded(self, analytics_db, queries):
-        """Skills loaded outside the date range should NOT be counted."""
-        now = datetime.now()
-        two_days_ago = now - timedelta(days=2)
-
-        # Create session and message OUTSIDE period (2 days ago)
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, two_days_ago)
-        insert_test_message(analytics_db, message_id, session_id, two_days_ago)
-
-        # Add skill load from 2 days ago
-        insert_test_skill(
-            analytics_db, generate_id(), message_id, session_id, "qml", two_days_ago
-        )
-
-        # Query for last 24 hours only
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills = queries._get_skill_stats(start_date, end_date)
-
-        # Should be empty - skill is outside period
-        assert len(skills) == 0
-
-    def test_mixed_skills_only_recent_counted(self, analytics_db, queries):
-        """Only skills within period should be counted when mixed data exists."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-        three_days_ago = now - timedelta(days=3)
-
-        # Recent skill (within period)
-        session1 = generate_id()
-        message1 = generate_id()
-        insert_test_session(analytics_db, session1, yesterday)
-        insert_test_message(analytics_db, message1, session1, yesterday)
-        insert_test_skill(
-            analytics_db, generate_id(), message1, session1, "agentic-flow", yesterday
-        )
-
-        # Old skill (outside period)
-        session2 = generate_id()
-        message2 = generate_id()
-        insert_test_session(analytics_db, session2, three_days_ago)
-        insert_test_message(analytics_db, message2, session2, three_days_ago)
-        insert_test_skill(
-            analytics_db, generate_id(), message2, session2, "qml", three_days_ago
-        )
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills = queries._get_skill_stats(start_date, end_date)
-
-        # Only "agentic-flow" should be counted
-        assert len(skills) == 1
-        assert skills[0].skill_name == "agentic-flow"
-
-
-# =============================================================================
-# Skills by Agent Date Filtering Tests
-# =============================================================================
-
-
-class TestSkillsByAgentDateFiltering:
-    """Tests for _get_skills_by_agent() date filtering."""
-
-    def test_skills_by_agent_within_period(self, analytics_db, queries):
-        """Skills by agent within the date range should be counted."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-
-        # Create session and message within period
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, yesterday)
-        insert_test_message(
-            analytics_db, message_id, session_id, yesterday, agent="executor"
-        )
-
-        # Add skill load
-        insert_test_skill(
-            analytics_db, generate_id(), message_id, session_id, "testability-patterns"
-        )
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills_by_agent = queries._get_skills_by_agent(start_date, end_date)
-
-        assert len(skills_by_agent) == 1
-        assert skills_by_agent[0].agent == "executor"
-        assert skills_by_agent[0].skill_name == "testability-patterns"
-        assert skills_by_agent[0].count == 1
-
-    def test_skills_by_agent_outside_period_excluded(self, analytics_db, queries):
-        """Skills by agent outside the date range should NOT be counted."""
-        now = datetime.now()
-        two_days_ago = now - timedelta(days=2)
-
-        # Create session and message OUTSIDE period
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, two_days_ago)
-        insert_test_message(
-            analytics_db, message_id, session_id, two_days_ago, agent="tester"
-        )
-
-        # Add skill load from 2 days ago
-        insert_test_skill(
-            analytics_db, generate_id(), message_id, session_id, "functional-testing"
-        )
-
-        # Query for last 24 hours only
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills_by_agent = queries._get_skills_by_agent(start_date, end_date)
-
-        # Should be empty - skill is outside period
-        assert len(skills_by_agent) == 0
-
-    def test_mixed_agents_only_recent_skills_counted(self, analytics_db, queries):
-        """Only skills within period should be counted for each agent."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-        three_days_ago = now - timedelta(days=3)
-
-        # Recent skill by executor (within period)
-        session1 = generate_id()
-        message1 = generate_id()
-        insert_test_session(analytics_db, session1, yesterday)
-        insert_test_message(
-            analytics_db, message1, session1, yesterday, agent="executor"
-        )
-        insert_test_skill(
-            analytics_db, generate_id(), message1, session1, "agentic-flow"
-        )
-
-        # Old skill by same executor (outside period)
-        session2 = generate_id()
-        message2 = generate_id()
-        insert_test_session(analytics_db, session2, three_days_ago)
-        insert_test_message(
-            analytics_db, message2, session2, three_days_ago, agent="executor"
-        )
-        insert_test_skill(analytics_db, generate_id(), message2, session2, "qml")
-
-        # Query for last 24 hours
-        start_date = now - timedelta(days=1)
-        end_date = now
-        skills_by_agent = queries._get_skills_by_agent(start_date, end_date)
-
-        # Only "agentic-flow" should be counted for executor
-        assert len(skills_by_agent) == 1
-        assert skills_by_agent[0].agent == "executor"
-        assert skills_by_agent[0].skill_name == "agentic-flow"
-
-
-# =============================================================================
-# Integration Tests
-# =============================================================================
-
-
-class TestDateFilteringIntegration:
-    """Integration tests for date filtering across all queries."""
-
-    def test_period_stats_respects_date_filtering(self, analytics_db, queries):
-        """get_period_stats should filter all data by date."""
-        now = datetime.now()
-        yesterday = now - timedelta(hours=12)
-        three_days_ago = now - timedelta(days=3)
-
-        # === Recent data (within period) ===
-        session1 = generate_id()
-        message1 = generate_id()
-        insert_test_session(analytics_db, session1, yesterday)
-        insert_test_message(analytics_db, message1, session1, yesterday, agent="main")
-        insert_test_tool(analytics_db, generate_id(), message1, "read", yesterday)
-        insert_test_skill(analytics_db, generate_id(), message1, session1, "qml")
-
-        # === Old data (outside period) ===
-        session2 = generate_id()
-        message2 = generate_id()
-        insert_test_session(analytics_db, session2, three_days_ago)
-        insert_test_message(
-            analytics_db, message2, session2, three_days_ago, agent="executor"
-        )
-        insert_test_tool(analytics_db, generate_id(), message2, "bash", three_days_ago)
-        insert_test_skill(analytics_db, generate_id(), message2, session2, "clean-code")
-
-        # Query for last 24 hours (days=1)
-        stats = queries.get_period_stats(days=1)
-
-        # Only recent session should be counted
-        assert stats.session_count == 1
-
-        # Only recent tool should be in tools list
-        tool_names = [t.tool_name for t in stats.tools]
-        assert "read" in tool_names
-        assert "bash" not in tool_names
-
-        # Only recent skill should be in skills list
-        skill_names = [s.skill_name for s in stats.skills]
-        assert "qml" in skill_names
-        assert "clean-code" not in skill_names
-
-
-# =============================================================================
-# Helper functions for enriched data
-# =============================================================================
-
-
-def insert_test_todo(
+def insert_todo(
     db: AnalyticsDB,
     todo_id: str,
     session_id: str,
@@ -488,7 +163,7 @@ def insert_test_todo(
     status: str = "pending",
     priority: str = "medium",
     position: int = 0,
-    created_at: datetime = None,
+    created_at: datetime | None = None,
 ):
     """Insert a test todo."""
     conn = db.connect()
@@ -511,12 +186,12 @@ def insert_test_todo(
     )
 
 
-def insert_test_project(
+def insert_project(
     db: AnalyticsDB,
     project_id: str,
     worktree: str,
     vcs: str = "git",
-    created_at: datetime = None,
+    created_at: datetime | None = None,
 ):
     """Insert a test project."""
     conn = db.connect()
@@ -530,44 +205,14 @@ def insert_test_project(
     )
 
 
-def insert_test_session_with_project(
-    db: AnalyticsDB,
-    session_id: str,
-    project_id: str,
-    created_at: datetime,
-    additions: int = 0,
-    deletions: int = 0,
-    files_changed: int = 0,
-):
-    """Insert a test session linked to a project."""
-    conn = db.connect()
-    conn.execute(
-        """
-        INSERT INTO sessions (id, directory, title, created_at, updated_at, project_id, additions, deletions, files_changed)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
-        [
-            session_id,
-            "/test/dir",
-            "Test Session",
-            created_at,
-            created_at,
-            project_id,
-            additions,
-            deletions,
-            files_changed,
-        ],
-    )
-
-
-def insert_test_delegation(
+def insert_delegation(
     db: AnalyticsDB,
     delegation_id: str,
     session_id: str,
     parent_agent: str,
     child_agent: str,
-    child_session_id: str = None,
-    created_at: datetime = None,
+    child_session_id: str | None = None,
+    created_at: datetime | None = None,
 ):
     """Insert a test delegation."""
     conn = db.connect()
@@ -588,1073 +233,412 @@ def insert_test_delegation(
     )
 
 
-def insert_test_message_with_cost(
-    db: AnalyticsDB,
-    message_id: str,
-    session_id: str,
-    created_at: datetime,
-    cost: float = 0.0,
-    model_id: str = None,
-    provider_id: str = None,
-):
-    """Insert a test message with cost info."""
-    conn = db.connect()
-    conn.execute(
-        """
-        INSERT INTO messages (id, session_id, role, created_at, tokens_input, tokens_output, cost, model_id, provider_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-        """,
+# =============================================================================
+# Date Filtering Tests
+# =============================================================================
+
+
+class TestDateFiltering:
+    """Tests for date filtering across tools, skills, and skills_by_agent."""
+
+    @pytest.mark.parametrize(
+        "query_type,within_name,outside_name",
         [
-            message_id,
-            session_id,
-            "assistant",
-            created_at,
-            100,
-            50,
-            cost,
-            model_id,
-            provider_id,
+            ("tools", "bash", "old_tool"),
+            ("skills", "qml", "old_skill"),
+            ("skills_by_agent", "agentic-flow", "old_skill"),
         ],
     )
-
-
-def insert_test_part_with_duration(
-    db: AnalyticsDB,
-    part_id: str,
-    message_id: str,
-    tool_name: str,
-    created_at: datetime,
-    duration_ms: int = 100,
-    status: str = "success",
-):
-    """Insert a test part with duration."""
-    conn = db.connect()
-    conn.execute(
-        """
-        INSERT INTO parts (id, message_id, part_type, tool_name, tool_status, created_at, duration_ms)
-        VALUES (?, ?, ?, ?, ?, ?, ?)
-        """,
-        [part_id, message_id, "tool", tool_name, status, created_at, duration_ms],
-    )
-
-
-# =============================================================================
-# EnrichedQueries Tests
-# =============================================================================
-
-
-class TestEnrichedQueries:
-    """Tests for EnrichedQueries module."""
-
-    def test_get_todos_returns_all_when_no_filters(self, analytics_db, queries):
-        """get_todos should return all todos when no filters provided."""
+    def test_date_filtering_includes_recent_excludes_old(
+        self, analytics_db, queries, query_type, within_name, outside_name
+    ):
+        """Recent items are included, old items are excluded based on date range."""
         now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
+        yesterday = now - timedelta(hours=12)
+        three_days_ago = now - timedelta(days=3)
 
-        insert_test_todo(
-            analytics_db, generate_id(), session_id, "Task 1", status="pending"
+        # Recent data (within period)
+        session1 = generate_id()
+        message1 = generate_id()
+        insert_session(analytics_db, session1, yesterday)
+        insert_message(analytics_db, message1, session1, yesterday, agent="executor")
+
+        # Old data (outside period)
+        session2 = generate_id()
+        message2 = generate_id()
+        insert_session(analytics_db, session2, three_days_ago)
+        insert_message(
+            analytics_db, message2, session2, three_days_ago, agent="executor"
         )
-        insert_test_todo(
-            analytics_db, generate_id(), session_id, "Task 2", status="completed"
+
+        if query_type == "tools":
+            insert_tool(analytics_db, generate_id(), message1, within_name, yesterday)
+            insert_tool(
+                analytics_db, generate_id(), message2, outside_name, three_days_ago
+            )
+        else:
+            insert_skill(
+                analytics_db, generate_id(), message1, session1, within_name, yesterday
+            )
+            insert_skill(
+                analytics_db,
+                generate_id(),
+                message2,
+                session2,
+                outside_name,
+                three_days_ago,
+            )
+
+        # Query for last 24 hours
+        start_date = now - timedelta(days=1)
+        end_date = now
+
+        if query_type == "tools":
+            results = queries._get_tool_stats(start_date, end_date)
+            assert len(results) == 1, f"Expected 1 tool, got {len(results)}"
+            assert results[0].tool_name == within_name
+            assert results[0].invocations == 1
+        elif query_type == "skills":
+            results = queries._get_skill_stats(start_date, end_date)
+            assert len(results) == 1, f"Expected 1 skill, got {len(results)}"
+            assert results[0].skill_name == within_name
+            assert results[0].load_count == 1
+        else:  # skills_by_agent
+            results = queries._get_skills_by_agent(start_date, end_date)
+            assert len(results) == 1, f"Expected 1 skill by agent, got {len(results)}"
+            assert results[0].skill_name == within_name
+            assert results[0].agent == "executor"
+            assert results[0].count == 1
+
+    def test_tool_failure_counts_filtered_by_date(self, analytics_db, queries):
+        """Tool failure counts respect date filtering."""
+        now = datetime.now()
+        yesterday = now - timedelta(hours=12)
+        three_days_ago = now - timedelta(days=3)
+
+        # Recent failed tool
+        session1 = generate_id()
+        message1 = generate_id()
+        insert_session(analytics_db, session1, yesterday)
+        insert_message(analytics_db, message1, session1, yesterday)
+        insert_tool(
+            analytics_db, generate_id(), message1, "bash", yesterday, status="error"
         )
 
-        todos = queries.get_todos()
-        assert len(todos) == 2
+        # Old failed tool
+        session2 = generate_id()
+        message2 = generate_id()
+        insert_session(analytics_db, session2, three_days_ago)
+        insert_message(analytics_db, message2, session2, three_days_ago)
+        insert_tool(
+            analytics_db,
+            generate_id(),
+            message2,
+            "bash",
+            three_days_ago,
+            status="error",
+        )
 
-    def test_get_todos_filters_by_session_id(self, analytics_db, queries):
-        """get_todos should filter by session_id."""
+        start_date = now - timedelta(days=1)
+        end_date = now
+        tools = queries._get_tool_stats(start_date, end_date)
+
+        assert len(tools) == 1
+        assert tools[0].tool_name == "bash"
+        assert tools[0].failures == 1
+        assert tools[0].invocations == 1
+
+    def test_period_stats_respects_date_filtering(self, analytics_db, queries):
+        """get_period_stats filters all data by date."""
+        now = datetime.now()
+        yesterday = now - timedelta(hours=12)
+        three_days_ago = now - timedelta(days=3)
+
+        # Recent data
+        session1 = generate_id()
+        message1 = generate_id()
+        insert_session(analytics_db, session1, yesterday)
+        insert_message(analytics_db, message1, session1, yesterday, agent="main")
+        insert_tool(analytics_db, generate_id(), message1, "read", yesterday)
+        insert_skill(analytics_db, generate_id(), message1, session1, "qml")
+
+        # Old data
+        session2 = generate_id()
+        message2 = generate_id()
+        insert_session(analytics_db, session2, three_days_ago)
+        insert_message(
+            analytics_db, message2, session2, three_days_ago, agent="executor"
+        )
+        insert_tool(analytics_db, generate_id(), message2, "bash", three_days_ago)
+        insert_skill(analytics_db, generate_id(), message2, session2, "clean-code")
+
+        stats = queries.get_period_stats(days=1)
+
+        assert stats.session_count == 1
+        assert [t.tool_name for t in stats.tools] == ["read"]
+        assert [s.skill_name for s in stats.skills] == ["qml"]
+
+
+# =============================================================================
+# Todos Tests
+# =============================================================================
+
+
+class TestTodos:
+    """Tests for todo queries with filtering and statistics."""
+
+    @pytest.mark.parametrize(
+        "filter_type,expected_count",
+        [
+            ("none", 4),
+            ("session", 2),
+            ("status_pending", 2),
+            ("status_completed", 1),
+            ("session_and_status", 1),
+        ],
+    )
+    def test_get_todos_with_filters(
+        self, analytics_db, queries, filter_type, expected_count
+    ):
+        """get_todos filters correctly by session_id and/or status."""
         now = datetime.now()
         session1 = generate_id()
         session2 = generate_id()
-        insert_test_session(analytics_db, session1, now)
-        insert_test_session(analytics_db, session2, now)
+        insert_session(analytics_db, session1, now)
+        insert_session(analytics_db, session2, now)
 
-        insert_test_todo(analytics_db, generate_id(), session1, "Task in session 1")
-        insert_test_todo(analytics_db, generate_id(), session2, "Task in session 2")
+        # Session 1: 2 todos (1 pending, 1 completed)
+        insert_todo(analytics_db, generate_id(), session1, "Task 1", status="pending")
+        insert_todo(analytics_db, generate_id(), session1, "Task 2", status="completed")
+        # Session 2: 2 todos (1 pending, 1 in_progress)
+        insert_todo(analytics_db, generate_id(), session2, "Task 3", status="pending")
+        insert_todo(
+            analytics_db, generate_id(), session2, "Task 4", status="in_progress"
+        )
 
-        todos = queries.get_todos(session_id=session1)
-        assert len(todos) == 1
-        assert todos[0].session_id == session1
+        if filter_type == "none":
+            todos = queries.get_todos()
+        elif filter_type == "session":
+            todos = queries.get_todos(session_id=session1)
+        elif filter_type == "status_pending":
+            todos = queries.get_todos(status="pending")
+        elif filter_type == "status_completed":
+            todos = queries.get_todos(status="completed")
+        else:  # session_and_status
+            todos = queries.get_todos(session_id=session1, status="pending")
 
-    def test_get_todos_filters_by_status(self, analytics_db, queries):
-        """get_todos should filter by status."""
+        assert len(todos) == expected_count
+
+        # Verify content based on filter
+        if filter_type == "session":
+            assert all(t.session_id == session1 for t in todos)
+        elif filter_type == "status_pending":
+            assert all(t.status == "pending" for t in todos)
+        elif filter_type == "status_completed":
+            assert all(t.status == "completed" for t in todos)
+        elif filter_type == "session_and_status":
+            assert todos[0].session_id == session1
+            assert todos[0].status == "pending"
+
+    def test_todo_stats_calculates_correctly(self, analytics_db, queries):
+        """get_todo_stats returns correct statistics for all statuses."""
         now = datetime.now()
         session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
+        insert_session(analytics_db, session_id, now)
 
-        insert_test_todo(
-            analytics_db, generate_id(), session_id, "Pending task", status="pending"
+        # Create todos with all statuses
+        insert_todo(
+            analytics_db, generate_id(), session_id, "T1", "pending", created_at=now
         )
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Completed task",
-            status="completed",
+        insert_todo(
+            analytics_db, generate_id(), session_id, "T2", "completed", created_at=now
         )
-
-        todos = queries.get_todos(status="completed")
-        assert len(todos) == 1
-        assert todos[0].status == "completed"
-
-    def test_get_todos_filters_by_session_and_status(self, analytics_db, queries):
-        """get_todos should filter by both session_id and status."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_todo(
-            analytics_db, generate_id(), session_id, "Task 1", status="pending"
+        insert_todo(
+            analytics_db, generate_id(), session_id, "T3", "completed", created_at=now
         )
-        insert_test_todo(
-            analytics_db, generate_id(), session_id, "Task 2", status="completed"
+        insert_todo(
+            analytics_db, generate_id(), session_id, "T4", "in_progress", created_at=now
         )
-
-        todos = queries.get_todos(session_id=session_id, status="pending")
-        assert len(todos) == 1
-        assert todos[0].status == "pending"
-
-    def test_get_todo_stats(self, analytics_db, queries):
-        """get_todo_stats should return correct statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Task 1",
-            status="pending",
-            created_at=now,
-        )
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Task 2",
-            status="completed",
-            created_at=now,
-        )
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Task 3",
-            status="completed",
-            created_at=now,
-        )
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Task 4",
-            status="in_progress",
-            created_at=now,
+        insert_todo(
+            analytics_db, generate_id(), session_id, "T5", "cancelled", created_at=now
         )
 
         stats = queries.get_todo_stats(days=1)
-        assert stats is not None
-        assert stats.total == 4
+
+        assert stats.total == 5
+        assert stats.pending == 1
         assert stats.completed == 2
         assert stats.in_progress == 1
-        assert stats.pending == 1
-        assert stats.completion_rate == 50.0
+        assert stats.cancelled == 1
+        assert stats.completion_rate == 40.0  # 2/5 = 40%
 
-    def test_get_todo_stats_returns_none_when_empty(self, analytics_db, queries):
-        """get_todo_stats should return None when no todos exist."""
+    def test_todo_stats_empty_returns_none(self, analytics_db, queries):
+        """get_todo_stats returns None when no todos exist."""
         stats = queries.get_todo_stats(days=1)
         assert stats is None
 
-    def test_get_projects(self, analytics_db, queries):
-        """get_projects should return all projects."""
-        now = datetime.now()
-        insert_test_project(analytics_db, generate_id(), "/project/a", created_at=now)
-        insert_test_project(analytics_db, generate_id(), "/project/b", created_at=now)
 
-        projects = queries.get_projects()
-        assert len(projects) == 2
+# =============================================================================
+# Projects and Code Stats Tests
+# =============================================================================
 
-    def test_get_project_stats(self, analytics_db, queries):
-        """get_project_stats should return per-project statistics."""
-        now = datetime.now()
-        project_id = generate_id()
-        session_id = generate_id()
 
-        insert_test_project(analytics_db, project_id, "/project/test", created_at=now)
-        insert_test_session_with_project(analytics_db, session_id, project_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
+class TestProjectsAndCodeStats:
+    """Tests for project queries and code change statistics."""
 
-        stats = queries.get_project_stats(days=1)
-        assert len(stats) >= 1
-        project_stat = next((s for s in stats if s.project_id == project_id), None)
-        assert project_stat is not None
-        assert project_stat.sessions == 1
-
-    def test_get_code_stats(self, analytics_db, queries):
-        """get_code_stats should return code change statistics."""
+    def test_projects_and_stats(self, analytics_db, queries):
+        """get_projects and get_project_stats return correct data."""
         now = datetime.now()
         project_id = generate_id()
         session_id = generate_id()
 
-        insert_test_project(analytics_db, project_id, "/project/test", created_at=now)
-        insert_test_session_with_project(
+        insert_project(analytics_db, project_id, "/project/test", created_at=now)
+        insert_session(
             analytics_db,
             session_id,
-            project_id,
             now,
+            project_id=project_id,
             additions=100,
             deletions=50,
             files_changed=5,
         )
+        insert_message(analytics_db, generate_id(), session_id, now)
 
-        stats = queries.get_code_stats(days=1)
-        assert stats["additions"] == 100
-        assert stats["deletions"] == 50
-        assert stats["files_changed"] == 5
-        assert stats["sessions_with_changes"] == 1
+        # Test get_projects
+        projects = queries.get_projects()
+        assert len(projects) == 1
+        assert projects[0].worktree == "/project/test"
+        assert projects[0].vcs == "git"
 
-    def test_get_code_stats_empty(self, analytics_db, queries):
-        """get_code_stats should return zeros when no data."""
-        stats = queries.get_code_stats(days=1)
-        assert stats["additions"] == 0
-        assert stats["deletions"] == 0
+        # Test get_project_stats
+        stats = queries.get_project_stats(days=1)
+        project_stat = next((s for s in stats if s.project_id == project_id), None)
+        assert project_stat is not None
+        assert project_stat.sessions == 1
 
-    def test_get_cost_stats(self, analytics_db, queries):
-        """get_cost_stats should return cost statistics."""
+        # Test get_code_stats
+        code_stats = queries.get_code_stats(days=1)
+        assert code_stats["additions"] == 100
+        assert code_stats["deletions"] == 50
+        assert code_stats["files_changed"] == 5
+        assert code_stats["sessions_with_changes"] == 1
+
+    def test_empty_project_queries(self, analytics_db, queries):
+        """Project queries return empty/zero for empty database."""
+        assert queries.get_projects() == []
+        assert queries.get_project_stats(days=1) == []
+
+        code_stats = queries.get_code_stats(days=1)
+        assert code_stats["additions"] == 0
+        assert code_stats["deletions"] == 0
+        assert code_stats["files_changed"] == 0
+
+
+# =============================================================================
+# Cost Stats Tests
+# =============================================================================
+
+
+class TestCostStats:
+    """Tests for cost statistics."""
+
+    def test_cost_stats_calculates_correctly(self, analytics_db, queries):
+        """get_cost_stats returns correct totals."""
         now = datetime.now()
         session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
+        insert_session(analytics_db, session_id, now)
 
-        insert_test_message_with_cost(
-            analytics_db, generate_id(), session_id, now, cost=0.05
-        )
-        insert_test_message_with_cost(
-            analytics_db, generate_id(), session_id, now, cost=0.10
-        )
+        insert_message(analytics_db, generate_id(), session_id, now, cost=0.05)
+        insert_message(analytics_db, generate_id(), session_id, now, cost=0.10)
+        insert_message(
+            analytics_db, generate_id(), session_id, now, cost=0.00
+        )  # No cost
 
         stats = queries.get_cost_stats(days=1)
-        assert stats["total_cost"] == pytest.approx(0.15, rel=0.01)
-        assert stats["messages_with_cost"] == 2
 
-    def test_get_cost_stats_empty(self, analytics_db, queries):
-        """get_cost_stats should return zeros when no data."""
+        assert stats["total_cost"] == pytest.approx(0.15, rel=0.01)
+        assert stats["messages_with_cost"] == 2  # Only messages with cost > 0
+        # avg_cost_per_message is AVG over ALL messages (including 0 cost)
+        assert stats["avg_cost_per_message"] == pytest.approx(0.05, rel=0.01)  # 0.15/3
+
+    def test_cost_stats_empty(self, analytics_db, queries):
+        """get_cost_stats returns zeros for empty database."""
         stats = queries.get_cost_stats(days=1)
         assert stats["total_cost"] == 0.0
+        assert stats["messages_with_cost"] == 0
 
 
 # =============================================================================
-# DelegationQueries Tests
+# Delegation Tests
 # =============================================================================
 
 
-class TestDelegationQueries:
-    """Tests for DelegationQueries module."""
+class TestDelegations:
+    """Tests for delegation queries."""
 
-    def test_get_delegation_metrics(self, analytics_db, queries):
-        """_get_delegation_metrics should return metrics."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Add delegations
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "tester",
-            created_at=now,
-        )
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "quality",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        metrics = queries._get_delegation_metrics(start_date, end_date)
-        assert metrics is not None
-        assert metrics.total_delegations == 2
-        assert metrics.sessions_with_delegations == 1
-        assert metrics.unique_patterns == 2
-
-    def test_get_delegation_metrics_returns_none_when_empty(
-        self, analytics_db, queries
-    ):
-        """_get_delegation_metrics should return None when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        metrics = queries._get_delegation_metrics(start_date, end_date)
-        assert metrics is None
-
-    def test_get_delegation_patterns(self, analytics_db, queries):
-        """_get_delegation_patterns should return patterns."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        # Add multiple delegations of the same pattern
-        for _ in range(3):
-            insert_test_delegation(
-                analytics_db,
-                generate_id(),
-                session_id,
-                "executor",
-                "tester",
-                created_at=now,
-            )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        patterns = queries._get_delegation_patterns(start_date, end_date)
-        assert len(patterns) >= 1
-        pattern = patterns[0]
-        assert pattern.parent == "executor"
-        assert pattern.child == "tester"
-        assert pattern.count == 3
-
-    def test_get_delegation_patterns_empty(self, analytics_db, queries):
-        """_get_delegation_patterns should return empty list when no data."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        patterns = queries._get_delegation_patterns(start_date, end_date)
-        assert patterns == []
-
-    def test_get_agent_chains(self, analytics_db, queries):
-        """_get_agent_chains should return delegation chains."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "tester",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        chains = queries._get_agent_chains(start_date, end_date)
-        assert len(chains) >= 1
-        assert "executor -> tester" in chains[0].chain
-
-    def test_get_delegation_sessions(self, analytics_db, queries):
-        """_get_delegation_sessions should return sessions with multiple delegations."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Add multiple delegations from same agent in same session
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "tester",
-            created_at=now,
-        )
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "quality",
-            created_at=now + timedelta(seconds=1),
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        sessions = queries._get_delegation_sessions(start_date, end_date)
-        assert len(sessions) >= 1
-        session = sessions[0]
-        assert session.delegation_count >= 2
-
-
-# =============================================================================
-# SessionQueries Tests
-# =============================================================================
-
-
-class TestSessionQueries:
-    """Tests for SessionQueries module."""
-
-    def test_get_top_sessions(self, analytics_db, queries):
-        """_get_top_sessions should return sessions by token usage."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        sessions = queries._get_top_sessions(start_date, end_date)
-        assert len(sessions) == 1
-        assert sessions[0].session_id == session_id
-
-    def test_get_session_token_stats(self, analytics_db, queries):
-        """_get_session_token_stats should return token distribution."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_session_token_stats(start_date, end_date)
-        assert stats is not None
-        assert stats.total_sessions == 1
-
-    def test_get_session_token_stats_returns_none_when_empty(
-        self, analytics_db, queries
-    ):
-        """_get_session_token_stats should return None when no data."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_session_token_stats(start_date, end_date)
-        assert stats is None
-
-    def test_get_session_hierarchy(self, analytics_db, queries):
-        """get_session_hierarchy should return parent-child hierarchy."""
-        now = datetime.now()
-        parent_id = generate_id()
-        child_id = generate_id()
-
-        insert_test_session(analytics_db, parent_id, now)
-
-        # Insert child session with parent reference
-        conn = analytics_db.connect()
-        conn.execute(
-            """
-            INSERT INTO sessions (id, directory, title, created_at, updated_at, parent_id)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            [child_id, "/test/dir", "Child Session", now, now, parent_id],
-        )
-
-        hierarchy = queries.get_session_hierarchy(parent_id)
-        assert hierarchy["current"] == parent_id
-        assert len(hierarchy["children"]) == 1
-        assert hierarchy["children"][0]["id"] == child_id
-
-    def test_get_session_hierarchy_empty(self, analytics_db, queries):
-        """get_session_hierarchy should handle non-existent session."""
-        hierarchy = queries.get_session_hierarchy("nonexistent")
-        assert hierarchy["current"] == "nonexistent"
-        assert hierarchy["children"] == []
-        assert hierarchy["parents"] == []
-
-    def test_get_avg_session_duration(self, analytics_db, queries):
-        """_get_avg_session_duration should calculate average duration."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Insert messages with time gap
-        msg1 = generate_id()
-        msg2 = generate_id()
-        insert_test_message(analytics_db, msg1, session_id, now)
-        insert_test_message(analytics_db, msg2, session_id, now + timedelta(minutes=30))
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        duration = queries._get_avg_session_duration(start_date, end_date)
-        assert duration >= 0
-
-
-# =============================================================================
-# AgentQueries Tests
-# =============================================================================
-
-
-class TestAgentQueries:
-    """Tests for AgentQueries module."""
-
-    def test_get_agent_stats(self, analytics_db, queries):
-        """_get_agent_stats should return per-agent statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_message(
-            analytics_db, generate_id(), session_id, now, agent="executor"
-        )
-        insert_test_message(
-            analytics_db, generate_id(), session_id, now, agent="tester"
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_agent_stats(start_date, end_date)
-        assert len(stats) == 2
-        agents = [s.agent for s in stats]
-        assert "executor" in agents
-        assert "tester" in agents
-
-    def test_get_agent_roles_orchestrator(self, analytics_db, queries):
-        """_get_agent_roles should identify orchestrator (only sends, never receives)."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(
-            analytics_db, generate_id(), session_id, now, agent="coordinator"
-        )
-
-        # Coordinator only sends delegations
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "coordinator",
-            "executor",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        roles = queries._get_agent_roles(start_date, end_date)
-        assert len(roles) >= 1
-        coordinator_role = next((r for r in roles if r.agent == "coordinator"), None)
-        assert coordinator_role is not None
-        assert coordinator_role.role == "orchestrator"
-
-    def test_get_agent_roles_worker(self, analytics_db, queries):
-        """_get_agent_roles should identify worker (only receives, never sends)."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(
-            analytics_db, generate_id(), session_id, now, agent="tester"
-        )
-
-        # Tester only receives delegations
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "tester",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        roles = queries._get_agent_roles(start_date, end_date)
-        tester_role = next((r for r in roles if r.agent == "tester"), None)
-        assert tester_role is not None
-        assert tester_role.role == "worker"
-
-    def test_get_agent_roles_hub(self, analytics_db, queries):
-        """_get_agent_roles should identify hub (both sends and receives)."""
+    def test_delegation_metrics_and_patterns(self, analytics_db, queries):
+        """Delegation metrics and patterns are calculated correctly."""
         now = datetime.now()
         session_id = generate_id()
         child_session = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_session(analytics_db, child_session, now)
-        insert_test_message(
-            analytics_db, generate_id(), session_id, now, agent="executor"
-        )
+        insert_session(analytics_db, session_id, now)
+        insert_session(analytics_db, child_session, now)
+        insert_message(analytics_db, generate_id(), session_id, now)
+        insert_message(analytics_db, generate_id(), child_session, now)
 
-        # Executor receives from coordinator
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "coordinator",
-            "executor",
-            created_at=now,
-        )
-        # Executor sends to tester
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "tester",
-            child_session_id=child_session,
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        roles = queries._get_agent_roles(start_date, end_date)
-        executor_role = next((r for r in roles if r.agent == "executor"), None)
-        assert executor_role is not None
-        assert executor_role.role == "hub"
-
-    def test_get_agent_delegation_stats(self, analytics_db, queries):
-        """_get_agent_delegation_stats should return delegation stats per agent."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Multiple delegations from executor
+        # Add delegations: 3 executor->tester, 1 executor->quality
         for _ in range(3):
-            insert_test_delegation(
+            insert_delegation(
                 analytics_db,
                 generate_id(),
                 session_id,
                 "executor",
                 "tester",
-                created_at=now,
-            )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_agent_delegation_stats(start_date, end_date)
-        assert len(stats) >= 1
-        executor_stats = next((s for s in stats if s.agent == "executor"), None)
-        assert executor_stats is not None
-        assert executor_stats.total_delegations == 3
-
-
-# =============================================================================
-# DimensionQueries Tests
-# =============================================================================
-
-
-class TestDimensionQueries:
-    """Tests for DimensionQueries module."""
-
-    def test_get_directory_stats(self, analytics_db, queries):
-        """_get_directory_stats should return per-directory statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-
-        # Insert session with directory
-        conn = analytics_db.connect()
-        conn.execute(
-            """
-            INSERT INTO sessions (id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            [session_id, "/home/user/project", "Test Session", now, now],
-        )
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_directory_stats(start_date, end_date)
-        assert len(stats) >= 1
-        dir_stat = next((s for s in stats if s.directory == "/home/user/project"), None)
-        assert dir_stat is not None
-
-    def test_get_model_stats(self, analytics_db, queries):
-        """_get_model_stats should return per-model statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_message_with_cost(
-            analytics_db,
-            generate_id(),
-            session_id,
-            now,
-            model_id="claude-3-sonnet",
-            provider_id="anthropic",
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_model_stats(start_date, end_date)
-        assert len(stats) >= 1
-        model_stat = next((s for s in stats if s.model_id == "claude-3-sonnet"), None)
-        assert model_stat is not None
-        assert model_stat.provider_id == "anthropic"
-
-    def test_get_anomalies_excessive_tasks(self, analytics_db, queries):
-        """_get_anomalies should detect sessions with excessive task calls."""
-        now = datetime.now()
-        session_id = generate_id()
-        message_id = generate_id()
-
-        # Create session with title
-        conn = analytics_db.connect()
-        conn.execute(
-            """
-            INSERT INTO sessions (id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?)
-            """,
-            [session_id, "/test", "Long Session Title Here", now, now],
-        )
-        insert_test_message(analytics_db, message_id, session_id, now)
-
-        # Add more than 10 task calls
-        for _ in range(12):
-            insert_test_tool(analytics_db, generate_id(), message_id, "task", now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        anomalies = queries._get_anomalies(start_date, end_date)
-        assert len(anomalies) >= 1
-        assert any("task" in a.lower() for a in anomalies)
-
-    def test_get_anomalies_high_failure_rate(self, analytics_db, queries):
-        """_get_anomalies should detect tools with high failure rate."""
-        now = datetime.now()
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, message_id, session_id, now)
-
-        # Add 10 tool calls with 3 failures (30% failure rate)
-        for i in range(10):
-            status = "error" if i < 3 else "success"
-            insert_test_tool(
-                analytics_db,
-                generate_id(),
-                message_id,
-                "flaky_tool",
+                child_session,
                 now,
-                status=status,
             )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        anomalies = queries._get_anomalies(start_date, end_date)
-        assert len(anomalies) >= 1
-        assert any("failure" in a.lower() for a in anomalies)
-
-    def test_get_anomalies_public_method(self, analytics_db, queries):
-        """get_anomalies (public) should work with days parameter."""
-        anomalies = queries.get_anomalies(days=7)
-        assert isinstance(anomalies, list)
-
-
-# =============================================================================
-# ToolQueries Tests
-# =============================================================================
-
-
-class TestToolQueries:
-    """Tests for ToolQueries module."""
-
-    def test_get_tool_performance(self, analytics_db, queries):
-        """get_tool_performance should return duration statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, message_id, session_id, now)
-
-        # Add tools with duration
-        insert_test_part_with_duration(
-            analytics_db, generate_id(), message_id, "bash", now, duration_ms=100
-        )
-        insert_test_part_with_duration(
-            analytics_db, generate_id(), message_id, "bash", now, duration_ms=200
-        )
-
-        perf = queries.get_tool_performance(days=1)
-        assert len(perf) >= 1
-        bash_perf = next((p for p in perf if p["tool_name"] == "bash"), None)
-        assert bash_perf is not None
-        assert bash_perf["invocations"] == 2
-        assert bash_perf["avg_duration_ms"] == 150
-
-    def test_get_tool_performance_empty(self, analytics_db, queries):
-        """get_tool_performance should return empty list when no data."""
-        perf = queries.get_tool_performance(days=1)
-        assert perf == []
-
-
-# =============================================================================
-# TimeSeriesQueries Tests
-# =============================================================================
-
-
-class TestTimeSeriesQueries:
-    """Tests for TimeSeriesQueries module."""
-
-    def test_get_hourly_usage(self, analytics_db, queries):
-        """_get_hourly_usage should return usage by hour."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        hourly = queries._get_hourly_usage(start_date, end_date)
-        assert len(hourly) >= 1
-        assert hourly[0].hour == now.hour
-
-    def test_get_hourly_delegations(self, analytics_db, queries):
-        """_get_hourly_delegations should return delegations by hour."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_delegation(
+        insert_delegation(
             analytics_db,
             generate_id(),
             session_id,
             "executor",
-            "tester",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        hourly = queries._get_hourly_delegations(start_date, end_date)
-        assert len(hourly) >= 1
-
-    def test_get_daily_stats(self, analytics_db, queries):
-        """_get_daily_stats should return daily statistics."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        daily = queries._get_daily_stats(start_date, end_date)
-        assert len(daily) >= 1
-
-
-# =============================================================================
-# BaseQueries Tests
-# =============================================================================
-
-
-class TestBaseQueries:
-    """Tests for BaseQueries module."""
-
-    def test_get_date_range(self, analytics_db, queries):
-        """_get_date_range should calculate correct date range."""
-        start, end = queries._get_date_range(7)
-
-        # End should be now
-        assert (datetime.now() - end).total_seconds() < 1
-
-        # Start should be 7 days ago
-        delta = end - start
-        assert delta.days == 7
-
-
-# =============================================================================
-# Extended Chain Tests (DelegationQueries)
-# =============================================================================
-
-
-class TestDelegationExtendedChains:
-    """Tests for extended delegation chains (depth > 2)."""
-
-    def test_get_extended_chains(self, analytics_db, queries):
-        """_get_extended_chains should find chains of depth 3."""
-        now = datetime.now()
-
-        # Create sessions for chain
-        session1 = generate_id()
-        session2 = generate_id()
-        session3 = generate_id()
-
-        insert_test_session(analytics_db, session1, now)
-        insert_test_session(analytics_db, session2, now)
-        insert_test_session(analytics_db, session3, now)
-
-        # Create chain: executor -> tester -> quality
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session1,
-            "executor",
-            "tester",
-            child_session_id=session2,
-            created_at=now,
-        )
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session2,
-            "tester",
             "quality",
-            child_session_id=session3,
             created_at=now,
         )
 
         start_date = now - timedelta(days=1)
         end_date = now + timedelta(hours=1)
 
-        chains = queries._get_extended_chains(start_date, end_date)
-        # Extended chains are depth 3+
-        assert isinstance(chains, list)
-
-    def test_recursive_delegations(self, analytics_db, queries):
-        """Test recursive delegation detection (agent delegates to itself)."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Agent delegates to itself
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "executor",
-            "executor",
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
+        # Test metrics
         metrics = queries._get_delegation_metrics(start_date, end_date)
-        assert metrics is not None
-        assert metrics.recursive_delegations == 1
+        assert metrics.total_delegations == 4
+        assert metrics.sessions_with_delegations == 1
+        assert metrics.unique_patterns == 2
 
+        # Test patterns
+        patterns = queries._get_delegation_patterns(start_date, end_date)
+        assert len(patterns) == 2
+        tester_pattern = next(p for p in patterns if p.child == "tester")
+        assert tester_pattern.parent == "executor"
+        assert tester_pattern.count == 3
 
-# =============================================================================
-# Edge Cases and Exception Handler Tests
-# =============================================================================
+        # Verify percentages sum to 100
+        total_percentage = sum(p.percentage for p in patterns)
+        assert abs(total_percentage - 100.0) < 0.1
 
+        # Test chains
+        chains = queries._get_agent_chains(start_date, end_date)
+        assert len(chains) >= 1
+        assert any("executor -> tester" in c.chain for c in chains)
 
-class TestEdgeCases:
-    """Tests for edge cases to improve coverage."""
-
-    def test_get_todos_empty_result(self, analytics_db, queries):
-        """get_todos should return empty list when no todos exist."""
-        todos = queries.get_todos()
-        assert todos == []
-
-    def test_get_projects_empty(self, analytics_db, queries):
-        """get_projects should return empty list when no projects."""
-        projects = queries.get_projects()
-        assert projects == []
-
-    def test_get_project_stats_empty(self, analytics_db, queries):
-        """get_project_stats should return empty list when no projects."""
-        stats = queries.get_project_stats(days=1)
-        assert stats == []
-
-    def test_get_directory_stats_empty(self, analytics_db, queries):
-        """_get_directory_stats should return empty list when no sessions."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_directory_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_model_stats_empty(self, analytics_db, queries):
-        """_get_model_stats should return empty list when no messages."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_model_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_agent_roles_empty(self, analytics_db, queries):
-        """_get_agent_roles should return empty list when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        roles = queries._get_agent_roles(start_date, end_date)
-        assert roles == []
-
-    def test_get_agent_delegation_stats_empty(self, analytics_db, queries):
-        """_get_agent_delegation_stats should return empty when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_agent_delegation_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_hourly_delegations_empty(self, analytics_db, queries):
-        """_get_hourly_delegations should return empty list when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        hourly = queries._get_hourly_delegations(start_date, end_date)
-        assert hourly == []
-
-    def test_get_daily_stats_empty(self, analytics_db, queries):
-        """_get_daily_stats should return empty list when no data."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        daily = queries._get_daily_stats(start_date, end_date)
-        assert daily == []
-
-    def test_get_skills_by_agent_empty(self, analytics_db, queries):
-        """_get_skills_by_agent should return empty list when no skills."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        skills = queries._get_skills_by_agent(start_date, end_date)
-        assert skills == []
-
-    def test_session_with_null_title(self, analytics_db, queries):
-        """Sessions with NULL title should display as 'Untitled'."""
+    def test_delegation_sessions_requires_multiple(self, analytics_db, queries):
+        """_get_delegation_sessions only returns sessions with 2+ delegations."""
         now = datetime.now()
         session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
 
-        # Insert session with NULL title
-        conn = analytics_db.connect()
-        conn.execute(
-            """
-            INSERT INTO sessions (id, directory, title, created_at, updated_at)
-            VALUES (?, ?, NULL, ?, ?)
-            """,
-            [session_id, "/test", now, now],
-        )
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        sessions = queries._get_top_sessions(start_date, end_date)
-        assert len(sessions) == 1
-        assert sessions[0].title == "Untitled"
-
-    def test_delegation_sessions_empty(self, analytics_db, queries):
-        """_get_delegation_sessions should return empty when no multi-delegations."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Only 1 delegation (need >= 2 to be included)
-        insert_test_delegation(
+        # Only 1 delegation - should not appear
+        insert_delegation(
             analytics_db,
             generate_id(),
             session_id,
@@ -1669,229 +653,281 @@ class TestEdgeCases:
         sessions = queries._get_delegation_sessions(start_date, end_date)
         assert sessions == []
 
-    def test_anomalies_no_excessive_tasks(self, analytics_db, queries):
-        """_get_anomalies should not flag sessions with <= 10 task calls."""
-        now = datetime.now()
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, message_id, session_id, now)
-
-        # Add exactly 10 task calls (threshold is > 10)
-        for _ in range(10):
-            insert_test_tool(analytics_db, generate_id(), message_id, "task", now)
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        anomalies = queries._get_anomalies(start_date, end_date)
-        # Should not have excessive task anomaly
-        assert not any("task" in a.lower() for a in anomalies)
-
-    def test_anomalies_low_failure_rate_not_flagged(self, analytics_db, queries):
-        """_get_anomalies should not flag tools with <= 20% failure rate."""
-        now = datetime.now()
-        session_id = generate_id()
-        message_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, message_id, session_id, now)
-
-        # Add 10 tool calls with 2 failures (20% - at threshold)
-        for i in range(10):
-            status = "error" if i < 2 else "success"
-            insert_test_tool(
-                analytics_db,
-                generate_id(),
-                message_id,
-                "stable_tool",
-                now,
-                status=status,
-            )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        anomalies = queries._get_anomalies(start_date, end_date)
-        # Should not flag stable_tool (20% is at threshold, not above)
-        assert not any("stable_tool" in a for a in anomalies)
-
-
-# =============================================================================
-# Additional Coverage Tests
-# =============================================================================
-
-
-class TestModelStatsPercentage:
-    """Tests for model stats with percentage calculation."""
-
-    def test_model_percentage_calculation(self, analytics_db, queries):
-        """Model percentage should be calculated correctly."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        # Add messages with different models
-        insert_test_message_with_cost(
-            analytics_db,
-            generate_id(),
-            session_id,
-            now,
-            model_id="model-a",
-            provider_id="provider-a",
-        )
-        insert_test_message_with_cost(
-            analytics_db,
-            generate_id(),
-            session_id,
-            now,
-            model_id="model-b",
-            provider_id="provider-b",
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        stats = queries._get_model_stats(start_date, end_date)
-        assert len(stats) == 2
-        # Percentages should sum to 100%
-        total_percentage = sum(s.percentage for s in stats)
-        assert abs(total_percentage - 100.0) < 0.1
-
-
-class TestTodoWithCancelledStatus:
-    """Test todos with cancelled status."""
-
-    def test_todo_stats_with_cancelled(self, analytics_db, queries):
-        """get_todo_stats should count cancelled todos."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-
-        insert_test_todo(
-            analytics_db,
-            generate_id(),
-            session_id,
-            "Cancelled task",
-            status="cancelled",
-            created_at=now,
-        )
-
-        stats = queries.get_todo_stats(days=1)
-        assert stats is not None
-        assert stats.cancelled == 1
-
-
-# =============================================================================
-# Additional Delegation Tests for Coverage
-# =============================================================================
-
-
-class TestDelegationPatternsDetails:
-    """Additional tests for delegation patterns."""
-
-    def test_delegation_patterns_with_tokens(self, analytics_db, queries):
-        """_get_delegation_patterns should calculate token totals correctly."""
-        now = datetime.now()
-
-        # Create parent and child sessions
-        parent_session = generate_id()
-        child_session = generate_id()
-
-        insert_test_session(analytics_db, parent_session, now)
-        insert_test_session(analytics_db, child_session, now)
-
-        # Add messages to both sessions for token counting
-        insert_test_message(analytics_db, generate_id(), parent_session, now)
-        insert_test_message(analytics_db, generate_id(), child_session, now)
-
-        # Add delegation with child_session_id
-        insert_test_delegation(
-            analytics_db,
-            generate_id(),
-            parent_session,
-            "executor",
-            "tester",
-            child_session_id=child_session,
-            created_at=now,
-        )
-
-        start_date = now - timedelta(days=1)
-        end_date = now + timedelta(hours=1)
-
-        patterns = queries._get_delegation_patterns(start_date, end_date)
-        assert len(patterns) >= 1
-        assert patterns[0].tokens_total >= 0
-        assert patterns[0].tokens_avg >= 0
-
-    def test_delegation_patterns_percentage(self, analytics_db, queries):
-        """_get_delegation_patterns should calculate percentage correctly."""
-        now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now)
-
-        # Add 2 executor->tester and 1 executor->quality
-        for _ in range(2):
-            insert_test_delegation(
-                analytics_db,
-                generate_id(),
-                session_id,
-                "executor",
-                "tester",
-                created_at=now,
-            )
-        insert_test_delegation(
+        # Add second delegation - now should appear
+        insert_delegation(
             analytics_db,
             generate_id(),
             session_id,
             "executor",
             "quality",
+            created_at=now + timedelta(seconds=1),
+        )
+
+        sessions = queries._get_delegation_sessions(start_date, end_date)
+        assert len(sessions) == 1
+        assert sessions[0].delegation_count == 2
+
+    def test_recursive_delegations_counted(self, analytics_db, queries):
+        """Recursive delegations (agent to itself) are tracked."""
+        now = datetime.now()
+        session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+
+        insert_delegation(
+            analytics_db,
+            generate_id(),
+            session_id,
+            "executor",
+            "executor",
             created_at=now,
         )
 
         start_date = now - timedelta(days=1)
         end_date = now + timedelta(hours=1)
 
-        patterns = queries._get_delegation_patterns(start_date, end_date)
+        metrics = queries._get_delegation_metrics(start_date, end_date)
+        assert metrics.recursive_delegations == 1
 
-        # Verify percentages
-        total_percentage = sum(p.percentage for p in patterns)
-        assert abs(total_percentage - 100.0) < 0.1
-
-
-class TestSessionDurationEdgeCases:
-    """Edge cases for session duration calculations."""
-
-    def test_session_duration_single_message(self, analytics_db, queries):
-        """Sessions with single message should have 0 duration."""
+    def test_extended_chains(self, analytics_db, queries):
+        """Extended chains (depth 3+) are detected."""
         now = datetime.now()
-        session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
+        session1, session2, session3 = generate_id(), generate_id(), generate_id()
 
-        # Single message - no duration
-        insert_test_message(analytics_db, generate_id(), session_id, now)
+        insert_session(analytics_db, session1, now)
+        insert_session(analytics_db, session2, now)
+        insert_session(analytics_db, session3, now)
+
+        # Chain: executor -> tester -> quality
+        insert_delegation(
+            analytics_db, generate_id(), session1, "executor", "tester", session2, now
+        )
+        insert_delegation(
+            analytics_db, generate_id(), session2, "tester", "quality", session3, now
+        )
 
         start_date = now - timedelta(days=1)
         end_date = now + timedelta(hours=1)
 
-        # avg_session_duration filters out single-message sessions
-        duration = queries._get_avg_session_duration(start_date, end_date)
-        assert duration == 0  # No sessions with > 1 message
+        chains = queries._get_extended_chains(start_date, end_date)
+        assert isinstance(chains, list)
 
 
-class TestAgentRolesFanOut:
-    """Test fan-out calculation in agent roles."""
+# =============================================================================
+# Session Tests
+# =============================================================================
 
-    def test_agent_role_fan_out_calculation(self, analytics_db, queries):
-        """Fan-out should be sent/received ratio."""
+
+class TestSessions:
+    """Tests for session queries."""
+
+    def test_top_sessions_and_token_stats(self, analytics_db, queries):
+        """Session queries return correct data."""
         now = datetime.now()
         session_id = generate_id()
-        insert_test_session(analytics_db, session_id, now)
-        insert_test_message(analytics_db, generate_id(), session_id, now, agent="hub")
+        insert_session(analytics_db, session_id, now)
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now,
+            tokens_input=200,
+            tokens_output=100,
+        )
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now + timedelta(minutes=30),
+            tokens_input=150,
+            tokens_output=75,
+        )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        # Test top sessions
+        sessions = queries._get_top_sessions(start_date, end_date)
+        assert len(sessions) == 1
+        assert sessions[0].session_id == session_id
+        # tokens is TokenStats with input, output, etc.
+        total = sessions[0].tokens.input + sessions[0].tokens.output
+        assert total == 525  # 200+100+150+75
+        assert sessions[0].message_count == 2
+
+        # Test token stats
+        stats = queries._get_session_token_stats(start_date, end_date)
+        assert stats.total_sessions == 1
+        assert stats.avg_tokens == 525  # avg_tokens, not avg_tokens_per_session
+
+        # Test avg duration (returns minutes, not seconds)
+        duration = queries._get_avg_session_duration(start_date, end_date)
+        assert duration == pytest.approx(30, rel=0.2)  # 30 minutes
+
+    def test_session_hierarchy(self, analytics_db, queries):
+        """Session hierarchy returns parent-child relationships."""
+        now = datetime.now()
+        parent_id = generate_id()
+        child_id = generate_id()
+
+        insert_session(analytics_db, parent_id, now, title="Parent Session")
+        insert_session(
+            analytics_db, child_id, now, parent_id=parent_id, title="Child Session"
+        )
+
+        # Check from parent's perspective
+        parent_hierarchy = queries.get_session_hierarchy(parent_id)
+        assert parent_hierarchy["current"] == parent_id
+        assert len(parent_hierarchy["children"]) == 1
+        assert parent_hierarchy["children"][0]["id"] == child_id
+        # parents includes the session chain up to root (including current)
+        assert len(parent_hierarchy["parents"]) == 1
+        assert parent_hierarchy["parents"][0]["id"] == parent_id
+
+        # Check from child's perspective
+        child_hierarchy = queries.get_session_hierarchy(child_id)
+        assert child_hierarchy["current"] == child_id
+        assert len(child_hierarchy["children"]) == 0
+        # parents includes [parent, child] in order
+        assert len(child_hierarchy["parents"]) == 2
+        assert child_hierarchy["parents"][0]["id"] == parent_id
+        assert child_hierarchy["parents"][1]["id"] == child_id
+
+    def test_session_hierarchy_nonexistent(self, analytics_db, queries):
+        """Session hierarchy handles nonexistent session."""
+        hierarchy = queries.get_session_hierarchy("nonexistent")
+
+        assert hierarchy["current"] == "nonexistent"
+        assert hierarchy["children"] == []
+        assert hierarchy["parents"] == []
+
+    def test_session_with_null_title_shows_untitled(self, analytics_db, queries):
+        """Sessions with NULL title display as 'Untitled'."""
+        now = datetime.now()
+        session_id = generate_id()
+
+        conn = analytics_db.connect()
+        conn.execute(
+            """
+            INSERT INTO sessions (id, directory, title, created_at, updated_at)
+            VALUES (?, ?, NULL, ?, ?)
+            """,
+            [session_id, "/test", now, now],
+        )
+        insert_message(analytics_db, generate_id(), session_id, now)
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        sessions = queries._get_top_sessions(start_date, end_date)
+        assert sessions[0].title == "Untitled"
+
+
+# =============================================================================
+# Agent Tests
+# =============================================================================
+
+
+class TestAgents:
+    """Tests for agent queries."""
+
+    def test_agent_stats(self, analytics_db, queries):
+        """_get_agent_stats returns per-agent statistics."""
+        now = datetime.now()
+        session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now,
+            agent="executor",
+            tokens_input=200,
+        )
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now,
+            agent="tester",
+            tokens_input=100,
+        )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        stats = queries._get_agent_stats(start_date, end_date)
+
+        assert len(stats) == 2
+        agents = {s.agent: s for s in stats}
+        assert "executor" in agents
+        assert "tester" in agents
+
+    @pytest.mark.parametrize(
+        "role_type,delegates_to,receives_from,expected_role",
+        [
+            ("orchestrator", ["executor"], [], "orchestrator"),
+            ("worker", [], ["executor"], "worker"),
+            ("hub", ["tester"], ["coordinator"], "hub"),
+        ],
+    )
+    def test_agent_roles(
+        self,
+        analytics_db,
+        queries,
+        role_type,
+        delegates_to,
+        receives_from,
+        expected_role,
+    ):
+        """_get_agent_roles correctly identifies agent roles."""
+        now = datetime.now()
+        session_id = generate_id()
+        child_session = generate_id()
+        insert_session(analytics_db, session_id, now)
+        insert_session(analytics_db, child_session, now)
+        insert_message(analytics_db, generate_id(), session_id, now, agent=role_type)
+
+        # Add delegations based on role
+        for target in delegates_to:
+            insert_delegation(
+                analytics_db,
+                generate_id(),
+                session_id,
+                role_type,
+                target,
+                child_session,
+                now,
+            )
+        for source in receives_from:
+            insert_delegation(
+                analytics_db,
+                generate_id(),
+                session_id,
+                source,
+                role_type,
+                created_at=now,
+            )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        roles = queries._get_agent_roles(start_date, end_date)
+        agent_role = next((r for r in roles if r.agent == role_type), None)
+
+        assert agent_role is not None
+        assert agent_role.role == expected_role
+
+    def test_agent_delegation_stats_with_fan_out(self, analytics_db, queries):
+        """_get_agent_delegation_stats calculates fan-out correctly."""
+        now = datetime.now()
+        session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+        insert_message(analytics_db, generate_id(), session_id, now, agent="hub")
 
         # Hub receives 2 and sends 4 = fan-out of 2.0
         for _ in range(2):
-            insert_test_delegation(
+            insert_delegation(
                 analytics_db,
                 generate_id(),
                 session_id,
@@ -1900,7 +936,7 @@ class TestAgentRolesFanOut:
                 created_at=now,
             )
         for _ in range(4):
-            insert_test_delegation(
+            insert_delegation(
                 analytics_db, generate_id(), session_id, "hub", "worker", created_at=now
             )
 
@@ -1909,37 +945,310 @@ class TestAgentRolesFanOut:
 
         roles = queries._get_agent_roles(start_date, end_date)
         hub_role = next((r for r in roles if r.agent == "hub"), None)
+
         assert hub_role is not None
         assert hub_role.fan_out == 2.0
 
 
-class TestDirectoryStatsWithTokens:
-    """Test directory stats with token aggregation."""
+# =============================================================================
+# Dimension Stats Tests
+# =============================================================================
 
-    def test_directory_stats_aggregates_tokens(self, analytics_db, queries):
-        """Directory stats should aggregate tokens from all sessions."""
+
+class TestDimensionStats:
+    """Tests for directory and model statistics."""
+
+    def test_directory_stats(self, analytics_db, queries):
+        """_get_directory_stats aggregates by directory."""
         now = datetime.now()
+        session1, session2 = generate_id(), generate_id()
 
-        # Two sessions in same directory
-        session1 = generate_id()
-        session2 = generate_id()
-
-        conn = analytics_db.connect()
-        for sid in [session1, session2]:
-            conn.execute(
-                """
-                INSERT INTO sessions (id, directory, title, created_at, updated_at)
-                VALUES (?, ?, ?, ?, ?)
-                """,
-                [sid, "/same/directory", f"Session {sid}", now, now],
-            )
-            insert_test_message(analytics_db, generate_id(), sid, now)
+        insert_session(analytics_db, session1, now, directory="/project/a")
+        insert_session(analytics_db, session2, now, directory="/project/a")
+        insert_message(analytics_db, generate_id(), session1, now, tokens_input=100)
+        insert_message(analytics_db, generate_id(), session2, now, tokens_input=200)
 
         start_date = now - timedelta(days=1)
         end_date = now + timedelta(hours=1)
 
         stats = queries._get_directory_stats(start_date, end_date)
-        assert len(stats) >= 1
-        dir_stat = next((s for s in stats if s.directory == "/same/directory"), None)
+        dir_stat = next((s for s in stats if s.directory == "/project/a"), None)
+
         assert dir_stat is not None
         assert dir_stat.sessions == 2
+
+    def test_model_stats_with_percentage(self, analytics_db, queries):
+        """_get_model_stats calculates percentages correctly."""
+        now = datetime.now()
+        session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now,
+            model_id="claude-3-sonnet",
+            provider_id="anthropic",
+        )
+        insert_message(
+            analytics_db,
+            generate_id(),
+            session_id,
+            now,
+            model_id="gpt-4",
+            provider_id="openai",
+        )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        stats = queries._get_model_stats(start_date, end_date)
+
+        assert len(stats) == 2
+        total_percentage = sum(s.percentage for s in stats)
+        assert abs(total_percentage - 100.0) < 0.1
+
+
+# =============================================================================
+# Anomalies Tests
+# =============================================================================
+
+
+class TestAnomalies:
+    """Tests for anomaly detection."""
+
+    @pytest.mark.parametrize(
+        "task_count,failure_rate,expect_task_anomaly,expect_failure_anomaly",
+        [
+            (12, 0.0, True, False),  # Excessive tasks (>10)
+            (10, 0.0, False, False),  # At threshold, not flagged
+            (10, 0.3, False, True),  # High failure rate (>20%)
+            (10, 0.2, False, False),  # At threshold, not flagged
+            (12, 0.3, True, True),  # Both anomalies
+        ],
+    )
+    def test_anomaly_detection(
+        self,
+        analytics_db,
+        queries,
+        task_count,
+        failure_rate,
+        expect_task_anomaly,
+        expect_failure_anomaly,
+    ):
+        """Anomalies are correctly detected based on thresholds."""
+        now = datetime.now()
+        session_id = generate_id()
+        message_id = generate_id()
+
+        insert_session(analytics_db, session_id, now, title="Test Session Title")
+        insert_message(analytics_db, message_id, session_id, now)
+
+        # Add task calls
+        for _ in range(task_count):
+            insert_tool(analytics_db, generate_id(), message_id, "task", now)
+
+        # Add tools with failures
+        total_tools = 10
+        failures = int(total_tools * failure_rate)
+        for i in range(total_tools):
+            status = "error" if i < failures else "success"
+            insert_tool(
+                analytics_db, generate_id(), message_id, "test_tool", now, status=status
+            )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        anomalies = queries._get_anomalies(start_date, end_date)
+
+        has_task_anomaly = any("task" in a.lower() for a in anomalies)
+        has_failure_anomaly = any("failure" in a.lower() for a in anomalies)
+
+        assert has_task_anomaly == expect_task_anomaly
+        assert has_failure_anomaly == expect_failure_anomaly
+
+    def test_get_anomalies_public_method(self, analytics_db, queries):
+        """get_anomalies (public) works with days parameter."""
+        anomalies = queries.get_anomalies(days=7)
+        assert isinstance(anomalies, list)
+
+
+# =============================================================================
+# Tool Performance Tests
+# =============================================================================
+
+
+class TestToolPerformance:
+    """Tests for tool performance queries."""
+
+    def test_tool_performance(self, analytics_db, queries):
+        """get_tool_performance returns correct duration statistics."""
+        now = datetime.now()
+        session_id = generate_id()
+        message_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+        insert_message(analytics_db, message_id, session_id, now)
+
+        insert_tool(
+            analytics_db, generate_id(), message_id, "bash", now, duration_ms=100
+        )
+        insert_tool(
+            analytics_db, generate_id(), message_id, "bash", now, duration_ms=200
+        )
+        insert_tool(
+            analytics_db, generate_id(), message_id, "read", now, duration_ms=50
+        )
+
+        perf = queries.get_tool_performance(days=1)
+
+        assert len(perf) == 2
+        bash_perf = next(p for p in perf if p["tool_name"] == "bash")
+        assert bash_perf["invocations"] == 2
+        assert bash_perf["avg_duration_ms"] == 150
+        assert bash_perf["max_duration_ms"] == 200
+        assert bash_perf["min_duration_ms"] == 100
+        assert bash_perf["failures"] == 0
+
+
+# =============================================================================
+# Time Series Tests
+# =============================================================================
+
+
+class TestTimeSeries:
+    """Tests for time series queries."""
+
+    def test_hourly_and_daily_stats(self, analytics_db, queries):
+        """Time series queries return data grouped by hour/day."""
+        now = datetime.now()
+        session_id = generate_id()
+        insert_session(analytics_db, session_id, now)
+        insert_message(analytics_db, generate_id(), session_id, now)
+        insert_delegation(
+            analytics_db,
+            generate_id(),
+            session_id,
+            "executor",
+            "tester",
+            created_at=now,
+        )
+
+        start_date = now - timedelta(days=1)
+        end_date = now + timedelta(hours=1)
+
+        # Test hourly usage
+        hourly = queries._get_hourly_usage(start_date, end_date)
+        assert len(hourly) >= 1
+        assert hourly[0].hour == now.hour
+
+        # Test hourly delegations
+        hourly_del = queries._get_hourly_delegations(start_date, end_date)
+        assert len(hourly_del) >= 1
+
+        # Test daily stats
+        daily = queries._get_daily_stats(start_date, end_date)
+        assert len(daily) >= 1
+
+
+# =============================================================================
+# Base Queries Tests
+# =============================================================================
+
+
+class TestBaseQueries:
+    """Tests for base query utilities."""
+
+    def test_get_date_range(self, analytics_db, queries):
+        """_get_date_range calculates correct date range."""
+        start, end = queries._get_date_range(7)
+
+        assert (datetime.now() - end).total_seconds() < 1
+        delta = end - start
+        assert delta.days == 7
+
+
+# =============================================================================
+# Empty Results Tests
+# =============================================================================
+
+
+class TestEmptyResults:
+    """Tests for empty database queries."""
+
+    @pytest.mark.parametrize(
+        "query_method,args,expected_empty",
+        [
+            ("get_todos", {}, []),
+            ("get_projects", {}, []),
+            ("get_project_stats", {"days": 1}, []),
+            ("get_tool_performance", {"days": 1}, []),
+            ("_get_directory_stats", {"start_date": "now-1d", "end_date": "now"}, []),
+            ("_get_model_stats", {"start_date": "now-1d", "end_date": "now"}, []),
+            ("_get_agent_roles", {"start_date": "now-1d", "end_date": "now"}, []),
+            (
+                "_get_agent_delegation_stats",
+                {"start_date": "now-1d", "end_date": "now"},
+                [],
+            ),
+            (
+                "_get_hourly_delegations",
+                {"start_date": "now-1d", "end_date": "now"},
+                [],
+            ),
+            ("_get_daily_stats", {"start_date": "now-1d", "end_date": "now"}, []),
+            ("_get_skills_by_agent", {"start_date": "now-1d", "end_date": "now"}, []),
+            (
+                "_get_delegation_patterns",
+                {"start_date": "now-1d", "end_date": "now"},
+                [],
+            ),
+        ],
+    )
+    def test_empty_queries_return_empty_list(
+        self, analytics_db, queries, query_method, args, expected_empty
+    ):
+        """Empty database returns empty list for list-returning queries."""
+        now = datetime.now()
+
+        # Process date arguments
+        processed_args = {}
+        for key, value in args.items():
+            if value == "now-1d":
+                processed_args[key] = now - timedelta(days=1)
+            elif value == "now":
+                processed_args[key] = now
+            else:
+                processed_args[key] = value
+
+        method = getattr(queries, query_method)
+        result = method(**processed_args)
+
+        assert result == expected_empty
+
+    @pytest.mark.parametrize(
+        "query_method,args",
+        [
+            ("_get_delegation_metrics", {"start_date": "now-1d", "end_date": "now"}),
+            ("_get_session_token_stats", {"start_date": "now-1d", "end_date": "now"}),
+            ("get_todo_stats", {"days": 1}),
+        ],
+    )
+    def test_empty_queries_return_none(self, analytics_db, queries, query_method, args):
+        """Empty database returns None for stats queries."""
+        now = datetime.now()
+
+        processed_args = {}
+        for key, value in args.items():
+            if value == "now-1d":
+                processed_args[key] = now - timedelta(days=1)
+            elif value == "now":
+                processed_args[key] = now
+            else:
+                processed_args[key] = value
+
+        method = getattr(queries, query_method)
+        result = method(**processed_args)
+
+        assert result is None
