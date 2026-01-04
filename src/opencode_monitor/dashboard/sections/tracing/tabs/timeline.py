@@ -2,54 +2,35 @@
 Timeline tab - Chronological timeline of events.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QListWidget, QListWidgetItem
+from PyQt6.QtWidgets import QListWidgetItem
 from PyQt6.QtGui import QColor
 
-from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
+from opencode_monitor.dashboard.styles import COLORS, FONTS
 from ..helpers import format_duration, format_tokens_short
+from .base import BaseTab
 
 
-class TimelineTab(QWidget):
+class TimelineTab(BaseTab):
     """Tab displaying chronological timeline of events."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._loaded = False
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["md"])
+        # Summary label
+        self._add_summary_label()
 
-        # Summary
-        self._summary = QLabel("")
-        self._summary.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_sm"]}px;
-            padding: {SPACING["sm"]}px;
-            background-color: {COLORS["bg_hover"]};
-            border-radius: {RADIUS["sm"]}px;
-        """)
-        layout.addWidget(self._summary)
-
-        # Timeline list
-        self._list = QListWidget()
-        self._list.setStyleSheet(f"""
-            QListWidget {{
-                background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_default"]};
-                border-radius: {RADIUS["md"]}px;
-            }}
+        # Timeline list (with monospace font override)
+        self._list = self._add_styled_list()
+        # Add mono font for timeline entries
+        self._list.setStyleSheet(
+            self._list.styleSheet()
+            + f"""
             QListWidget::item {{
-                padding: {SPACING["sm"]}px {SPACING["md"]}px;
-                border-bottom: 1px solid {COLORS["border_subtle"]};
                 font-family: {FONTS["mono"]};
                 font-size: {FONTS["size_sm"]}px;
             }}
-            QListWidget::item:selected {{
-                background-color: {COLORS["sidebar_active"]};
-            }}
-        """)
-        layout.addWidget(self._list)
+        """
+        )
 
     def load_data(self, events: list[dict]) -> None:
         """Load timeline data from TracingDataService response."""
@@ -58,7 +39,8 @@ class TimelineTab(QWidget):
         self._list.clear()
 
         if not events:
-            self._summary.setText("No events recorded")
+            if self._summary:
+                self._summary.setText("No events recorded")
             return
 
         # Update summary
@@ -66,11 +48,12 @@ class TimelineTab(QWidget):
         tool_events = len([e for e in events if e.get("type") == "tool"])
         msg_events = len([e for e in events if e.get("type") == "message"])
 
-        self._summary.setText(
-            f"Events: {total_events}  •  "
-            f"Messages: {msg_events}  •  "
-            f"Tools: {tool_events}"
-        )
+        if self._summary:
+            self._summary.setText(
+                f"Events: {total_events}  •  "
+                f"Messages: {msg_events}  •  "
+                f"Tools: {tool_events}"
+            )
 
         # Add events to list
         for event in events[:50]:  # Limit to 50 events
@@ -104,10 +87,6 @@ class TimelineTab(QWidget):
                 item.setForeground(QColor(COLORS["text_secondary"]))
             self._list.addItem(item)
 
-    def is_loaded(self) -> bool:
-        return self._loaded
-
     def clear(self) -> None:
-        self._loaded = False
-        self._summary.setText("")
+        super().clear()
         self._list.clear()

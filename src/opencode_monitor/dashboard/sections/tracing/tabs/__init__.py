@@ -2,6 +2,7 @@
 Tracing tabs - Tab widgets for TraceDetailPanel.
 """
 
+from .base import BaseTab
 from .tokens import TokensTab
 from .tools import ToolsTab
 from .files import FilesTab
@@ -10,6 +11,7 @@ from .timeline import TimelineTab
 from .transcript import TranscriptTab
 
 __all__ = [
+    "BaseTab",
     "TokensTab",
     "ToolsTab",
     "FilesTab",

@@ -4,32 +4,20 @@ Tokens tab - Token usage breakdown with mini-charts.
 
 from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel
 
-from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
+from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS
 from ..helpers import format_tokens_short
 from ..widgets import HorizontalBar
+from .base import BaseTab
 
 
-class TokensTab(QWidget):
+class TokensTab(BaseTab):
     """Tab displaying token usage breakdown with mini-charts."""
 
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._loaded = False
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["lg"])
+    def __init__(self, parent=None):
+        super().__init__(parent, spacing="lg")
 
         # Summary row
-        self._summary = QLabel("")
-        self._summary.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_sm"]}px;
-            padding: {SPACING["sm"]}px;
-            background-color: {COLORS["bg_hover"]};
-            border-radius: {RADIUS["sm"]}px;
-        """)
-        layout.addWidget(self._summary)
+        self._add_summary_label()
 
         # Token breakdown section
         breakdown_label = QLabel("Token Breakdown")
@@ -38,14 +26,14 @@ class TokensTab(QWidget):
             font-size: {FONTS["size_md"]}px;
             font-weight: {FONTS["weight_semibold"]};
         """)
-        layout.addWidget(breakdown_label)
+        self._layout.addWidget(breakdown_label)
 
         # Bars container
         self._bars_container = QWidget()
         self._bars_layout = QVBoxLayout(self._bars_container)
         self._bars_layout.setContentsMargins(0, 0, 0, 0)
         self._bars_layout.setSpacing(SPACING["xs"])
-        layout.addWidget(self._bars_container)
+        self._layout.addWidget(self._bars_container)
 
         # By agent section
         agent_label = QLabel("By Agent")
@@ -55,15 +43,15 @@ class TokensTab(QWidget):
             font-weight: {FONTS["weight_semibold"]};
             margin-top: {SPACING["md"]}px;
         """)
-        layout.addWidget(agent_label)
+        self._layout.addWidget(agent_label)
 
         self._agent_container = QWidget()
         self._agent_layout = QVBoxLayout(self._agent_container)
         self._agent_layout.setContentsMargins(0, 0, 0, 0)
         self._agent_layout.setSpacing(SPACING["xs"])
-        layout.addWidget(self._agent_container)
+        self._layout.addWidget(self._agent_container)
 
-        layout.addStretch()
+        self._layout.addStretch()
 
     def load_data(self, data: dict) -> None:
         """Load tokens data from TracingDataService response."""
@@ -75,15 +63,13 @@ class TokensTab(QWidget):
         # Update summary
         total = summary.get("total", 0)
         cache_ratio = summary.get("cache_hit_ratio", 0)
-        self._summary.setText(
-            f"Total: {format_tokens_short(total)}  •  Cache hit: {cache_ratio:.1f}%"
-        )
+        if self._summary:
+            self._summary.setText(
+                f"Total: {format_tokens_short(total)}  •  Cache hit: {cache_ratio:.1f}%"
+            )
 
         # Clear old bars
-        while self._bars_layout.count():
-            child = self._bars_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        self._clear_layout(self._bars_layout)
 
         # Add token bars
         input_tokens = details.get("input", 0)
@@ -102,10 +88,7 @@ class TokensTab(QWidget):
         )
 
         # Clear old agent bars
-        while self._agent_layout.count():
-            child = self._agent_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        self._clear_layout(self._agent_layout)
 
         # Add agent bars
         by_agent = details.get("by_agent", [])
@@ -126,17 +109,7 @@ class TokensTab(QWidget):
             )
             self._agent_layout.addWidget(no_data)
 
-    def is_loaded(self) -> bool:
-        return self._loaded
-
     def clear(self) -> None:
-        self._loaded = False
-        self._summary.setText("")
-        while self._bars_layout.count():
-            child = self._bars_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
-        while self._agent_layout.count():
-            child = self._agent_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        super().clear()
+        self._clear_layout(self._bars_layout)
+        self._clear_layout(self._agent_layout)

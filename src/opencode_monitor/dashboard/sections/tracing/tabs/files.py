@@ -2,33 +2,21 @@
 Files tab - File operations with risk indicators.
 """
 
-from PyQt6.QtWidgets import QWidget, QVBoxLayout, QLabel, QFrame, QGridLayout
+from PyQt6.QtWidgets import QWidget, QLabel, QFrame, QGridLayout, QVBoxLayout
 from PyQt6.QtCore import Qt
 
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
+from .base import BaseTab
 
 
-class FilesTab(QWidget):
+class FilesTab(BaseTab):
     """Tab displaying file operations with risk indicators."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._loaded = False
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["md"])
-
-        # Summary
-        self._summary = QLabel("")
-        self._summary.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_sm"]}px;
-            padding: {SPACING["sm"]}px;
-            background-color: {COLORS["bg_hover"]};
-            border-radius: {RADIUS["sm"]}px;
-        """)
-        layout.addWidget(self._summary)
+        # Summary label
+        self._add_summary_label()
 
         # Operations breakdown
         self._operations_container = QWidget()
@@ -47,8 +35,8 @@ class FilesTab(QWidget):
         ops_layout.addWidget(self._edits_card, 1, 0)
         ops_layout.addWidget(self._risk_card, 1, 1)
 
-        layout.addWidget(self._operations_container)
-        layout.addStretch()
+        self._layout.addWidget(self._operations_container)
+        self._layout.addStretch()
 
     def _create_op_card(self, label: str, value: str, color: str) -> QFrame:
         """Create a small operation card."""
@@ -104,21 +92,18 @@ class FilesTab(QWidget):
         edits = summary.get("total_edits", 0)
         high_risk = summary.get("high_risk_count", 0)
 
-        self._summary.setText(
-            f"Total operations: {reads + writes + edits}  •  High risk: {high_risk}"
-        )
+        if self._summary:
+            self._summary.setText(
+                f"Total operations: {reads + writes + edits}  •  High risk: {high_risk}"
+            )
 
         self._update_card_value(self._reads_card, str(reads))
         self._update_card_value(self._writes_card, str(writes))
         self._update_card_value(self._edits_card, str(edits))
         self._update_card_value(self._risk_card, str(high_risk))
 
-    def is_loaded(self) -> bool:
-        return self._loaded
-
     def clear(self) -> None:
-        self._loaded = False
-        self._summary.setText("")
+        super().clear()
         self._update_card_value(self._reads_card, "0")
         self._update_card_value(self._writes_card, "0")
         self._update_card_value(self._edits_card, "0")

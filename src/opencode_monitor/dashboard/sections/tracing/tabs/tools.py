@@ -3,9 +3,6 @@ Tools tab - Tool usage statistics.
 """
 
 from PyQt6.QtWidgets import (
-    QWidget,
-    QVBoxLayout,
-    QLabel,
     QTableWidget,
     QTableWidgetItem,
     QHeaderView,
@@ -14,29 +11,17 @@ from PyQt6.QtGui import QColor
 
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 from ..helpers import format_duration
+from .base import BaseTab
 
 
-class ToolsTab(QWidget):
+class ToolsTab(BaseTab):
     """Tab displaying tool usage statistics."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._loaded = False
 
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["md"])
-
-        # Summary
-        self._summary = QLabel("")
-        self._summary.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_sm"]}px;
-            padding: {SPACING["sm"]}px;
-            background-color: {COLORS["bg_hover"]};
-            border-radius: {RADIUS["sm"]}px;
-        """)
-        layout.addWidget(self._summary)
+        # Summary label
+        self._add_summary_label()
 
         # Table
         self._table = QTableWidget()
@@ -84,8 +69,8 @@ class ToolsTab(QWidget):
             header.setStretchLastSection(True)
             header.setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
 
-        layout.addWidget(self._table)
-        layout.addStretch()
+        self._layout.addWidget(self._table)
+        self._layout.addStretch()
 
     def load_data(self, data: dict) -> None:
         """Load tools data from TracingDataService response."""
@@ -100,12 +85,13 @@ class ToolsTab(QWidget):
         success_rate = summary.get("success_rate", 0)
         avg_duration = summary.get("avg_duration_ms", 0)
 
-        self._summary.setText(
-            f"Total: {total} calls  •  "
-            f"Unique: {unique} tools  •  "
-            f"Success: {success_rate:.1f}%  •  "
-            f"Avg: {format_duration(avg_duration)}"
-        )
+        if self._summary:
+            self._summary.setText(
+                f"Total: {total} calls  •  "
+                f"Unique: {unique} tools  •  "
+                f"Success: {success_rate:.1f}%  •  "
+                f"Avg: {format_duration(avg_duration)}"
+            )
 
         # Populate table
         self._table.setRowCount(0)
@@ -133,10 +119,6 @@ class ToolsTab(QWidget):
                 error_item.setForeground(QColor(COLORS["error"]))
             self._table.setItem(row, 3, error_item)
 
-    def is_loaded(self) -> bool:
-        return self._loaded
-
     def clear(self) -> None:
-        self._loaded = False
-        self._summary.setText("")
+        super().clear()
         self._table.setRowCount(0)

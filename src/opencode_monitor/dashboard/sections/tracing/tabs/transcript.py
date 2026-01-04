@@ -12,18 +12,14 @@ from PyQt6.QtWidgets import (
 )
 
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
+from .base import BaseTab
 
 
-class TranscriptTab(QWidget):
+class TranscriptTab(BaseTab):
     """Tab displaying full conversation transcript."""
 
-    def __init__(self, parent: QWidget | None = None):
+    def __init__(self, parent=None):
         super().__init__(parent)
-        self._loaded = False
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(0, SPACING["md"], 0, 0)
-        layout.setSpacing(SPACING["md"])
 
         # Scroll area for long transcripts
         scroll = QScrollArea()
@@ -55,7 +51,7 @@ class TranscriptTab(QWidget):
         self._content_layout.setSpacing(SPACING["lg"])
 
         scroll.setWidget(self._content)
-        layout.addWidget(scroll)
+        self._layout.addWidget(scroll)
 
     def load_data(self, data: dict) -> None:
         """Load transcript data.
@@ -66,10 +62,7 @@ class TranscriptTab(QWidget):
         self._loaded = True
 
         # Clear existing content
-        while self._content_layout.count():
-            child = self._content_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        self._clear_layout(self._content_layout)
 
         user_content = data.get("user_content", "")
         assistant_content = data.get("assistant_content", "")
@@ -131,12 +124,6 @@ class TranscriptTab(QWidget):
 
         self._content_layout.addStretch()
 
-    def is_loaded(self) -> bool:
-        return self._loaded
-
     def clear(self) -> None:
-        self._loaded = False
-        while self._content_layout.count():
-            child = self._content_layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+        super().clear()
+        self._clear_layout(self._content_layout)
