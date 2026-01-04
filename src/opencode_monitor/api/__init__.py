@@ -9,6 +9,7 @@ Architecture:
 
 from .server import AnalyticsAPIServer, start_api_server, stop_api_server
 from .client import AnalyticsAPIClient, get_api_client
+from .tree_builder import TracingTreeBuilder
 
 __all__ = [
     "AnalyticsAPIServer",
@@ -16,4 +17,5 @@ __all__ = [
     "stop_api_server",
     "AnalyticsAPIClient",
     "get_api_client",
+    "TracingTreeBuilder",
 ]
