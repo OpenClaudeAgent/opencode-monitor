@@ -163,6 +163,51 @@ class MockAPIResponses:
         }
 
     @staticmethod
+    def monitoring_with_nulls() -> dict:
+        """Monitoring data with null fields for robustness testing.
+
+        Tests dashboard handling of null/missing fields in monitoring data.
+        """
+        return {
+            "instances": None,
+            "agents": 0,
+            "busy": None,
+            "waiting": 0,
+            "idle": None,
+            "todos": None,
+            "agents_data": [
+                {
+                    "agent_id": "agent-x",
+                    "title": None,
+                    "dir": None,
+                    "status": "idle",
+                    "tools": None,
+                    "todos_total": None,
+                }
+            ],
+            "tools_data": None,
+            "waiting_data": None,
+        }
+
+    @staticmethod
+    def empty_lists_monitoring() -> dict:
+        """Monitoring data with empty lists (valid state, not null).
+
+        Tests dashboard handling when API returns empty but successful lists.
+        """
+        return {
+            "instances": 0,
+            "agents": 0,
+            "busy": 0,
+            "waiting": 0,
+            "idle": 0,
+            "todos": 0,
+            "agents_data": [],
+            "tools_data": [],
+            "waiting_data": [],
+        }
+
+    @staticmethod
     def basic() -> dict[str, Any]:
         """Basic responses with minimal data for simple tests."""
         base_date = FIXED_TEST_DATE
