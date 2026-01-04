@@ -1,26 +1,23 @@
 """
 Tests for EventCorrelator - Multi-event correlation.
 
-Tests cover:
-- Event correlation detection
-- Path-based correlation
-- Time window filtering
-- Confidence scoring
-- MITRE technique tagging
+Consolidated tests cover:
+- Correlation detection (positive/negative cases)
+- Session buffer management
+- Edge cases
 """
 
 import time
+from typing import Any
 
 import pytest
 
 from opencode_monitor.security.sequences import SecurityEvent, EventType
-from opencode_monitor.security.correlator import (
-    EventCorrelator,
-)
+from opencode_monitor.security.correlator import EventCorrelator
 
 
 # =====================================================
-# Fixtures (base_time is provided by conftest.py)
+# Fixtures
 # =====================================================
 
 
@@ -28,9 +25,6 @@ from opencode_monitor.security.correlator import (
 def correlator() -> EventCorrelator:
     """Create a fresh EventCorrelator for each test"""
     return EventCorrelator(buffer_size=200, default_window_seconds=300.0)
-
-
-# Note: 'base_time' fixture is now provided by conftest.py
 
 
 def create_event(
@@ -52,78 +46,214 @@ def create_event(
 
 
 # =====================================================
-# Exfiltration Correlation Tests
+# Correlation Detection Tests (Positive Cases)
 # =====================================================
 
 
-class TestExfiltrationCorrelation:
-    """Tests for read + webfetch exfiltration correlation"""
+class TestCorrelationDetection:
+    """Tests for correlation detection - all positive cases consolidated"""
 
-    def test_sensitive_read_then_webfetch_correlates(
+    @pytest.mark.parametrize(
+        "event1_type,event1_target,event2_type,event2_target,expected_correlation,expected_mitre,expected_modifier",
+        [
+            # Exfiltration: read(sensitive) + webfetch(external)
+            pytest.param(
+                EventType.READ,
+                "/home/user/.env",
+                EventType.WEBFETCH,
+                "https://evil.com/collect",
+                "exfiltration_read_webfetch",
+                "T1048",
+                30,
+                id="exfil_read_then_webfetch",
+            ),
+            # Exfiltration: webfetch(external) + read(sensitive) - reverse order
+            pytest.param(
+                EventType.WEBFETCH,
+                "https://evil.com/check",
+                EventType.READ,
+                "/secrets/api.key",
+                "exfiltration_read_webfetch",
+                "T1048",
+                30,
+                id="exfil_webfetch_then_read",
+            ),
+            # RCE: webfetch(.sh) + bash
+            pytest.param(
+                EventType.WEBFETCH,
+                "https://example.com/install.sh",
+                EventType.BASH,
+                "bash ./install.sh",
+                "remote_code_execution",
+                "T1059",
+                35,
+                id="rce_shell_script",
+            ),
+            # RCE: webfetch(.py) + python
+            pytest.param(
+                EventType.WEBFETCH,
+                "https://example.com/payload.py",
+                EventType.BASH,
+                "python payload.py",
+                "remote_code_execution",
+                "T1059",
+                35,
+                id="rce_python_script",
+            ),
+            # Execution preparation: write(.sh) + chmod(+x)
+            pytest.param(
+                EventType.WRITE,
+                "/tmp/backdoor.sh",
+                EventType.BASH,
+                "chmod +x /tmp/backdoor.sh",
+                "execution_preparation",
+                "T1222",
+                25,
+                id="exec_prep_chmod",
+            ),
+            # Git reconnaissance: read(.git/config) + webfetch(github)
+            pytest.param(
+                EventType.READ,
+                "/project/.git/config",
+                EventType.WEBFETCH,
+                "https://github.com/some/repo",
+                "git_reconnaissance",
+                "T1592",
+                20,
+                id="git_recon",
+            ),
+        ],
+    )
+    def test_correlation_detected(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        event1_type: EventType,
+        event1_target: str,
+        event2_type: EventType,
+        event2_target: str,
+        expected_correlation: str,
+        expected_mitre: str,
+        expected_modifier: int,
+    ):
+        """Verify correlation is detected with correct metadata"""
+        e1 = create_event(
+            event1_type, event1_target, timestamp=base_time, risk_score=85
+        )
+        e2 = create_event(
+            event2_type, event2_target, timestamp=base_time + 30, risk_score=50
+        )
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        matching = [
+            c for c in correlations if c.correlation_type == expected_correlation
+        ]
+        assert len(matching) == 1
+        assert matching[0].mitre_technique == expected_mitre
+        assert matching[0].score_modifier == expected_modifier
+
+    def test_correlation_context_time_delta(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """read(sensitive) + webfetch(external) creates correlation"""
-        e1 = create_event(
-            EventType.READ,
-            "/home/user/.env",
-            timestamp=base_time,
-            risk_score=85,
-        )
+        """Verify correlation context contains accurate time_delta_seconds"""
+        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
         e2 = create_event(
             EventType.WEBFETCH,
             "https://evil.com/collect",
             timestamp=base_time + 30,
-            risk_score=50,
         )
 
         correlator.add_event(e1)
         correlations = correlator.add_event(e2)
 
-        assert len(correlations) >= 1
         exfil = [
             c
             for c in correlations
             if c.correlation_type == "exfiltration_read_webfetch"
         ]
         assert len(exfil) == 1
-        assert exfil[0].mitre_technique == "T1048"
-        assert exfil[0].score_modifier == 30
+        assert exfil[0].context["time_delta_seconds"] == 30
 
-    def test_webfetch_then_sensitive_read_correlates(
+    def test_correlation_session_id_preserved(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """webfetch(external) + read(sensitive) also correlates"""
+        """Verify correlation preserves session_id from events"""
         e1 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/check",
-            timestamp=base_time,
+            EventType.READ, "/app/.env", session_id="my-session", timestamp=base_time
         )
         e2 = create_event(
-            EventType.READ,
-            "/secrets/api.key",
-            timestamp=base_time + 30,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        exfil = [
-            c
-            for c in correlations
-            if c.correlation_type == "exfiltration_read_webfetch"
-        ]
-        assert len(exfil) == 1
-
-    def test_localhost_webfetch_no_correlation(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """read(sensitive) + webfetch(localhost) does NOT correlate"""
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        e2 = create_event(
             EventType.WEBFETCH,
-            "http://localhost:3000/api",
+            "https://evil.com",
+            session_id="my-session",
             timestamp=base_time + 10,
         )
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        assert len(correlations) == 1
+        assert correlations[0].session_id == "my-session"
+
+
+# =====================================================
+# No Correlation Tests (Negative Cases)
+# =====================================================
+
+
+class TestNoCorrelation:
+    """Tests verifying correlations are NOT triggered in specific cases"""
+
+    @pytest.mark.parametrize(
+        "event1_type,event1_target,event2_type,event2_target,time_offset,reason",
+        [
+            # Localhost webfetch - not external
+            pytest.param(
+                EventType.READ,
+                "/app/.env",
+                EventType.WEBFETCH,
+                "http://localhost:3000/api",
+                10,
+                "localhost_not_external",
+                id="localhost_webfetch",
+            ),
+            # Events outside time window (600s > 300s default)
+            pytest.param(
+                EventType.READ,
+                "/app/.env",
+                EventType.WEBFETCH,
+                "https://evil.com/collect",
+                600,
+                "outside_time_window",
+                id="outside_window",
+            ),
+            # Same event type - no source/target pair
+            pytest.param(
+                EventType.READ,
+                "/app/.env",
+                EventType.READ,
+                "/secrets/key",
+                10,
+                "same_type_no_pair",
+                id="same_event_type",
+            ),
+        ],
+    )
+    def test_no_exfiltration_correlation(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        event1_type: EventType,
+        event1_target: str,
+        event2_type: EventType,
+        event2_target: str,
+        time_offset: int,
+        reason: str,
+    ):
+        """Verify exfiltration correlation is NOT triggered"""
+        e1 = create_event(event1_type, event1_target, timestamp=base_time)
+        e2 = create_event(event2_type, event2_target, timestamp=base_time + time_offset)
 
         correlator.add_event(e1)
         correlations = correlator.add_event(e2)
@@ -135,101 +265,13 @@ class TestExfiltrationCorrelation:
         ]
         assert len(exfil) == 0
 
-
-# =====================================================
-# Remote Code Execution Correlation Tests
-# =====================================================
-
-
-class TestRemoteCodeExecutionCorrelation:
-    """Tests for webfetch(script) + bash correlation"""
-
-    def test_script_download_then_bash_correlates(
+    def test_chmod_without_prior_write_no_correlation(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """webfetch(.sh) + bash triggers RCE correlation"""
+        """chmod without prior write doesn't create execution_preparation"""
         e1 = create_event(
-            EventType.WEBFETCH,
-            "https://example.com/install.sh",
-            timestamp=base_time,
+            EventType.BASH, "chmod +x /some/script.sh", timestamp=base_time
         )
-        e2 = create_event(
-            EventType.BASH,
-            "bash ./install.sh",
-            timestamp=base_time + 30,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        rce = [c for c in correlations if c.correlation_type == "remote_code_execution"]
-        assert len(rce) == 1
-        assert rce[0].mitre_technique == "T1059"
-
-    def test_python_download_then_python_correlates(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """webfetch(.py) + python triggers RCE correlation"""
-        e1 = create_event(
-            EventType.WEBFETCH,
-            "https://example.com/payload.py",
-            timestamp=base_time,
-        )
-        e2 = create_event(
-            EventType.BASH,
-            "python payload.py",
-            timestamp=base_time + 30,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        rce = [c for c in correlations if c.correlation_type == "remote_code_execution"]
-        assert len(rce) == 1
-
-
-# =====================================================
-# Execution Preparation Correlation Tests
-# =====================================================
-
-
-class TestExecutionPreparationCorrelation:
-    """Tests for write + chmod correlation"""
-
-    def test_write_script_then_chmod_correlates(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """write(.sh) + chmod(+x) triggers execution preparation"""
-        e1 = create_event(
-            EventType.WRITE,
-            "/tmp/backdoor.sh",
-            timestamp=base_time,
-        )
-        e2 = create_event(
-            EventType.BASH,
-            "chmod +x /tmp/backdoor.sh",
-            timestamp=base_time + 5,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        prep = [
-            c for c in correlations if c.correlation_type == "execution_preparation"
-        ]
-        assert len(prep) == 1
-        assert prep[0].mitre_technique == "T1222"
-
-    def test_chmod_without_write_no_correlation(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """chmod without prior write doesn't correlate"""
-        e1 = create_event(
-            EventType.BASH,
-            "chmod +x /some/script.sh",
-            timestamp=base_time,
-        )
-
         correlations = correlator.add_event(e1)
 
         prep = [
@@ -237,67 +279,119 @@ class TestExecutionPreparationCorrelation:
         ]
         assert len(prep) == 0
 
+    def test_single_event_no_correlation(self, correlator: EventCorrelator):
+        """Single event cannot create correlations"""
+        event = create_event(EventType.READ, "/app/.env")
+        correlations = correlator.add_event(event)
+
+        assert len(correlations) == 0
+
 
 # =====================================================
-# Git Reconnaissance Correlation Tests
+# Session Management Tests
 # =====================================================
 
 
-class TestGitReconnaissanceCorrelation:
-    """Tests for git config read + webfetch correlation"""
+class TestSessionManagement:
+    """Tests for session buffer management"""
 
-    def test_git_config_then_github_webfetch_correlates(
-        self, correlator: EventCorrelator, base_time: float
+    @pytest.mark.parametrize(
+        "sessions_events,expected_counts",
+        [
+            # Two separate sessions
+            pytest.param(
+                [
+                    ("session-1", EventType.READ, "/file1"),
+                    ("session-2", EventType.WRITE, "/file2"),
+                ],
+                {"session-1": 1, "session-2": 1},
+                id="separate_sessions",
+            ),
+            # Multiple events in one session
+            pytest.param(
+                [
+                    ("session-1", EventType.READ, "/file1"),
+                    ("session-1", EventType.WRITE, "/file2"),
+                    ("session-2", EventType.READ, "/file3"),
+                ],
+                {"session-1": 2, "session-2": 1},
+                id="multiple_in_one_session",
+            ),
+        ],
+    )
+    def test_session_buffer_counts(
+        self,
+        correlator: EventCorrelator,
+        sessions_events: list[tuple[str, EventType, str]],
+        expected_counts: dict[str, int],
     ):
-        """read(.git/config) + webfetch(github) triggers reconnaissance"""
-        e1 = create_event(
-            EventType.READ,
-            "/project/.git/config",
-            timestamp=base_time,
-        )
-        e2 = create_event(
-            EventType.WEBFETCH,
-            "https://github.com/some/repo",
-            timestamp=base_time + 60,
-        )
+        """Verify session buffers track events correctly"""
+        for session_id, event_type, target in sessions_events:
+            event = create_event(event_type, target, session_id=session_id)
+            correlator.add_event(event)
+
+        for session_id, expected_count in expected_counts.items():
+            assert len(correlator.get_session_buffer(session_id)) == expected_count
+
+    def test_clear_session_removes_data(self, correlator: EventCorrelator):
+        """Clearing a session removes only that session's data"""
+        e1 = create_event(EventType.READ, "/file1", session_id="s1")
+        e2 = create_event(EventType.READ, "/file2", session_id="s2")
 
         correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
+        correlator.add_event(e2)
+        correlator.clear_session("s1")
 
-        recon = [c for c in correlations if c.correlation_type == "git_reconnaissance"]
-        assert len(recon) == 1
-        assert recon[0].mitre_technique == "T1592"
+        assert len(correlator.get_session_buffer("s1")) == 0
+        assert len(correlator.get_session_buffer("s2")) == 1
+
+    def test_clear_all_removes_all_sessions(self, correlator: EventCorrelator):
+        """Clearing all removes all session data"""
+        e1 = create_event(EventType.READ, "/file1", session_id="s1")
+        e2 = create_event(EventType.READ, "/file2", session_id="s2")
+
+        correlator.add_event(e1)
+        correlator.add_event(e2)
+        correlator.clear_all()
+
+        assert len(correlator.get_session_buffer("s1")) == 0
+        assert len(correlator.get_session_buffer("s2")) == 0
+
+    def test_empty_session_buffer_returns_empty_list(self, correlator: EventCorrelator):
+        """Getting buffer for non-existent session returns empty list"""
+        buffer = correlator.get_session_buffer("non-existent")
+        assert buffer == []
 
 
 # =====================================================
-# Time Window Tests
+# Correlation Summary Tests
 # =====================================================
 
 
-class TestTimeWindow:
-    """Tests for time window filtering"""
+class TestCorrelationSummary:
+    """Tests for correlation summary functionality"""
 
-    def test_events_outside_window_no_correlation(
+    def test_summary_counts_by_type(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """Events outside time window don't correlate"""
+        """get_correlation_summary returns accurate type counts"""
+        # Create multiple exfiltration correlations
         e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        # 10 minutes later (outside 5 minute window)
         e2 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/collect",
-            timestamp=base_time + 600,
+            EventType.WEBFETCH, "https://evil.com/1", timestamp=base_time + 10
+        )
+        e3 = create_event(
+            EventType.WEBFETCH, "https://evil.com/2", timestamp=base_time + 20
         )
 
         correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
+        corrs1 = correlator.add_event(e2)
+        corrs2 = correlator.add_event(e3)
 
-        exfil = [
-            c
-            for c in correlations
-            if c.correlation_type == "exfiltration_read_webfetch"
-        ]
-        assert len(exfil) == 0
+        all_corrs = corrs1 + corrs2
+        summary = correlator.get_correlation_summary(all_corrs)
+
+        assert summary["exfiltration_read_webfetch"] == 2
 
 
 # =====================================================
@@ -308,10 +402,10 @@ class TestTimeWindow:
 class TestConfidenceScore:
     """Tests for correlation confidence scoring"""
 
-    def test_high_risk_events_higher_confidence(
+    def test_close_events_high_risk_produces_high_confidence(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """High risk events produce higher confidence"""
+        """High risk events close in time produce confidence > 0.8"""
         e1 = create_event(
             EventType.READ,
             "/secrets/.env",
@@ -334,119 +428,24 @@ class TestConfidenceScore:
             if c.correlation_type == "exfiltration_read_webfetch"
         ]
         assert len(exfil) == 1
-        assert exfil[0].confidence > 0.5
+        # Confidence formula: base(0.5) + time_factor(~0.25) + risk_factor(~0.17) = ~0.92
+        assert exfil[0].confidence >= 0.8
 
-    def test_confidence_between_0_and_1(
+    def test_distant_events_low_risk_produces_lower_confidence(
         self, correlator: EventCorrelator, base_time: float
     ):
-        """Confidence is always between 0 and 1"""
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
+        """Low risk events far apart produce confidence between 0.5-0.7"""
+        e1 = create_event(
+            EventType.READ,
+            "/app/.env",
+            timestamp=base_time,
+            risk_score=20,
+        )
         e2 = create_event(
             EventType.WEBFETCH,
             "https://example.com",
-            timestamp=base_time + 100,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        for corr in correlations:
-            assert 0.0 <= corr.confidence <= 1.0
-
-
-# =====================================================
-# Session Management Tests
-# =====================================================
-
-
-class TestSessionManagement:
-    """Tests for session buffer management"""
-
-    def test_separate_session_buffers(self, correlator: EventCorrelator):
-        """Different sessions have separate buffers"""
-        e1 = create_event(EventType.READ, "/file1", session_id="session-1")
-        e2 = create_event(EventType.WRITE, "/file2", session_id="session-2")
-
-        correlator.add_event(e1)
-        correlator.add_event(e2)
-
-        assert len(correlator.get_session_buffer("session-1")) == 1
-        assert len(correlator.get_session_buffer("session-2")) == 1
-
-    def test_clear_session(self, correlator: EventCorrelator):
-        """Clearing a session removes its data"""
-        event = create_event(EventType.READ, "/file1")
-        correlator.add_event(event)
-
-        correlator.clear_session("test-session")
-
-        assert len(correlator.get_session_buffer("test-session")) == 0
-
-    def test_clear_all(self, correlator: EventCorrelator):
-        """Clearing all removes all session data"""
-        e1 = create_event(EventType.READ, "/file1", session_id="s1")
-        e2 = create_event(EventType.READ, "/file2", session_id="s2")
-
-        correlator.add_event(e1)
-        correlator.add_event(e2)
-        correlator.clear_all()
-
-        assert len(correlator.get_session_buffer("s1")) == 0
-        assert len(correlator.get_session_buffer("s2")) == 0
-
-
-# =====================================================
-# Correlation Summary Tests
-# =====================================================
-
-
-class TestCorrelationSummary:
-    """Tests for correlation summary functionality"""
-
-    def test_get_correlation_summary(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """get_correlation_summary returns type counts"""
-        # Create multiple correlations
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        e2 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/1",
-            timestamp=base_time + 10,
-        )
-        e3 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/2",
-            timestamp=base_time + 20,
-        )
-
-        correlator.add_event(e1)
-        corrs1 = correlator.add_event(e2)
-        corrs2 = correlator.add_event(e3)
-
-        all_corrs = corrs1 + corrs2
-        summary = correlator.get_correlation_summary(all_corrs)
-
-        assert isinstance(summary, dict)
-
-
-# =====================================================
-# Context Information Tests
-# =====================================================
-
-
-class TestContextInformation:
-    """Tests for correlation context information"""
-
-    def test_correlation_has_context(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """Correlation includes context information"""
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        e2 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/collect",
-            timestamp=base_time + 30,
+            timestamp=base_time + 100,  # Far apart
+            risk_score=10,
         )
 
         correlator.add_event(e1)
@@ -458,64 +457,5 @@ class TestContextInformation:
             if c.correlation_type == "exfiltration_read_webfetch"
         ]
         assert len(exfil) == 1
-        assert "time_delta_seconds" in exfil[0].context
-        assert exfil[0].context["time_delta_seconds"] == 30
-
-    def test_correlation_has_session_id(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """Correlation has correct session_id property"""
-        e1 = create_event(
-            EventType.READ, "/app/.env", session_id="my-session", timestamp=base_time
-        )
-        e2 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com",
-            session_id="my-session",
-            timestamp=base_time + 10,
-        )
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        if correlations:
-            assert correlations[0].session_id == "my-session"
-
-
-# =====================================================
-# Edge Cases
-# =====================================================
-
-
-class TestEdgeCases:
-    """Tests for edge cases"""
-
-    def test_empty_session_buffer(self, correlator: EventCorrelator):
-        """Getting buffer for non-existent session returns empty list"""
-        buffer = correlator.get_session_buffer("non-existent")
-        assert buffer == []
-
-    def test_single_event_no_correlation(self, correlator: EventCorrelator):
-        """Single event doesn't create correlations"""
-        event = create_event(EventType.READ, "/app/.env")
-        correlations = correlator.add_event(event)
-
-        assert len(correlations) == 0
-
-    def test_same_event_type_no_correlation(
-        self, correlator: EventCorrelator, base_time: float
-    ):
-        """Two events of same type don't correlate (need source/target pair)"""
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        e2 = create_event(EventType.READ, "/secrets/key", timestamp=base_time + 10)
-
-        correlator.add_event(e1)
-        correlations = correlator.add_event(e2)
-
-        # Should not have exfiltration (needs READ + WEBFETCH)
-        exfil = [
-            c
-            for c in correlations
-            if c.correlation_type == "exfiltration_read_webfetch"
-        ]
-        assert len(exfil) == 0
+        # Lower confidence for distant, low-risk events
+        assert 0.5 <= exfil[0].confidence <= 0.7

@@ -44,56 +44,67 @@ class TestCleanJson:
     """Tests for JSON cleaning function."""
 
     @pytest.mark.parametrize(
-        "raw,expected_chars_removed,expected_chars_kept",
+        "raw,expected",
         [
-            # Control chars removed, content preserved
-            (
-                '{"key": "value\x00\x08\x0b"}',
-                ["\x00", "\x08", "\x0b"],
-                ["key", "value"],
-            ),
+            # Control chars removed
+            ('{"key": "value\x00\x08\x0b"}', '{"key": "value   "}'),
             # Valid JSON with newlines/tabs preserved
-            ('{\n\t"key": "value"\n}', [], ["\n", "\t", "key", "value"]),
+            ('{\n\t"key": "value"\n}', '{\n\t"key": "value"\n}'),
             # Empty string unchanged
-            ("", [], []),
+            ("", ""),
+            # Multiple control characters (3 before + 1 after = 4 spaces total)
+            ("\x00\x01\x02abc\x1f", "   abc "),
+            # Tab and newline preserved (0x09, 0x0a, 0x0d)
+            ("line1\nline2\ttab\rcarriage", "line1\nline2\ttab\rcarriage"),
         ],
-        ids=["control_chars", "valid_json_preserved", "empty_string"],
+        ids=[
+            "control_chars_replaced",
+            "valid_json_preserved",
+            "empty_string",
+            "multiple_control_chars",
+            "whitespace_preserved",
+        ],
     )
-    def test_clean_json_behavior(
-        self, raw, expected_chars_removed, expected_chars_kept
-    ):
-        """Control characters removed, valid content preserved."""
+    def test_clean_json_behavior(self, raw, expected):
+        """Control characters replaced with spaces, valid content preserved."""
         result = _clean_json(raw)
-
-        for char in expected_chars_removed:
-            assert char not in result
-        for char in expected_chars_kept:
-            assert char in result or result == ""
+        assert result == expected
+        assert len(result) == len(raw)
 
 
 # =====================================================
-# Sync HTTP Tests
+# Sync HTTP Tests - Consolidated
 # =====================================================
 
 
-class TestSyncGet:
-    """Tests for synchronous HTTP GET function."""
+class TestSyncHttp:
+    """Tests for synchronous HTTP functions (_sync_get and _sync_get_json)."""
 
     @pytest.mark.parametrize(
-        "response_data,exception,expected_result",
+        "response_data,exception,expected_result,custom_timeout",
         [
-            (b"response body", None, "response body"),
-            (None, Exception("URLError"), None),
-            (None, Exception("Generic error"), None),
+            # Success case
+            (b"response body", None, "response body", None),
+            # Error cases
+            (None, Exception("URLError"), None, None),
+            (None, Exception("Generic error"), None, None),
+            # Custom timeout
+            (b"data", None, "data", 5.0),
         ],
-        ids=["success", "url_error", "generic_error"],
+        ids=["success", "url_error", "generic_error", "custom_timeout"],
     )
     @patch("opencode_monitor.core.client.urllib.request.urlopen")
     @patch("opencode_monitor.core.client.urllib.request.Request")
-    def test_sync_get_responses(
-        self, mock_request, mock_urlopen, response_data, exception, expected_result
+    def test_sync_get_all_cases(
+        self,
+        mock_request,
+        mock_urlopen,
+        response_data,
+        exception,
+        expected_result,
+        custom_timeout,
     ):
-        """Sync GET handles success and various error conditions."""
+        """Sync GET handles success, errors, and custom timeout."""
         if exception:
             mock_urlopen.side_effect = exception
         else:
@@ -103,53 +114,48 @@ class TestSyncGet:
             mock_response.__exit__ = MagicMock(return_value=False)
             mock_urlopen.return_value = mock_response
 
-        result = _sync_get("http://example.com/api")
+        timeout = custom_timeout if custom_timeout else REQUEST_TIMEOUT
+        result = _sync_get("http://example.com/api", timeout=timeout)
+
         assert result == expected_result
-
-    @patch("opencode_monitor.core.client.urllib.request.urlopen")
-    @patch("opencode_monitor.core.client.urllib.request.Request")
-    def test_sync_get_uses_custom_timeout(self, mock_request, mock_urlopen):
-        """Custom timeout is passed to urlopen."""
-        mock_response = MagicMock()
-        mock_response.read.return_value = b"data"
-        mock_response.__enter__ = MagicMock(return_value=mock_response)
-        mock_response.__exit__ = MagicMock(return_value=False)
-        mock_urlopen.return_value = mock_response
-
-        _sync_get("http://example.com/api", timeout=5.0)
-
-        call_kwargs = mock_urlopen.call_args
-        assert call_kwargs[1]["timeout"] == 5.0
-
-
-class TestSyncGetJson:
-    """Tests for synchronous HTTP GET with JSON parsing."""
+        if not exception:
+            call_kwargs = mock_urlopen.call_args
+            assert call_kwargs[1]["timeout"] == timeout
 
     @pytest.mark.parametrize(
-        "raw_response,expected_result",
+        "raw_response,expected_result,custom_timeout",
         [
-            ('{"status": "ok", "count": 42}', {"status": "ok", "count": 42}),
-            (None, None),
-            ("not valid json {", None),
-            ('{"key": "value\x00"}', {"key": "value "}),  # Control chars cleaned
+            # Valid JSON
+            ('{"status": "ok", "count": 42}', {"status": "ok", "count": 42}, None),
+            # Null response
+            (None, None, None),
+            # Invalid JSON
+            ("not valid json {", None, None),
+            # Control chars cleaned
+            ('{"key": "value\x00"}', {"key": "value "}, None),
+            # Custom timeout
+            ('{"data": true}', {"data": True}, 10.0),
         ],
-        ids=["valid_json", "null_response", "invalid_json", "cleaned_control_chars"],
+        ids=[
+            "valid_json",
+            "null_response",
+            "invalid_json",
+            "cleaned_control_chars",
+            "custom_timeout",
+        ],
     )
     @patch("opencode_monitor.core.client._sync_get")
-    def test_sync_get_json_responses(
-        self, mock_sync_get, raw_response, expected_result
+    def test_sync_get_json_all_cases(
+        self, mock_sync_get, raw_response, expected_result, custom_timeout
     ):
-        """Sync GET JSON handles valid, null, invalid and dirty JSON."""
+        """Sync GET JSON handles valid, null, invalid, dirty JSON and timeout."""
         mock_sync_get.return_value = raw_response
-        result = _sync_get_json("http://example.com/api")
-        assert result == expected_result
+        timeout = custom_timeout if custom_timeout else REQUEST_TIMEOUT
 
-    @patch("opencode_monitor.core.client._sync_get")
-    def test_sync_get_json_passes_timeout(self, mock_sync_get):
-        """Custom timeout is passed through."""
-        mock_sync_get.return_value = "{}"
-        _sync_get_json("http://example.com/api", timeout=10.0)
-        mock_sync_get.assert_called_once_with("http://example.com/api", 10.0)
+        result = _sync_get_json("http://example.com/api", timeout=timeout)
+
+        assert result == expected_result
+        mock_sync_get.assert_called_once_with("http://example.com/api", timeout)
 
 
 # =====================================================
@@ -161,38 +167,42 @@ class TestAsyncHttp:
     """Tests for async HTTP functions (get and get_json)."""
 
     @pytest.mark.parametrize(
-        "func,mock_target,mock_return,expected",
+        "func,mock_target,mock_return,expected,timeout",
         [
-            (get, "_sync_get", "response data", "response data"),
-            (get, "_sync_get", None, None),
-            (get_json, "_sync_get_json", {"key": "value"}, {"key": "value"}),
-            (get_json, "_sync_get_json", None, None),
+            # get function
+            (get, "_sync_get", "response data", "response data", None),
+            (get, "_sync_get", None, None, None),
+            (get, "_sync_get", "data", "data", 3.0),
+            # get_json function
+            (get_json, "_sync_get_json", {"key": "value"}, {"key": "value"}, None),
+            (get_json, "_sync_get_json", None, None, None),
+            (get_json, "_sync_get_json", {"x": 1}, {"x": 1}, 5.0),
         ],
-        ids=["get_success", "get_error", "get_json_success", "get_json_error"],
+        ids=[
+            "get_success",
+            "get_error",
+            "get_timeout",
+            "get_json_success",
+            "get_json_error",
+            "get_json_timeout",
+        ],
     )
-    def test_async_functions_delegate_correctly(
-        self, func, mock_target, mock_return, expected
+    def test_async_functions_all_cases(
+        self, func, mock_target, mock_return, expected, timeout
     ):
-        """Async get/get_json delegate to sync counterparts."""
+        """Async get/get_json delegate to sync counterparts with correct params."""
         with patch(f"opencode_monitor.core.client.{mock_target}") as mock_sync:
             mock_sync.return_value = mock_return
-            result = run_async(func("http://example.com/api"))
-            assert result == expected
+            url = "http://example.com/api"
 
-    @pytest.mark.parametrize(
-        "func,mock_target,timeout",
-        [
-            (get, "_sync_get", 3.0),
-            (get_json, "_sync_get_json", 5.0),
-        ],
-        ids=["get_timeout", "get_json_timeout"],
-    )
-    def test_async_functions_pass_timeout(self, func, mock_target, timeout):
-        """Async functions pass timeout to sync counterparts."""
-        with patch(f"opencode_monitor.core.client.{mock_target}") as mock_sync:
-            mock_sync.return_value = {} if "json" in mock_target else "data"
-            run_async(func("http://example.com/api", timeout=timeout))
-            mock_sync.assert_called_once_with("http://example.com/api", timeout)
+            if timeout:
+                result = run_async(func(url, timeout=timeout))
+                mock_sync.assert_called_once_with(url, timeout)
+            else:
+                result = run_async(func(url))
+                assert mock_sync.call_count == 1
+
+            assert result == expected
 
 
 # =====================================================
@@ -204,37 +214,37 @@ class TestCheckOpencodePort:
     """Tests for OpenCode port detection."""
 
     @pytest.mark.parametrize(
-        "response,expected,description",
+        "response,exception,expected",
         [
-            ("{}", True, "Empty object is OpenCode"),
-            (
-                '{"ses_abc123": {"status": "idle"}}',
-                True,
-                "Session response is OpenCode",
-            ),
-            (None, False, "None response is not OpenCode"),
-            ('{"error": "not opencode"}', False, "Unexpected response is not OpenCode"),
+            # Valid OpenCode responses
+            ("{}", None, True),
+            ('{"ses_abc123": {"status": "idle"}}', None, True),
+            # Invalid responses
+            (None, None, False),
+            ('{"error": "not opencode"}', None, False),
+            # Exception handling
+            (None, Exception("Network error"), False),
+        ],
+        ids=[
+            "empty_object_is_opencode",
+            "session_response_is_opencode",
+            "none_response",
+            "unexpected_format",
+            "network_error",
         ],
     )
     @patch("opencode_monitor.core.client.get")
-    def test_check_port_responses(self, mock_get, response, expected, description):
-        """Port check based on response type."""
-        mock_get.return_value = response
-        result = run_async(check_opencode_port(8080))
-        assert result is expected, description
+    def test_check_port_all_cases(self, mock_get, response, exception, expected):
+        """Port check handles all response types and exceptions."""
+        if exception:
+            mock_get.side_effect = exception
+        else:
+            mock_get.return_value = response
 
-    @patch("opencode_monitor.core.client.get")
-    def test_check_port_calls_correct_url_and_handles_exception(self, mock_get):
-        """Check port calls correct endpoint and handles exceptions."""
-        # Test correct URL
-        mock_get.return_value = "{}"
-        run_async(check_opencode_port(8080))
+        result = run_async(check_opencode_port(8080))
+
+        assert result == expected
         mock_get.assert_called_with("http://127.0.0.1:8080/session/status", timeout=0.5)
-
-        # Test exception handling
-        mock_get.side_effect = Exception("Network error")
-        result = run_async(check_opencode_port(8080))
-        assert result is False
 
 
 # =====================================================
@@ -246,50 +256,57 @@ class TestParallelRequests:
     """Tests for parallel HTTP requests."""
 
     @pytest.mark.parametrize(
-        "side_effects,urls,expected_results",
+        "side_effects,urls,expected_results,custom_timeout",
         [
             # All success
             (
                 [{"id": 1}, {"id": 2}, {"id": 3}],
                 ["http://1", "http://2", "http://3"],
                 [{"id": 1}, {"id": 2}, {"id": 3}],
+                None,
             ),
             # Mixed success/failure
             (
                 [{"id": 1}, None, {"id": 3}],
                 ["http://1", "http://fail", "http://3"],
                 [{"id": 1}, None, {"id": 3}],
+                None,
             ),
             # Empty list
-            ([], [], []),
+            ([], [], [], None),
+            # Custom timeout
+            (
+                [{"a": 1}, {"b": 2}],
+                ["http://a", "http://b"],
+                [{"a": 1}, {"b": 2}],
+                5.0,
+            ),
         ],
-        ids=["all_success", "mixed_results", "empty_list"],
+        ids=["all_success", "mixed_results", "empty_list", "custom_timeout"],
     )
     @patch("opencode_monitor.core.client.get_json")
-    def test_parallel_requests_results(
-        self, mock_get_json, side_effects, urls, expected_results
+    def test_parallel_requests_all_cases(
+        self, mock_get_json, side_effects, urls, expected_results, custom_timeout
     ):
-        """Parallel requests handles success, failure and empty cases."""
+        """Parallel requests handles all cases with correct timeout."""
         if side_effects:
             mock_get_json.side_effect = side_effects
 
-        results = run_async(parallel_requests(urls))
+        if custom_timeout:
+            results = run_async(parallel_requests(urls, timeout=custom_timeout))
+        else:
+            results = run_async(parallel_requests(urls))
 
         assert results == expected_results
+        assert len(results) == len(urls)
+
         if not urls:
-            mock_get_json.assert_not_called()
-
-    @patch("opencode_monitor.core.client.get_json")
-    def test_parallel_requests_custom_timeout(self, mock_get_json):
-        """Custom timeout is passed to all requests."""
-        mock_get_json.return_value = {}
-
-        urls = ["http://example.com/1", "http://example.com/2"]
-        run_async(parallel_requests(urls, timeout=5.0))
-
-        assert mock_get_json.call_count == 2
-        for call in mock_get_json.call_args_list:
-            assert call[0][1] == 5.0  # timeout argument
+            assert mock_get_json.call_count == 0
+        else:
+            assert mock_get_json.call_count == len(urls)
+            if custom_timeout:
+                for call in mock_get_json.call_args_list:
+                    assert call[0][1] == custom_timeout
 
 
 # =====================================================
@@ -300,11 +317,21 @@ class TestParallelRequests:
 class TestOpenCodeClient:
     """Tests for OpenCodeClient initialization and API methods."""
 
-    def test_init_sets_port_and_base_url(self):
-        """Client stores port and constructs correct base URL."""
+    def test_init_and_constants(self):
+        """Client initialization and module constants."""
         client = OpenCodeClient(port=9000)
+
+        # Initialization
         assert client.port == 9000
         assert client.base_url == "http://127.0.0.1:9000"
+
+        # Different port
+        client2 = OpenCodeClient(port=8080)
+        assert client2.port == 8080
+        assert client2.base_url == "http://127.0.0.1:8080"
+
+        # Module constant
+        assert REQUEST_TIMEOUT == 2
 
     @pytest.mark.parametrize(
         "method,method_args,expected_endpoint",
@@ -334,62 +361,47 @@ class TestOpenCodeClient:
         ],
     )
     @patch("opencode_monitor.core.client.get_json")
-    def test_api_methods_call_correct_endpoints(
+    def test_api_methods_endpoints(
         self, mock_get_json, method, method_args, expected_endpoint
     ):
         """API methods call correct endpoints with proper parameters."""
         mock_get_json.return_value = {}
         client = OpenCodeClient(port=8080)
 
-        getattr(client, method)(**method_args) if asyncio.iscoroutinefunction(
-            getattr(client, method)
-        ) and False else run_async(getattr(client, method)(**method_args))
+        run_async(getattr(client, method)(**method_args))
 
-        mock_get_json.assert_called_once_with(
-            f"http://127.0.0.1:8080{expected_endpoint}"
-        )
+        expected_url = f"http://127.0.0.1:8080{expected_endpoint}"
+        mock_get_json.assert_called_once_with(expected_url)
+        assert mock_get_json.call_count == 1
 
+    @pytest.mark.parametrize(
+        "info_response,messages_response,todos_response",
+        [
+            # Full success
+            (
+                {"id": "ses_abc", "path": "/project"},
+                [{"role": "user", "content": "Hello"}],
+                [{"id": "todo_1"}],
+            ),
+            # Partial failure
+            ({"id": "ses_abc"}, None, None),
+            # All None
+            (None, None, None),
+        ],
+        ids=["full_success", "partial_failure", "all_none"],
+    )
     @patch("opencode_monitor.core.client.get_json")
-    def test_fetch_session_data_aggregates_all(self, mock_get_json):
-        """fetch_session_data aggregates info, messages, and todos."""
-        mock_get_json.side_effect = [
-            {"id": "ses_abc", "path": "/project"},  # info
-            [{"role": "user", "content": "Hello"}],  # messages
-            [{"id": "todo_1"}],  # todos
-        ]
+    def test_fetch_session_data_aggregation(
+        self, mock_get_json, info_response, messages_response, todos_response
+    ):
+        """fetch_session_data aggregates info, messages, and todos correctly."""
+        mock_get_json.side_effect = [info_response, messages_response, todos_response]
 
         client = OpenCodeClient(port=8080)
         result = run_async(client.fetch_session_data("ses_abc"))
 
-        assert result["info"] == {"id": "ses_abc", "path": "/project"}
-        assert result["messages"] == [{"role": "user", "content": "Hello"}]
-        assert result["todos"] == [{"id": "todo_1"}]
-
-    @patch("opencode_monitor.core.client.get_json")
-    def test_fetch_session_data_handles_partial_failure(self, mock_get_json):
-        """fetch_session_data handles partial API failures."""
-        mock_get_json.side_effect = [
-            {"id": "ses_abc"},  # info succeeds
-            None,  # messages fail
-            None,  # todos fail
-        ]
-
-        client = OpenCodeClient(port=8080)
-        result = run_async(client.fetch_session_data("ses_abc"))
-
-        assert result["info"] == {"id": "ses_abc"}
-        assert result["messages"] is None
-        assert result["todos"] is None
-
-
-# =====================================================
-# Constants Tests
-# =====================================================
-
-
-class TestConstants:
-    """Tests for module constants."""
-
-    def test_request_timeout_value(self):
-        """REQUEST_TIMEOUT has expected default value."""
-        assert REQUEST_TIMEOUT == 2
+        assert result["info"] == info_response
+        assert result["messages"] == messages_response
+        assert result["todos"] == todos_response
+        assert mock_get_json.call_count == 3
+        assert list(result.keys()) == ["info", "messages", "todos"]

@@ -26,28 +26,18 @@ from opencode_monitor.core.models import (
 
 
 @pytest.mark.parametrize(
-    "status,expected",
+    "enum_class,member,expected_value",
     [
-        (SessionStatus.IDLE, "idle"),
-        (SessionStatus.BUSY, "busy"),
+        (SessionStatus, "IDLE", "idle"),
+        (SessionStatus, "BUSY", "busy"),
+        (TodoStatus, "PENDING", "pending"),
+        (TodoStatus, "IN_PROGRESS", "in_progress"),
+        (TodoStatus, "COMPLETED", "completed"),
     ],
 )
-def test_session_status_values(status, expected):
-    """SessionStatus enum values are correct."""
-    assert status.value == expected
-
-
-@pytest.mark.parametrize(
-    "status,expected",
-    [
-        (TodoStatus.PENDING, "pending"),
-        (TodoStatus.IN_PROGRESS, "in_progress"),
-        (TodoStatus.COMPLETED, "completed"),
-    ],
-)
-def test_todo_status_values(status, expected):
-    """TodoStatus enum values are correct."""
-    assert status.value == expected
+def test_enum_values(enum_class, member, expected_value):
+    """All enum values are correct."""
+    assert getattr(enum_class, member).value == expected_value
 
 
 # =============================================================================
@@ -58,42 +48,10 @@ def test_todo_status_values(status, expected):
 class TestTool:
     """Tests for Tool dataclass"""
 
-    def test_default_arg(self):
-        """Tool default arg is empty string."""
-        tool = Tool(name="bash")
-        assert tool.name == "bash"
-        assert tool.arg == ""
-
-    def test_default_elapsed_ms(self):
-        """Tool default elapsed_ms is 0."""
-        tool = Tool(name="bash")
-        assert tool.elapsed_ms == 0
-
-    def test_with_arg(self):
-        """Tool with custom arg."""
-        tool = Tool(name="read", arg="/path/to/file.py")
-        assert tool.name == "read"
-        assert tool.arg == "/path/to/file.py"
-
-    def test_with_elapsed_ms(self):
-        """Tool with custom elapsed_ms."""
-        tool = Tool(name="bash", arg="ls", elapsed_ms=5000)
-        assert tool.elapsed_ms == 5000
-
     @pytest.mark.parametrize(
-        "name,arg,elapsed_ms,expected",
+        "name,arg,elapsed_ms,expected_dict",
         [
-            (
-                "write",
-                "content.txt",
-                0,
-                {
-                    "name": "write",
-                    "arg": "content.txt",
-                    "elapsed_ms": 0,
-                    "may_need_permission": False,
-                },
-            ),
+            # Default arg and elapsed_ms
             (
                 "bash",
                 "",
@@ -105,6 +63,31 @@ class TestTool:
                     "may_need_permission": False,
                 },
             ),
+            # Custom arg
+            (
+                "read",
+                "/path/to/file.py",
+                0,
+                {
+                    "name": "read",
+                    "arg": "/path/to/file.py",
+                    "elapsed_ms": 0,
+                    "may_need_permission": False,
+                },
+            ),
+            # Custom elapsed_ms (below threshold)
+            (
+                "bash",
+                "ls",
+                5000,
+                {
+                    "name": "bash",
+                    "arg": "ls",
+                    "elapsed_ms": 5000,
+                    "may_need_permission": False,
+                },
+            ),
+            # Above threshold - may_need_permission True
             (
                 "read",
                 "/file.py",
@@ -116,12 +99,33 @@ class TestTool:
                     "may_need_permission": True,
                 },
             ),
+            # Write tool
+            (
+                "write",
+                "content.txt",
+                0,
+                {
+                    "name": "write",
+                    "arg": "content.txt",
+                    "elapsed_ms": 0,
+                    "may_need_permission": False,
+                },
+            ),
         ],
     )
-    def test_to_dict(self, name, arg, elapsed_ms, expected):
-        """Tool to_dict returns correct structure with elapsed_ms and may_need_permission."""
-        tool = Tool(name=name, arg=arg, elapsed_ms=elapsed_ms)
-        assert tool.to_dict() == expected
+    def test_tool_creation_and_to_dict(self, name, arg, elapsed_ms, expected_dict):
+        """Tool creation with various params and to_dict serialization."""
+        if arg == "":
+            tool = Tool(name=name)
+            if elapsed_ms > 0:
+                tool = Tool(name=name, elapsed_ms=elapsed_ms)
+        else:
+            tool = Tool(name=name, arg=arg, elapsed_ms=elapsed_ms)
+
+        assert tool.name == expected_dict["name"]
+        assert tool.arg == expected_dict["arg"]
+        assert tool.elapsed_ms == expected_dict["elapsed_ms"]
+        assert tool.to_dict() == expected_dict
 
     def test_excluded_tools_contains_task(self):
         """EXCLUDED_TOOLS contains 'task' for sub-agents."""
@@ -148,7 +152,7 @@ class TestTool:
     def test_may_need_permission(self, tool_name, elapsed_ms, expected):
         """may_need_permission property based on elapsed_ms and exclusions."""
         tool = Tool(name=tool_name, elapsed_ms=elapsed_ms)
-        assert tool.may_need_permission is expected
+        assert tool.may_need_permission == expected
 
 
 # =============================================================================
@@ -159,55 +163,48 @@ class TestTool:
 class TestAgentTodos:
     """Tests for AgentTodos dataclass"""
 
-    def test_defaults(self):
-        """AgentTodos default values."""
-        todos = AgentTodos()
-        assert todos.pending == 0
-        assert todos.in_progress == 0
-        assert todos.current_label == ""
-        assert todos.next_label == ""
-
-    def test_with_values(self):
-        """AgentTodos with custom values."""
-        todos = AgentTodos(
-            pending=3,
-            in_progress=1,
-            current_label="Implementing feature",
-            next_label="Write tests",
-        )
-        assert todos.pending == 3
-        assert todos.in_progress == 1
-        assert todos.current_label == "Implementing feature"
-        assert todos.next_label == "Write tests"
-
-    def test_to_dict(self):
-        """AgentTodos to_dict returns correct structure."""
-        todos = AgentTodos(
-            pending=5,
-            in_progress=2,
-            current_label="Current task",
-            next_label="Next task",
-        )
-        assert todos.to_dict() == {
-            "pending": 5,
-            "in_progress": 2,
-            "current_label": "Current task",
-            "next_label": "Next task",
-        }
-
     @pytest.mark.parametrize(
-        "pending,in_progress,expected_total",
+        "pending,in_progress,current_label,next_label,expected_total",
         [
-            (3, 2, 5),
-            (0, 0, 0),
-            (10, 0, 10),
-            (0, 5, 5),
+            # Defaults
+            (0, 0, "", "", 0),
+            # With values
+            (3, 1, "Implementing feature", "Write tests", 4),
+            (5, 2, "Current task", "Next task", 7),
+            (10, 0, "Only pending", "", 10),
+            (0, 5, "", "Only in progress", 5),
         ],
     )
-    def test_total_property(self, pending, in_progress, expected_total):
-        """Total property sums pending and in_progress."""
-        todos = AgentTodos(pending=pending, in_progress=in_progress)
+    def test_creation_total_and_to_dict(
+        self, pending, in_progress, current_label, next_label, expected_total
+    ):
+        """AgentTodos creation, total property, and to_dict."""
+        if (
+            pending == 0
+            and in_progress == 0
+            and current_label == ""
+            and next_label == ""
+        ):
+            todos = AgentTodos()
+        else:
+            todos = AgentTodos(
+                pending=pending,
+                in_progress=in_progress,
+                current_label=current_label,
+                next_label=next_label,
+            )
+
+        assert todos.pending == pending
+        assert todos.in_progress == in_progress
+        assert todos.current_label == current_label
+        assert todos.next_label == next_label
         assert todos.total == expected_total
+        assert todos.to_dict() == {
+            "pending": pending,
+            "in_progress": in_progress,
+            "current_label": current_label,
+            "next_label": next_label,
+        }
 
 
 # =============================================================================
@@ -218,45 +215,37 @@ class TestAgentTodos:
 class TestAgent:
     """Tests for Agent dataclass"""
 
-    def test_minimal_agent(self):
-        """Agent with required fields only."""
+    @pytest.mark.parametrize(
+        "parent_id,expected_is_subagent",
+        [
+            (None, False),
+            ("parent-123", True),
+        ],
+    )
+    def test_agent_creation_and_is_subagent(self, parent_id, expected_is_subagent):
+        """Agent creation with various parent_id and is_subagent property."""
         agent = Agent(
             id="agent-123",
             title="Test Session",
             dir="project",
             full_dir="/home/user/project",
             status=SessionStatus.IDLE,
+            parent_id=parent_id,
         )
+
         assert agent.id == "agent-123"
         assert agent.title == "Test Session"
         assert agent.dir == "project"
         assert agent.full_dir == "/home/user/project"
         assert agent.status == SessionStatus.IDLE
         assert agent.tools == []
-        assert isinstance(agent.todos, AgentTodos)
-        assert agent.parent_id is None
+        assert agent.todos.pending == 0
+        assert agent.todos.in_progress == 0
+        assert agent.parent_id == parent_id
+        assert agent.is_subagent == expected_is_subagent
 
-    @pytest.mark.parametrize(
-        "parent_id,expected",
-        [
-            (None, False),
-            ("parent-123", True),
-        ],
-    )
-    def test_is_subagent(self, parent_id, expected):
-        """is_subagent property based on parent_id."""
-        agent = Agent(
-            id="agent-123",
-            title="Test",
-            dir="project",
-            full_dir="/path",
-            status=SessionStatus.IDLE,
-            parent_id=parent_id,
-        )
-        assert agent.is_subagent is expected
-
-    def test_to_dict_without_parent(self):
-        """to_dict without parent_id."""
+    def test_to_dict_complete(self):
+        """to_dict returns correct structure with tools, todos, and optional parent_id."""
         tool = Tool(name="bash", arg="ls -la")
         todos = AgentTodos(pending=2, in_progress=1, current_label="Task")
         agent = Agent(
@@ -270,6 +259,7 @@ class TestAgent:
         )
         result = agent.to_dict()
 
+        # Core fields
         assert result["id"] == "agent-123"
         assert result["title"] == "Test"
         assert result["dir"] == "proj"
@@ -289,38 +279,37 @@ class TestAgent:
             "current_label": "Task",
             "next_label": "",
         }
+        # ask_user fields (defaults)
+        assert result["has_pending_ask_user"] is False
+        assert result["ask_user_title"] == ""
+        assert result["ask_user_question"] == ""
+        assert result["ask_user_options"] == []
+        assert result["ask_user_repo"] == ""
+        assert result["ask_user_agent"] == ""
+        assert result["ask_user_branch"] == ""
+        assert result["ask_user_urgency"] == "normal"
+        # No parent_id when not set
         assert "parent_id" not in result
 
-    def test_to_dict_with_parent(self):
-        """to_dict includes parent_id when set."""
-        agent = Agent(
-            id="sub-123",
-            title="Sub Agent",
-            dir="proj",
-            full_dir="/path",
-            status=SessionStatus.IDLE,
-            parent_id="parent-456",
-        )
-        result = agent.to_dict()
-        assert result["parent_id"] == "parent-456"
-
-    def test_to_dict_with_multiple_tools(self):
-        """to_dict with multiple tools."""
+    def test_to_dict_with_parent_and_multiple_tools(self):
+        """to_dict includes parent_id when set and serializes multiple tools."""
         tools = [
             Tool(name="read", arg="file1.py"),
             Tool(name="write", arg="file2.py"),
             Tool(name="bash", arg="pytest"),
         ]
         agent = Agent(
-            id="agent-123",
-            title="Test",
+            id="sub-123",
+            title="Sub Agent",
             dir="proj",
             full_dir="/path",
             status=SessionStatus.BUSY,
             tools=tools,
+            parent_id="parent-456",
         )
         result = agent.to_dict()
 
+        assert result["parent_id"] == "parent-456"
         assert len(result["tools"]) == 3
         assert result["tools"][0] == {
             "name": "read",
@@ -350,103 +339,56 @@ class TestAgent:
 class TestInstance:
     """Tests for Instance dataclass"""
 
-    def test_defaults(self):
-        """Instance default values."""
-        instance = Instance(port=3000)
-        assert instance.port == 3000
-        assert instance.tty == ""
-        assert instance.agents == []
-
-    def test_with_tty(self):
-        """Instance with tty."""
-        instance = Instance(port=3001, tty="/dev/ttys001")
-        assert instance.tty == "/dev/ttys001"
-
     @pytest.mark.parametrize(
-        "agents_count,expected",
+        "port,tty,busy_count,idle_count",
         [
-            (0, 0),
-            (1, 1),
-            (3, 3),
+            # Defaults
+            (3000, "", 0, 0),
+            # With tty
+            (3001, "/dev/ttys001", 0, 0),
+            # With agents
+            (3000, "", 2, 1),
+            (3000, "", 0, 3),
+            (3000, "", 3, 0),
         ],
     )
-    def test_agent_count(self, agents_count, expected):
-        """agent_count property."""
-        agents = [
-            Agent(
-                id=str(i), title="A", dir="d", full_dir="/d", status=SessionStatus.IDLE
-            )
-            for i in range(agents_count)
-        ]
-        instance = Instance(port=3000, agents=agents)
-        assert instance.agent_count == expected
-
-    @pytest.mark.parametrize(
-        "busy,idle,expected",
-        [
-            (0, 2, 0),  # None busy
-            (2, 1, 2),  # Some busy
-            (3, 0, 3),  # All busy
-        ],
-    )
-    def test_busy_count(self, busy, idle, expected):
-        """busy_count property."""
+    def test_instance_creation_and_counts(self, port, tty, busy_count, idle_count):
+        """Instance creation with various configs and count properties."""
         agents = [
             Agent(
                 id=f"busy-{i}",
-                title="A",
+                title="Busy",
                 dir="d",
                 full_dir="/d",
                 status=SessionStatus.BUSY,
             )
-            for i in range(busy)
+            for i in range(busy_count)
         ] + [
             Agent(
                 id=f"idle-{i}",
-                title="B",
+                title="Idle",
                 dir="d",
                 full_dir="/d",
                 status=SessionStatus.IDLE,
             )
-            for i in range(idle)
+            for i in range(idle_count)
         ]
-        instance = Instance(port=3000, agents=agents)
-        assert instance.busy_count == expected
 
-    @pytest.mark.parametrize(
-        "busy,idle,expected",
-        [
-            (0, 2, 2),  # All idle
-            (2, 1, 1),  # Some idle
-            (3, 0, 0),  # None idle
-        ],
-    )
-    def test_idle_count(self, busy, idle, expected):
-        """idle_count property."""
-        agents = [
-            Agent(
-                id=f"busy-{i}",
-                title="A",
-                dir="d",
-                full_dir="/d",
-                status=SessionStatus.BUSY,
+        if tty:
+            instance = Instance(port=port, tty=tty, agents=agents)
+        else:
+            instance = (
+                Instance(port=port, agents=agents) if agents else Instance(port=port)
             )
-            for i in range(busy)
-        ] + [
-            Agent(
-                id=f"idle-{i}",
-                title="B",
-                dir="d",
-                full_dir="/d",
-                status=SessionStatus.IDLE,
-            )
-            for i in range(idle)
-        ]
-        instance = Instance(port=3000, agents=agents)
-        assert instance.idle_count == expected
 
-    def test_to_dict(self):
-        """to_dict method."""
+        assert instance.port == port
+        assert instance.tty == tty
+        assert instance.agent_count == busy_count + idle_count
+        assert instance.busy_count == busy_count
+        assert instance.idle_count == idle_count
+
+    def test_to_dict_complete(self):
+        """to_dict returns complete structure with all counts."""
         agent = Agent(
             id="agent-1",
             title="Test Agent",
@@ -457,27 +399,41 @@ class TestInstance:
         instance = Instance(port=3000, tty="/dev/ttys001", agents=[agent])
         result = instance.to_dict()
 
+        # Instance fields
         assert result["port"] == 3000
         assert result["tty"] == "/dev/ttys001"
         assert result["agent_count"] == 1
         assert result["busy_count"] == 1
         assert result["idle_count"] == 0
         assert len(result["agents"]) == 1
-        assert result["agents"][0]["id"] == "agent-1"
 
-    def test_to_dict_empty_agents(self):
-        """to_dict with no agents."""
-        instance = Instance(port=3000)
-        result = instance.to_dict()
+        # Agent fields in instance
+        agent_dict = result["agents"][0]
+        assert agent_dict["id"] == "agent-1"
+        assert agent_dict["title"] == "Test Agent"
+        assert agent_dict["dir"] == "project"
+        assert agent_dict["full_dir"] == "/home/project"
+        assert agent_dict["status"] == "busy"
+        assert agent_dict["tools"] == []
+        assert agent_dict["todos"] == {
+            "pending": 0,
+            "in_progress": 0,
+            "current_label": "",
+            "next_label": "",
+        }
+        assert agent_dict["has_pending_ask_user"] is False
 
-        assert result["port"] == 3000
-        assert result["agents"] == []
-        assert result["agent_count"] == 0
-        assert result["busy_count"] == 0
-        assert result["idle_count"] == 0
+    def test_to_dict_empty_and_mixed_agents(self):
+        """to_dict with no agents and with mixed busy/idle agents."""
+        # Empty
+        empty_instance = Instance(port=3000)
+        empty_result = empty_instance.to_dict()
+        assert empty_result["agents"] == []
+        assert empty_result["agent_count"] == 0
+        assert empty_result["busy_count"] == 0
+        assert empty_result["idle_count"] == 0
 
-    def test_to_dict_with_idle_agents(self):
-        """to_dict includes idle_count."""
+        # Mixed
         agents = [
             Agent(
                 id="busy-1",
@@ -501,11 +457,10 @@ class TestInstance:
                 status=SessionStatus.IDLE,
             ),
         ]
-        instance = Instance(port=3000, agents=agents)
-        result = instance.to_dict()
-
-        assert result["busy_count"] == 1
-        assert result["idle_count"] == 2
+        mixed_instance = Instance(port=3000, agents=agents)
+        mixed_result = mixed_instance.to_dict()
+        assert mixed_result["busy_count"] == 1
+        assert mixed_result["idle_count"] == 2
 
 
 # =============================================================================
@@ -516,22 +471,24 @@ class TestInstance:
 class TestTodos:
     """Tests for Todos dataclass"""
 
-    def test_defaults(self):
-        """Todos default values."""
-        todos = Todos()
-        assert todos.pending == 0
-        assert todos.in_progress == 0
+    @pytest.mark.parametrize(
+        "pending,in_progress",
+        [
+            (0, 0),  # Defaults
+            (10, 3),  # With values
+            (5, 2),
+        ],
+    )
+    def test_todos_creation_and_to_dict(self, pending, in_progress):
+        """Todos creation and to_dict."""
+        if pending == 0 and in_progress == 0:
+            todos = Todos()
+        else:
+            todos = Todos(pending=pending, in_progress=in_progress)
 
-    def test_with_values(self):
-        """Todos with custom values."""
-        todos = Todos(pending=10, in_progress=3)
-        assert todos.pending == 10
-        assert todos.in_progress == 3
-
-    def test_to_dict(self):
-        """to_dict method."""
-        todos = Todos(pending=5, in_progress=2)
-        assert todos.to_dict() == {"pending": 5, "in_progress": 2}
+        assert todos.pending == pending
+        assert todos.in_progress == in_progress
+        assert todos.to_dict() == {"pending": pending, "in_progress": in_progress}
 
 
 # =============================================================================
@@ -542,98 +499,70 @@ class TestTodos:
 class TestState:
     """Tests for State dataclass"""
 
-    def test_defaults(self):
-        """State default values."""
-        state = State()
+    @pytest.mark.parametrize(
+        "connected",
+        [False, True],
+    )
+    def test_state_defaults_and_connected(self, connected):
+        """State default values and connected flag."""
+        state = State(connected=connected) if connected else State()
+
         assert state.instances == []
-        assert isinstance(state.todos, Todos)
-        assert isinstance(state.updated, int)
-        assert state.connected is False
-
-    def test_connected_true(self):
-        """State with connected=True."""
-        state = State(connected=True)
-        assert state.connected is True
+        assert state.todos.pending == 0
+        assert state.todos.in_progress == 0
+        assert state.updated >= 0  # Timestamp is a positive int
+        assert state.connected == connected
 
     @pytest.mark.parametrize(
-        "instance_count,expected",
+        "instance_configs,expected_agent,expected_busy,expected_idle",
         [
-            (0, 0),
-            (3, 3),
+            # Empty state
+            ([], 0, 0, 0),
+            # Single instance with agents
+            ([{"busy": 1, "idle": 1}], 2, 1, 1),
+            # Multiple instances
+            ([{"busy": 2, "idle": 0}, {"busy": 1, "idle": 1}], 4, 3, 1),
+            # All idle
+            ([{"busy": 0, "idle": 2}, {"busy": 0, "idle": 1}], 3, 0, 3),
+            # All busy
+            ([{"busy": 2, "idle": 0}, {"busy": 1, "idle": 0}], 3, 3, 0),
         ],
     )
-    def test_instance_count(self, instance_count, expected):
-        """instance_count property."""
-        instances = [Instance(port=3000 + i) for i in range(instance_count)]
-        state = State(instances=instances)
-        assert state.instance_count == expected
-
-    def test_agent_count_sums_all_instances(self):
-        """agent_count sums agents across all instances."""
-        agents1 = [
-            Agent(id="1", title="A", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-            Agent(id="2", title="B", dir="d", full_dir="/d", status=SessionStatus.BUSY),
-        ]
-        agents2 = [
-            Agent(id="3", title="C", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-        ]
-        instances = [
-            Instance(port=3000, agents=agents1),
-            Instance(port=3001, agents=agents2),
-        ]
-        state = State(instances=instances)
-        assert state.agent_count == 3
-
-    def test_busy_count_sums_all_instances(self):
-        """busy_count sums busy agents across all instances."""
-        agents1 = [
-            Agent(id="1", title="A", dir="d", full_dir="/d", status=SessionStatus.BUSY),
-            Agent(id="2", title="B", dir="d", full_dir="/d", status=SessionStatus.BUSY),
-        ]
-        agents2 = [
-            Agent(id="3", title="C", dir="d", full_dir="/d", status=SessionStatus.BUSY),
-            Agent(id="4", title="D", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-        ]
-        instances = [
-            Instance(port=3000, agents=agents1),
-            Instance(port=3001, agents=agents2),
-        ]
-        state = State(instances=instances)
-        assert state.busy_count == 3
-
-    def test_idle_count_sums_all_instances(self):
-        """idle_count sums idle agents across all instances."""
-        agents1 = [
-            Agent(id="1", title="A", dir="d", full_dir="/d", status=SessionStatus.BUSY),
-            Agent(id="2", title="B", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-        ]
-        agents2 = [
-            Agent(id="3", title="C", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-            Agent(id="4", title="D", dir="d", full_dir="/d", status=SessionStatus.IDLE),
-        ]
-        instances = [
-            Instance(port=3000, agents=agents1),
-            Instance(port=3001, agents=agents2),
-        ]
-        state = State(instances=instances)
-        assert state.idle_count == 3
-
-    @pytest.mark.parametrize(
-        "instances,expected_agent,expected_busy,expected_idle",
-        [
-            ([], 0, 0, 0),  # Empty
-        ],
-    )
-    def test_empty_state_counts(
-        self, instances, expected_agent, expected_busy, expected_idle
+    def test_state_counts_across_instances(
+        self, instance_configs, expected_agent, expected_busy, expected_idle
     ):
-        """Empty state has zero counts."""
+        """State counts sum agents across all instances."""
+        instances = []
+        for i, config in enumerate(instance_configs):
+            agents = [
+                Agent(
+                    id=f"busy-{i}-{j}",
+                    title="B",
+                    dir="d",
+                    full_dir="/d",
+                    status=SessionStatus.BUSY,
+                )
+                for j in range(config["busy"])
+            ] + [
+                Agent(
+                    id=f"idle-{i}-{j}",
+                    title="I",
+                    dir="d",
+                    full_dir="/d",
+                    status=SessionStatus.IDLE,
+                )
+                for j in range(config["idle"])
+            ]
+            instances.append(Instance(port=3000 + i, agents=agents))
+
         state = State(instances=instances)
+
+        assert state.instance_count == len(instance_configs)
         assert state.agent_count == expected_agent
         assert state.busy_count == expected_busy
         assert state.idle_count == expected_idle
 
-    def test_to_dict(self):
+    def test_to_dict_complete(self):
         """to_dict returns complete structure."""
         agent = Agent(
             id="agent-1",
@@ -662,29 +591,6 @@ class TestState:
         assert len(result["instances"]) == 1
         assert result["instances"][0]["port"] == 3000
 
-    def test_to_dict_with_idle_agents(self):
-        """to_dict includes correct idle_count."""
-        busy_agent = Agent(
-            id="busy-1",
-            title="Busy",
-            dir="proj",
-            full_dir="/path/proj",
-            status=SessionStatus.BUSY,
-        )
-        idle_agent = Agent(
-            id="idle-1",
-            title="Idle",
-            dir="proj",
-            full_dir="/path/proj",
-            status=SessionStatus.IDLE,
-        )
-        instance = Instance(port=3000, agents=[busy_agent, idle_agent])
-        state = State(instances=[instance], connected=True)
-        result = state.to_dict()
-
-        assert result["busy_count"] == 1
-        assert result["idle_count"] == 1
-
 
 # =============================================================================
 # UsagePeriod Tests
@@ -694,28 +600,24 @@ class TestState:
 class TestUsagePeriod:
     """Tests for UsagePeriod dataclass"""
 
-    def test_defaults(self):
-        """UsagePeriod default values."""
-        period = UsagePeriod()
-        assert period.utilization == 0
-        assert period.resets_at is None
-
-    def test_with_values(self):
-        """UsagePeriod with custom values."""
-        period = UsagePeriod(utilization=75, resets_at="2024-01-15T10:00:00Z")
-        assert period.utilization == 75
-        assert period.resets_at == "2024-01-15T10:00:00Z"
-
     @pytest.mark.parametrize(
         "utilization,resets_at",
         [
+            (0, None),  # Defaults
+            (75, "2024-01-15T10:00:00Z"),  # With values
             (50, "2024-01-15T12:00:00Z"),
-            (25, None),
+            (25, None),  # Utilization without reset
         ],
     )
-    def test_to_dict(self, utilization, resets_at):
-        """to_dict method."""
-        period = UsagePeriod(utilization=utilization, resets_at=resets_at)
+    def test_usage_period_creation_and_to_dict(self, utilization, resets_at):
+        """UsagePeriod creation and to_dict."""
+        if utilization == 0 and resets_at is None:
+            period = UsagePeriod()
+        else:
+            period = UsagePeriod(utilization=utilization, resets_at=resets_at)
+
+        assert period.utilization == utilization
+        assert period.resets_at == resets_at
         assert period.to_dict() == {"utilization": utilization, "resets_at": resets_at}
 
 
@@ -727,27 +629,44 @@ class TestUsagePeriod:
 class TestUsage:
     """Tests for Usage dataclass"""
 
-    def test_defaults(self):
-        """Usage default values."""
+    def test_usage_defaults(self):
+        """Usage default values with equality assertions."""
         usage = Usage()
-        assert isinstance(usage.five_hour, UsagePeriod)
-        assert isinstance(usage.seven_day, UsagePeriod)
+
+        assert usage.five_hour.utilization == 0
+        assert usage.five_hour.resets_at is None
+        assert usage.seven_day.utilization == 0
+        assert usage.seven_day.resets_at is None
         assert usage.error is None
-        assert isinstance(usage.updated, int)
+        assert usage.updated >= 0  # Timestamp is a positive int
 
-    def test_with_periods(self):
-        """Usage with custom periods."""
-        five_hour = UsagePeriod(utilization=30, resets_at="2024-01-15T15:00:00Z")
-        seven_day = UsagePeriod(utilization=60, resets_at="2024-01-20T00:00:00Z")
-        usage = Usage(five_hour=five_hour, seven_day=seven_day)
+    @pytest.mark.parametrize(
+        "five_hour_util,five_hour_reset,seven_day_util,seven_day_reset,error",
+        [
+            (30, "2024-01-15T15:00:00Z", 60, "2024-01-20T00:00:00Z", None),
+            (40, "2024-01-15T15:00:00Z", 80, "2024-01-20T00:00:00Z", None),
+            (0, None, 0, None, "API rate limited"),
+            (0, None, 0, None, "Connection failed"),
+        ],
+    )
+    def test_usage_with_periods_and_errors(
+        self, five_hour_util, five_hour_reset, seven_day_util, seven_day_reset, error
+    ):
+        """Usage with custom periods and/or error."""
+        five_hour = UsagePeriod(utilization=five_hour_util, resets_at=five_hour_reset)
+        seven_day = UsagePeriod(utilization=seven_day_util, resets_at=seven_day_reset)
 
-        assert usage.five_hour.utilization == 30
-        assert usage.seven_day.utilization == 60
+        if error:
+            usage = Usage(error=error)
+        else:
+            usage = Usage(five_hour=five_hour, seven_day=seven_day)
 
-    def test_with_error(self):
-        """Usage with error message."""
-        usage = Usage(error="API rate limited")
-        assert usage.error == "API rate limited"
+        if not error:
+            assert usage.five_hour.utilization == five_hour_util
+            assert usage.five_hour.resets_at == five_hour_reset
+            assert usage.seven_day.utilization == seven_day_util
+            assert usage.seven_day.resets_at == seven_day_reset
+        assert usage.error == error
 
     def test_to_dict_without_error(self):
         """to_dict without error."""
@@ -756,15 +675,11 @@ class TestUsage:
         usage = Usage(five_hour=five_hour, seven_day=seven_day, updated=1234567890)
         result = usage.to_dict()
 
-        assert result["five_hour"] == {
-            "utilization": 40,
-            "resets_at": "2024-01-15T15:00:00Z",
+        assert result == {
+            "five_hour": {"utilization": 40, "resets_at": "2024-01-15T15:00:00Z"},
+            "seven_day": {"utilization": 80, "resets_at": "2024-01-20T00:00:00Z"},
+            "updated": 1234567890,
         }
-        assert result["seven_day"] == {
-            "utilization": 80,
-            "resets_at": "2024-01-20T00:00:00Z",
-        }
-        assert result["updated"] == 1234567890
         assert "error" not in result
 
     def test_to_dict_with_error(self):

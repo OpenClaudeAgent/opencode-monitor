@@ -1,129 +1,154 @@
 """
 Tests for settings management module.
+Consolidated tests with high assertion density.
 """
 
 import json
 from unittest.mock import patch
 
+import pytest
+
 from opencode_monitor.utils import settings
 from opencode_monitor.utils.settings import Settings, get_settings, save_settings
 
 
-class TestSettings:
-    """Tests for Settings dataclass"""
+class TestSettingsDataclass:
+    """Tests for Settings dataclass initialization"""
 
-    def test_default_values(self):
-        """Settings should have correct default values"""
-        s = Settings()
-        assert s.usage_refresh_interval == 60
-        assert s.permission_threshold_seconds == 5
-        assert s.ask_user_timeout == 1800  # 30 minutes
+    @pytest.mark.parametrize(
+        "init_kwargs,expected_values",
+        [
+            # Default values when no args
+            (
+                {},
+                {
+                    "usage_refresh_interval": 60,
+                    "permission_threshold_seconds": 5,
+                    "ask_user_timeout": 1800,
+                },
+            ),
+            # Custom usage_refresh_interval preserves other defaults
+            (
+                {"usage_refresh_interval": 120},
+                {
+                    "usage_refresh_interval": 120,
+                    "permission_threshold_seconds": 5,
+                    "ask_user_timeout": 1800,
+                },
+            ),
+            # Custom permission_threshold_seconds preserves other defaults
+            (
+                {"permission_threshold_seconds": 10},
+                {
+                    "usage_refresh_interval": 60,
+                    "permission_threshold_seconds": 10,
+                    "ask_user_timeout": 1800,
+                },
+            ),
+            # Custom ask_user_timeout preserves other defaults
+            (
+                {"ask_user_timeout": 3600},
+                {
+                    "usage_refresh_interval": 60,
+                    "permission_threshold_seconds": 5,
+                    "ask_user_timeout": 3600,
+                },
+            ),
+            # All custom values
+            (
+                {
+                    "usage_refresh_interval": 90,
+                    "permission_threshold_seconds": 15,
+                    "ask_user_timeout": 7200,
+                },
+                {
+                    "usage_refresh_interval": 90,
+                    "permission_threshold_seconds": 15,
+                    "ask_user_timeout": 7200,
+                },
+            ),
+        ],
+    )
+    def test_initialization_with_defaults_and_custom_values(
+        self, init_kwargs, expected_values
+    ):
+        """Settings should initialize with correct defaults and accept custom values"""
+        s = Settings(**init_kwargs)
 
-    def test_custom_values(self):
-        """Settings can be initialized with custom values"""
-        s = Settings(usage_refresh_interval=120)
-        assert s.usage_refresh_interval == 120
-
-    def test_custom_permission_threshold(self):
-        """Settings can be initialized with custom permission_threshold_seconds"""
-        s = Settings(permission_threshold_seconds=10)
-        assert s.permission_threshold_seconds == 10
-
-    def test_custom_ask_user_timeout(self):
-        """Settings can be initialized with custom ask_user timeout"""
-        s = Settings(ask_user_timeout=3600)
-        assert s.ask_user_timeout == 3600  # 1 hour
-
-
-class TestSettingsSave:
-    """Tests for Settings.save() method"""
-
-    def test_save_creates_directory_and_writes_file(self, tmp_path):
-        """save() should create config directory and write JSON file"""
-        config_dir = tmp_path / "config"
-        config_file = config_dir / "settings.json"
-
-        with (
-            patch.object(settings, "CONFIG_DIR", str(config_dir)),
-            patch.object(settings, "CONFIG_FILE", str(config_file)),
-        ):
-            s = Settings(usage_refresh_interval=90)
-            s.save()
-
-            # Verify directory was created
-            assert config_dir.exists()
-
-            # Verify file was written with correct content
-            assert config_file.exists()
-            with open(config_file) as f:
-                data = json.load(f)
-            assert data == {
-                "usage_refresh_interval": 90,
-                "permission_threshold_seconds": 5,  # default value
-                "ask_user_timeout": 1800,  # default value (30 minutes)
-            }
-
-    def test_save_overwrites_existing_file(self, tmp_path):
-        """save() should overwrite existing config file"""
-        config_dir = tmp_path / "config"
-        config_dir.mkdir(parents=True)
-        config_file = config_dir / "settings.json"
-        config_file.write_text('{"usage_refresh_interval": 30}')
-
-        with (
-            patch.object(settings, "CONFIG_DIR", str(config_dir)),
-            patch.object(settings, "CONFIG_FILE", str(config_file)),
-        ):
-            s = Settings(usage_refresh_interval=120)
-            s.save()
-
-            with open(config_file) as f:
-                data = json.load(f)
-            assert data == {
-                "usage_refresh_interval": 120,
-                "permission_threshold_seconds": 5,  # default value
-                "ask_user_timeout": 1800,  # default value (30 minutes)
-            }
-
-
-class TestSettingsLoad:
-    """Tests for Settings.load() class method"""
-
-    def test_load_returns_defaults_when_file_missing(self, tmp_path):
-        """load() should return default settings when config file doesn't exist"""
-        config_file = tmp_path / "nonexistent" / "settings.json"
-
-        with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            s = Settings.load()
-            assert s.usage_refresh_interval == 60
-
-    def test_load_reads_existing_file(self, tmp_path):
-        """load() should read and parse existing config file"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text('{"usage_refresh_interval": 45}')
-
-        with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            s = Settings.load()
-            assert s.usage_refresh_interval == 45
-
-    def test_load_reads_permission_threshold(self, tmp_path):
-        """load() should read permission_threshold_seconds from config file"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text(
-            '{"usage_refresh_interval": 60, "permission_threshold_seconds": 10}'
+        assert s.usage_refresh_interval == expected_values["usage_refresh_interval"]
+        assert (
+            s.permission_threshold_seconds
+            == expected_values["permission_threshold_seconds"]
         )
+        assert s.ask_user_timeout == expected_values["ask_user_timeout"]
+        # Verify only expected fields exist
+        assert set(vars(s).keys()) == {
+            "usage_refresh_interval",
+            "permission_threshold_seconds",
+            "ask_user_timeout",
+        }
 
-        with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            s = Settings.load()
-            assert s.permission_threshold_seconds == 10
 
-    def test_load_filters_obsolete_fields(self, tmp_path):
-        """load() should ignore unknown/obsolete fields in config file"""
+class TestSettingsPersistence:
+    """Tests for Settings.save() and Settings.load() file operations"""
+
+    def test_save_creates_directory_and_writes_then_overwrites(self, tmp_path):
+        """save() should create config directory, write JSON, and overwrite on subsequent saves"""
+        config_dir = tmp_path / "config"
+        config_file = config_dir / "settings.json"
+
+        with (
+            patch.object(settings, "CONFIG_DIR", str(config_dir)),
+            patch.object(settings, "CONFIG_FILE", str(config_file)),
+        ):
+            # First save: creates directory and file
+            s1 = Settings(
+                usage_refresh_interval=90,
+                permission_threshold_seconds=15,
+                ask_user_timeout=7200,
+            )
+            s1.save()
+
+            assert config_dir.is_dir() == True
+            assert config_file.is_file() == True
+            with open(config_file) as f:
+                data1 = json.load(f)
+            assert data1 == {
+                "usage_refresh_interval": 90,
+                "permission_threshold_seconds": 15,
+                "ask_user_timeout": 7200,
+            }
+
+            # Second save: overwrites with new values
+            s2 = Settings(
+                usage_refresh_interval=120,
+                permission_threshold_seconds=20,
+                ask_user_timeout=900,
+            )
+            s2.save()
+
+            with open(config_file) as f:
+                data2 = json.load(f)
+            assert data2 == {
+                "usage_refresh_interval": 120,
+                "permission_threshold_seconds": 20,
+                "ask_user_timeout": 900,
+            }
+            # Old values completely replaced
+            assert data2["usage_refresh_interval"] == 120
+            assert data2["permission_threshold_seconds"] == 20
+
+    def test_load_reads_existing_file_and_filters_obsolete_fields(self, tmp_path):
+        """load() should read valid fields, ignore obsolete fields, and apply defaults for missing"""
         config_file = tmp_path / "settings.json"
+
+        # File with some valid fields, some obsolete, some missing
         config_file.write_text(
             json.dumps(
                 {
-                    "usage_refresh_interval": 30,
+                    "usage_refresh_interval": 45,
+                    "permission_threshold_seconds": 10,
+                    # ask_user_timeout is missing - should get default
                     "obsolete_field": "should be ignored",
                     "another_old_setting": 999,
                 }
@@ -132,100 +157,101 @@ class TestSettingsLoad:
 
         with patch.object(settings, "CONFIG_FILE", str(config_file)):
             s = Settings.load()
-            assert s.usage_refresh_interval == 30
-            assert not hasattr(s, "obsolete_field")
-            assert not hasattr(s, "another_old_setting")
 
-    def test_load_returns_defaults_on_invalid_json(self, tmp_path):
-        """load() should return defaults when config file contains invalid JSON"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text("not valid json {{{")
+            # Valid fields loaded correctly
+            assert s.usage_refresh_interval == 45
+            assert s.permission_threshold_seconds == 10
+            # Missing field gets default
+            assert s.ask_user_timeout == 1800
+            # Only valid fields present in object
+            assert list(vars(s).keys()) == [
+                "usage_refresh_interval",
+                "permission_threshold_seconds",
+                "ask_user_timeout",
+            ]
+            assert len(vars(s)) == 3
+
+    @pytest.mark.parametrize(
+        "scenario",
+        ["file_missing", "invalid_json", "permission_error"],
+    )
+    def test_load_returns_defaults_on_any_error(self, tmp_path, scenario):
+        """load() should return default settings on file missing, invalid JSON, or read error"""
+        if scenario == "file_missing":
+            config_file = tmp_path / "nonexistent" / "settings.json"
+        else:
+            config_file = tmp_path / "settings.json"
+            if scenario == "invalid_json":
+                config_file.write_text("not valid json {{{")
+            else:
+                config_file.write_text('{"usage_refresh_interval": 45}')
 
         with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            s = Settings.load()
+            if scenario == "permission_error":
+                with patch(
+                    "builtins.open", side_effect=PermissionError("Access denied")
+                ):
+                    s = Settings.load()
+            else:
+                s = Settings.load()
+
+            # All error scenarios return exact defaults
             assert s.usage_refresh_interval == 60
-
-    def test_load_returns_defaults_on_read_error(self, tmp_path):
-        """load() should return defaults when file read fails"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text('{"usage_refresh_interval": 45}')
-
-        with (
-            patch.object(settings, "CONFIG_FILE", str(config_file)),
-            patch("builtins.open", side_effect=PermissionError("Access denied")),
-        ):
-            s = Settings.load()
-            assert s.usage_refresh_interval == 60
+            assert s.permission_threshold_seconds == 5
+            assert s.ask_user_timeout == 1800
 
 
-class TestGetSettings:
-    """Tests for get_settings() function"""
+class TestSettingsGlobalAccess:
+    """Tests for get_settings() and save_settings() singleton pattern"""
 
     def setup_method(self):
-        """Reset global settings before each test"""
         settings._settings = None
 
     def teardown_method(self):
-        """Clean up global settings after each test"""
         settings._settings = None
 
-    def test_get_settings_lazy_loads(self, tmp_path):
-        """get_settings() should lazy load settings on first call"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text('{"usage_refresh_interval": 75}')
-
-        with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            assert settings._settings is None
-            s = get_settings()
-            assert s.usage_refresh_interval == 75
-            assert settings._settings is not None
-
-    def test_get_settings_returns_cached_instance(self, tmp_path):
-        """get_settings() should return same instance on subsequent calls"""
-        config_file = tmp_path / "settings.json"
-        config_file.write_text('{"usage_refresh_interval": 75}')
-
-        with patch.object(settings, "CONFIG_FILE", str(config_file)):
-            s1 = get_settings()
-            s2 = get_settings()
-            assert s1 is s2
-
-
-class TestSaveSettings:
-    """Tests for save_settings() function"""
-
-    def setup_method(self):
-        """Reset global settings before each test"""
-        settings._settings = None
-
-    def teardown_method(self):
-        """Clean up global settings after each test"""
-        settings._settings = None
-
-    def test_save_settings_does_nothing_when_not_loaded(self):
-        """save_settings() should do nothing if settings were never loaded"""
-        with patch.object(Settings, "save") as mock_save:
-            save_settings()
-            mock_save.assert_not_called()
-
-    def test_save_settings_saves_loaded_settings(self, tmp_path):
-        """save_settings() should save when settings were loaded"""
+    def test_get_settings_lazy_loads_caches_and_save_persists(self, tmp_path):
+        """get_settings() lazy loads, caches instance; save_settings() persists modifications"""
         config_dir = tmp_path / "config"
         config_file = config_dir / "settings.json"
+
+        # Create initial config file
+        config_dir.mkdir(parents=True)
+        config_file.write_text(
+            '{"usage_refresh_interval": 75, "permission_threshold_seconds": 8}'
+        )
 
         with (
             patch.object(settings, "CONFIG_DIR", str(config_dir)),
             patch.object(settings, "CONFIG_FILE", str(config_file)),
         ):
-            # First load settings (creates _settings)
-            s = get_settings()
-            s.usage_refresh_interval = 200
+            # First call: lazy loads from file
+            s1 = get_settings()
+            assert s1.usage_refresh_interval == 75
+            assert s1.permission_threshold_seconds == 8
+            assert s1.ask_user_timeout == 1800  # default for missing field
 
-            # Then save
+            # Second call: returns cached instance (identity check)
+            s2 = get_settings()
+            assert s1 is s2
+
+            # Modify and save
+            s1.usage_refresh_interval = 200
+            s1.permission_threshold_seconds = 25
+            s1.ask_user_timeout = 900
             save_settings()
 
-            # Verify file was written
-            assert config_file.exists()
+            # Verify file contains all modifications
             with open(config_file) as f:
                 data = json.load(f)
-            assert data["usage_refresh_interval"] == 200
+            assert data == {
+                "usage_refresh_interval": 200,
+                "permission_threshold_seconds": 25,
+                "ask_user_timeout": 900,
+            }
+
+    def test_save_settings_noop_when_never_loaded(self):
+        """save_settings() should safely do nothing if get_settings() was never called"""
+        with patch.object(Settings, "save") as mock_save:
+            save_settings()
+            assert mock_save.call_count == 0
