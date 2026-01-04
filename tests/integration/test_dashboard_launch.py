@@ -5,148 +5,203 @@ Tests:
 - Window creation and initialization
 - Window properties (title, size, icon)
 - Timer setup and cleanup
-- Close event handling
+- Section creation and signal configuration
 """
 
 import pytest
 
+from PyQt6.QtWidgets import QStackedWidget
+from PyQt6.QtCore import QTimer
+
+from opencode_monitor.dashboard.widgets import Sidebar
+from opencode_monitor.dashboard.sections import (
+    MonitoringSection,
+    SecuritySection,
+    AnalyticsSection,
+    TracingSection,
+)
+
 pytestmark = pytest.mark.integration
 
 
-class TestDashboardWindowCreation:
-    """Test dashboard window creation and initialization."""
+class TestDashboardWindowLifecycle:
+    """Test dashboard window lifecycle: creation, properties, cleanup."""
 
-    def test_window_creates_successfully(self, dashboard_window):
-        """Test that the dashboard window creates without errors."""
-        assert dashboard_window is not None
-        assert dashboard_window.isVisible()
+    def test_window_properties(self, dashboard_window):
+        """Test that the dashboard window has correct properties on creation.
 
-    def test_window_title_is_correct(self, dashboard_window):
-        """Test that the window title is set correctly."""
+        Verifies:
+        - Window is visible after show()
+        - Title is set correctly
+        - Minimum size constraints (800x600)
+        - Current size respects minimums
+        - Icon is set (not null)
+        """
+        # Visibility
+        assert dashboard_window.isVisible(), "Window should be visible after show()"
+
+        # Title
         assert dashboard_window.windowTitle() == "OpenCode Monitor"
 
-    def test_window_has_minimum_size(self, dashboard_window):
-        """Test that the window has minimum size constraints."""
+        # Minimum size constraints
         min_width = dashboard_window.minimumWidth()
         min_height = dashboard_window.minimumHeight()
+        assert min_width >= 800, f"Expected min width >= 800, got {min_width}"
+        assert min_height >= 600, f"Expected min height >= 600, got {min_height}"
 
-        # Should have reasonable minimum dimensions (at least 800x600)
-        assert min_width >= 800, f"Expected minimum width >= 800, got {min_width}"
-        assert min_height >= 600, f"Expected minimum height >= 600, got {min_height}"
+        # Current size respects minimums
+        assert dashboard_window.width() >= min_width
+        assert dashboard_window.height() >= min_height
 
-    def test_window_has_default_size(self, dashboard_window):
-        """Test that the window starts with default size."""
-        width = dashboard_window.width()
-        height = dashboard_window.height()
-
-        # Should have reasonable default dimensions
-        assert width >= dashboard_window.minimumWidth()
-        assert height >= dashboard_window.minimumHeight()
-
-    def test_window_has_icon(self, dashboard_window):
-        """Test that the window has an icon set."""
+        # Icon is set
         icon = dashboard_window.windowIcon()
-        assert not icon.isNull()
+        assert not icon.isNull(), "Window should have an icon set"
 
+    def test_timers_are_running(self, dashboard_window):
+        """Test that background timers are active after window creation.
 
-class TestDashboardTimers:
-    """Test dashboard timer initialization and cleanup."""
+        Verifies:
+        - refresh_timer is a QTimer and is active
+        - sync_checker exists and has internal timer active
+        """
+        # Refresh timer
+        refresh_timer = dashboard_window._refresh_timer
+        assert isinstance(refresh_timer, QTimer), "refresh_timer should be QTimer"
+        assert refresh_timer.isActive(), "refresh_timer should be active"
 
-    def test_refresh_timer_is_running(self, dashboard_window):
-        """Test that the refresh timer is started."""
-        assert dashboard_window._refresh_timer is not None
-        assert dashboard_window._refresh_timer.isActive()
-
-    def test_sync_checker_is_running(self, dashboard_window):
-        """Test that the sync checker is started."""
-        assert dashboard_window._sync_checker is not None
+        # Sync checker (has internal timer)
+        sync_checker = dashboard_window._sync_checker
+        assert sync_checker is not None, "sync_checker should exist"
+        assert hasattr(sync_checker, "_timer"), "sync_checker should have _timer"
+        assert isinstance(sync_checker._timer, QTimer)
 
     def test_timers_stop_on_close(self, dashboard_window, qtbot):
-        """Test that timers are stopped when window is closed."""
+        """Test that timers are properly stopped when window is closed.
+
+        This validates cleanup to prevent resource leaks.
+        """
         # Get references before close
         refresh_timer = dashboard_window._refresh_timer
         sync_checker = dashboard_window._sync_checker
+
+        # Verify they're running first
+        assert refresh_timer.isActive()
+        assert sync_checker._timer.isActive()
 
         # Close the window
         dashboard_window.close()
 
         # Timers should be stopped
-        assert not refresh_timer.isActive()
+        assert not refresh_timer.isActive(), "refresh_timer should stop on close"
+        assert not sync_checker._timer.isActive(), "sync_checker should stop on close"
 
 
-class TestDashboardSections:
-    """Test that all dashboard sections are created."""
+class TestDashboardComponents:
+    """Test dashboard UI components: sections, pages, signals."""
 
-    def test_monitoring_section_exists(self, dashboard_window):
-        """Test that monitoring section is created."""
-        assert dashboard_window._monitoring is not None
+    def test_sections_and_pages(self, dashboard_window):
+        """Test that all sections are created with correct types.
 
-    def test_security_section_exists(self, dashboard_window):
-        """Test that security section is created."""
-        assert dashboard_window._security is not None
+        Verifies:
+        - All 4 sections exist with correct types
+        - Sidebar exists with correct type
+        - Pages stack exists with exactly 4 pages
+        """
+        # Monitoring section
+        monitoring = dashboard_window._monitoring
+        assert isinstance(monitoring, MonitoringSection), (
+            f"Expected MonitoringSection, got {type(monitoring).__name__}"
+        )
 
-    def test_analytics_section_exists(self, dashboard_window):
-        """Test that analytics section is created."""
-        assert dashboard_window._analytics is not None
+        # Security section
+        security = dashboard_window._security
+        assert isinstance(security, SecuritySection), (
+            f"Expected SecuritySection, got {type(security).__name__}"
+        )
 
-    def test_tracing_section_exists(self, dashboard_window):
-        """Test that tracing section is created."""
-        assert dashboard_window._tracing is not None
+        # Analytics section
+        analytics = dashboard_window._analytics
+        assert isinstance(analytics, AnalyticsSection), (
+            f"Expected AnalyticsSection, got {type(analytics).__name__}"
+        )
 
-    def test_sidebar_exists(self, dashboard_window):
-        """Test that sidebar is created."""
-        assert dashboard_window._sidebar is not None
+        # Tracing section
+        tracing = dashboard_window._tracing
+        assert isinstance(tracing, TracingSection), (
+            f"Expected TracingSection, got {type(tracing).__name__}"
+        )
 
-    def test_pages_stack_exists(self, dashboard_window):
-        """Test that stacked pages widget is created."""
-        assert dashboard_window._pages is not None
+        # Sidebar
+        sidebar = dashboard_window._sidebar
+        assert isinstance(sidebar, Sidebar), (
+            f"Expected Sidebar, got {type(sidebar).__name__}"
+        )
 
-    def test_four_pages_in_stack(self, dashboard_window):
-        """Test that there are exactly 4 pages in the stack."""
-        assert dashboard_window._pages.count() == 4
+        # Pages stack
+        pages = dashboard_window._pages
+        assert isinstance(pages, QStackedWidget), (
+            f"Expected QStackedWidget, got {type(pages).__name__}"
+        )
+        assert pages.count() == 4, f"Expected 4 pages, got {pages.count()}"
 
+    def test_signals_are_configured(self, dashboard_window):
+        """Test that data update signals are properly configured.
 
-class TestDashboardSignals:
-    """Test that dashboard signals are properly connected."""
+        Verifies:
+        - Signals object exists
+        - All 4 data signals are accessible (not just hasattr)
+        - Signals can be connected (valid pyqtSignal)
+        """
+        signals = dashboard_window._signals
+        assert signals is not None, "signals object should exist"
 
-    def test_signals_object_exists(self, dashboard_window):
-        """Test that signals object is created."""
-        assert dashboard_window._signals is not None
+        # Access signals directly (will raise AttributeError if missing)
+        monitoring_signal = signals.monitoring_updated
+        security_signal = signals.security_updated
+        analytics_signal = signals.analytics_updated
+        tracing_signal = signals.tracing_updated
 
-    def test_monitoring_signal_exists(self, dashboard_window):
-        """Test that monitoring_updated signal exists."""
-        assert hasattr(dashboard_window._signals, "monitoring_updated")
-
-    def test_security_signal_exists(self, dashboard_window):
-        """Test that security_updated signal exists."""
-        assert hasattr(dashboard_window._signals, "security_updated")
-
-    def test_analytics_signal_exists(self, dashboard_window):
-        """Test that analytics_updated signal exists."""
-        assert hasattr(dashboard_window._signals, "analytics_updated")
-
-    def test_tracing_signal_exists(self, dashboard_window):
-        """Test that tracing_updated signal exists."""
-        assert hasattr(dashboard_window._signals, "tracing_updated")
+        # Verify they are connectable signals (have 'connect' method)
+        assert callable(getattr(monitoring_signal, "connect", None)), (
+            "monitoring_updated should be a connectable signal"
+        )
+        assert callable(getattr(security_signal, "connect", None)), (
+            "security_updated should be a connectable signal"
+        )
+        assert callable(getattr(analytics_signal, "connect", None)), (
+            "analytics_updated should be a connectable signal"
+        )
+        assert callable(getattr(tracing_signal, "connect", None)), (
+            "tracing_updated should be a connectable signal"
+        )
 
 
 class TestDashboardHidden:
-    """Test dashboard creation without showing the window."""
+    """Test dashboard creation without showing - validates headless init."""
 
-    def test_hidden_window_creates_successfully(self, dashboard_window_hidden):
-        """Test that hidden window creates without errors."""
-        assert dashboard_window_hidden is not None
-        assert not dashboard_window_hidden.isVisible()
+    def test_hidden_window_initializes_fully(self, dashboard_window_hidden):
+        """Test that hidden window initializes all components correctly.
 
-    def test_hidden_window_has_sections(self, dashboard_window_hidden):
-        """Test that hidden window has all sections."""
-        assert dashboard_window_hidden._monitoring is not None
-        assert dashboard_window_hidden._security is not None
-        assert dashboard_window_hidden._analytics is not None
-        assert dashboard_window_hidden._tracing is not None
+        Use case: background data loading, headless testing, pre-caching.
 
-    def test_hidden_window_timers_running(self, dashboard_window_hidden):
-        """Test that timers start even for hidden window."""
-        # Timers should still be running for background refresh
-        assert dashboard_window_hidden._refresh_timer is not None
-        assert dashboard_window_hidden._refresh_timer.isActive()
+        Verifies:
+        - Window is NOT visible
+        - All sections are created with correct types
+        - Timers are running (for background refresh)
+        """
+        window = dashboard_window_hidden
+
+        # Not visible
+        assert not window.isVisible(), "Hidden window should not be visible"
+
+        # All sections created with correct types
+        assert isinstance(window._monitoring, MonitoringSection)
+        assert isinstance(window._security, SecuritySection)
+        assert isinstance(window._analytics, AnalyticsSection)
+        assert isinstance(window._tracing, TracingSection)
+
+        # Timers running for background refresh
+        assert isinstance(window._refresh_timer, QTimer)
+        assert window._refresh_timer.isActive(), (
+            "refresh_timer should run even for hidden window"
+        )

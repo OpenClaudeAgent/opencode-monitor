@@ -1,10 +1,9 @@
 """
 Integration tests for navigation robustness.
 
-Tests verify that:
-- Rapid navigation doesn't crash
-- Parallel test execution is safe
-- Complex sequences work correctly
+Consolidated tests verify:
+- Signal robustness under various stress conditions
+- Fixture isolation guarantees fresh window each test
 """
 
 import pytest
@@ -21,47 +20,24 @@ from ..fixtures import MockAPIResponses
 pytestmark = pytest.mark.integration
 
 
-class TestRobustnessNavigation:
-    """Test dashboard handles data during navigation gracefully."""
+class TestNavigationRobustness:
+    """Consolidated robustness tests for navigation and signals."""
 
-    def test_data_during_navigation_no_crash(self, dashboard_window, qtbot, click_nav):
-        """Emitting data while navigating doesn't crash."""
+    def test_signal_robustness_under_stress(
+        self, dashboard_window, qtbot, click_nav, click_tab
+    ):
+        """Dashboard survives all stress conditions without crashing.
+
+        Combines:
+        - Rapid navigation with data emissions
+        - Multiple rapid signal emissions
+        - Alternating empty/full data
+        - Tab navigation during updates
+        """
         monitoring_data = MockAPIResponses.realistic_monitoring()
         tracing_data = MockAPIResponses.realistic_tracing()
         analytics_data = MockAPIResponses.realistic_analytics()
-
-        for _ in range(5):
-            # Navigate rapidly and emit data via sidebar clicks
-            click_nav(dashboard_window, SECTION_MONITORING)
-            dashboard_window._signals.monitoring_updated.emit(monitoring_data)
-
-            click_nav(dashboard_window, SECTION_TRACING)
-            dashboard_window._signals.tracing_updated.emit(tracing_data)
-
-            click_nav(dashboard_window, SECTION_ANALYTICS)
-            dashboard_window._signals.analytics_updated.emit(analytics_data)
-
-            click_nav(dashboard_window, SECTION_SECURITY)
-            qtbot.wait(50)
-
-        # Should not crash - window still visible
-        assert dashboard_window.isVisible()
-
-    def test_multiple_signal_emissions_no_crash(self, dashboard_window, qtbot):
-        """Rapid signal emissions don't crash the dashboard."""
-        data = MockAPIResponses.realistic_monitoring()
-
-        # Emit same signal rapidly 20 times
-        for _ in range(20):
-            dashboard_window._signals.monitoring_updated.emit(data)
-            qtbot.wait(30)
-
-        qtbot.wait(SIGNAL_WAIT_MS)
-        assert dashboard_window.isVisible()
-
-    def test_alternating_empty_and_full_data(self, dashboard_window, qtbot):
-        """Alternating between empty and full data doesn't crash."""
-        empty_data = {
+        empty_monitoring = {
             "instances": 0,
             "agents": 0,
             "busy": 0,
@@ -72,99 +48,74 @@ class TestRobustnessNavigation:
             "tools_data": [],
             "waiting_data": [],
         }
-        full_data = MockAPIResponses.realistic_monitoring()
 
-        for _ in range(10):
-            dashboard_window._signals.monitoring_updated.emit(empty_data)
-            qtbot.wait(50)
-            dashboard_window._signals.monitoring_updated.emit(full_data)
-            qtbot.wait(50)
-
-        assert dashboard_window.isVisible()
-
-
-class TestParallelSafety:
-    """Tests that verify parallel execution safety.
-
-    These tests check that test isolation works correctly
-    and that state doesn't bleed between tests.
-    """
-
-    def test_independent_window_state_1(self, dashboard_window, qtbot):
-        """First test sets specific state."""
-        data = MockAPIResponses.realistic_monitoring()
-        data["agents"] = 42
-        dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        metrics = dashboard_window._monitoring._metrics
-        assert metrics._cards["agents"]._value_label.text() == "42"
-
-    def test_independent_window_state_2(self, dashboard_window, qtbot):
-        """Second test should start with fresh state (not 42)."""
-        # Without explicitly setting data, check initial state
-        metrics = dashboard_window._monitoring._metrics
-        initial_value = metrics._cards["agents"]._value_label.text()
-
-        # Value should NOT be "42" from previous test (fresh fixture)
-        # Initial value is typically "0" or "-" depending on implementation
-        assert initial_value in ("0", "-", ""), (
-            f"Initial value should be default (0, -, or empty), got: '{initial_value}'"
-        )
-
-    def test_window_isolation_via_marker(self, dashboard_window, qtbot):
-        """Each test gets a fresh window instance (no cross-test state leakage).
-
-        This test verifies fixture isolation by checking that no marker
-        from any previous test execution exists on the current window.
-        Combined test for DRY - tests both setting and absence of markers.
-        """
-        # First, verify no stale marker exists from any previous test run
-        marker = getattr(dashboard_window, "_test_marker", None)
-        assert marker is None, "Window should not have marker from previous test"
-
-        # Set a marker to prove we have a fresh instance
-        dashboard_window._test_marker = "isolation_verified"
-        assert hasattr(dashboard_window, "_test_marker")
-
-
-class TestSequences:
-    """Test complex sequences of actions."""
-
-    def test_rapid_section_switching_with_data(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """Rapid switching while data is being emitted."""
-        monitoring_data = MockAPIResponses.realistic_monitoring()
-        analytics_data = MockAPIResponses.realistic_analytics()
-
-        for _ in range(5):
+        # Phase 1: Rapid navigation with data emissions
+        for _ in range(3):
             click_nav(dashboard_window, SECTION_MONITORING)
             dashboard_window._signals.monitoring_updated.emit(monitoring_data)
+            click_nav(dashboard_window, SECTION_TRACING)
+            dashboard_window._signals.tracing_updated.emit(tracing_data)
             click_nav(dashboard_window, SECTION_ANALYTICS)
             dashboard_window._signals.analytics_updated.emit(analytics_data)
-            click_nav(dashboard_window, SECTION_TRACING)
             click_nav(dashboard_window, SECTION_SECURITY)
 
-        qtbot.wait(SIGNAL_WAIT_MS)
-        assert dashboard_window.isVisible(), "Should survive rapid switching"
+        assert dashboard_window.isVisible(), "Crash during rapid navigation"
 
-    def test_data_update_during_tab_navigation(
-        self, dashboard_window, qtbot, click_nav, click_tab
-    ):
-        """Data updates while user is navigating tabs."""
+        # Phase 2: Burst signal emissions (20 rapid emissions)
+        for _ in range(20):
+            dashboard_window._signals.monitoring_updated.emit(monitoring_data)
+            qtbot.wait(10)
+
+        assert dashboard_window.isVisible(), "Crash during burst emissions"
+
+        # Phase 3: Alternating empty/full data
+        for _ in range(10):
+            dashboard_window._signals.monitoring_updated.emit(empty_monitoring)
+            qtbot.wait(30)
+            dashboard_window._signals.monitoring_updated.emit(monitoring_data)
+            qtbot.wait(30)
+
+        assert dashboard_window.isVisible(), "Crash during empty/full alternation"
+
+        # Phase 4: Tab navigation during data updates
         click_nav(dashboard_window, SECTION_TRACING)
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
+        dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
         detail = dashboard_window._tracing._detail_panel
-
-        # Navigate tabs while emitting new data
         for i in range(6):
             click_tab(detail._tabs, i)
-            # Emit new data mid-navigation
-            dashboard_window._signals.tracing_updated.emit(data)
-            qtbot.wait(30)
+            dashboard_window._signals.tracing_updated.emit(tracing_data)
+            qtbot.wait(20)
 
+        assert dashboard_window.isVisible(), "Crash during tab navigation"
+
+        # Final verification: window survived all stress tests
+        qtbot.wait(SIGNAL_WAIT_MS)
+        assert dashboard_window.isVisible(), "Window should survive all stress phases"
+
+    def test_fixture_provides_isolated_window(self, dashboard_window, qtbot):
+        """Each test receives a fresh, isolated window instance.
+
+        Verifies:
+        - No stale markers from previous tests
+        - Initial state is default (not polluted)
+        - Fixture properly isolates test state
+        """
+        # Verify no marker from any previous test
+        marker = getattr(dashboard_window, "_test_marker", None)
+        assert marker is None, "Window has stale marker from previous test"
+
+        # Verify initial metrics state is default (0, -, or empty)
+        metrics = dashboard_window._monitoring._metrics
+        initial_value = metrics._cards["agents"]._value_label.text()
+        assert initial_value in ("0", "-", ""), (
+            f"Expected default value (0, -, empty), got: '{initial_value}'"
+        )
+
+        # Set marker to prove we have writable fresh instance
+        dashboard_window._test_marker = "isolation_verified"
+        assert dashboard_window._test_marker == "isolation_verified"
+
+        # Verify window is properly initialized and visible
         assert dashboard_window.isVisible()

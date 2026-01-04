@@ -15,12 +15,14 @@ from ..fixtures import MockAPIResponses
 pytestmark = pytest.mark.integration
 
 
-class TestRobustnessNullData:
-    """Test dashboard handles null/missing fields gracefully."""
+class TestDataRobustness:
+    """Test dashboard handles edge cases in data gracefully."""
 
-    def test_null_data_fields_no_crash(self, dashboard_window, qtbot):
-        """Dashboard handles null/missing fields gracefully."""
-        # Monitoring with null fields
+    def test_handles_null_and_partial_data(self, dashboard_window, qtbot, click_nav):
+        """Dashboard handles null fields, partial data, and empty lists gracefully."""
+        monitoring = dashboard_window._monitoring
+
+        # --- Scenario 1: Null fields in monitoring data ---
         data_with_nulls = {
             "instances": None,
             "agents": 0,
@@ -42,35 +44,34 @@ class TestRobustnessNullData:
             "waiting_data": None,
         }
 
-        # Should not crash
         dashboard_window._signals.monitoring_updated.emit(data_with_nulls)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        assert dashboard_window.isVisible()
+        # Should have 1 agent rendered despite null fields
+        assert monitoring._agents_table.rowCount() == 1
+        # Agent ID should be displayed
+        assert monitoring._agents_table.item(0, 0) is not None
 
-    def test_partial_data_no_crash(self, dashboard_window, qtbot, click_nav):
-        """Dashboard handles partial data (from MockAPIResponses)."""
-        data = MockAPIResponses.partial_data()
-
-        # Navigate to tracing and emit partial data
+        # --- Scenario 2: Partial data from fixture ---
+        partial_data = MockAPIResponses.partial_data()
         click_nav(dashboard_window, SECTION_TRACING)
-        dashboard_window._signals.tracing_updated.emit(
-            {
-                "traces": [],
-                "sessions": data.get("sessions", []),
-                "session_hierarchy": [],
-                "total_traces": 0,
-                "unique_agents": 0,
-                "total_duration_ms": 0,
-            }
-        )
+
+        tracing_data = {
+            "traces": [],
+            "sessions": partial_data.get("sessions", []),
+            "session_hierarchy": [],
+            "total_traces": 0,
+            "unique_agents": 0,
+            "total_duration_ms": 0,
+        }
+        dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        assert dashboard_window.isVisible()
+        # Tracing section should show empty state (no traces)
+        tracing = dashboard_window._tracing
+        assert tracing._empty.isVisible() or len(tracing._traces_data) == 0
 
-    def test_empty_lists_vs_none(self, dashboard_window, qtbot):
-        """Dashboard distinguishes between empty lists and None."""
-        # Empty lists = no data, valid state
+        # --- Scenario 3: Empty lists (valid state, not null) ---
         empty_list_data = {
             "instances": 0,
             "agents": 0,
@@ -86,19 +87,19 @@ class TestRobustnessNullData:
         dashboard_window._signals.monitoring_updated.emit(empty_list_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        monitoring = dashboard_window._monitoring
-        # Empty state should show for agents
+        # Empty lists should show empty state for agents
+        assert monitoring._agents_table.rowCount() == 0
+        # Empty state visible OR table hidden (implementation-dependent)
         assert (
             monitoring._agents_empty.isVisible()
             or not monitoring._agents_table.isVisible()
         )
 
+    def test_handles_extreme_values(self, dashboard_window, qtbot, click_nav):
+        """Dashboard handles large numbers, extreme data, and long strings."""
+        monitoring = dashboard_window._monitoring
 
-class TestRobustnessExtremeValues:
-    """Test dashboard handles extreme values without freezing."""
-
-    def test_extreme_values_no_freeze(self, dashboard_window, qtbot):
-        """Dashboard handles very large numbers without freezing."""
+        # --- Scenario 1: Very large numbers ---
         data = MockAPIResponses.realistic_monitoring()
         data["agents"] = 999_999
         data["todos"] = 999_999_999
@@ -106,23 +107,22 @@ class TestRobustnessExtremeValues:
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Should display (possibly formatted as "999K" or "999M")
-        metrics = dashboard_window._monitoring._metrics
+        # Metrics should display (possibly formatted as "999K" or "999M")
+        metrics = monitoring._metrics
         agents_text = metrics._cards["agents"]._value_label.text()
-        assert agents_text  # Not empty
+        todos_text = metrics._cards["todos"]._value_label.text()
+        assert len(agents_text) > 0, "Agents metric should display"
+        assert len(todos_text) > 0, "Todos metric should display"
 
-    def test_extreme_data_fixture(self, dashboard_window, qtbot, click_nav):
-        """Dashboard handles extreme_data fixture without crash."""
-        data = MockAPIResponses.extreme_data()
-
-        # Navigate to tracing
+        # --- Scenario 2: Extreme data fixture (stress test) ---
         click_nav(dashboard_window, SECTION_TRACING)
+        extreme_data = MockAPIResponses.extreme_data()
 
         tracing_data = {
-            "traces": data.get("traces", [])[:10],  # Limit for test speed
-            "sessions": data.get("sessions", []),
+            "traces": extreme_data.get("traces", [])[:10],  # Limit for test speed
+            "sessions": extreme_data.get("sessions", []),
             "session_hierarchy": [],
-            "total_traces": len(data.get("traces", [])),
+            "total_traces": len(extreme_data.get("traces", [])),
             "unique_agents": 4,
             "total_duration_ms": 1_000_000,
         }
@@ -130,60 +130,71 @@ class TestRobustnessExtremeValues:
         dashboard_window._signals.tracing_updated.emit(tracing_data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
+        # Tracing should render extreme data without crash
+        tracing = dashboard_window._tracing
+        assert len(tracing._traces_data) <= 10
+        # Dashboard should remain responsive
         assert dashboard_window.isVisible()
 
-    def test_very_long_strings(self, dashboard_window, qtbot):
-        """Dashboard handles very long strings without crash."""
+        # --- Scenario 3: Very long strings ---
         data = MockAPIResponses.realistic_monitoring()
-        # Agent with very long title
-        data["agents_data"][0]["title"] = "A" * 1000
+        long_title = "A" * 1000
+        data["agents_data"][0]["title"] = long_title
 
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Table should have exactly 3 agents from mock data (possibly with truncated title)
-        table = dashboard_window._monitoring._agents_table
-        assert table.rowCount() == 3, (
-            f"Expected 3 agents from mock data, got {table.rowCount()}"
-        )
+        # Table should render 3 agents (long title may be truncated)
+        table = monitoring._agents_table
+        assert table.rowCount() == 3
+        # Cell should contain text (possibly truncated)
+        cell_text = table.item(0, 0).text()
+        assert len(cell_text) > 0
 
+    def test_handles_unicode_content(self, dashboard_window, qtbot):
+        """Dashboard handles unicode and emoji in all text fields."""
+        monitoring = dashboard_window._monitoring
 
-class TestRobustnessUnicode:
-    """Test dashboard handles unicode/emoji correctly."""
-
-    def test_unicode_in_agent_title(self, dashboard_window, qtbot):
-        """Dashboard handles unicode in agent titles."""
+        # --- Scenario 1: Emoji in agent title ---
         data = MockAPIResponses.realistic_monitoring()
         data["agents_data"][0]["title"] = "🚀 Deploy émojis & spëcial çhars"
 
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        table = dashboard_window._monitoring._agents_table
+        table = monitoring._agents_table
         title = table.item(0, 0).text()
-        # Should contain either the emoji or the text
+        # Should contain either emoji or text (font-dependent)
         assert "🚀" in title or "Deploy" in title
+        assert table.rowCount() == 3
 
-    def test_unicode_in_directory_path(self, dashboard_window, qtbot):
-        """Dashboard handles unicode in directory paths."""
-        data = MockAPIResponses.realistic_monitoring()
+        # --- Scenario 2: Unicode in directory path (CJK characters) ---
         data["agents_data"][0]["dir"] = "/home/用户/项目"
 
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        table = dashboard_window._monitoring._agents_table
-        # Should not crash, path should be displayed
-        assert table.rowCount() >= 1
+        # Should render correctly
+        assert table.rowCount() == 3
+        # Directory column should have content
+        dir_item = table.item(0, 1)
+        assert dir_item is not None
+        assert len(dir_item.text()) > 0
 
-    def test_unicode_in_question_text(self, dashboard_window, qtbot):
-        """Dashboard handles unicode in waiting questions."""
-        data = MockAPIResponses.realistic_monitoring()
+        # --- Scenario 3: Unicode in waiting question ---
         data["waiting_data"][0]["question"] = "¿Está seguro? 日本語テスト 🎉"
 
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        table = dashboard_window._monitoring._waiting_table
-        # Should not crash
-        assert table.rowCount() >= 1
+        waiting_table = monitoring._waiting_table
+        # Should have at least 1 waiting item
+        assert waiting_table.rowCount() >= 1
+        # Question should be displayed
+        question_item = waiting_table.item(0, 1)
+        assert question_item is not None
+        question_text = question_item.text()
+        # Should contain part of unicode text
+        assert (
+            "¿" in question_text or "日本語" in question_text or "🎉" in question_text
+        )
