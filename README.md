@@ -167,6 +167,7 @@ See [roadmap/README.md](roadmap/README.md) for planned features.
 
 | Version | Date | Description |
 |---------|------|-------------|
+| v2.23.0 | 2026-01-04 | Python Analysis CLI - jedi/radon/vulture tools, 10 commands, `.opencode/AGENTS.md` |
 | v2.13.0 | 2025-12-30 | Analytics dashboard - DuckDB, HTML reports with Plotly, delegation metrics |
 | v2.12.0 | 2025-12-30 | Display idle session count in menu bar title |
 | v2.11.0 | 2025-12-29 | MCP Notify ask_user detection - bell icon when agent awaits response |

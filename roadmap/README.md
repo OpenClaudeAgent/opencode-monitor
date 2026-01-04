@@ -50,6 +50,7 @@ Ce dossier contient les plans d'implementation pour les futures fonctionnalites.
 | 35 | Todos & Projects Loading | [plan-35](./plan-35-todos-projects-loading.md) | `feature/todos-projects` | - | En attente |
 | 36 | Schema Cleanup & Consolidation | [plan-36](./plan-36-schema-cleanup.md) | `feature/plan-36-schema` | v0.10.0 | Termine |
 | 37 | API Consolidation | [plan-37](./plan-37-api-consolidation.md) | `feature/api-consolidation` | - | En attente |
+| 38 | Python Analysis CLI | [plan-38](./plan-38-python-analysis-cli.md) | `feature/python-analysis-cli` | v2.23.0 | Termine |
 
 ## Sprint actif
 
@@ -82,6 +83,7 @@ Ordre suggere :
 
 | Date | Action |
 |------|--------|
+| 2026-01-04 | Plan-38 termine - Python Analysis CLI avec jedi/radon/vulture, 10 commandes, 24 tests v2.23.0 |
 | 2026-01-03 | Plan-36 termine - Schema Cleanup avec enrichissement parts/sessions, suppression tests legacy v0.10.0 |
 | 2026-01-03 | Plan-33 termine - Infrastructure tests integration avec 127 tests, refactoring arborescence modulaire v2.22.0 |
 | 2026-01-03 | Ajout plans 34-37 + Sprint 01 Data Enrichment - Parts enrichment, Todos/Projects loading, Schema cleanup, API consolidation |
