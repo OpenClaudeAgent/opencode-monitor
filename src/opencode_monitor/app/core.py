@@ -21,7 +21,9 @@ from ..ui.menu import MenuBuilder
 from ..utils.settings import get_settings
 from ..utils.logger import info, error, debug
 from ..security.auditor import start_auditor
-from ..analytics.collector import start_collector
+
+# Use new unified indexer instead of deprecated collector
+from ..analytics.indexer import start_indexer, stop_indexer, get_indexer
 
 from .handlers import HandlersMixin, AnalyticsSyncManager
 from .menu import MenuMixin
@@ -75,12 +77,15 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
         # Start security auditor
         start_auditor()
 
-        # Start analytics collector (incremental background loading)
-        start_collector()
+        # Start unified indexer (replaces collector + handles real-time + backfill)
+        start_indexer()
+        info("[OpenCodeApp] Unified indexer started")
 
-        # Start analytics sync manager (sole DB writer)
+        # Note: AnalyticsSyncManager is no longer needed as indexer handles backfill
+        # Keeping for compatibility but may be removed later
         self._sync_manager = AnalyticsSyncManager()
-        self._sync_manager.start_background_sync(max_days=30)
+        # Disabled: indexer handles backfill now
+        # self._sync_manager.start_background_sync(max_days=30)
 
         # Start analytics API server (for dashboard access)
         from ..api import start_api_server

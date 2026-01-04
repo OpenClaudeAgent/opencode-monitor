@@ -1,8 +1,17 @@
 """
 Analytics Collector - Hybrid watcher + reconciliation approach.
 
-Uses filesystem watcher for real-time detection of new files,
-with periodic reconciliation to catch any missed files.
+DEPRECATED: This module is deprecated in favor of the unified indexer.
+Use `opencode_monitor.analytics.indexer` instead:
+
+    from opencode_monitor.analytics.indexer import (
+        UnifiedIndexer,
+        start_indexer,
+        stop_indexer,
+    )
+
+This module is kept for backwards compatibility but will be removed
+in a future version.
 
 Performance:
 - Watcher: instant notification of new files (0ms latency)
@@ -12,6 +21,7 @@ Performance:
 import json
 import threading
 import time
+import warnings
 from datetime import datetime
 from pathlib import Path
 from typing import Optional, Set, Union, Any
@@ -22,6 +32,13 @@ from watchdog.events import FileSystemEventHandler, FileCreatedEvent, FileModifi
 from .db import AnalyticsDB, get_analytics_db
 from ..utils.logger import info, error, debug
 from ..utils.datetime import ms_to_datetime
+
+# Deprecation warning
+warnings.warn(
+    "collector.py is deprecated. Use opencode_monitor.analytics.indexer instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 # Paths
 OPENCODE_STORAGE = Path.home() / ".local/share/opencode/storage"

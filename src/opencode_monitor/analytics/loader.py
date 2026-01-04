@@ -1,12 +1,25 @@
 """
 JSON data loader for OpenCode storage.
 
+DEPRECATED: This module is deprecated in favor of the unified indexer.
+Use `opencode_monitor.analytics.indexer` instead:
+
+    from opencode_monitor.analytics.indexer import (
+        UnifiedIndexer,
+        start_indexer,
+        stop_indexer,
+    )
+
+This module is kept for backwards compatibility and batch operations
+but will be removed in a future version.
+
 Uses DuckDB's native JSON reading for maximum performance.
 Supports both delegation traces (task tool) and root sessions (direct conversations).
 """
 
 import json
 import uuid
+import warnings
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -16,6 +29,13 @@ from .db import AnalyticsDB
 from .models import AgentTrace
 from ..utils.logger import info, debug, error
 from ..utils.datetime import ms_to_datetime
+
+# Deprecation warning
+warnings.warn(
+    "loader.py is deprecated. Use opencode_monitor.analytics.indexer instead.",
+    DeprecationWarning,
+    stacklevel=2,
+)
 
 
 # Constants for root session traces
