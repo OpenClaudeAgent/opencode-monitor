@@ -175,6 +175,35 @@ print(report.to_text())
 "
 ```
 
+### Python Code Analysis Tools
+
+The project includes built-in CLI tools for Python code analysis in `tools/pycode/`:
+
+```bash
+# Navigation - goto definition, find references, hover, symbols
+uv run python -m tools.pycode goto src/opencode_monitor/app.py:50:4
+uv run python -m tools.pycode refs src/opencode_monitor/app.py:50:4
+uv run python -m tools.pycode hover src/opencode_monitor/app.py:50:4
+uv run python -m tools.pycode symbols src/opencode_monitor/app.py
+
+# Diagnostics - lint and format check
+uv run python -m tools.pycode lint src/
+uv run python -m tools.pycode check src/
+
+# Metrics - complexity and maintainability
+uv run python -m tools.pycode complexity src/opencode_monitor/
+uv run python -m tools.pycode maintainability src/opencode_monitor/
+
+# Dead code detection
+uv run python -m tools.pycode dead-code src/
+
+# Combined report
+uv run python -m tools.pycode report src/opencode_monitor/utils/
+
+# JSON output for parsing
+uv run python -m tools.pycode --json symbols src/opencode_monitor/app.py
+```
+
 ### Check Settings & Database
 
 ```bash
