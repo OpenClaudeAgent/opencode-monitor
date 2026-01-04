@@ -446,7 +446,6 @@ class TraceDetailPanel(QFrame):
         s = summary.get("summary", {})
 
         # Update header
-        title = meta.get("title", "")
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"
 
@@ -644,6 +643,85 @@ class TraceDetailPanel(QFrame):
         self._transcript_tab.load_data(self._current_data)
 
         # Show transcript tab by default for turns
+        self._tabs.setCurrentIndex(0)
+
+    def show_exchange(
+        self,
+        user_content: str,
+        assistant_content: str,
+        agent: str = "assistant",
+        tokens_in: int = 0,
+        tokens_out: int = 0,
+        parts: Optional[list] = None,
+        timestamp: Optional[str] = None,
+    ) -> None:
+        """Display an exchange (user → assistant with parts details)."""
+        self._current_session_id = None
+        self._clear_tabs()
+
+        # Update header
+        self._header.setText(f"💬 user → {agent}")
+        self._header.setStyleSheet(f"""
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_primary"]};
+        """)
+
+        # Hide breadcrumb and status badge
+        self._breadcrumb.hide()
+        self._status_badge.hide()
+
+        # Count tools in parts
+        parts = parts or []
+        tool_count = sum(1 for p in parts if p.get("tool_name"))
+
+        # Update metrics
+        total_tokens = (tokens_in or 0) + (tokens_out or 0)
+        self._update_metric(self._metric_duration, "⏱", "-")
+        self._update_metric(
+            self._metric_tokens, "🎫", format_tokens_short(total_tokens)
+        )
+        self._update_metric(
+            self._metric_tools, "🔧", str(tool_count) if tool_count else "-"
+        )
+        self._update_metric(self._metric_files, "📁", "-")
+        self._update_metric(self._metric_agents, "🤖", "-")
+
+        # Build detailed assistant content with parts summary
+        detailed_content = assistant_content or ""
+        if parts:
+            detailed_content += "\n\n--- Parts Summary ---\n"
+            for p in parts[:20]:  # Limit to first 20
+                ptype = p.get("type", "")
+                tool_name = p.get("tool_name", "")
+                display_info = p.get("display_info", "")
+                status = p.get("status", "")
+
+                if tool_name:
+                    status_icon = (
+                        "✓"
+                        if status == "completed"
+                        else "✗"
+                        if status == "error"
+                        else "◐"
+                    )
+                    info = f": {display_info[:60]}" if display_info else ""
+                    detailed_content += f"\n{status_icon} {tool_name}{info}"
+                elif ptype == "text":
+                    content_preview = p.get("content", "")[:50]
+                    detailed_content += f"\n💭 {content_preview}..."
+
+            if len(parts) > 20:
+                detailed_content += f"\n... and {len(parts) - 20} more parts"
+
+        # Store data for reference
+        self._current_data = {
+            "user_content": user_content,
+            "assistant_content": detailed_content,
+        }
+
+        # Load into transcript tab
+        self._transcript_tab.load_data(self._current_data)
         self._tabs.setCurrentIndex(0)
 
     def show_message(

@@ -29,7 +29,7 @@ from .helpers import (
     AGENT_PATTERN,
     AGENT_SUFFIX_PATTERN,
 )
-from .widgets import DurationBar
+
 from .detail_panel import TraceDetailPanel
 
 
@@ -93,16 +93,15 @@ class TracingSection(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
-        # Tree widget
+        # Tree widget with columns: Type/Name | Time | Duration | In | Out | Status
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(
-            ["Session / Agent", "Created", "Agents", "Traces", ""]
-        )
-        self._tree.setColumnWidth(0, 320)
-        self._tree.setColumnWidth(1, 130)
+        self._tree.setHeaderLabels(["Type / Name", "Time", "Duration", "In", "Out", ""])
+        self._tree.setColumnWidth(0, 380)
+        self._tree.setColumnWidth(1, 85)
         self._tree.setColumnWidth(2, 70)
-        self._tree.setColumnWidth(3, 70)
-        self._tree.setColumnWidth(4, 40)
+        self._tree.setColumnWidth(3, 55)
+        self._tree.setColumnWidth(4, 55)
+        self._tree.setColumnWidth(5, 30)
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setAnimated(True)
@@ -194,6 +193,26 @@ class TracingSection(QWidget):
         """Connect internal signals."""
         self._tree.itemClicked.connect(self._on_item_clicked)
         self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
+        self._tree.itemExpanded.connect(self._on_item_expanded)
+        # Also handle keyboard navigation (arrow keys)
+        self._tree.currentItemChanged.connect(self._on_current_item_changed)
+
+    def _on_current_item_changed(
+        self, current: QTreeWidgetItem, _previous: QTreeWidgetItem
+    ) -> None:
+        """Handle current item change (keyboard navigation)."""
+        if current:
+            self._on_item_clicked(current, 0)
+
+    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
+        """Handle item expansion.
+
+        Note: Exchanges are now included in the API response (/api/tracing/tree),
+        so no separate loading is needed. Children are displayed in the order
+        received from the API.
+        """
+        # No-op: all children are already loaded from the API
+        pass
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Handle click on tree item - show details."""
@@ -201,52 +220,83 @@ class TracingSection(QWidget):
         if not data:
             return
 
-        if self._view_mode == "sessions":
-            node_type = data.get("node_type", "session")
-            session_id = data.get("session_id")
+        node_type = data.get("node_type", "session")
+        session_id = data.get("session_id")
 
-            if node_type == "tool":
-                # Show tool details
+        if node_type == "user_turn":
+            # Show user turn details (user → agent from API)
+            # New format from /api/tracing/tree with unified exchanges
+            prompt_input = data.get("prompt_input", "")
+            agent = data.get("subagent_type", "assistant")
+            self._detail_panel.show_exchange(
+                user_content=prompt_input,
+                assistant_content="",  # Not included in user_turn
+                agent=agent,
+                tokens_in=0,
+                tokens_out=0,
+                parts=[],
+                timestamp=data.get("started_at"),
+            )
+        elif node_type == "exchange":
+            # Legacy: Show exchange details (user → assistant)
+            user = data.get("user", {})
+            assistant = data.get("assistant", {})
+            self._detail_panel.show_exchange(
+                user_content=user.get("content", "") if user else "",
+                assistant_content=assistant.get("content", "") if assistant else "",
+                agent=assistant.get("agent", "assistant") if assistant else "assistant",
+                tokens_in=assistant.get("tokens_in", 0) if assistant else 0,
+                tokens_out=assistant.get("tokens_out", 0) if assistant else 0,
+                parts=assistant.get("parts", []) if assistant else [],
+                timestamp=user.get("created_at") if user else None,
+            )
+        elif node_type == "part":
+            # Show part details (tool, text, etc.)
+            tool_name = data.get("tool_name", "")
+            if tool_name:
                 self._detail_panel.show_tool(
-                    tool_name=data.get("tool_name", ""),
+                    tool_name=tool_name,
                     display_info=data.get("display_info", ""),
                     status=data.get("status", "completed"),
                     duration_ms=data.get("duration_ms", 0),
                     timestamp=data.get("created_at"),
                 )
-            elif node_type == "turn":
-                self._detail_panel.show_turn(
-                    user_content=data.get("user_content", ""),
-                    assistant_content=data.get("assistant_content"),
-                    tokens_in=data.get("tokens_in", 0),
-                    tokens_out=data.get("tokens_out", 0),
-                    timestamp=data.get("created_at"),
-                )
-            elif node_type == "message":
+            else:
+                # Text part - show as message
                 self._detail_panel.show_message(
-                    role=data.get("role", ""),
-                    content=data.get("content", data.get("title", "")),
-                    tokens_in=data.get("tokens_in", 0),
-                    tokens_out=data.get("tokens_out", 0),
+                    role="assistant",
+                    content=data.get("content", ""),
+                    tokens_in=0,
+                    tokens_out=0,
                     timestamp=data.get("created_at"),
                 )
-            elif session_id:
-                duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
-                tree_data = {
-                    "node_type": node_type,
-                    "children_count": len(data.get("children", [])),
-                    "trace_count": data.get("trace_count", 0),
-                    "tokens_in": data.get("tokens_in", 0),
-                    "tokens_out": data.get("tokens_out", 0),
-                    "duration_ms": duration,
-                    "agent_type": data.get("agent_type"),
-                    "parent_agent": data.get("parent_agent"),
-                    "title": data.get("title", ""),
-                    "status": data.get("status"),
-                    "prompt_input": data.get("prompt_input"),
-                    "prompt_output": data.get("prompt_output"),
-                    "session_id": session_id,
-                }
+        elif node_type == "tool":
+            self._detail_panel.show_tool(
+                tool_name=data.get("tool_name", ""),
+                display_info=data.get("display_info", ""),
+                status=data.get("status", "completed"),
+                duration_ms=data.get("duration_ms", 0),
+                timestamp=data.get("created_at"),
+            )
+        elif node_type in ("session", "agent"):
+            duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
+            tree_data = {
+                "node_type": node_type,
+                "children_count": len(data.get("children", [])),
+                "trace_count": data.get("trace_count", 0),
+                "tokens_in": data.get("tokens_in", 0),
+                "tokens_out": data.get("tokens_out", 0),
+                "duration_ms": duration,
+                "agent_type": data.get("agent_type"),
+                "parent_agent": data.get("parent_agent"),
+                "title": data.get("title", ""),
+                "status": data.get("status"),
+                "prompt_input": data.get("prompt_input"),
+                "prompt_output": data.get("prompt_output"),
+                "session_id": session_id,
+                "directory": data.get("directory", ""),
+            }
+            if session_id:
                 self._detail_panel.show_session_summary(session_id, tree_data=tree_data)
             else:
                 self._detail_panel.show_session(
@@ -260,6 +310,7 @@ class TracingSection(QWidget):
                     prompt_input=data.get("prompt_input"),
                 )
         else:
+            # Fallback for unknown types
             self._detail_panel.show_trace(
                 agent=data.get("subagent_type", ""),
                 duration_ms=data.get("duration_ms"),
@@ -279,76 +330,201 @@ class TracingSection(QWidget):
             if session_id:
                 self.open_terminal_requested.emit(session_id)
 
-    def _populate_tree(self, traces: list[dict]) -> None:
-        """Populate tree widget with traces."""
-        trace_ids = {t.get("trace_id") for t in traces}
-        if hasattr(self, "_last_trace_ids") and self._last_trace_ids == trace_ids:
-            return
-        self._last_trace_ids = trace_ids
+    def _add_exchange_item(
+        self, parent: QTreeWidgetItem, exchange: dict, index: int
+    ) -> QTreeWidgetItem:
+        """Add an exchange (user → assistant) item to the tree."""
+        item = QTreeWidgetItem(parent)
 
-        self._tree.setUpdatesEnabled(False)
-        try:
-            self._tree.clear()
+        user_msg = exchange.get("user", {})
+        assistant_msg = exchange.get("assistant", {})
 
-            if not traces:
-                self._tree.hide()
-                self._empty.show()
-                self._detail_panel.clear()
-                return
+        # Format user content preview
+        user_content = (user_msg.get("content") or "") if user_msg else ""
+        user_preview = (
+            user_content[:60] + "..." if len(user_content) > 60 else user_content
+        )
+        user_preview = user_preview.replace("\n", " ")
 
-            self._tree.show()
-            self._empty.hide()
+        # Get assistant info
+        agent = (
+            assistant_msg.get("agent", "assistant") if assistant_msg else "assistant"
+        )
+        tokens_in = assistant_msg.get("tokens_in", 0) if assistant_msg else 0
+        tokens_out = assistant_msg.get("tokens_out", 0) if assistant_msg else 0
 
-            self._max_duration_ms = (
-                max((t.get("duration_ms") or 0 for t in traces), default=1) or 1
-            )
+        # Label: 💬 user → agent: "preview..."
+        if user_preview:
+            label = f'💬 user → {agent}: "{user_preview}"'
+        else:
+            label = f"💬 user → {agent}"
 
-            traces_by_id: dict[str, dict] = {}
-            for t in traces:
-                tid = t.get("trace_id")
-                if tid:
-                    traces_by_id[tid] = t
+        item.setText(0, label)
+        item.setForeground(0, QColor(COLORS["text_primary"]))
 
-            children_by_parent: dict[str, list[dict]] = {}
-            root_traces: list[dict] = []
+        # Time column - format: MM-DD HH:MM
+        created = user_msg.get("created_at", "") if user_msg else ""
+        if created:
+            # "2026-01-04T08:21:30" -> "01-04 08:21"
+            if "T" in created:
+                time_str = f"{created[5:10]} {created[11:16]}"
+            elif len(created) > 15:
+                time_str = f"{created[5:10]} {created[11:16]}"
+            else:
+                time_str = created
+            item.setText(1, time_str)
+        item.setForeground(1, QColor(COLORS["text_secondary"]))
 
-            for trace in traces:
-                parent_id = trace.get("parent_trace_id")
-                if parent_id and parent_id in traces_by_id:
-                    if parent_id not in children_by_parent:
-                        children_by_parent[parent_id] = []
-                    children_by_parent[parent_id].append(trace)
-                else:
-                    root_traces.append(trace)
+        # Duration - from assistant response
+        duration_ms = 0
+        if assistant_msg:
+            started = assistant_msg.get("created_at")
+            ended = assistant_msg.get("completed_at")
+            if started and ended:
+                # Calculate duration from timestamps
+                try:
+                    from datetime import datetime as dt_module
 
-            def sort_key(t: dict) -> tuple:
-                has_children = t.get("trace_id") in children_by_parent
-                started = t.get("started_at") or datetime.min
-                return (
-                    not has_children,
-                    -started.timestamp() if started != datetime.min else 0,
+                    start_dt = dt_module.fromisoformat(started.replace("Z", "+00:00"))
+                    end_dt = dt_module.fromisoformat(ended.replace("Z", "+00:00"))
+                    duration_ms = int((end_dt - start_dt).total_seconds() * 1000)
+                except (ValueError, TypeError):
+                    pass
+        item.setText(2, format_duration(duration_ms) if duration_ms else "-")
+        item.setForeground(2, QColor(COLORS["text_muted"]))
+
+        # Tokens In
+        item.setText(3, format_tokens_short(tokens_in) if tokens_in else "-")
+        item.setForeground(3, QColor(COLORS["text_muted"]))
+
+        # Tokens Out
+        item.setText(4, format_tokens_short(tokens_out) if tokens_out else "-")
+        item.setForeground(4, QColor(COLORS["text_muted"]))
+
+        # Store data for detail panel
+        item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "node_type": "exchange",
+                "index": index,
+                "user": user_msg,
+                "assistant": assistant_msg,
+            },
+        )
+
+        # Add parts as children
+        if assistant_msg:
+            parts = assistant_msg.get("parts", [])
+            for part in parts:
+                self._add_part_item(item, part)
+
+        return item
+
+    def _add_part_item(self, parent: QTreeWidgetItem, part: dict) -> QTreeWidgetItem:
+        """Add a part (tool, text, delegation) item to the tree."""
+        item = QTreeWidgetItem(parent)
+
+        part_type = part.get("type", "")
+        tool_name = part.get("tool_name", "")
+        display_info = part.get("display_info", "")
+        status = part.get("status", "completed")
+        duration_ms = part.get("duration_ms", 0)
+        content = part.get("content", "")
+
+        # Choose icon based on type
+        tool_icons = {
+            "bash": "🔧",
+            "read": "📖",
+            "write": "📝",
+            "edit": "✏️",
+            "glob": "🔍",
+            "grep": "🔎",
+            "task": "📨",
+            "webfetch": "🌐",
+            "web_fetch": "🌐",
+            "todowrite": "📋",
+            "todoread": "📋",
+            "skill": "📚",
+            "notify_ask_user": "❓",
+            "notify_notify_commit": "📦",
+            "notify_notify_merge": "🔀",
+        }
+
+        if tool_name:
+            icon = tool_icons.get(tool_name, "⚙️")
+            # Build label with display info
+            if display_info:
+                info_preview = (
+                    display_info[:50] + "..."
+                    if len(display_info) > 50
+                    else display_info
                 )
+                info_preview = info_preview.replace("\n", " ")
+                label = f"  {icon} {tool_name}: {info_preview}"
+            else:
+                label = f"  {icon} {tool_name}"
+        elif part_type == "text":
+            icon = "💭"
+            text_preview = content[:60] + "..." if len(content) > 60 else content
+            text_preview = text_preview.replace("\n", " ")
+            label = f"  {icon} {text_preview}" if text_preview else f"  {icon} (text)"
+        else:
+            icon = "○"
+            label = f"  {icon} {part_type}"
 
-            root_traces.sort(key=sort_key)
+        item.setText(0, label)
 
-            def add_with_children(parent_item: Optional[QTreeWidgetItem], trace: dict):
-                item = self._add_trace_item(parent_item, trace)
-                trace_id = trace.get("trace_id")
-                if trace_id and trace_id in children_by_parent:
-                    children = sorted(
-                        children_by_parent[trace_id],
-                        key=lambda t: t.get("started_at") or datetime.min,
-                        reverse=True,
-                    )
-                    for child in children:
-                        add_with_children(item, child)
+        # Color based on status
+        if status == "error":
+            item.setForeground(0, QColor(COLORS["error"]))
+        elif tool_name:
+            item.setForeground(0, QColor(COLORS["text_secondary"]))
+        else:
+            item.setForeground(0, QColor(COLORS["text_muted"]))
 
-            for trace in root_traces:
-                add_with_children(None, trace)
+        # Time column - from part created_at
+        created = part.get("created_at", "")
+        if created:
+            time_str = created[11:19] if len(created) > 19 else created
+            item.setText(1, time_str)
+        item.setForeground(1, QColor(COLORS["text_muted"]))
 
-            self._tree.collapseAll()
-        finally:
-            self._tree.setUpdatesEnabled(True)
+        # Duration
+        if duration_ms:
+            item.setText(2, format_duration(duration_ms))
+        else:
+            item.setText(2, "-")
+        item.setForeground(2, QColor(COLORS["text_muted"]))
+
+        # Tokens In/Out - empty for parts
+        item.setText(3, "-")
+        item.setForeground(3, QColor(COLORS["text_muted"]))
+        item.setText(4, "-")
+        item.setForeground(4, QColor(COLORS["text_muted"]))
+
+        # Status icon in last column (5)
+        if status == "completed":
+            item.setText(5, "✓")
+            item.setForeground(5, QColor(COLORS["success"]))
+        elif status == "error":
+            item.setText(5, "✗")
+            item.setForeground(5, QColor(COLORS["error"]))
+        elif status == "running":
+            item.setText(5, "◐")
+            item.setForeground(5, QColor(COLORS["warning"]))
+
+        # Store data for detail panel
+        item.setData(
+            0,
+            Qt.ItemDataRole.UserRole,
+            {
+                "node_type": "part",
+                **part,
+            },
+        )
+
+        return item
 
     def _populate_sessions_tree(self, sessions: list[dict]) -> None:
         """Populate tree widget with session hierarchy."""
@@ -370,12 +546,22 @@ class TracingSection(QWidget):
             self._tree.show()
             self._empty.hide()
 
-            def format_datetime(dt) -> str:
+            def format_time(dt) -> str:
+                """Format datetime to MM-DD HH:MM for consistent Time column."""
                 if not dt:
                     return "-"
                 if isinstance(dt, str):
-                    return dt[:16].replace("T", " ")
-                return dt.strftime("%Y-%m-%d %H:%M")
+                    # Extract MM-DD HH:MM from ISO string (e.g., "2026-01-04T08:21:30")
+                    if "T" in dt:
+                        # "2026-01-04T08:21:30" -> "01-04 08:21"
+                        date_part = dt[5:10]  # MM-DD
+                        time_part = dt.split("T")[1][:5]  # HH:MM
+                        return f"{date_part} {time_part}"
+                    elif len(dt) > 10:
+                        # "2026-01-04 08:21:30" -> "01-04 08:21"
+                        return f"{dt[5:10]} {dt[11:16]}"
+                    return dt
+                return dt.strftime("%m-%d %H:%M")
 
             def get_project_name(directory: Optional[str]) -> str:
                 if not directory:
@@ -390,6 +576,18 @@ class TracingSection(QWidget):
                     return match.group(1)
                 return None
 
+            def get_delegation_icon(depth: int, parent_agent: Optional[str]) -> str:
+                """Get icon for delegation based on depth and parent.
+
+                Returns:
+                    💬 for user-initiated (depth 1, parent is user)
+                    🔗 for agent delegations (depth 1, parent is agent)
+                    └─ for nested delegations (depth > 1)
+                """
+                if depth == 1:
+                    return "💬" if parent_agent == "user" else "🔗"
+                return "└─"
+
             def add_session_item(
                 parent_item: Optional[QTreeWidgetItem],
                 session: dict,
@@ -403,21 +601,59 @@ class TracingSection(QWidget):
 
                 node_type = session.get("node_type", "session")
                 agent_type = session.get("agent_type")
+                subagent_type = session.get("subagent_type")
                 parent_agent = session.get("parent_agent")
                 title = session.get("title") or ""
                 directory = session.get("directory")
                 created_at = session.get("created_at") or session.get("started_at")
-                trace_count = session.get("trace_count", 0)
-                children_count = len(session.get("children", []))
 
                 if is_root:
                     project = get_project_name(directory)
                     item.setText(0, f"🌳 {project}")
                     item.setForeground(0, QColor(COLORS["tree_root"]))
+                elif node_type == "user_turn":
+                    # New unified format from /api/tracing/tree
+                    responding_agent = subagent_type or "assistant"
+
+                    # Choose icon based on agent type
+                    if responding_agent == "compaction":
+                        icon = "📦"  # Compaction/compression icon
+                        color = COLORS.get("text_secondary", "#9CA3AF")
+                    else:
+                        icon = "💬"
+                        color = COLORS.get("text_primary", "#E5E7EB")
+
+                    # Build label with prompt preview
+                    prompt_input = session.get("prompt_input", "")
+                    if prompt_input:
+                        preview = prompt_input[:60].replace("\n", " ")
+                        if len(prompt_input) > 60:
+                            preview += "..."
+                        label = f'{icon} user → {responding_agent}: "{preview}"'
+                    else:
+                        label = f"{icon} user → {responding_agent}"
+
+                    item.setText(0, label)
+                    item.setForeground(0, QColor(color))
+
+                    # Full prompt as tooltip
+                    if prompt_input:
+                        tooltip = f"User:\n{prompt_input[:500]}"
+                        if len(prompt_input) > 500:
+                            tooltip += "..."
+                        item.setToolTip(0, tooltip)
                 elif node_type == "turn":
-                    icon = "💬"
-                    color = COLORS.get("text_primary", "#E5E7EB")
+                    # Legacy format
                     responding_agent = session.get("agent", "assistant")
+
+                    # Choose icon based on agent type
+                    if responding_agent == "compaction":
+                        icon = "📦"
+                        color = COLORS.get("text_secondary", "#9CA3AF")
+                    else:
+                        icon = "💬"
+                        color = COLORS.get("text_primary", "#E5E7EB")
+
                     label = f"{icon} user → {responding_agent}"
                     item.setText(0, label)
                     item.setForeground(0, QColor(color))
@@ -454,19 +690,20 @@ class TracingSection(QWidget):
                             else full_content,
                         )
                 elif node_type == "agent":
-                    effective_agent = agent_type or extract_agent_from_title(title)
-                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
-                    if depth == 1:
-                        icon = "💬" if parent_agent == "user" else "🔗"
-                    else:
-                        icon = "└─"
+                    # Get effective agent from agent_type, subagent_type, or title
+                    effective_agent = (
+                        agent_type or subagent_type or extract_agent_from_title(title)
+                    )
+                    icon = get_delegation_icon(depth, parent_agent)
 
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
+                    elif parent_agent:
+                        label = f"{icon} {parent_agent} → agent"
                     else:
-                        label = f"{icon} subagent"
+                        label = f"{icon} agent"
 
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
@@ -509,36 +746,53 @@ class TracingSection(QWidget):
                     else:
                         item.setForeground(0, QColor(COLORS["text_muted"]))
 
-                    # Show duration in column 1
-                    duration_ms = session.get("duration_ms", 0)
-                    if duration_ms:
-                        item.setText(1, format_duration(duration_ms))
-                    else:
-                        item.setText(1, "-")
+                    # Column 1: Time
+                    item.setText(1, format_time(created_at))
                     item.setForeground(1, QColor(COLORS["text_muted"]))
 
-                    # Empty columns 2 and 3
-                    item.setText(2, "-")
+                    # Column 2: Duration
+                    duration_ms = session.get("duration_ms", 0)
+                    if duration_ms:
+                        item.setText(2, format_duration(duration_ms))
+                    else:
+                        item.setText(2, "-")
                     item.setForeground(2, QColor(COLORS["text_muted"]))
+
+                    # Columns 3, 4: In/Out tokens (empty for tools)
                     item.setText(3, "-")
                     item.setForeground(3, QColor(COLORS["text_muted"]))
+                    item.setText(4, "-")
+                    item.setForeground(4, QColor(COLORS["text_muted"]))
+
+                    # Column 5: Status
+                    if tool_status == "completed":
+                        item.setText(5, "✓")
+                        item.setForeground(5, QColor(COLORS["success"]))
+                    elif tool_status == "error":
+                        item.setText(5, "✗")
+                        item.setForeground(5, QColor(COLORS["error"]))
+                    else:
+                        item.setText(5, "◐")
+                        item.setForeground(5, QColor(COLORS["warning"]))
 
                     item.setData(0, Qt.ItemDataRole.UserRole, session)
                     return item  # Tools don't have children
                 else:
-                    effective_agent = agent_type or extract_agent_from_title(title)
-                    # Use 💬 for user-initiated, 🔗 for agent delegations, └─ for nested
-                    if depth == 1:
-                        icon = "💬" if parent_agent == "user" else "🔗"
-                    else:
-                        icon = "└─"
+                    # Get agent name from agent_type, subagent_type, or extract from title
+                    effective_agent = (
+                        agent_type or subagent_type or extract_agent_from_title(title)
+                    )
+                    icon = get_delegation_icon(depth, parent_agent)
 
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
+                    elif parent_agent:
+                        label = f"{icon} {parent_agent} → agent"
                     else:
-                        label = f"{icon} subagent"
+                        # Fallback: use node_type or generic label
+                        label = f"{icon} {node_type}" if node_type else f"{icon} agent"
 
                     if title:
                         clean_title = AGENT_SUFFIX_PATTERN.sub("", title)
@@ -553,43 +807,60 @@ class TracingSection(QWidget):
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
 
-                # Date
-                item.setText(1, format_datetime(created_at))
+                # Column 1: Time
+                item.setText(1, format_time(created_at))
                 item.setForeground(1, QColor(COLORS["text_secondary"]))
 
-                if node_type == "message":
-                    tokens_in = session.get("tokens_in") or 0
-                    tokens_out = session.get("tokens_out") or 0
-                    if tokens_in or tokens_out:
-                        item.setText(2, f"{tokens_in}→{tokens_out}")
-                        item.setForeground(2, QColor(COLORS["text_muted"]))
-                    else:
-                        item.setText(2, "-")
-                        item.setForeground(2, QColor(COLORS["text_muted"]))
-                    item.setText(3, "-")
+                # Column 2: Duration
+                duration_ms = session.get("duration_ms", 0)
+                if duration_ms:
+                    item.setText(2, format_duration(duration_ms))
+                else:
+                    item.setText(2, "-")
+                item.setForeground(2, QColor(COLORS["text_muted"]))
+
+                # Columns 3, 4: Tokens In/Out
+                tokens_in = session.get("tokens_in") or 0
+                tokens_out = session.get("tokens_out") or 0
+
+                if tokens_in:
+                    item.setText(3, format_tokens_short(tokens_in))
                     item.setForeground(3, QColor(COLORS["text_muted"]))
                 else:
-                    if children_count > 0:
-                        item.setText(2, str(children_count))
-                        item.setForeground(2, QColor(COLORS["accent_primary"]))
-                    else:
-                        item.setText(2, "-")
-                        item.setForeground(2, QColor(COLORS["text_muted"]))
+                    item.setText(3, "-")
+                    item.setForeground(3, QColor(COLORS["text_muted"]))
 
-                    if trace_count > 0:
-                        item.setText(3, str(trace_count))
-                        item.setForeground(3, QColor(COLORS["text_secondary"]))
-                    else:
-                        item.setText(3, "-")
-                        item.setForeground(3, QColor(COLORS["text_muted"]))
+                if tokens_out:
+                    item.setText(4, format_tokens_short(tokens_out))
+                    item.setForeground(4, QColor(COLORS["text_muted"]))
+                else:
+                    item.setText(4, "-")
+                    item.setForeground(4, QColor(COLORS["text_muted"]))
+
+                # Column 5: Status (if available)
+                status = session.get("status", "")
+                if status == "completed":
+                    item.setText(5, "✓")
+                    item.setForeground(5, QColor(COLORS["success"]))
+                elif status == "error":
+                    item.setText(5, "✗")
+                    item.setForeground(5, QColor(COLORS["error"]))
+                elif status == "running":
+                    item.setText(5, "◐")
+                    item.setForeground(5, QColor(COLORS["warning"]))
 
                 item.setData(0, Qt.ItemDataRole.UserRole, session)
 
                 if directory:
                     item.setToolTip(0, directory)
 
-                # Add all children (agents and tools are now both in children)
-                for child in session.get("children", []):
+                # Add all children sorted by started_at ASC (timeline order)
+                children = session.get("children", [])
+                sorted_children = sorted(
+                    children,
+                    key=lambda c: c.get("started_at") or c.get("created_at") or "",
+                )
+                for child in sorted_children:
                     add_session_item(item, child, is_root=False, depth=depth + 1)
 
                 return item
@@ -601,71 +872,6 @@ class TracingSection(QWidget):
 
         finally:
             self._tree.setUpdatesEnabled(True)
-
-    def _add_trace_item(
-        self, parent: Optional[QTreeWidgetItem], trace: dict
-    ) -> QTreeWidgetItem:
-        """Add a trace item to the tree."""
-        if parent:
-            item = QTreeWidgetItem(parent)
-        else:
-            item = QTreeWidgetItem(self._tree)
-
-        agent = trace.get("subagent_type", "unknown")
-        duration_ms = trace.get("duration_ms")
-        tokens_in = trace.get("tokens_in")
-        status = trace.get("status", "running")
-
-        if status == "completed":
-            status_icon = "●"
-            agent_color = QColor(COLORS["success"])
-        elif status == "error":
-            status_icon = "✕"
-            agent_color = QColor(COLORS["error"])
-        else:
-            status_icon = "◐"
-            agent_color = QColor(COLORS["warning"])
-
-        item.setText(0, f"{status_icon} {agent}")
-        item.setForeground(0, agent_color)
-
-        item.setText(1, format_duration(duration_ms))
-        item.setForeground(1, QColor(COLORS["text_secondary"]))
-
-        item.setText(2, format_tokens_short(tokens_in))
-        item.setForeground(2, QColor(COLORS["text_secondary"]))
-
-        status_display = status.capitalize() if status else "-"
-        item.setText(3, status_display)
-
-        if status == "completed":
-            status_color = QColor(COLORS["success"])
-        elif status == "error":
-            status_color = QColor(COLORS["error"])
-        else:
-            status_color = QColor(COLORS["warning"])
-
-        item.setForeground(3, status_color)
-
-        item.setData(0, Qt.ItemDataRole.UserRole, trace)
-        item.setToolTip(0, f"Agent: {agent}\nStatus: {status}")
-
-        duration_bar = DurationBar()
-        if duration_ms and self._max_duration_ms > 0:
-            percentage = min(100, int((duration_ms / self._max_duration_ms) * 100))
-            duration_bar.setValue(percentage)
-            duration_bar.setToolTip(
-                f"{format_duration(duration_ms)} ({percentage}% of max)"
-            )
-        else:
-            duration_bar.setValue(0)
-        self._tree.setItemWidget(item, 4, duration_bar)
-
-        children = trace.get("children", [])
-        for child in children:
-            self._add_trace_item(item, child)
-
-        return item
 
     def update_data(
         self,
