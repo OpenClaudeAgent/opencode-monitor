@@ -223,6 +223,8 @@ class TestExtractTraces:
 
     def test_skips_old_traces(self, storage_path: Path):
         """Should skip traces older than max_days."""
+        import os
+
         old_time = int((datetime.now() - timedelta(days=60)).timestamp() * 1000)
 
         create_task_part(
@@ -235,6 +237,12 @@ class TestExtractTraces:
             start_ts=old_time,
             end_ts=old_time + 1000,
         )
+
+        # Set the directory's mtime to match the old timestamp
+        # (extract_traces uses mtime-based filtering for performance)
+        old_ts = old_time / 1000  # Convert ms to seconds
+        msg_dir = storage_path / "part" / "msg_old"
+        os.utime(msg_dir, (old_ts, old_ts))
 
         traces = extract_traces(storage_path, max_days=30)
 

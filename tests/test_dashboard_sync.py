@@ -4,7 +4,7 @@ Tests for DashboardWindow sync functionality.
 Coverage target: SyncChecker and read-only dashboard architecture.
 
 The dashboard now operates in read-only mode. The menubar handles all DB writes
-and updates sync_meta table. The dashboard polls sync_meta via SyncChecker
+and updates sync_meta table. The dashboard polls the API via SyncChecker
 to detect when new data is available.
 """
 
@@ -30,26 +30,16 @@ def qapp():
 
 
 @pytest.fixture
-def mock_analytics_db():
-    """Mock AnalyticsDB to avoid real database operations."""
-    with patch("opencode_monitor.dashboard.window.AnalyticsDB") as mock_db:
-        mock_instance = MagicMock()
-        mock_instance.get_sync_timestamp.return_value = None
-        mock_db.return_value = mock_instance
-        yield mock_db
+def mock_api_client():
+    """Mock API client to avoid real API calls."""
+    mock_client = MagicMock()
+    mock_client.is_available = True
+    mock_client.get_stats.return_value = {"sessions": 0}
 
-
-@pytest.fixture
-def mock_trace_queries():
-    """Mock TraceQueries to avoid real database queries."""
-    with patch("opencode_monitor.dashboard.window.TraceQueries") as mock_queries:
-        mock_instance = MagicMock()
-        mock_instance.get_trace_stats.return_value = {}
-        mock_instance.get_sessions_with_traces.return_value = []
-        mock_instance.get_traces_by_date_range.return_value = []
-        mock_instance.get_session_hierarchy.return_value = []
-        mock_queries.return_value = mock_instance
-        yield mock_queries
+    # Patch at the source module where it's imported from
+    with patch("opencode_monitor.api.get_api_client") as mock_get:
+        mock_get.return_value = mock_client
+        yield mock_client
 
 
 # =============================================================================
@@ -77,10 +67,9 @@ class TestSyncChecker:
         assert SyncChecker.POLL_SLOW_MS == 5000
         assert SyncChecker.IDLE_THRESHOLD_S == 30
 
-    def test_sync_checker_calls_callback_on_change(self, qapp, mock_analytics_db):
-        """SyncChecker calls callback when sync timestamp changes."""
+    def test_sync_checker_calls_callback_on_change(self, qapp, mock_api_client):
+        """SyncChecker calls callback when session count changes."""
         from opencode_monitor.dashboard.window import SyncChecker
-        from datetime import datetime
 
         callback_calls = []
 
@@ -90,8 +79,8 @@ class TestSyncChecker:
         # Create checker with mock callback
         checker = SyncChecker(on_sync_detected=callback)
 
-        # Simulate a timestamp change
-        mock_analytics_db.return_value.get_sync_timestamp.return_value = datetime.now()
+        # Simulate a session count change
+        mock_api_client.get_stats.return_value = {"sessions": 10}
 
         # Manually trigger check (normally done by timer)
         checker._check()
@@ -101,7 +90,7 @@ class TestSyncChecker:
 
         checker.stop()
 
-    def test_sync_checker_stop_stops_timer(self, qapp, mock_analytics_db):
+    def test_sync_checker_stop_stops_timer(self, qapp, mock_api_client):
         """SyncChecker.stop() stops the internal timer."""
         from opencode_monitor.dashboard.window import SyncChecker
 
@@ -128,8 +117,7 @@ class TestDashboardReadOnly:
     def test_dashboard_no_sync_config(
         self,
         qapp,
-        mock_analytics_db,
-        mock_trace_queries,
+        mock_api_client,
     ):
         """DashboardWindow no longer has sync_config attribute."""
         from opencode_monitor.dashboard.window import DashboardWindow
@@ -146,8 +134,7 @@ class TestDashboardReadOnly:
     def test_dashboard_has_sync_checker(
         self,
         qapp,
-        mock_analytics_db,
-        mock_trace_queries,
+        mock_api_client,
     ):
         """DashboardWindow has _sync_checker attribute after start."""
         from opencode_monitor.dashboard.window import DashboardWindow
@@ -168,8 +155,7 @@ class TestDashboardReadOnly:
     def test_dashboard_no_sync_opencode_data_method(
         self,
         qapp,
-        mock_analytics_db,
-        mock_trace_queries,
+        mock_api_client,
     ):
         """DashboardWindow no longer has _sync_opencode_data method."""
         from opencode_monitor.dashboard.window import DashboardWindow
@@ -186,8 +172,7 @@ class TestDashboardReadOnly:
     def test_dashboard_close_stops_sync_checker(
         self,
         qapp,
-        mock_analytics_db,
-        mock_trace_queries,
+        mock_api_client,
     ):
         """DashboardWindow.closeEvent stops the sync checker."""
         from opencode_monitor.dashboard.window import DashboardWindow
@@ -248,10 +233,9 @@ class TestDataSignals:
 class TestSyncCheckerIntegration:
     """Integration tests for SyncChecker with dashboard."""
 
-    def test_sync_checker_triggers_refresh(self, qapp, mock_analytics_db):
+    def test_sync_checker_triggers_refresh(self, qapp, mock_api_client):
         """SyncChecker triggers _refresh_all_data when sync detected."""
         from opencode_monitor.dashboard.window import DashboardWindow
-        from datetime import datetime
 
         refresh_calls = []
 
@@ -267,10 +251,8 @@ class TestSyncCheckerIntegration:
 
                     checker = SyncChecker(on_sync_detected=mock_refresh)
 
-                    # Simulate timestamp change
-                    mock_analytics_db.return_value.get_sync_timestamp.return_value = (
-                        datetime.now()
-                    )
+                    # Simulate session count change
+                    mock_api_client.get_stats.return_value = {"sessions": 5}
                     checker._check()
 
                     # Refresh should have been called

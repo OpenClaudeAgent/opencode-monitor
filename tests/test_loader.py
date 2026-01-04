@@ -884,7 +884,7 @@ class TestLoadOpencodeData:
         session_dir = storage_path / "session"
         session_dir.mkdir()
 
-        with patch("opencode_monitor.analytics.loader.AnalyticsDB") as mock_db_class:
+        with patch("opencode_monitor.analytics.loaders.AnalyticsDB") as mock_db_class:
             mock_db = MagicMock()
             mock_db.connect.return_value = MagicMock()
             mock_db_class.return_value = mock_db
@@ -896,7 +896,7 @@ class TestLoadOpencodeData:
     def test_uses_default_storage_path(self, db: AnalyticsDB):
         """Uses default storage path when not provided."""
         with patch(
-            "opencode_monitor.analytics.loader.get_opencode_storage_path"
+            "opencode_monitor.analytics.loaders.get_opencode_storage_path"
         ) as mock_get_path:
             mock_get_path.return_value = Path("/non/existent/path")
 

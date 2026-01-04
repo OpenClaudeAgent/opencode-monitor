@@ -1391,7 +1391,9 @@ class TestExportAllCommands:
         with (
             patch("subprocess.run") as mock_run,
             patch("builtins.open", MagicMock()),
-            patch("opencode_monitor.app.SecurityReporter") as mock_reporter_class,
+            patch(
+                "opencode_monitor.app.handlers.SecurityReporter"
+            ) as mock_reporter_class,
         ):
             mock_reporter = MagicMock()
             mock_reporter.generate_full_export.return_value = "Export content"
@@ -1423,7 +1425,9 @@ class TestExportAllCommands:
         with (
             patch("subprocess.run") as mock_run,
             patch("builtins.open", MagicMock()),
-            patch("opencode_monitor.app.SecurityReporter") as mock_reporter_class,
+            patch(
+                "opencode_monitor.app.handlers.SecurityReporter"
+            ) as mock_reporter_class,
         ):
             mock_reporter = MagicMock()
             mock_reporter.generate_full_export.return_value = "Export content"
@@ -1440,7 +1444,9 @@ class TestExportAllCommands:
         with (
             patch("subprocess.run") as mock_run,
             patch("builtins.open", MagicMock()) as mock_open,
-            patch("opencode_monitor.app.SecurityReporter") as mock_reporter_class,
+            patch(
+                "opencode_monitor.app.handlers.SecurityReporter"
+            ) as mock_reporter_class,
         ):
             mock_reporter = MagicMock()
             mock_reporter.generate_full_export.return_value = "Export"
@@ -1461,7 +1467,9 @@ class TestExportAllCommands:
         with (
             patch("subprocess.run") as mock_run,
             patch("builtins.open", MagicMock()),
-            patch("opencode_monitor.app.SecurityReporter") as mock_reporter_class,
+            patch(
+                "opencode_monitor.app.handlers.SecurityReporter"
+            ) as mock_reporter_class,
         ):
             mock_reporter = MagicMock()
             mock_reporter.generate_full_export.return_value = "Export"
@@ -1889,7 +1897,7 @@ class TestMonitorLoopIntegration:
 
         with (
             patch(
-                "opencode_monitor.app.fetch_all_instances",
+                "opencode_monitor.app.core.fetch_all_instances",
                 return_value=mock_fetch_coro(),
             ),
             patch("time.sleep", side_effect=stop_after_one),
@@ -1939,7 +1947,7 @@ class TestMonitorLoopIntegration:
             return 0
 
         with (
-            patch("opencode_monitor.app.fetch_all_instances", mock_fetch),
+            patch("opencode_monitor.app.core.fetch_all_instances", mock_fetch),
             patch("time.sleep", side_effect=stop_after_one),
         ):
             app._running = True
