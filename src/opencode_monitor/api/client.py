@@ -167,18 +167,6 @@ class AnalyticsAPIClient:
         """
         return self._request("/api/sessions", {"days": days, "limit": limit})
 
-    def get_traces(self, days: int = 30, limit: int = 500) -> Optional[list]:
-        """Get agent traces.
-
-        Args:
-            days: Number of days to include
-            limit: Maximum number of traces
-
-        Returns:
-            List of trace dicts or None
-        """
-        return self._request("/api/traces", {"days": days, "limit": limit})
-
     def get_delegations(self, days: int = 30, limit: int = 1000) -> Optional[list]:
         """Get agent delegations (parent-child session relationships).
 

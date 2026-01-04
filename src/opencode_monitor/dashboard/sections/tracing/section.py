@@ -222,17 +222,16 @@ class TracingSection(QWidget):
         node_type = data.get("node_type", "session")
         session_id = data.get("session_id")
 
-        if node_type == "user_turn":
-            # Show user turn details (user → agent from API)
-            # New format from /api/tracing/tree with unified exchanges
-            prompt_input = data.get("prompt_input", "")
-            agent = data.get("subagent_type", "assistant")
+        if node_type in ("user_turn", "conversation"):
+            # Show conversation details (user → agent from API)
+            prompt_input = data.get("prompt_input") or data.get("message_preview", "")
+            agent = data.get("agent") or data.get("subagent_type", "assistant")
             self._detail_panel.show_exchange(
                 user_content=prompt_input,
-                assistant_content="",  # Not included in user_turn
+                assistant_content="",  # Not included in conversation
                 agent=agent,
-                tokens_in=0,
-                tokens_out=0,
+                tokens_in=data.get("tokens_in", 0),
+                tokens_out=data.get("tokens_out", 0),
                 parts=[],
                 timestamp=data.get("started_at"),
             )
@@ -277,7 +276,7 @@ class TracingSection(QWidget):
                 duration_ms=data.get("duration_ms", 0),
                 timestamp=data.get("created_at"),
             )
-        elif node_type in ("session", "agent"):
+        elif node_type in ("session", "agent", "delegation"):
             duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
             tree_data = {
                 "node_type": node_type,
@@ -610,9 +609,11 @@ class TracingSection(QWidget):
                     project = get_project_name(directory)
                     item.setText(0, f"🌳 {project}")
                     item.setForeground(0, QColor(COLORS["tree_root"]))
-                elif node_type == "user_turn":
-                    # New unified format from /api/tracing/tree
-                    responding_agent = subagent_type or "assistant"
+                elif node_type in ("user_turn", "conversation"):
+                    # Unified format from /api/tracing/tree
+                    responding_agent = (
+                        session.get("agent") or subagent_type or "assistant"
+                    )
 
                     # Choose icon based on agent type
                     if responding_agent == "compaction":
@@ -623,7 +624,9 @@ class TracingSection(QWidget):
                         color = COLORS.get("text_primary", "#E5E7EB")
 
                     # Build label with prompt preview
-                    prompt_input = session.get("prompt_input", "")
+                    prompt_input = session.get("prompt_input") or session.get(
+                        "message_preview", ""
+                    )
                     if prompt_input:
                         preview = prompt_input[:60].replace("\n", " ")
                         if len(prompt_input) > 60:
@@ -688,14 +691,21 @@ class TracingSection(QWidget):
                             if len(full_content) > 500
                             else full_content,
                         )
-                elif node_type == "agent":
+                elif node_type in ("agent", "delegation"):
                     # Get effective agent from agent_type, subagent_type, or title
                     effective_agent = (
-                        agent_type or subagent_type or extract_agent_from_title(title)
+                        agent_type
+                        or subagent_type
+                        or session.get("subagent_type")
+                        or extract_agent_from_title(title)
                     )
                     icon = get_delegation_icon(depth, parent_agent)
 
-                    if effective_agent and parent_agent:
+                    # Use label from API if available (e.g., "plan -> roadmap")
+                    api_label = session.get("label", "")
+                    if api_label and " -> " in api_label:
+                        label = f"{icon} {api_label.replace(' -> ', ' → ')}"
+                    elif effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
                     elif effective_agent:
                         label = f"{icon} {effective_agent}"
