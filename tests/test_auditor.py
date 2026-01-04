@@ -11,7 +11,6 @@ Consolidated test suite covering:
 """
 
 import json
-from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -36,10 +35,7 @@ def create_tool_content(tool: str, session_id: str = "sess-001", **input_args) -
         "type": "tool",
         "tool": tool,
         "sessionID": session_id,
-        "state": {
-            "input": input_args,
-            "time": {"start": 1703001000000},
-        },
+        "state": {"input": input_args, "time": {"start": 1703001000000}},
     }
 
 
@@ -105,10 +101,6 @@ class AuditorTestContext:
     def mock_db(self):
         return self._mock_db
 
-    @property
-    def mock_analyzer(self):
-        return self._mock_analyzer
-
     def __getattr__(self, name):
         return getattr(self._auditor, name)
 
@@ -131,24 +123,23 @@ def auditor_with_mocks(mock_db, mock_analyzer):
     ):
         mock_db_cls.return_value = mock_db
         mock_analyzer_fn.return_value = mock_analyzer
-        auditor = SecurityAuditor()
-        yield AuditorTestContext(auditor, mock_db, mock_analyzer)
+        yield AuditorTestContext(SecurityAuditor(), mock_db, mock_analyzer)
 
 
 # =====================================================
-# Initialization Tests
+# Initialization and Lifecycle Tests
 # =====================================================
 
 
-class TestSecurityAuditorInit:
-    """Tests for SecurityAuditor initialization and cached stats loading."""
+class TestSecurityAuditorInitAndLifecycle:
+    """Tests for SecurityAuditor initialization and lifecycle."""
 
     @pytest.mark.parametrize(
-        "cached_stats,scanned_ids,expected_scanned,expected_commands,expected_ids_count",
+        "cached_stats,scanned_ids,expected_scanned,expected_commands,expected_ids_count,actions,expected_running",
         [
-            # Fresh start - no cached data
-            (make_default_stats(), set(), 0, 0, 0),
-            # Restored from cache with existing IDs
+            # Init fresh start, no lifecycle actions
+            (make_default_stats(), set(), 0, 0, 0, [], None),
+            # Init restored from cache, no lifecycle actions
             (
                 {
                     **make_default_stats(100, 50, 20, 10, 5),
@@ -161,19 +152,27 @@ class TestSecurityAuditorInit:
                 100,
                 50,
                 3,
+                [],
+                None,
             ),
+            # Full lifecycle: start, start (idempotent), stop
+            (make_default_stats(), set(), 0, 0, 0, ["start", "start", "stop"], False),
+            # Stop without start
+            (make_default_stats(), set(), 0, 0, 0, ["stop"], False),
         ],
-        ids=["fresh_start", "restored_from_cache"],
+        ids=["init_fresh", "init_cached", "lifecycle_full", "lifecycle_stop_only"],
     )
-    def test_init_creates_components_and_loads_stats(
+    def test_init_and_lifecycle(
         self,
         cached_stats,
         scanned_ids,
         expected_scanned,
         expected_commands,
         expected_ids_count,
+        actions,
+        expected_running,
     ):
-        """Auditor initializes components and loads cached stats from database."""
+        """Test initialization loads stats and lifecycle works correctly."""
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
@@ -190,77 +189,35 @@ class TestSecurityAuditorInit:
 
             auditor = SecurityAuditor()
 
-            # Component creation verified
+            # Verify init
             assert auditor._running is False
             assert auditor._thread is None
             mock_db_cls.assert_called_once()
             mock_analyzer_fn.assert_called_once()
             mock_reporter_cls.assert_called_once()
-
-            # Stats loaded correctly
             assert auditor._stats["total_scanned"] == expected_scanned
             assert auditor._stats["total_commands"] == expected_commands
             assert auditor._stats["last_scan"] is None
             assert len(auditor._scanned_ids) == expected_ids_count
 
+            # Execute lifecycle actions if any
+            if actions:
+                first_thread = None
+                with patch.object(auditor, "_scan_loop"):
+                    for action in actions:
+                        if action == "start":
+                            auditor.start()
+                            if first_thread is None:
+                                first_thread = auditor._thread
+                                assert auditor._running is True
+                                assert auditor._thread is not None
+                                assert auditor._thread.daemon is True
+                        elif action == "stop":
+                            auditor.stop()
 
-# =====================================================
-# Lifecycle Tests - Start/Stop
-# =====================================================
-
-
-class TestSecurityAuditorLifecycle:
-    """Tests for start/stop lifecycle management."""
-
-    @pytest.mark.parametrize(
-        "scenario,actions,expected_running,expected_thread_is_first",
-        [
-            # Start creates thread, second start is idempotent, stop cleans up
-            (
-                "full_lifecycle",
-                ["start", "start", "stop"],
-                False,
-                True,
-            ),
-            # Stop without start is safe
-            (
-                "stop_only",
-                ["stop"],
-                False,
-                None,
-            ),
-        ],
-        ids=["full_lifecycle", "stop_without_start"],
-    )
-    def test_lifecycle_scenarios(
-        self,
-        auditor_with_mocks,
-        scenario,
-        actions,
-        expected_running,
-        expected_thread_is_first,
-    ):
-        """Test various lifecycle scenarios."""
-        ctx = auditor_with_mocks
-        first_thread = None
-
-        with patch.object(ctx._auditor, "_scan_loop"):
-            for action in actions:
-                if action == "start":
-                    ctx.start()
-                    if first_thread is None:
-                        first_thread = ctx._thread
-                        assert ctx._running is True
-                        assert ctx._thread is not None
-                        assert ctx._thread.daemon is True
-                elif action == "stop":
-                    ctx.stop()
-
-            assert ctx._running == expected_running
-
-            if expected_thread_is_first is True:
-                # Verify second start didn't create new thread
-                assert ctx._thread is first_thread
+                assert auditor._running == expected_running
+                if first_thread and "start" in actions:
+                    assert auditor._thread is first_thread
 
 
 # =====================================================
@@ -300,7 +257,7 @@ class TestProcessFile:
         ],
         ids=["bash", "read", "write", "edit_as_write", "webfetch"],
     )
-    def test_process_tool_file_types(
+    def test_process_tool_types(
         self,
         auditor_with_mocks,
         tmp_path,
@@ -311,13 +268,9 @@ class TestProcessFile:
         expected_value,
     ):
         """Process all supported tool types with correct extraction."""
-        auditor = auditor_with_mocks
-        content = create_tool_content(tool, **input_args)
-
         prt_file = tmp_path / f"prt_{tool}.json"
-        prt_file.write_text(json.dumps(content))
-
-        result = auditor._process_file(prt_file)
+        prt_file.write_text(json.dumps(create_tool_content(tool, **input_args)))
+        result = auditor_with_mocks._process_file(prt_file)
 
         assert result["type"] == expected_type
         assert result[expected_field] == expected_value
@@ -325,31 +278,23 @@ class TestProcessFile:
         assert "risk_level" in result
 
     @pytest.mark.parametrize(
-        "scenario,content_factory,expected_none",
+        "scenario,content_factory",
         [
-            # Empty inputs
-            ("bash_empty", lambda: create_tool_content("bash", command=""), True),
-            ("read_empty", lambda: create_tool_content("read", filePath=""), True),
-            ("write_empty", lambda: create_tool_content("write", filePath=""), True),
-            ("webfetch_empty", lambda: create_tool_content("webfetch", url=""), True),
-            # Non-tool and unknown tool
-            (
-                "non_tool",
-                lambda: {"type": "message", "content": "Not a tool"},
-                True,
-            ),
+            ("bash_empty", lambda: create_tool_content("bash", command="")),
+            ("read_empty", lambda: create_tool_content("read", filePath="")),
+            ("write_empty", lambda: create_tool_content("write", filePath="")),
+            ("webfetch_empty", lambda: create_tool_content("webfetch", url="")),
+            ("non_tool", lambda: {"type": "message", "content": "Not a tool"}),
             (
                 "unknown_tool",
                 lambda: {
                     "type": "tool",
-                    "tool": "unknown_tool",
+                    "tool": "unknown",
                     "sessionID": "s1",
                     "state": {"input": {}, "time": {"start": 1}},
                 },
-                True,
             ),
-            # Invalid JSON (special case)
-            ("invalid_json", lambda: "INVALID_JSON_MARKER", True),
+            ("invalid_json", lambda: "INVALID_JSON_MARKER"),
         ],
         ids=[
             "bash_empty",
@@ -361,43 +306,38 @@ class TestProcessFile:
             "invalid_json",
         ],
     )
-    def test_process_returns_none_for_invalid_content(
-        self, auditor_with_mocks, tmp_path, scenario, content_factory, expected_none
+    def test_process_returns_none_for_invalid(
+        self, auditor_with_mocks, tmp_path, scenario, content_factory
     ):
-        """Various invalid contents return None."""
-        auditor = auditor_with_mocks
-
+        """Invalid contents return None."""
         prt_file = tmp_path / f"prt_{scenario}.json"
         content = content_factory()
-
-        if content == "INVALID_JSON_MARKER":
-            prt_file.write_text("not valid json {{{")
-        else:
-            prt_file.write_text(json.dumps(content))
-
-        result = auditor._process_file(prt_file)
-        assert result is None
+        prt_file.write_text(
+            "not valid json {{{"
+            if content == "INVALID_JSON_MARKER"
+            else json.dumps(content)
+        )
+        assert auditor_with_mocks._process_file(prt_file) is None
 
 
 # =====================================================
-# Run Scan Tests - Consolidated
+# Run Scan Tests
 # =====================================================
 
 
 class TestRunScan:
-    """Tests for _run_scan method - consolidated scenarios."""
+    """Tests for _run_scan method."""
 
     @pytest.mark.parametrize(
-        "scenario,storage_exists,already_scanned,running,expect_insert",
+        "scenario,storage_exists,already_scanned,running,expect_insert,setup_exception",
         [
-            # Normal: processes new files
-            ("process_new", True, set(), True, True),
-            # Skip already scanned
-            ("skip_scanned", True, {"prt_001.json"}, True, False),
-            # No storage dir
-            ("no_storage", False, set(), True, False),
+            ("process_new", True, set(), True, True, None),
+            ("skip_scanned", True, {"prt_001.json"}, True, False, None),
+            ("no_storage", False, set(), True, False, None),
+            ("exception", True, set(), True, False, PermissionError("No access")),
+            ("not_running", True, set(), False, False, None),
         ],
-        ids=["process_new_files", "skip_already_scanned", "no_storage_dir"],
+        ids=["process_new", "skip_scanned", "no_storage", "exception", "not_running"],
     )
     def test_run_scan_scenarios(
         self,
@@ -407,8 +347,9 @@ class TestRunScan:
         already_scanned,
         running,
         expect_insert,
+        setup_exception,
     ):
-        """Run scan handles various scenarios correctly."""
+        """Run scan handles all scenarios correctly."""
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
@@ -430,25 +371,39 @@ class TestRunScan:
             )
             mock_analyzer_fn.return_value = mock_analyzer
 
-            # Setup storage
             storage = tmp_path / "storage"
             if storage_exists:
-                msg_dir = storage / "msg_001"
-                msg_dir.mkdir(parents=True)
-                content = create_tool_content("bash", command="ls -la")
-                (msg_dir / "prt_001.json").write_text(json.dumps(content))
-                mock_storage_path.exists.return_value = True
-                mock_storage_path.iterdir.return_value = [msg_dir]
+                if scenario == "not_running":
+                    for i in range(5):
+                        msg_dir = storage / f"msg_{i:03d}"
+                        msg_dir.mkdir(parents=True)
+                        (msg_dir / f"prt_{i:03d}.json").write_text(
+                            json.dumps(create_tool_content("bash", command="ls"))
+                        )
+                else:
+                    msg_dir = storage / "msg_001"
+                    msg_dir.mkdir(parents=True)
+                    (msg_dir / "prt_001.json").write_text(
+                        json.dumps(create_tool_content("bash", command="ls -la"))
+                    )
+
+                if setup_exception:
+                    mock_storage_path.exists.return_value = True
+                    mock_storage_path.iterdir.side_effect = setup_exception
+                else:
+                    mock_storage_path.exists.return_value = True
+                    mock_storage_path.iterdir.return_value = [msg_dir]
             else:
                 mock_storage_path.exists.return_value = False
 
             auditor = SecurityAuditor()
             auditor._running = running
-            if running:
+            if not running:
+                auditor._thread = MagicMock()
+            elif running:
                 auditor._thread = MagicMock()
 
-            # Use real storage path for existing scenarios
-            if storage_exists:
+            if storage_exists and not setup_exception:
                 with patch(
                     "opencode_monitor.security.auditor.OPENCODE_STORAGE", storage
                 ):
@@ -459,21 +414,21 @@ class TestRunScan:
             if expect_insert:
                 mock_db.insert_command.assert_called_once()
                 assert auditor._stats["total_scanned"] == 1
-            else:
-                if scenario == "skip_scanned":
-                    mock_db.insert_command.assert_not_called()
-                elif scenario == "no_storage":
-                    mock_storage_path.iterdir.assert_not_called()
+            elif scenario == "skip_scanned":
+                mock_db.insert_command.assert_not_called()
+            elif scenario == "no_storage":
+                mock_storage_path.iterdir.assert_not_called()
+            elif scenario == "not_running":
+                assert auditor._stats["total_scanned"] == 0
 
-    def test_run_scan_routes_all_tool_types(self, auditor_with_mocks, tmp_path):
-        """Scan correctly routes different tool types to appropriate insert methods."""
+    def test_routes_all_tools_and_scan_loop_works(self, auditor_with_mocks, tmp_path):
+        """Scan routes tools correctly; loop runs periodically; update_stat works."""
         auditor = auditor_with_mocks
 
+        # Test tool routing
         storage = tmp_path / "storage"
         msg_dir = storage / "msg_001"
         msg_dir.mkdir(parents=True)
-
-        # Create files for all tool types
         (msg_dir / "prt_bash.json").write_text(
             json.dumps(create_tool_content("bash", command="ls"))
         )
@@ -490,113 +445,45 @@ class TestRunScan:
         with patch("opencode_monitor.security.auditor.OPENCODE_STORAGE", storage):
             auditor._run_scan()
 
-        # All insert methods called
         auditor.mock_db.insert_command.assert_called()
         auditor.mock_db.insert_read.assert_called()
         auditor.mock_db.insert_write.assert_called()
         auditor.mock_db.insert_webfetch.assert_called()
 
-    @pytest.mark.parametrize(
-        "scenario,setup_exception,running_state",
-        [
-            ("exception", PermissionError("No access"), True),
-            ("not_running", None, False),
-        ],
-        ids=["handles_exception", "stops_when_not_running"],
-    )
-    def test_run_scan_edge_cases(
-        self, tmp_path, scenario, setup_exception, running_state
-    ):
-        """Scan handles exceptions gracefully and stops when not running."""
-        with (
-            patch("opencode_monitor.security.auditor.OPENCODE_STORAGE") as mock_storage,
-            patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
-            patch("opencode_monitor.security.auditor.get_risk_analyzer"),
-            patch("opencode_monitor.security.auditor.SecurityReporter"),
-        ):
-            mock_db = MagicMock()
-            mock_db.get_stats.return_value = make_default_stats()
-            mock_db.get_all_scanned_ids.return_value = set()
-            mock_db_cls.return_value = mock_db
-
-            if setup_exception:
-                mock_storage.exists.return_value = True
-                mock_storage.iterdir.side_effect = setup_exception
-            else:
-                # Setup storage with files for not_running test
-                storage = tmp_path / "storage"
-                for i in range(5):
-                    msg_dir = storage / f"msg_{i:03d}"
-                    msg_dir.mkdir(parents=True)
-                    content = create_tool_content("bash", command="ls")
-                    (msg_dir / f"prt_{i:03d}.json").write_text(json.dumps(content))
-
-            auditor = SecurityAuditor()
-            auditor._running = running_state
-            if not running_state:
-                auditor._thread = MagicMock()
-
-            if setup_exception:
-                auditor._run_scan()  # Should not raise
-            else:
-                with patch(
-                    "opencode_monitor.security.auditor.OPENCODE_STORAGE", storage
-                ):
-                    auditor._run_scan()
-                assert auditor._stats["total_scanned"] == 0
-
-
-# =====================================================
-# Scan Loop and Stats Tests
-# =====================================================
-
-
-class TestScanLoopAndStats:
-    """Tests for _scan_loop and _update_stat methods."""
-
-    def test_scan_loop_runs_periodically_and_update_stat_works(
-        self, auditor_with_mocks
-    ):
-        """Scan loop runs periodic scans; update_stat increments correctly."""
-        ctx = auditor_with_mocks
-        ctx._running = True
-        ctx._stats["high"] = 5
-
+        # Test scan loop
+        auditor._running = True
+        auditor._stats["high"] = 5
         call_count = [0]
 
-        def stop_after_second_sleep(*args):
+        def stop_after_second(*args):
             call_count[0] += 1
             if call_count[0] >= 2:
-                ctx._running = False
+                auditor._running = False
 
         with (
-            patch.object(ctx._auditor, "_run_scan") as mock_run,
+            patch.object(auditor._auditor, "_run_scan") as mock_run,
             patch(
                 "opencode_monitor.security.auditor.time.sleep",
-                side_effect=stop_after_second_sleep,
+                side_effect=stop_after_second,
             ),
         ):
-            ctx._scan_loop()
-
-        # Scan loop ran multiple times
+            auditor._scan_loop()
         assert mock_run.call_count >= 2
 
-        # Test update_stat behavior
-        ctx._update_stat("high")
-        assert ctx._stats["high"] == 6
-
-        # Unknown key ignored
-        ctx._update_stat("unknown_key")
-        assert "unknown_key" not in ctx._stats
+        # Test update_stat
+        auditor._update_stat("high")
+        assert auditor._stats["high"] == 6
+        auditor._update_stat("unknown")
+        assert "unknown" not in auditor._stats
 
 
 # =====================================================
-# Public API Tests
+# Public API and Global Functions Tests
 # =====================================================
 
 
-class TestPublicAPI:
-    """Tests for public API methods."""
+class TestPublicAPIAndGlobals:
+    """Tests for public API methods and global singleton functions."""
 
     @pytest.mark.parametrize(
         "method_name,method_args,db_method,db_args",
@@ -640,90 +527,70 @@ class TestPublicAPI:
                 (["critical", "high"], 15),
             ),
             ("get_all_webfetches", {"limit": 500}, "get_all_webfetches", (500,)),
+            ("get_stats", {}, None, None),
+            ("generate_report", {}, None, None),
         ],
         ids=[
-            "critical_commands",
-            "commands_by_level",
-            "all_commands",
+            "critical_cmds",
+            "cmds_by_level",
+            "all_cmds",
             "sensitive_reads",
             "all_reads",
             "sensitive_writes",
             "all_writes",
-            "risky_webfetches",
-            "all_webfetches",
+            "risky_fetches",
+            "all_fetches",
+            "get_stats",
+            "report",
         ],
     )
-    def test_api_methods_delegate_to_database(
+    def test_api_methods(
         self, auditor_with_mocks, method_name, method_args, db_method, db_args
     ):
-        """API methods correctly delegate to database with proper arguments."""
+        """API methods delegate correctly to database."""
         auditor = auditor_with_mocks
-        getattr(auditor.mock_db, db_method).return_value = []
 
-        method = getattr(auditor, method_name)
-        method(**method_args)
-
-        getattr(auditor.mock_db, db_method).assert_called_with(*db_args)
-
-    def test_get_stats_returns_copy_and_generate_report_works(self, auditor_with_mocks):
-        """get_stats returns defensive copy; generate_report uses reporter."""
-        auditor = auditor_with_mocks
-        auditor._stats["total_scanned"] = 100
-
-        # get_stats returns copy
-        stats = auditor.get_stats()
-        stats["total_scanned"] = 999
-        assert auditor._stats["total_scanned"] == 100
-
-        # generate_report delegates to reporter
-        with patch.object(auditor._auditor, "_reporter") as mock_reporter:
-            mock_reporter.generate_summary_report.return_value = "Test Report"
-            result = auditor.generate_report()
-            assert result == "Test Report"
-
-
-# =====================================================
-# Global Singleton Functions Tests
-# =====================================================
-
-
-class TestGlobalFunctions:
-    """Tests for global singleton functions."""
+        if method_name == "get_stats":
+            auditor._stats["total_scanned"] = 100
+            stats = auditor.get_stats()
+            stats["total_scanned"] = 999
+            assert auditor._stats["total_scanned"] == 100
+        elif method_name == "generate_report":
+            with patch.object(auditor._auditor, "_reporter") as mock_rep:
+                mock_rep.generate_summary_report.return_value = "Report"
+                assert auditor.generate_report() == "Report"
+        else:
+            getattr(auditor.mock_db, db_method).return_value = []
+            getattr(auditor, method_name)(**method_args)
+            getattr(auditor.mock_db, db_method).assert_called_with(*db_args)
 
     @pytest.mark.parametrize(
-        "test_stop_when_none",
-        [False, True],
-        ids=["full_lifecycle", "stop_when_none"],
+        "stop_when_none", [False, True], ids=["full_lifecycle", "stop_when_none"]
     )
-    def test_singleton_functions(self, test_stop_when_none):
-        """Singleton lifecycle: get creates, start starts, stop clears."""
-        import opencode_monitor.security.auditor as auditor_module
+    def test_singleton_functions(self, stop_when_none):
+        """Global singleton lifecycle works correctly."""
+        import opencode_monitor.security.auditor as mod
 
-        auditor_module._auditor = None
+        mod._auditor = None
 
-        if test_stop_when_none:
-            # Just test stop when None
-            stop_auditor()  # Should not raise
-            assert auditor_module._auditor is None
+        if stop_when_none:
+            stop_auditor()
+            assert mod._auditor is None
         else:
-            # Full lifecycle test
-            with patch.object(auditor_module, "SecurityAuditor") as mock_cls:
-                mock_instance = MagicMock()
-                mock_cls.return_value = mock_instance
+            with patch.object(mod, "SecurityAuditor") as mock_cls:
+                mock_inst = MagicMock()
+                mock_cls.return_value = mock_inst
 
-                # get_auditor creates singleton
-                result1 = get_auditor()
-                result2 = get_auditor()
+                r1 = get_auditor()
+                r2 = get_auditor()
                 mock_cls.assert_called_once()
-                assert result1 is result2
+                assert r1 is r2
 
-                # start_auditor calls start
                 start_auditor()
-                mock_instance.start.assert_called_once()
+                mock_inst.start.assert_called_once()
 
-                # stop_auditor stops and clears
                 stop_auditor()
-                mock_instance.stop.assert_called_once()
-                assert auditor_module._auditor is None
+                mock_inst.stop.assert_called_once()
+                assert mod._auditor is None
 
-            auditor_module._auditor = None
+            mod._auditor = None

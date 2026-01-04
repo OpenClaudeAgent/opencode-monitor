@@ -285,6 +285,27 @@ class TestCollectorInserts:
 class TestAnalyticsQueries:
     """Tests for analytics query methods."""
 
+    def _setup_test_todos(
+        self,
+        db: AnalyticsDB,
+        collector: AnalyticsCollector,
+        tmp_path: Path,
+    ) -> list[dict]:
+        """Helper to setup test todos in database.
+
+        Creates 2 todos (one completed, one pending) and inserts them.
+        Returns the todo list for assertions.
+        """
+        conn = db.connect()
+        todos = [
+            {"id": "1", "content": "Task 1", "status": "completed", "priority": "high"},
+            {"id": "2", "content": "Task 2", "status": "pending", "priority": "low"},
+        ]
+        todo_file = tmp_path / "ses_test.json"
+        todo_file.write_text(json.dumps(todos))
+        collector._insert_todos(conn, "ses_test", todos, todo_file)
+        return todos
+
     def test_get_todos_empty(self, db: AnalyticsDB):
         """Get todos returns empty list when no data."""
         queries = AnalyticsQueries(db)
@@ -295,14 +316,7 @@ class TestAnalyticsQueries:
         self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Get todos returns correct data."""
-        conn = db.connect()
-        todos = [
-            {"id": "1", "content": "Task 1", "status": "completed", "priority": "high"},
-            {"id": "2", "content": "Task 2", "status": "pending", "priority": "low"},
-        ]
-        todo_file = tmp_path / "ses_test.json"
-        todo_file.write_text(json.dumps(todos))
-        collector._insert_todos(conn, "ses_test", todos, todo_file)
+        self._setup_test_todos(db, collector, tmp_path)
 
         queries = AnalyticsQueries(db)
         result = queries.get_todos()
@@ -315,14 +329,7 @@ class TestAnalyticsQueries:
         self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Get todos can filter by status."""
-        conn = db.connect()
-        todos = [
-            {"id": "1", "content": "Task 1", "status": "completed", "priority": "high"},
-            {"id": "2", "content": "Task 2", "status": "pending", "priority": "low"},
-        ]
-        todo_file = tmp_path / "ses_test.json"
-        todo_file.write_text(json.dumps(todos))
-        collector._insert_todos(conn, "ses_test", todos, todo_file)
+        self._setup_test_todos(db, collector, tmp_path)
 
         queries = AnalyticsQueries(db)
         result = queries.get_todos(status="completed")

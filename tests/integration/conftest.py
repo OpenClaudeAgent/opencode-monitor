@@ -248,6 +248,37 @@ def patched_security():
         yield mock_auditor
 
 
+def _create_dashboard_window(qtbot, *, show: bool = True):
+    """Create a dashboard window with timers stopped.
+
+    Internal helper to avoid duplication between dashboard fixtures.
+
+    Args:
+        qtbot: pytest-qt's qtbot fixture for UI interaction
+        show: Whether to show the window (default: True)
+
+    Returns:
+        DashboardWindow: Configured dashboard window with timers stopped
+    """
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    window = DashboardWindow()
+    qtbot.addWidget(window)
+
+    # Stop timers BEFORE yield to avoid interference during tests
+    # The 2000ms refresh timer could fire and overwrite manually emitted data
+    if window._refresh_timer:
+        window._refresh_timer.stop()
+    if window._sync_checker:
+        window._sync_checker.stop()
+
+    if show:
+        window.show()
+        qtbot.waitExposed(window)
+
+    return window
+
+
 @pytest.fixture
 def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_security):
     """Create a dashboard window with all dependencies mocked.
@@ -264,24 +295,8 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
     Yields:
         DashboardWindow: Fully mocked dashboard window
     """
-    from opencode_monitor.dashboard.window import DashboardWindow
-
-    window = DashboardWindow()
-    qtbot.addWidget(window)
-
-    # Stop timers BEFORE yield to avoid interference during tests
-    # The 2000ms refresh timer could fire and overwrite manually emitted data
-    if window._refresh_timer:
-        window._refresh_timer.stop()
-    if window._sync_checker:
-        window._sync_checker.stop()
-
-    window.show()
-    qtbot.waitExposed(window)
-
+    window = _create_dashboard_window(qtbot, show=True)
     yield window
-
-    # Cleanup
     window.close()
 
 
@@ -290,21 +305,8 @@ def dashboard_window_hidden(
     qtbot, patched_api_client, patched_monitoring, patched_security
 ):
     """Create a dashboard window without showing it."""
-    from opencode_monitor.dashboard.window import DashboardWindow
-
-    window = DashboardWindow()
-    qtbot.addWidget(window)
-
-    # Stop timers BEFORE yield to avoid interference during tests
-    # The 2000ms refresh timer could fire and overwrite manually emitted data
-    if window._refresh_timer:
-        window._refresh_timer.stop()
-    if window._sync_checker:
-        window._sync_checker.stop()
-
+    window = _create_dashboard_window(qtbot, show=False)
     yield window
-
-    # Cleanup
     window.close()
 
 

@@ -33,3 +33,5 @@ htmlcov/
 # lsmcp cache
 .lsmcp/cache
 vendor/
+node_modules/
+package-lock.json

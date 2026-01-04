@@ -1,0 +1,14 @@
+{
+  "name": "opencode-monitor",
+  "version": "0.5.0",
+  "private": true,
+  "description": "Dev tools for code quality analysis",
+  "scripts": {
+    "duplicates": "jscpd src/ --min-lines 5 --min-tokens 50",
+    "duplicates:tests": "jscpd tests/ --min-lines 5 --min-tokens 50",
+    "duplicates:all": "jscpd . --ignore 'node_modules,**/*.pyc,.venv,__pycache__' --min-lines 5"
+  },
+  "devDependencies": {
+    "jscpd": "^4.0.5"
+  }
+}

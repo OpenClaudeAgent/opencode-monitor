@@ -286,6 +286,87 @@ class SecurityAuditor:
             "mitre_from_edr": mitre_from_edr,
         }
 
+    def _apply_edr_and_build_result(
+        self,
+        base_data: Dict[str, Any],
+        tool: str,
+        target: str,
+        event_type: str,
+        analysis_score: int,
+        analysis_level: str,
+        analysis_reason: str,
+        analysis_mitre: List[str],
+        skip_edr: bool,
+        empty_edr: Dict[str, Any],
+        extra_fields: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Apply EDR analysis and build the final result dictionary.
+
+        Consolidates common post-analysis logic:
+        - EDR analysis (sequence/correlation detection)
+        - MITRE technique aggregation
+        - Final score calculation with EDR bonuses
+        - Result dictionary construction
+
+        Args:
+            base_data: Common fields (file_id, content_hash, session_id, timestamp, scanned_at)
+            tool: Tool type (bash, read, write, edit, webfetch)
+            target: Target of the operation (command, file_path, or url)
+            event_type: Type for the result dict (command, read, write, webfetch)
+            analysis_score: Risk score from analyzer
+            analysis_level: Risk level from analyzer (as string)
+            analysis_reason: Risk reason from analyzer
+            analysis_mitre: MITRE techniques from analyzer
+            skip_edr: Whether to skip EDR analysis
+            empty_edr: Empty EDR result dict for batch scans
+            extra_fields: Additional fields specific to each tool type
+        """
+        # EDR analysis (skip during batch scans)
+        edr = (
+            empty_edr
+            if skip_edr
+            else self._process_edr_analysis(
+                tool=tool,
+                target=target,
+                session_id=base_data["session_id"],
+                timestamp=base_data["timestamp"],
+                risk_score=analysis_score,
+            )
+        )
+
+        # Merge MITRE techniques
+        all_mitre = list(analysis_mitre)
+        for tech in edr["mitre_from_edr"]:
+            if tech not in all_mitre:
+                all_mitre.append(tech)
+
+        # Calculate final score with EDR bonuses (capped at 100)
+        final_score = min(
+            100,
+            analysis_score
+            + edr["sequence_score_bonus"]
+            + edr["correlation_score_bonus"],
+        )
+
+        # Build result dictionary
+        result_dict = {
+            **base_data,
+            "type": event_type,
+            "risk_score": final_score,
+            "risk_level": analysis_level,
+            "risk_reason": analysis_reason,
+            "mitre_techniques": all_mitre,
+            "edr_sequence_bonus": edr["sequence_score_bonus"],
+            "edr_correlation_bonus": edr["correlation_score_bonus"],
+        }
+
+        # Add extra fields specific to each tool type
+        if extra_fields:
+            result_dict.update(extra_fields)
+
+        return result_dict
+
     def _process_file(
         self, prt_file: Path, skip_edr: bool = False
     ) -> Optional[Dict[str, Any]]:
@@ -330,45 +411,19 @@ class SecurityAuditor:
                     return None
                 alert = analyze_command(command, tool)
 
-                # EDR analysis (skip during batch scans)
-                edr = (
-                    empty_edr
-                    if skip_edr
-                    else self._process_edr_analysis(
-                        tool=tool,
-                        target=command,
-                        session_id=base_data["session_id"],
-                        timestamp=base_data["timestamp"],
-                        risk_score=alert.score,
-                    )
+                return self._apply_edr_and_build_result(
+                    base_data=base_data,
+                    tool=tool,
+                    target=command,
+                    event_type="command",
+                    analysis_score=alert.score,
+                    analysis_level=alert.level.value,
+                    analysis_reason=alert.reason,
+                    analysis_mitre=list(alert.mitre_techniques),
+                    skip_edr=skip_edr,
+                    empty_edr=empty_edr,
+                    extra_fields={"tool": tool, "command": command},
                 )
-
-                # Combine MITRE techniques
-                all_mitre = list(alert.mitre_techniques)
-                for tech in edr["mitre_from_edr"]:
-                    if tech not in all_mitre:
-                        all_mitre.append(tech)
-
-                # Apply EDR score bonuses (capped at 100)
-                final_score = min(
-                    100,
-                    alert.score
-                    + edr["sequence_score_bonus"]
-                    + edr["correlation_score_bonus"],
-                )
-
-                return {
-                    **base_data,
-                    "type": "command",
-                    "tool": tool,
-                    "command": command,
-                    "risk_score": final_score,
-                    "risk_level": alert.level.value,
-                    "risk_reason": alert.reason,
-                    "mitre_techniques": all_mitre,
-                    "edr_sequence_bonus": edr["sequence_score_bonus"],
-                    "edr_correlation_bonus": edr["correlation_score_bonus"],
-                }
 
             elif tool == "read":
                 file_path = cmd_input.get("filePath", "")
@@ -376,42 +431,19 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_file_path(file_path)
 
-                # EDR analysis (skip during batch scans)
-                edr = (
-                    empty_edr
-                    if skip_edr
-                    else self._process_edr_analysis(
-                        tool=tool,
-                        target=file_path,
-                        session_id=base_data["session_id"],
-                        timestamp=base_data["timestamp"],
-                        risk_score=result.score,
-                    )
+                return self._apply_edr_and_build_result(
+                    base_data=base_data,
+                    tool=tool,
+                    target=file_path,
+                    event_type="read",
+                    analysis_score=result.score,
+                    analysis_level=result.level,
+                    analysis_reason=result.reason,
+                    analysis_mitre=list(result.mitre_techniques),
+                    skip_edr=skip_edr,
+                    empty_edr=empty_edr,
+                    extra_fields={"file_path": file_path},
                 )
-
-                all_mitre = list(result.mitre_techniques)
-                for tech in edr["mitre_from_edr"]:
-                    if tech not in all_mitre:
-                        all_mitre.append(tech)
-
-                final_score = min(
-                    100,
-                    result.score
-                    + edr["sequence_score_bonus"]
-                    + edr["correlation_score_bonus"],
-                )
-
-                return {
-                    **base_data,
-                    "type": "read",
-                    "file_path": file_path,
-                    "risk_score": final_score,
-                    "risk_level": result.level,
-                    "risk_reason": result.reason,
-                    "mitre_techniques": all_mitre,
-                    "edr_sequence_bonus": edr["sequence_score_bonus"],
-                    "edr_correlation_bonus": edr["correlation_score_bonus"],
-                }
 
             elif tool in ("write", "edit"):
                 file_path = cmd_input.get("filePath", "")
@@ -419,43 +451,19 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_file_path(file_path, write_mode=True)
 
-                # EDR analysis (skip during batch scans)
-                edr = (
-                    empty_edr
-                    if skip_edr
-                    else self._process_edr_analysis(
-                        tool=tool,
-                        target=file_path,
-                        session_id=base_data["session_id"],
-                        timestamp=base_data["timestamp"],
-                        risk_score=result.score,
-                    )
+                return self._apply_edr_and_build_result(
+                    base_data=base_data,
+                    tool=tool,
+                    target=file_path,
+                    event_type="write",
+                    analysis_score=result.score,
+                    analysis_level=result.level,
+                    analysis_reason=result.reason,
+                    analysis_mitre=list(result.mitre_techniques),
+                    skip_edr=skip_edr,
+                    empty_edr=empty_edr,
+                    extra_fields={"file_path": file_path, "operation": tool},
                 )
-
-                all_mitre = list(result.mitre_techniques)
-                for tech in edr["mitre_from_edr"]:
-                    if tech not in all_mitre:
-                        all_mitre.append(tech)
-
-                final_score = min(
-                    100,
-                    result.score
-                    + edr["sequence_score_bonus"]
-                    + edr["correlation_score_bonus"],
-                )
-
-                return {
-                    **base_data,
-                    "type": "write",
-                    "file_path": file_path,
-                    "operation": tool,
-                    "risk_score": final_score,
-                    "risk_level": result.level,
-                    "risk_reason": result.reason,
-                    "mitre_techniques": all_mitre,
-                    "edr_sequence_bonus": edr["sequence_score_bonus"],
-                    "edr_correlation_bonus": edr["correlation_score_bonus"],
-                }
 
             elif tool == "webfetch":
                 url = cmd_input.get("url", "")
@@ -463,42 +471,19 @@ class SecurityAuditor:
                     return None
                 result = self._analyzer.analyze_url(url)
 
-                # EDR analysis (skip during batch scans)
-                edr = (
-                    empty_edr
-                    if skip_edr
-                    else self._process_edr_analysis(
-                        tool=tool,
-                        target=url,
-                        session_id=base_data["session_id"],
-                        timestamp=base_data["timestamp"],
-                        risk_score=result.score,
-                    )
+                return self._apply_edr_and_build_result(
+                    base_data=base_data,
+                    tool=tool,
+                    target=url,
+                    event_type="webfetch",
+                    analysis_score=result.score,
+                    analysis_level=result.level,
+                    analysis_reason=result.reason,
+                    analysis_mitre=list(result.mitre_techniques),
+                    skip_edr=skip_edr,
+                    empty_edr=empty_edr,
+                    extra_fields={"url": url},
                 )
-
-                all_mitre = list(result.mitre_techniques)
-                for tech in edr["mitre_from_edr"]:
-                    if tech not in all_mitre:
-                        all_mitre.append(tech)
-
-                final_score = min(
-                    100,
-                    result.score
-                    + edr["sequence_score_bonus"]
-                    + edr["correlation_score_bonus"],
-                )
-
-                return {
-                    **base_data,
-                    "type": "webfetch",
-                    "url": url,
-                    "risk_score": final_score,
-                    "risk_level": result.level,
-                    "risk_reason": result.reason,
-                    "mitre_techniques": all_mitre,
-                    "edr_sequence_bonus": edr["sequence_score_bonus"],
-                    "edr_correlation_bonus": edr["correlation_score_bonus"],
-                }
 
             return None
 

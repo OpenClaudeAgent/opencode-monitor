@@ -194,18 +194,10 @@ class MockAPIResponses:
         """Monitoring data with empty lists (valid state, not null).
 
         Tests dashboard handling when API returns empty but successful lists.
+
+        Note: Delegates to empty_monitoring() to avoid duplication.
         """
-        return {
-            "instances": 0,
-            "agents": 0,
-            "busy": 0,
-            "waiting": 0,
-            "idle": 0,
-            "todos": 0,
-            "agents_data": [],
-            "tools_data": [],
-            "waiting_data": [],
-        }
+        return empty_monitoring()
 
     @staticmethod
     def basic() -> dict[str, Any]:
