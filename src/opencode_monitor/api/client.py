@@ -206,6 +206,20 @@ class AnalyticsAPIClient:
         """
         return self._request("/api/tracing/tree", {"days": days})
 
+    def get_conversation(self, session_id: str) -> Optional[dict]:
+        """Get full conversation timeline for a session.
+
+        Returns hierarchical view: session → exchanges → parts.
+        This is the main endpoint for detailed tracing view.
+
+        Args:
+            session_id: Session ID to fetch
+
+        Returns:
+            Conversation dict with session, exchanges, delegations, stats
+        """
+        return self._request(f"/api/tracing/conversation/{session_id}")
+
 
 # Global client instance
 _api_client: Optional[AnalyticsAPIClient] = None
