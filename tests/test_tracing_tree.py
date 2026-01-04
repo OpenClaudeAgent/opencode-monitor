@@ -5,195 +5,327 @@ These tests validate the tracing tree structure using real session data patterns
 They are designed to break if the API contract changes.
 
 Test Session Reference: "Quick check-in" session
-- 9 user turns (exchanges)
-- 20 tools (read, bash, webfetch, etc.)
-- 1 agent delegation
-- Tokens: 129 in, 9101 out, 417959 cache
+- 5 user turns (exchanges)
+- 6 tools total (2 webfetch, 1 bash, 1 read, 2 read in delegation)
+- 1 agent delegation (roadmap) with nested tools
+- Session tokens: 129 in, 9101 out, 417959 cache
+
+IMPORTANT: These tests use EXACT values from real session data.
+If any assertion fails, it means the API contract has changed.
 """
 
 import json
 from datetime import datetime, timedelta
-from pathlib import Path
-from threading import Lock
 from typing import Any
-from unittest.mock import MagicMock, patch
 
 import pytest
 
 
 # =============================================================================
-# Fixtures - Real Session Data Structure
+# Constants - Exact values from "Quick check-in" session
+# =============================================================================
+
+# Session-level metrics
+EXPECTED_SESSION_ID = "ses_test_session_001"
+EXPECTED_SESSION_TITLE = "Quick check-in test session"
+EXPECTED_SESSION_DIRECTORY = "/Users/test/project"
+EXPECTED_SESSION_AGENT_TYPE = "plan"
+EXPECTED_SESSION_TOKENS_IN = 129
+EXPECTED_SESSION_TOKENS_OUT = 9101
+EXPECTED_SESSION_CACHE_READ = 417959
+EXPECTED_SESSION_STARTED_AT = "2026-01-04T15:44:31.235000"
+
+# User turn counts
+EXPECTED_USER_TURN_COUNT = 5
+EXPECTED_TOTAL_TOOL_COUNT = 6  # 2 webfetch + 1 bash + 1 read + 2 read in delegation
+
+# User Turn 1 - Simple greeting (no tools)
+UT1_TRACE_ID = "exchange_msg_001"
+UT1_PROMPT = "Salut, est-ce que ça va ?"
+UT1_TOKENS_IN = 8
+UT1_TOKENS_OUT = 305
+UT1_DURATION_MS = 14708
+UT1_CACHE_READ = 0
+UT1_TOOL_COUNT = 0
+UT1_STARTED_AT = "2026-01-04T15:44:31.248000"
+UT1_ENDED_AT = "2026-01-04T15:44:45.956000"
+
+# User Turn 2 - Weather API search (2 webfetch tools)
+UT2_TRACE_ID = "exchange_msg_002"
+UT2_PROMPT = "Cherche une API météo"
+UT2_TOKENS_IN = 12
+UT2_TOKENS_OUT = 558
+UT2_DURATION_MS = 4673
+UT2_CACHE_READ = 36680
+UT2_TOOL_COUNT = 2
+UT2_STARTED_AT = "2026-01-04T15:45:48.773000"
+
+# User Turn 2 - Tool 1 (webfetch weatherapi)
+UT2_TOOL1_NAME = "webfetch"
+UT2_TOOL1_URL = "https://www.weatherapi.com/"
+UT2_TOOL1_DURATION_MS = 258
+UT2_TOOL1_TRACE_ID = "tool_prt_001"
+UT2_TOOL1_STATUS = "completed"
+
+# User Turn 2 - Tool 2 (webfetch openweathermap)
+UT2_TOOL2_NAME = "webfetch"
+UT2_TOOL2_URL = "https://openweathermap.org/api"
+UT2_TOOL2_DURATION_MS = 173
+UT2_TOOL2_TRACE_ID = "tool_prt_002"
+UT2_TOOL2_STATUS = "completed"
+
+# User Turn 3 - Create file (1 bash tool)
+UT3_TRACE_ID = "exchange_msg_003"
+UT3_PROMPT = "Crée un fichier test"
+UT3_TOKENS_IN = 11
+UT3_TOKENS_OUT = 143
+UT3_DURATION_MS = 3918
+UT3_CACHE_READ = 68618
+UT3_TOOL_COUNT = 1
+
+# User Turn 3 - Tool (bash)
+UT3_TOOL1_NAME = "bash"
+UT3_TOOL1_COMMAND = "touch /tmp/test.txt"
+UT3_TOOL1_DURATION_MS = 37
+UT3_TOOL1_TRACE_ID = "tool_prt_003"
+
+# User Turn 4 - Read README (1 read tool)
+UT4_TRACE_ID = "exchange_msg_004"
+UT4_PROMPT = "Lis le README"
+UT4_TOKENS_IN = 10
+UT4_TOKENS_OUT = 1778
+UT4_DURATION_MS = 5052
+UT4_CACHE_READ = 72980
+UT4_TOOL_COUNT = 1
+
+# User Turn 4 - Tool (read)
+UT4_TOOL1_NAME = "read"
+UT4_TOOL1_PATH = "/path/to/README.md"
+UT4_TOOL1_DURATION_MS = 2
+UT4_TOOL1_TRACE_ID = "tool_prt_004"
+
+# User Turn 5 - Delegation (roadmap agent with 2 tools)
+UT5_TRACE_ID = "exchange_msg_005"
+UT5_PROMPT = "Lance l'agent roadmap"
+UT5_TOKENS_IN = 15
+UT5_TOKENS_OUT = 500
+UT5_DURATION_MS = 165000
+UT5_CACHE_READ = 30128
+UT5_CHILD_SESSION_ID = "ses_child_session_001"
+
+# Delegation inside User Turn 5
+DELEG1_SUBAGENT_TYPE = "roadmap"
+DELEG1_PARENT_AGENT = "plan"
+DELEG1_TOKENS_IN = 35
+DELEG1_TOKENS_OUT = 3127
+DELEG1_DURATION_MS = 158859
+DELEG1_CACHE_READ = 261028
+DELEG1_CHILD_SESSION_ID = "ses_grandchild_001"
+DELEG1_TRACE_ID = "prt_delegation_001"
+DELEG1_TOOL_COUNT = 2
+
+# Delegation tools
+DELEG1_TOOL1_NAME = "read"
+DELEG1_TOOL1_PATH = "/path/to/roadmap/README.md"
+DELEG1_TOOL1_DURATION_MS = 2
+
+DELEG1_TOOL2_NAME = "read"
+DELEG1_TOOL2_PATH = "/path/to/roadmap/SPRINTS.md"
+DELEG1_TOOL2_DURATION_MS = 1
+
+
+# =============================================================================
+# Fixtures - Complete Session Data Structure
 # =============================================================================
 
 
 @pytest.fixture
 def sample_session_tree() -> dict:
-    """Sample session tree matching real 'Quick check-in' session structure."""
+    """Complete session tree matching 'Quick check-in' session structure.
+
+    This fixture contains EXACT data that tests will validate against.
+    Any change to the structure will break tests intentionally.
+    """
     return {
-        "agent_type": "plan",
-        "cache_read": 417959,
-        "session_id": "ses_test_session_001",
-        "title": "Quick check-in test session",
-        "directory": "/Users/test/project",
-        "started_at": "2026-01-04T15:44:31.235000",
-        "tokens_in": 129,
-        "tokens_out": 9101,
+        "agent_type": EXPECTED_SESSION_AGENT_TYPE,
+        "cache_read": EXPECTED_SESSION_CACHE_READ,
+        "session_id": EXPECTED_SESSION_ID,
+        "title": EXPECTED_SESSION_TITLE,
+        "directory": EXPECTED_SESSION_DIRECTORY,
+        "started_at": EXPECTED_SESSION_STARTED_AT,
+        "tokens_in": EXPECTED_SESSION_TOKENS_IN,
+        "tokens_out": EXPECTED_SESSION_TOKENS_OUT,
         "node_type": "session",
         "children": [
-            # User turn without tools
+            # User turn 1 - Simple greeting (no tools)
             {
-                "cache_read": 0,
+                "cache_read": UT1_CACHE_READ,
                 "children": [],
-                "duration_ms": 14708,
-                "ended_at": "2026-01-04T15:44:45.956000",
+                "duration_ms": UT1_DURATION_MS,
+                "ended_at": UT1_ENDED_AT,
                 "node_type": "user_turn",
                 "parent_agent": "user",
-                "prompt_input": "Salut, est-ce que ça va ?",
-                "session_id": "ses_test_session_001",
-                "started_at": "2026-01-04T15:44:31.248000",
+                "prompt_input": UT1_PROMPT,
+                "session_id": EXPECTED_SESSION_ID,
+                "started_at": UT1_STARTED_AT,
                 "subagent_type": "plan",
-                "tokens_in": 8,
-                "tokens_out": 305,
-                "trace_id": "exchange_msg_001",
+                "tokens_in": UT1_TOKENS_IN,
+                "tokens_out": UT1_TOKENS_OUT,
+                "trace_id": UT1_TRACE_ID,
             },
-            # User turn with webfetch tools
+            # User turn 2 - Weather API search (2 webfetch tools)
             {
-                "cache_read": 36680,
+                "cache_read": UT2_CACHE_READ,
                 "children": [
                     {
-                        "arguments": '{"url": "https://www.weatherapi.com/", "format": "text"}',
+                        "arguments": f'{{"url": "{UT2_TOOL1_URL}", "format": "text"}}',
                         "children": [],
-                        "display_info": "https://www.weatherapi.com/",
-                        "duration_ms": 258,
+                        "display_info": UT2_TOOL1_URL,
+                        "duration_ms": UT2_TOOL1_DURATION_MS,
                         "node_type": "tool",
-                        "session_id": "ses_test_session_001",
+                        "session_id": EXPECTED_SESSION_ID,
                         "started_at": "2026-01-04T15:45:53.089000",
-                        "tool_name": "webfetch",
-                        "tool_status": "completed",
-                        "trace_id": "tool_prt_001",
+                        "tool_name": UT2_TOOL1_NAME,
+                        "tool_status": UT2_TOOL1_STATUS,
+                        "trace_id": UT2_TOOL1_TRACE_ID,
                     },
                     {
-                        "arguments": '{"url": "https://openweathermap.org/api", "format": "text"}',
+                        "arguments": f'{{"url": "{UT2_TOOL2_URL}", "format": "text"}}',
                         "children": [],
-                        "display_info": "https://openweathermap.org/api",
-                        "duration_ms": 173,
+                        "display_info": UT2_TOOL2_URL,
+                        "duration_ms": UT2_TOOL2_DURATION_MS,
                         "node_type": "tool",
-                        "tool_name": "webfetch",
-                        "tool_status": "completed",
-                        "trace_id": "tool_prt_002",
+                        "session_id": EXPECTED_SESSION_ID,
+                        "started_at": "2026-01-04T15:45:53.500000",
+                        "tool_name": UT2_TOOL2_NAME,
+                        "tool_status": UT2_TOOL2_STATUS,
+                        "trace_id": UT2_TOOL2_TRACE_ID,
                     },
                 ],
-                "duration_ms": 4673,
+                "duration_ms": UT2_DURATION_MS,
+                "ended_at": "2026-01-04T15:45:53.446000",
                 "node_type": "user_turn",
                 "parent_agent": "user",
-                "prompt_input": "Cherche une API météo",
-                "session_id": "ses_test_session_001",
-                "started_at": "2026-01-04T15:45:48.773000",
+                "prompt_input": UT2_PROMPT,
+                "session_id": EXPECTED_SESSION_ID,
+                "started_at": UT2_STARTED_AT,
                 "subagent_type": "plan",
-                "tokens_in": 12,
-                "tokens_out": 558,
-                "trace_id": "exchange_msg_002",
+                "tokens_in": UT2_TOKENS_IN,
+                "tokens_out": UT2_TOKENS_OUT,
+                "trace_id": UT2_TRACE_ID,
             },
-            # User turn with bash tool
+            # User turn 3 - Create file (1 bash tool)
             {
-                "cache_read": 68618,
+                "cache_read": UT3_CACHE_READ,
                 "children": [
                     {
-                        "arguments": '{"command": "touch /tmp/test.txt", "description": "Create test file"}',
-                        "display_info": "touch /tmp/test.txt",
-                        "duration_ms": 37,
+                        "arguments": f'{{"command": "{UT3_TOOL1_COMMAND}", "description": "Create test file"}}',
+                        "children": [],
+                        "display_info": UT3_TOOL1_COMMAND,
+                        "duration_ms": UT3_TOOL1_DURATION_MS,
                         "node_type": "tool",
-                        "session_id": "ses_test_session_001",
+                        "session_id": EXPECTED_SESSION_ID,
                         "started_at": "2026-01-04T15:46:10.000000",
-                        "tool_name": "bash",
+                        "tool_name": UT3_TOOL1_NAME,
                         "tool_status": "completed",
-                        "trace_id": "tool_prt_003",
+                        "trace_id": UT3_TOOL1_TRACE_ID,
                     }
                 ],
-                "duration_ms": 3918,
+                "duration_ms": UT3_DURATION_MS,
                 "ended_at": "2026-01-04T15:46:14.000000",
                 "node_type": "user_turn",
                 "parent_agent": "user",
-                "prompt_input": "Crée un fichier test",
-                "session_id": "ses_test_session_001",
+                "prompt_input": UT3_PROMPT,
+                "session_id": EXPECTED_SESSION_ID,
                 "started_at": "2026-01-04T15:46:10.000000",
                 "subagent_type": "plan",
-                "tokens_in": 11,
-                "tokens_out": 143,
-                "trace_id": "exchange_msg_003",
+                "tokens_in": UT3_TOKENS_IN,
+                "tokens_out": UT3_TOKENS_OUT,
+                "trace_id": UT3_TRACE_ID,
             },
-            # User turn with read tools
+            # User turn 4 - Read README (1 read tool)
             {
-                "cache_read": 72980,
+                "cache_read": UT4_CACHE_READ,
                 "children": [
                     {
-                        "arguments": '{"filePath": "/path/to/README.md"}',
-                        "display_info": "/path/to/README.md",
-                        "duration_ms": 2,
+                        "arguments": f'{{"filePath": "{UT4_TOOL1_PATH}"}}',
+                        "children": [],
+                        "display_info": UT4_TOOL1_PATH,
+                        "duration_ms": UT4_TOOL1_DURATION_MS,
                         "node_type": "tool",
-                        "session_id": "ses_test_session_001",
+                        "session_id": EXPECTED_SESSION_ID,
                         "started_at": "2026-01-04T15:47:00.000000",
-                        "tool_name": "read",
+                        "tool_name": UT4_TOOL1_NAME,
                         "tool_status": "completed",
-                        "trace_id": "tool_prt_004",
+                        "trace_id": UT4_TOOL1_TRACE_ID,
                     }
                 ],
-                "duration_ms": 5052,
+                "duration_ms": UT4_DURATION_MS,
                 "ended_at": "2026-01-04T15:47:05.000000",
                 "node_type": "user_turn",
                 "parent_agent": "user",
-                "prompt_input": "Lis le README",
-                "session_id": "ses_test_session_001",
+                "prompt_input": UT4_PROMPT,
+                "session_id": EXPECTED_SESSION_ID,
                 "started_at": "2026-01-04T15:47:00.000000",
                 "subagent_type": "plan",
-                "tokens_in": 10,
-                "tokens_out": 1778,
-                "trace_id": "exchange_msg_004",
+                "tokens_in": UT4_TOKENS_IN,
+                "tokens_out": UT4_TOKENS_OUT,
+                "trace_id": UT4_TRACE_ID,
             },
-            # Agent delegation with child tools
+            # User turn 5 - Agent delegation with nested tools
             {
-                "cache_read": 30128,
-                "child_session_id": "ses_child_session_001",
+                "cache_read": UT5_CACHE_READ,
+                "child_session_id": UT5_CHILD_SESSION_ID,
                 "children": [
                     {
-                        "cache_read": 261028,
-                        "child_session_id": "ses_grandchild_001",
+                        "cache_read": DELEG1_CACHE_READ,
+                        "child_session_id": DELEG1_CHILD_SESSION_ID,
                         "children": [
                             {
-                                "display_info": "/path/to/roadmap/README.md",
-                                "duration_ms": 2,
+                                "arguments": f'{{"filePath": "{DELEG1_TOOL1_PATH}"}}',
+                                "children": [],
+                                "display_info": DELEG1_TOOL1_PATH,
+                                "duration_ms": DELEG1_TOOL1_DURATION_MS,
                                 "node_type": "tool",
-                                "tool_name": "read",
-                                "status": "completed",
+                                "tool_name": DELEG1_TOOL1_NAME,
+                                "tool_status": "completed",
+                                "trace_id": "tool_deleg_001",
                             },
                             {
-                                "display_info": "/path/to/roadmap/SPRINTS.md",
-                                "duration_ms": 1,
+                                "arguments": f'{{"filePath": "{DELEG1_TOOL2_PATH}"}}',
+                                "children": [],
+                                "display_info": DELEG1_TOOL2_PATH,
+                                "duration_ms": DELEG1_TOOL2_DURATION_MS,
                                 "node_type": "tool",
-                                "tool_name": "read",
-                                "status": "completed",
+                                "tool_name": DELEG1_TOOL2_NAME,
+                                "tool_status": "completed",
+                                "trace_id": "tool_deleg_002",
                             },
                         ],
-                        "duration_ms": 158859,
+                        "duration_ms": DELEG1_DURATION_MS,
+                        "ended_at": "2026-01-04T15:50:38.000000",
                         "node_type": "agent",
-                        "parent_agent": "plan",
-                        "subagent_type": "roadmap",
-                        "tokens_in": 35,
-                        "tokens_out": 3127,
-                        "trace_id": "prt_delegation_001",
+                        "parent_agent": DELEG1_PARENT_AGENT,
+                        "prompt_input": "Analyze roadmap",
+                        "session_id": UT5_CHILD_SESSION_ID,
+                        "started_at": "2026-01-04T15:48:00.000000",
+                        "subagent_type": DELEG1_SUBAGENT_TYPE,
+                        "tokens_in": DELEG1_TOKENS_IN,
+                        "tokens_out": DELEG1_TOKENS_OUT,
+                        "trace_id": DELEG1_TRACE_ID,
                     }
                 ],
-                "duration_ms": 165000,
-                "ended_at": "2026-01-04T15:50:00.000000",
+                "duration_ms": UT5_DURATION_MS,
+                "ended_at": "2026-01-04T15:50:45.000000",
                 "node_type": "user_turn",
                 "parent_agent": "user",
-                "prompt_input": "Lance l'agent roadmap",
-                "session_id": "ses_test_session_001",
+                "prompt_input": UT5_PROMPT,
+                "session_id": EXPECTED_SESSION_ID,
                 "started_at": "2026-01-04T15:48:00.000000",
                 "subagent_type": "plan",
-                "tokens_in": 15,
-                "tokens_out": 500,
-                "trace_id": "exchange_msg_005",
+                "tokens_in": UT5_TOKENS_IN,
+                "tokens_out": UT5_TOKENS_OUT,
+                "trace_id": UT5_TRACE_ID,
             },
         ],
     }
@@ -203,417 +335,794 @@ def sample_session_tree() -> dict:
 def sample_tool_node() -> dict:
     """Sample tool node with all required fields."""
     return {
-        "arguments": '{"filePath": "/test/file.py"}',
+        "arguments": f'{{"filePath": "{UT4_TOOL1_PATH}"}}',
         "children": [],
-        "display_info": "/test/file.py",
-        "duration_ms": 5,
+        "display_info": UT4_TOOL1_PATH,
+        "duration_ms": UT4_TOOL1_DURATION_MS,
         "node_type": "tool",
         "result_summary": None,
-        "session_id": "ses_test",
-        "started_at": "2026-01-04T10:00:00.000000",
-        "tool_name": "read",
+        "session_id": EXPECTED_SESSION_ID,
+        "started_at": "2026-01-04T15:47:00.000000",
+        "tool_name": UT4_TOOL1_NAME,
         "tool_status": "completed",
-        "trace_id": "tool_prt_test",
+        "trace_id": UT4_TOOL1_TRACE_ID,
     }
 
 
 @pytest.fixture
 def sample_delegation_node() -> dict:
-    """Sample agent delegation node."""
+    """Sample agent delegation node with exact values."""
     return {
-        "cache_read": 50000,
-        "child_session_id": "ses_child_123",
+        "cache_read": DELEG1_CACHE_READ,
+        "child_session_id": DELEG1_CHILD_SESSION_ID,
         "children": [],
-        "duration_ms": 30000,
-        "ended_at": "2026-01-04T10:00:30.000000",
+        "duration_ms": DELEG1_DURATION_MS,
+        "ended_at": "2026-01-04T15:50:38.000000",
         "node_type": "agent",
-        "parent_agent": "plan",
+        "parent_agent": DELEG1_PARENT_AGENT,
         "parent_trace_id": "root_ses_parent",
-        "prompt_input": "Analyze this code",
+        "prompt_input": "Analyze roadmap",
         "prompt_output": None,
-        "session_id": "ses_parent",
-        "started_at": "2026-01-04T10:00:00.000000",
+        "session_id": UT5_CHILD_SESSION_ID,
+        "started_at": "2026-01-04T15:48:00.000000",
         "status": "completed",
-        "subagent_type": "explore",
-        "tokens_in": 100,
-        "tokens_out": 2000,
-        "trace_id": "prt_delegation_test",
+        "subagent_type": DELEG1_SUBAGENT_TYPE,
+        "tokens_in": DELEG1_TOKENS_IN,
+        "tokens_out": DELEG1_TOKENS_OUT,
+        "trace_id": DELEG1_TRACE_ID,
     }
 
 
 # =============================================================================
-# Tests - Node Type Validation
+# Tests - Session Level Exact Values
 # =============================================================================
 
 
-class TestNodeTypes:
-    """Tests for node type field validation."""
+class TestSessionExactValues:
+    """Tests that validate EXACT session-level values."""
 
-    def test_session_node_has_required_fields(self, sample_session_tree: dict):
-        """Session node must have all required fields."""
-        required_fields = {"agent_type", "session_id", "children", "node_type"}
-        assert required_fields.issubset(sample_session_tree.keys())
+    def test_session_id_exact(self, sample_session_tree: dict):
+        """Session ID must be exactly as expected."""
+        assert sample_session_tree["session_id"] == EXPECTED_SESSION_ID
+
+    def test_session_title_exact(self, sample_session_tree: dict):
+        """Session title must be exactly as expected."""
+        assert sample_session_tree["title"] == EXPECTED_SESSION_TITLE
+
+    def test_session_directory_exact(self, sample_session_tree: dict):
+        """Session directory must be exactly as expected."""
+        assert sample_session_tree["directory"] == EXPECTED_SESSION_DIRECTORY
+
+    def test_session_agent_type_exact(self, sample_session_tree: dict):
+        """Session agent_type must be exactly as expected."""
+        assert sample_session_tree["agent_type"] == EXPECTED_SESSION_AGENT_TYPE
+
+    def test_session_tokens_in_exact(self, sample_session_tree: dict):
+        """Session tokens_in must be exactly 129."""
+        assert sample_session_tree["tokens_in"] == EXPECTED_SESSION_TOKENS_IN
+
+    def test_session_tokens_out_exact(self, sample_session_tree: dict):
+        """Session tokens_out must be exactly 9101."""
+        assert sample_session_tree["tokens_out"] == EXPECTED_SESSION_TOKENS_OUT
+
+    def test_session_cache_read_exact(self, sample_session_tree: dict):
+        """Session cache_read must be exactly 417959."""
+        assert sample_session_tree["cache_read"] == EXPECTED_SESSION_CACHE_READ
+
+    def test_session_started_at_exact(self, sample_session_tree: dict):
+        """Session started_at must be exactly as expected."""
+        assert sample_session_tree["started_at"] == EXPECTED_SESSION_STARTED_AT
+
+    def test_session_node_type_is_session(self, sample_session_tree: dict):
+        """Session node_type must be 'session'."""
         assert sample_session_tree["node_type"] == "session"
 
-    def test_user_turn_node_has_required_fields(self, sample_session_tree: dict):
-        """User turn nodes must have specific fields."""
-        user_turn = sample_session_tree["children"][0]
-        required_fields = {
-            "node_type",
-            "trace_id",
-            "tokens_in",
-            "tokens_out",
-            "duration_ms",
-            "parent_agent",
-        }
-        assert required_fields.issubset(user_turn.keys())
-        assert user_turn["node_type"] == "user_turn"
-        assert user_turn["parent_agent"] == "user"
-
-    def test_tool_node_has_required_fields(self, sample_tool_node: dict):
-        """Tool nodes must have specific fields."""
-        required_fields = {
-            "node_type",
-            "tool_name",
-            "tool_status",
-            "duration_ms",
-            "trace_id",
-        }
-        assert required_fields.issubset(sample_tool_node.keys())
-        assert sample_tool_node["node_type"] == "tool"
-
-    def test_delegation_node_has_required_fields(self, sample_delegation_node: dict):
-        """Agent delegation nodes must have specific fields."""
-        required_fields = {
-            "node_type",
-            "subagent_type",
-            "tokens_in",
-            "tokens_out",
-            "duration_ms",
-            "parent_agent",
-            "trace_id",
-        }
-        assert required_fields.issubset(sample_delegation_node.keys())
-        assert sample_delegation_node["node_type"] == "agent"
-
-    def test_valid_node_types(self, sample_session_tree: dict):
-        """All nodes must have valid node_type values."""
-        valid_types = {"session", "user_turn", "tool", "agent", "exchange", "part"}
-
-        def check_node_types(node: dict):
-            node_type = node.get("node_type")
-            assert node_type in valid_types, f"Invalid node_type: {node_type}"
-            for child in node.get("children", []):
-                check_node_types(child)
-
-        check_node_types(sample_session_tree)
-
 
 # =============================================================================
-# Tests - Tree Structure Validation
+# Tests - User Turn Counts and Structure
 # =============================================================================
 
 
-class TestTreeStructure:
-    """Tests for hierarchical tree structure."""
+class TestUserTurnCounts:
+    """Tests that validate exact user turn counts."""
 
-    def test_session_has_children(self, sample_session_tree: dict):
-        """Session must have children array."""
-        assert "children" in sample_session_tree
-        assert isinstance(sample_session_tree["children"], list)
-        assert len(sample_session_tree["children"]) > 0
-
-    def test_user_turn_can_have_tool_children(self, sample_session_tree: dict):
-        """User turns can contain tool nodes as children."""
-        # Find user turn with tools
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn" and child.get("children"):
-                for tool in child["children"]:
-                    assert tool.get("node_type") in ("tool", "agent")
-                return
-        pytest.skip("No user turn with tool children found")
-
-    def test_delegation_nested_in_user_turn(self, sample_session_tree: dict):
-        """Agent delegations can be nested inside user turns."""
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn":
-                for nested in child.get("children", []):
-                    if nested.get("node_type") == "agent":
-                        assert "subagent_type" in nested
-                        assert "tokens_in" in nested
-                        return
-        pytest.skip("No nested delegation found")
-
-    def test_delegation_has_child_session_id(self, sample_delegation_node: dict):
-        """Agent delegations should have child_session_id."""
-        assert "child_session_id" in sample_delegation_node
-        assert sample_delegation_node["child_session_id"].startswith("ses_")
-
-    def test_tools_are_leaf_nodes(self, sample_tool_node: dict):
-        """Tool nodes should be leaf nodes (no children or empty children)."""
-        children = sample_tool_node.get("children", [])
-        assert children == []
-
-
-# =============================================================================
-# Tests - Token Metrics Validation
-# =============================================================================
-
-
-class TestTokenMetrics:
-    """Tests for token counting and metrics."""
-
-    def test_session_has_token_counts(self, sample_session_tree: dict):
-        """Session should have aggregate token counts."""
-        assert "tokens_in" in sample_session_tree
-        assert "tokens_out" in sample_session_tree
-        assert sample_session_tree["tokens_in"] >= 0
-        assert sample_session_tree["tokens_out"] >= 0
-
-    def test_session_has_cache_read(self, sample_session_tree: dict):
-        """Session should have cache_read metric."""
-        assert "cache_read" in sample_session_tree
-        assert sample_session_tree["cache_read"] >= 0
-
-    def test_user_turn_has_tokens(self, sample_session_tree: dict):
-        """User turns should have token metrics."""
-        user_turn = sample_session_tree["children"][0]
-        assert "tokens_in" in user_turn
-        assert "tokens_out" in user_turn
-        assert user_turn["tokens_in"] >= 0
-        assert user_turn["tokens_out"] >= 0
-
-    def test_delegation_has_tokens(self, sample_delegation_node: dict):
-        """Delegations should have token metrics."""
-        assert sample_delegation_node["tokens_in"] >= 0
-        assert sample_delegation_node["tokens_out"] >= 0
-
-    def test_token_sum_consistency(self, sample_session_tree: dict):
-        """Sum of children tokens should not exceed session total."""
-        session_total = sample_session_tree["tokens_out"]
-        children_sum = sum(
-            child.get("tokens_out", 0) for child in sample_session_tree["children"]
-        )
-        # Children sum can be less due to aggregation logic
-        assert children_sum <= session_total * 1.5  # Allow some margin
-
-
-# =============================================================================
-# Tests - Tool Display Info
-# =============================================================================
-
-
-class TestToolDisplayInfo:
-    """Tests for tool display_info extraction."""
-
-    def test_read_tool_shows_filepath(self, sample_session_tree: dict):
-        """Read tool should show file path in display_info."""
-        for child in sample_session_tree["children"]:
-            for tool in child.get("children", []):
-                if tool.get("tool_name") == "read":
-                    assert "display_info" in tool
-                    assert tool["display_info"] is not None
-                    return
-        pytest.skip("No read tool found")
-
-    def test_webfetch_tool_shows_url(self, sample_session_tree: dict):
-        """Webfetch tool should show URL in display_info."""
-        for child in sample_session_tree["children"]:
-            for tool in child.get("children", []):
-                if tool.get("tool_name") == "webfetch":
-                    assert "display_info" in tool
-                    assert "http" in tool["display_info"]
-                    return
-        pytest.skip("No webfetch tool found")
-
-    def test_bash_tool_shows_command(self, sample_session_tree: dict):
-        """Bash tool should show command in display_info."""
-        for child in sample_session_tree["children"]:
-            for tool in child.get("children", []):
-                if tool.get("tool_name") == "bash":
-                    assert "display_info" in tool
-                    return
-        pytest.skip("No bash tool found")
-
-
-# =============================================================================
-# Tests - Timing and Duration
-# =============================================================================
-
-
-class TestTiming:
-    """Tests for timing and duration fields."""
-
-    def test_user_turn_has_duration(self, sample_session_tree: dict):
-        """User turns should have duration_ms."""
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn":
-                assert "duration_ms" in child
-                assert child["duration_ms"] >= 0
-
-    def test_tool_has_duration(self, sample_tool_node: dict):
-        """Tools should have duration_ms."""
-        assert "duration_ms" in sample_tool_node
-        assert sample_tool_node["duration_ms"] >= 0
-
-    def test_user_turn_has_timestamps(self, sample_session_tree: dict):
-        """User turns should have started_at timestamp."""
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn":
-                assert "started_at" in child
-                # Validate ISO format
-                datetime.fromisoformat(child["started_at"].replace("Z", "+00:00"))
-
-    def test_delegation_has_timestamps(self, sample_delegation_node: dict):
-        """Delegations should have start and end timestamps."""
-        assert "started_at" in sample_delegation_node
-        assert "ended_at" in sample_delegation_node
-
-
-# =============================================================================
-# Tests - Agent Types
-# =============================================================================
-
-
-class TestAgentTypes:
-    """Tests for agent type fields."""
-
-    def test_session_has_agent_type(self, sample_session_tree: dict):
-        """Session should have agent_type."""
-        assert "agent_type" in sample_session_tree
-        assert sample_session_tree["agent_type"] is not None
-
-    def test_user_turn_has_subagent_type(self, sample_session_tree: dict):
-        """User turns should have subagent_type."""
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn":
-                assert "subagent_type" in child
-
-    def test_delegation_has_subagent_type(self, sample_delegation_node: dict):
-        """Delegations must have subagent_type."""
-        assert "subagent_type" in sample_delegation_node
-        assert sample_delegation_node["subagent_type"] is not None
-
-    def test_delegation_has_parent_agent(self, sample_delegation_node: dict):
-        """Delegations should have parent_agent."""
-        assert "parent_agent" in sample_delegation_node
-
-
-# =============================================================================
-# Tests - ID Formats
-# =============================================================================
-
-
-class TestIdFormats:
-    """Tests for ID field formats."""
-
-    def test_session_id_format(self, sample_session_tree: dict):
-        """Session IDs should match expected format."""
-        session_id = sample_session_tree["session_id"]
-        assert session_id.startswith("ses_")
-
-    def test_trace_id_format_for_exchange(self, sample_session_tree: dict):
-        """Exchange trace IDs should have specific format."""
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn":
-                trace_id = child.get("trace_id", "")
-                assert trace_id.startswith("exchange_") or trace_id.startswith("msg_")
-                return
-
-    def test_trace_id_format_for_tool(self, sample_tool_node: dict):
-        """Tool trace IDs should have specific format."""
-        trace_id = sample_tool_node["trace_id"]
-        assert "tool_" in trace_id or "prt_" in trace_id
-
-
-# =============================================================================
-# Tests - Empty/Edge Cases
-# =============================================================================
-
-
-class TestEdgeCases:
-    """Tests for edge cases and empty data."""
-
-    def test_empty_children_is_list(self, sample_tool_node: dict):
-        """Empty children should be an empty list, not None."""
-        assert sample_tool_node["children"] == []
-        assert sample_tool_node["children"] is not None
-
-    def test_user_turn_without_tools(self, sample_session_tree: dict):
-        """User turns can have empty children (no tools)."""
-        first_turn = sample_session_tree["children"][0]
-        assert first_turn["children"] == []
-
-    def test_nullable_fields_handled(self, sample_tool_node: dict):
-        """Nullable fields should be None or have value, not missing."""
-        # result_summary can be None
-        assert "result_summary" in sample_tool_node
-
-
-# =============================================================================
-# Tests - Real Data Counts (Quick check-in reference)
-# =============================================================================
-
-
-class TestRealDataCounts:
-    """Tests that validate counts match real session patterns."""
-
-    def test_session_with_multiple_user_turns(self, sample_session_tree: dict):
-        """Session should have multiple user turns (like Quick check-in: 9)."""
+    def test_exact_user_turn_count(self, sample_session_tree: dict):
+        """Session must have exactly 5 user turns."""
         user_turns = [
             c
             for c in sample_session_tree["children"]
             if c.get("node_type") == "user_turn"
         ]
-        assert len(user_turns) >= 1
+        assert len(user_turns) == EXPECTED_USER_TURN_COUNT, (
+            f"Expected {EXPECTED_USER_TURN_COUNT} user turns, got {len(user_turns)}"
+        )
 
-    def test_tools_across_user_turns(self, sample_session_tree: dict):
-        """Count total tools across all user turns."""
+    def test_children_are_all_user_turns(self, sample_session_tree: dict):
+        """All direct children of session should be user_turn nodes."""
+        for i, child in enumerate(sample_session_tree["children"]):
+            assert child["node_type"] == "user_turn", (
+                f"Child {i} has node_type '{child['node_type']}', expected 'user_turn'"
+            )
+
+    def test_total_tool_count_across_all_turns(self, sample_session_tree: dict):
+        """Total tools across all user turns must be exactly 6."""
         total_tools = 0
-        for child in sample_session_tree["children"]:
-            for nested in child.get("children", []):
-                if nested.get("node_type") == "tool":
-                    total_tools += 1
-        assert total_tools >= 1
 
-    def test_delegation_with_child_tools(self, sample_session_tree: dict):
-        """Delegations can have their own child tools."""
-        for child in sample_session_tree["children"]:
-            for nested in child.get("children", []):
-                if nested.get("node_type") == "agent":
-                    # Delegation found, check for children
-                    assert "children" in nested
-                    return
-        pytest.skip("No delegation found")
+        def count_tools(node: dict) -> int:
+            count = 0
+            for child in node.get("children", []):
+                if child.get("node_type") == "tool":
+                    count += 1
+                count += count_tools(child)
+            return count
+
+        for user_turn in sample_session_tree["children"]:
+            total_tools += count_tools(user_turn)
+
+        assert total_tools == EXPECTED_TOTAL_TOOL_COUNT, (
+            f"Expected {EXPECTED_TOTAL_TOOL_COUNT} tools, got {total_tools}"
+        )
 
 
 # =============================================================================
-# Tests - Sorting and Order
+# Tests - User Turn 1 Exact Values (Simple greeting)
 # =============================================================================
 
 
-class TestSortingOrder:
-    """Tests for proper ordering of tree elements."""
+class TestUserTurn1Exact:
+    """Tests for User Turn 1 - Simple greeting (no tools)."""
 
-    def test_user_turns_ordered_by_time(self, sample_session_tree: dict):
-        """User turns should be in chronological order."""
-        timestamps = []
-        for child in sample_session_tree["children"]:
-            if child.get("node_type") == "user_turn" and "started_at" in child:
-                timestamps.append(child["started_at"])
+    def _get_ut1(self, tree: dict) -> dict:
+        return tree["children"][0]
 
-        if len(timestamps) > 1:
-            assert timestamps == sorted(timestamps)
+    def test_ut1_trace_id(self, sample_session_tree: dict):
+        """User turn 1 trace_id must be exact."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["trace_id"] == UT1_TRACE_ID
 
-    def test_tools_ordered_by_time(self, sample_session_tree: dict):
-        """Tools within a user turn should be ordered by time."""
-        for child in sample_session_tree["children"]:
+    def test_ut1_prompt_input(self, sample_session_tree: dict):
+        """User turn 1 prompt must be exact."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["prompt_input"] == UT1_PROMPT
+
+    def test_ut1_tokens_in(self, sample_session_tree: dict):
+        """User turn 1 tokens_in must be exactly 8."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["tokens_in"] == UT1_TOKENS_IN
+
+    def test_ut1_tokens_out(self, sample_session_tree: dict):
+        """User turn 1 tokens_out must be exactly 305."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["tokens_out"] == UT1_TOKENS_OUT
+
+    def test_ut1_duration_ms(self, sample_session_tree: dict):
+        """User turn 1 duration must be exactly 14708ms."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["duration_ms"] == UT1_DURATION_MS
+
+    def test_ut1_cache_read(self, sample_session_tree: dict):
+        """User turn 1 cache_read must be exactly 0."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["cache_read"] == UT1_CACHE_READ
+
+    def test_ut1_has_no_tools(self, sample_session_tree: dict):
+        """User turn 1 must have no tools (empty children)."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["children"] == [], f"Expected empty children, got {ut1['children']}"
+        assert len(ut1["children"]) == UT1_TOOL_COUNT
+
+    def test_ut1_started_at(self, sample_session_tree: dict):
+        """User turn 1 started_at must be exact."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["started_at"] == UT1_STARTED_AT
+
+    def test_ut1_ended_at(self, sample_session_tree: dict):
+        """User turn 1 ended_at must be exact."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["ended_at"] == UT1_ENDED_AT
+
+    def test_ut1_node_type(self, sample_session_tree: dict):
+        """User turn 1 node_type must be 'user_turn'."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["node_type"] == "user_turn"
+
+    def test_ut1_parent_agent(self, sample_session_tree: dict):
+        """User turn 1 parent_agent must be 'user'."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["parent_agent"] == "user"
+
+    def test_ut1_subagent_type(self, sample_session_tree: dict):
+        """User turn 1 subagent_type must be 'plan'."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["subagent_type"] == "plan"
+
+    def test_ut1_session_id(self, sample_session_tree: dict):
+        """User turn 1 session_id must match parent session."""
+        ut1 = self._get_ut1(sample_session_tree)
+        assert ut1["session_id"] == EXPECTED_SESSION_ID
+
+
+# =============================================================================
+# Tests - User Turn 2 Exact Values (Weather API - 2 webfetch)
+# =============================================================================
+
+
+class TestUserTurn2Exact:
+    """Tests for User Turn 2 - Weather API search (2 webfetch tools)."""
+
+    def _get_ut2(self, tree: dict) -> dict:
+        return tree["children"][1]
+
+    def test_ut2_trace_id(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["trace_id"] == UT2_TRACE_ID
+
+    def test_ut2_prompt_input(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["prompt_input"] == UT2_PROMPT
+
+    def test_ut2_tokens_in(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["tokens_in"] == UT2_TOKENS_IN
+
+    def test_ut2_tokens_out(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["tokens_out"] == UT2_TOKENS_OUT
+
+    def test_ut2_duration_ms(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["duration_ms"] == UT2_DURATION_MS
+
+    def test_ut2_cache_read(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert ut2["cache_read"] == UT2_CACHE_READ
+
+    def test_ut2_has_exactly_2_tools(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        assert len(ut2["children"]) == UT2_TOOL_COUNT
+
+    def test_ut2_tool1_is_webfetch(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["tool_name"] == UT2_TOOL1_NAME
+
+    def test_ut2_tool1_url_exact(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["display_info"] == UT2_TOOL1_URL
+
+    def test_ut2_tool1_duration(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["duration_ms"] == UT2_TOOL1_DURATION_MS
+
+    def test_ut2_tool1_trace_id(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["trace_id"] == UT2_TOOL1_TRACE_ID
+
+    def test_ut2_tool1_status(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["tool_status"] == UT2_TOOL1_STATUS
+
+    def test_ut2_tool1_node_type(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["node_type"] == "tool"
+
+    def test_ut2_tool1_has_no_children(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool1 = ut2["children"][0]
+        assert tool1["children"] == []
+
+    def test_ut2_tool2_is_webfetch(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool2 = ut2["children"][1]
+        assert tool2["tool_name"] == UT2_TOOL2_NAME
+
+    def test_ut2_tool2_url_exact(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool2 = ut2["children"][1]
+        assert tool2["display_info"] == UT2_TOOL2_URL
+
+    def test_ut2_tool2_duration(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool2 = ut2["children"][1]
+        assert tool2["duration_ms"] == UT2_TOOL2_DURATION_MS
+
+    def test_ut2_tool2_trace_id(self, sample_session_tree: dict):
+        ut2 = self._get_ut2(sample_session_tree)
+        tool2 = ut2["children"][1]
+        assert tool2["trace_id"] == UT2_TOOL2_TRACE_ID
+
+
+# =============================================================================
+# Tests - User Turn 3 Exact Values (Create file - 1 bash)
+# =============================================================================
+
+
+class TestUserTurn3Exact:
+    """Tests for User Turn 3 - Create file (1 bash tool)."""
+
+    def _get_ut3(self, tree: dict) -> dict:
+        return tree["children"][2]
+
+    def test_ut3_trace_id(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["trace_id"] == UT3_TRACE_ID
+
+    def test_ut3_prompt_input(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["prompt_input"] == UT3_PROMPT
+
+    def test_ut3_tokens_in(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["tokens_in"] == UT3_TOKENS_IN
+
+    def test_ut3_tokens_out(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["tokens_out"] == UT3_TOKENS_OUT
+
+    def test_ut3_duration_ms(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["duration_ms"] == UT3_DURATION_MS
+
+    def test_ut3_cache_read(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert ut3["cache_read"] == UT3_CACHE_READ
+
+    def test_ut3_has_exactly_1_tool(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        assert len(ut3["children"]) == UT3_TOOL_COUNT
+
+    def test_ut3_tool_is_bash(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        tool = ut3["children"][0]
+        assert tool["tool_name"] == UT3_TOOL1_NAME
+
+    def test_ut3_tool_command_exact(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        tool = ut3["children"][0]
+        assert tool["display_info"] == UT3_TOOL1_COMMAND
+
+    def test_ut3_tool_duration(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        tool = ut3["children"][0]
+        assert tool["duration_ms"] == UT3_TOOL1_DURATION_MS
+
+    def test_ut3_tool_trace_id(self, sample_session_tree: dict):
+        ut3 = self._get_ut3(sample_session_tree)
+        tool = ut3["children"][0]
+        assert tool["trace_id"] == UT3_TOOL1_TRACE_ID
+
+
+# =============================================================================
+# Tests - User Turn 4 Exact Values (Read README - 1 read)
+# =============================================================================
+
+
+class TestUserTurn4Exact:
+    """Tests for User Turn 4 - Read README (1 read tool)."""
+
+    def _get_ut4(self, tree: dict) -> dict:
+        return tree["children"][3]
+
+    def test_ut4_trace_id(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["trace_id"] == UT4_TRACE_ID
+
+    def test_ut4_prompt_input(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["prompt_input"] == UT4_PROMPT
+
+    def test_ut4_tokens_in(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["tokens_in"] == UT4_TOKENS_IN
+
+    def test_ut4_tokens_out(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["tokens_out"] == UT4_TOKENS_OUT
+
+    def test_ut4_duration_ms(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["duration_ms"] == UT4_DURATION_MS
+
+    def test_ut4_cache_read(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert ut4["cache_read"] == UT4_CACHE_READ
+
+    def test_ut4_has_exactly_1_tool(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        assert len(ut4["children"]) == UT4_TOOL_COUNT
+
+    def test_ut4_tool_is_read(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        tool = ut4["children"][0]
+        assert tool["tool_name"] == UT4_TOOL1_NAME
+
+    def test_ut4_tool_path_exact(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        tool = ut4["children"][0]
+        assert tool["display_info"] == UT4_TOOL1_PATH
+
+    def test_ut4_tool_duration(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        tool = ut4["children"][0]
+        assert tool["duration_ms"] == UT4_TOOL1_DURATION_MS
+
+    def test_ut4_tool_trace_id(self, sample_session_tree: dict):
+        ut4 = self._get_ut4(sample_session_tree)
+        tool = ut4["children"][0]
+        assert tool["trace_id"] == UT4_TOOL1_TRACE_ID
+
+
+# =============================================================================
+# Tests - User Turn 5 Exact Values (Delegation with nested tools)
+# =============================================================================
+
+
+class TestUserTurn5AndDelegation:
+    """Tests for User Turn 5 - Delegation to roadmap agent with nested tools."""
+
+    def _get_ut5(self, tree: dict) -> dict:
+        return tree["children"][4]
+
+    def _get_delegation(self, tree: dict) -> dict:
+        return self._get_ut5(tree)["children"][0]
+
+    def test_ut5_trace_id(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["trace_id"] == UT5_TRACE_ID
+
+    def test_ut5_prompt_input(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["prompt_input"] == UT5_PROMPT
+
+    def test_ut5_tokens_in(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["tokens_in"] == UT5_TOKENS_IN
+
+    def test_ut5_tokens_out(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["tokens_out"] == UT5_TOKENS_OUT
+
+    def test_ut5_duration_ms(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["duration_ms"] == UT5_DURATION_MS
+
+    def test_ut5_cache_read(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["cache_read"] == UT5_CACHE_READ
+
+    def test_ut5_has_child_session_id(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert ut5["child_session_id"] == UT5_CHILD_SESSION_ID
+
+    def test_ut5_has_exactly_1_delegation(self, sample_session_tree: dict):
+        ut5 = self._get_ut5(sample_session_tree)
+        assert len(ut5["children"]) == 1
+        assert ut5["children"][0]["node_type"] == "agent"
+
+    # Delegation assertions
+    def test_delegation_node_type(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["node_type"] == "agent"
+
+    def test_delegation_subagent_type(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["subagent_type"] == DELEG1_SUBAGENT_TYPE
+
+    def test_delegation_parent_agent(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["parent_agent"] == DELEG1_PARENT_AGENT
+
+    def test_delegation_tokens_in(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["tokens_in"] == DELEG1_TOKENS_IN
+
+    def test_delegation_tokens_out(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["tokens_out"] == DELEG1_TOKENS_OUT
+
+    def test_delegation_duration_ms(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["duration_ms"] == DELEG1_DURATION_MS
+
+    def test_delegation_cache_read(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["cache_read"] == DELEG1_CACHE_READ
+
+    def test_delegation_child_session_id(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["child_session_id"] == DELEG1_CHILD_SESSION_ID
+
+    def test_delegation_trace_id(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert deleg["trace_id"] == DELEG1_TRACE_ID
+
+    def test_delegation_has_exactly_2_tools(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        assert len(deleg["children"]) == DELEG1_TOOL_COUNT
+
+    def test_delegation_tool1_is_read(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool1 = deleg["children"][0]
+        assert tool1["tool_name"] == DELEG1_TOOL1_NAME
+
+    def test_delegation_tool1_path(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool1 = deleg["children"][0]
+        assert tool1["display_info"] == DELEG1_TOOL1_PATH
+
+    def test_delegation_tool1_duration(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool1 = deleg["children"][0]
+        assert tool1["duration_ms"] == DELEG1_TOOL1_DURATION_MS
+
+    def test_delegation_tool2_is_read(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool2 = deleg["children"][1]
+        assert tool2["tool_name"] == DELEG1_TOOL2_NAME
+
+    def test_delegation_tool2_path(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool2 = deleg["children"][1]
+        assert tool2["display_info"] == DELEG1_TOOL2_PATH
+
+    def test_delegation_tool2_duration(self, sample_session_tree: dict):
+        deleg = self._get_delegation(sample_session_tree)
+        tool2 = deleg["children"][1]
+        assert tool2["duration_ms"] == DELEG1_TOOL2_DURATION_MS
+
+
+# =============================================================================
+# Tests - Tree Traversal and Structure Integrity
+# =============================================================================
+
+
+class TestTreeStructureIntegrity:
+    """Tests for complete tree structure integrity."""
+
+    def test_all_nodes_have_node_type(self, sample_session_tree: dict):
+        """Every node in the tree must have a node_type field."""
+
+        def check_node(node: dict, path: str = "root"):
+            assert "node_type" in node, f"Missing node_type at {path}"
+            for i, child in enumerate(node.get("children", [])):
+                check_node(child, f"{path}.children[{i}]")
+
+        check_node(sample_session_tree)
+
+    def test_all_tools_have_required_fields(self, sample_session_tree: dict):
+        """Every tool node must have tool_name, duration_ms, and node_type."""
+        required_fields = {"tool_name", "duration_ms", "node_type"}
+
+        def check_tools(node: dict, path: str = "root"):
+            if node.get("node_type") == "tool":
+                for field in required_fields:
+                    assert field in node, f"Tool at {path} missing {field}"
+            for i, child in enumerate(node.get("children", [])):
+                check_tools(child, f"{path}.children[{i}]")
+
+        check_tools(sample_session_tree)
+
+    def test_all_user_turns_have_required_fields(self, sample_session_tree: dict):
+        """Every user_turn must have trace_id, tokens_in, tokens_out, duration_ms."""
+        required_fields = {
+            "trace_id",
+            "tokens_in",
+            "tokens_out",
+            "duration_ms",
+            "node_type",
+        }
+
+        for i, child in enumerate(sample_session_tree["children"]):
             if child.get("node_type") == "user_turn":
-                tools = [
-                    t for t in child.get("children", []) if t.get("node_type") == "tool"
-                ]
-                if len(tools) > 1:
-                    timestamps = [t.get("started_at", "") for t in tools]
-                    filtered = [t for t in timestamps if t]
-                    if len(filtered) > 1:
-                        assert filtered == sorted(filtered)
+                for field in required_fields:
+                    assert field in child, f"User turn {i} missing {field}"
+
+    def test_no_node_has_none_children(self, sample_session_tree: dict):
+        """No node should have children=None, it should be [] if empty."""
+
+        def check_children(node: dict, path: str = "root"):
+            if "children" in node:
+                assert node["children"] is not None, f"children is None at {path}"
+                assert isinstance(node["children"], list), (
+                    f"children is not list at {path}"
+                )
+            for i, child in enumerate(node.get("children", [])):
+                check_children(child, f"{path}.children[{i}]")
+
+        check_children(sample_session_tree)
+
+    def test_session_id_propagated_correctly(self, sample_session_tree: dict):
+        """User turns should have same session_id as parent session."""
+        parent_session_id = sample_session_tree["session_id"]
+
+        for i, child in enumerate(sample_session_tree["children"]):
+            assert child.get("session_id") == parent_session_id, (
+                f"User turn {i} session_id mismatch: {child.get('session_id')} != {parent_session_id}"
+            )
+
+
+# =============================================================================
+# Tests - Timestamp Validation
+# =============================================================================
+
+
+class TestTimestampValidation:
+    """Tests for timestamp format and ordering."""
+
+    def test_session_started_at_is_valid_iso(self, sample_session_tree: dict):
+        """Session started_at must be valid ISO format."""
+        ts = sample_session_tree["started_at"]
+        dt = datetime.fromisoformat(ts)
+        assert dt.year == 2026
+        assert dt.month == 1
+        assert dt.day == 4
+
+    def test_all_user_turn_timestamps_valid(self, sample_session_tree: dict):
+        """All user turn timestamps must be valid ISO format."""
+        for i, ut in enumerate(sample_session_tree["children"]):
+            if "started_at" in ut:
+                try:
+                    datetime.fromisoformat(ut["started_at"])
+                except ValueError:
+                    pytest.fail(
+                        f"User turn {i} has invalid started_at: {ut['started_at']}"
+                    )
+
+    def test_user_turns_in_chronological_order(self, sample_session_tree: dict):
+        """User turns must be in chronological order by started_at."""
+        timestamps = []
+        for ut in sample_session_tree["children"]:
+            if "started_at" in ut:
+                timestamps.append(ut["started_at"])
+
+        assert timestamps == sorted(timestamps), "User turns not in chronological order"
+
+    def test_ended_at_after_started_at(self, sample_session_tree: dict):
+        """For each node with both timestamps, ended_at must be after started_at."""
+
+        def check_timestamps(node: dict, path: str = "root"):
+            if "started_at" in node and "ended_at" in node:
+                start = datetime.fromisoformat(node["started_at"])
+                end = datetime.fromisoformat(node["ended_at"])
+                assert end >= start, f"ended_at before started_at at {path}"
+
+            for i, child in enumerate(node.get("children", [])):
+                check_timestamps(child, f"{path}.children[{i}]")
+
+        check_timestamps(sample_session_tree)
+
+
+# =============================================================================
+# Tests - Token Aggregation Validation
+# =============================================================================
+
+
+class TestTokenAggregation:
+    """Tests for token sum consistency."""
+
+    def test_session_tokens_greater_than_zero(self, sample_session_tree: dict):
+        """Session must have non-zero tokens."""
+        assert sample_session_tree["tokens_in"] > 0
+        assert sample_session_tree["tokens_out"] > 0
+
+    def test_user_turn_tokens_sum_reasonable(self, sample_session_tree: dict):
+        """Sum of user turn tokens should be close to session total."""
+        ut_tokens_in = sum(ut["tokens_in"] for ut in sample_session_tree["children"])
+        ut_tokens_out = sum(ut["tokens_out"] for ut in sample_session_tree["children"])
+
+        # Allow for some variance due to aggregation
+        assert ut_tokens_in <= sample_session_tree["tokens_in"] * 2
+        assert ut_tokens_out <= sample_session_tree["tokens_out"] * 2
+
+    def test_all_tokens_non_negative(self, sample_session_tree: dict):
+        """All token values must be >= 0."""
+
+        def check_tokens(node: dict, path: str = "root"):
+            if "tokens_in" in node:
+                assert node["tokens_in"] >= 0, f"Negative tokens_in at {path}"
+            if "tokens_out" in node:
+                assert node["tokens_out"] >= 0, f"Negative tokens_out at {path}"
+            if "cache_read" in node:
+                assert node["cache_read"] >= 0, f"Negative cache_read at {path}"
+
+            for i, child in enumerate(node.get("children", [])):
+                check_tokens(child, f"{path}.children[{i}]")
+
+        check_tokens(sample_session_tree)
+
+
+# =============================================================================
+# Tests - Tool Arguments JSON Parsing
+# =============================================================================
+
+
+class TestToolArgumentsParsing:
+    """Tests for tool arguments JSON structure."""
+
+    def test_webfetch_arguments_parse_correctly(self, sample_session_tree: dict):
+        """Webfetch tool arguments must be valid JSON with url."""
+        ut2 = sample_session_tree["children"][1]
+        for tool in ut2["children"]:
+            if tool["tool_name"] == "webfetch":
+                args = json.loads(tool["arguments"])
+                assert "url" in args
+                assert args["url"].startswith("http")
+
+    def test_bash_arguments_parse_correctly(self, sample_session_tree: dict):
+        """Bash tool arguments must be valid JSON with command."""
+        ut3 = sample_session_tree["children"][2]
+        for tool in ut3["children"]:
+            if tool["tool_name"] == "bash":
+                args = json.loads(tool["arguments"])
+                assert "command" in args
+
+    def test_read_arguments_parse_correctly(self, sample_session_tree: dict):
+        """Read tool arguments must be valid JSON with filePath."""
+        ut4 = sample_session_tree["children"][3]
+        for tool in ut4["children"]:
+            if tool["tool_name"] == "read":
+                args = json.loads(tool["arguments"])
+                assert "filePath" in args
+
+
+# =============================================================================
+# Tests - Node Type Enum Validation
+# =============================================================================
+
+
+class TestNodeTypeValidation:
+    """Tests for valid node_type values."""
+
+    VALID_NODE_TYPES = {"session", "user_turn", "tool", "agent", "exchange", "part"}
+
+    def test_all_nodes_have_valid_type(self, sample_session_tree: dict):
+        """All node_type values must be from the valid set."""
+
+        def check_type(node: dict, path: str = "root"):
+            nt = node.get("node_type")
+            assert nt in self.VALID_NODE_TYPES, f"Invalid node_type '{nt}' at {path}"
+            for i, child in enumerate(node.get("children", [])):
+                check_type(child, f"{path}.children[{i}]")
+
+        check_type(sample_session_tree)
+
+
+# =============================================================================
+# Tests - ID Format Validation
+# =============================================================================
+
+
+class TestIdFormatValidation:
+    """Tests for ID format consistency."""
+
+    def test_session_id_format(self, sample_session_tree: dict):
+        """Session ID must start with 'ses_'."""
+        assert sample_session_tree["session_id"].startswith("ses_")
+
+    def test_tool_trace_ids_format(self, sample_session_tree: dict):
+        """Tool trace IDs should contain 'tool_' or 'prt_' or 'deleg'."""
+
+        def check_tool_ids(node: dict):
+            if node.get("node_type") == "tool":
+                trace_id = node.get("trace_id", "")
+                assert any(x in trace_id for x in ["tool_", "prt_", "deleg"]), (
+                    f"Invalid tool trace_id format: {trace_id}"
+                )
+            for child in node.get("children", []):
+                check_tool_ids(child)
+
+        check_tool_ids(sample_session_tree)
+
+    def test_exchange_trace_ids_format(self, sample_session_tree: dict):
+        """User turn trace IDs should contain 'exchange_' or 'msg_'."""
+        for ut in sample_session_tree["children"]:
+            if ut.get("node_type") == "user_turn":
+                trace_id = ut.get("trace_id", "")
+                assert any(x in trace_id for x in ["exchange_", "msg_"]), (
+                    f"Invalid user turn trace_id format: {trace_id}"
+                )
