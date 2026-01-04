@@ -2,12 +2,17 @@
 Integration tests for Tracing session selection and tabs navigation.
 
 Tests verify that:
-- Session selection updates detail panel
+- Session selection updates detail panel with correct metrics
+- Tab structure is correct (6 tabs with proper types)
 - Tab navigation works correctly
-- All tabs are accessible
 """
 
 import pytest
+from PyQt6.QtWidgets import QWidget, QTabWidget
+
+from opencode_monitor.dashboard.sections.tracing.detail_panel.components import (
+    MetricsBar,
+)
 
 from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
 from ..fixtures import MockAPIResponses
@@ -18,124 +23,144 @@ pytestmark = pytest.mark.integration
 class TestTracingSessionSelection:
     """Test session selection and detail panel update."""
 
-    def test_tracing_session_selection_shows_detail_panel(
-        self, dashboard_window, qtbot, click_nav
+    def test_session_selection_updates_detail_panel_and_metrics(
+        self, tracing_with_data, select_first_session
     ):
-        """Clicking a session updates detail panel."""
-        click_nav(dashboard_window, SECTION_TRACING)
+        """Selecting a session updates header and metrics in detail panel.
 
-        tracing = dashboard_window._tracing
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        Consolidated test verifying:
+        - Detail panel is updated on session selection
+        - Header contains session info (not default text)
+        - MetricsBar is present and correct type
+        """
+        tracing, dashboard = tracing_with_data
 
-        # Get first item and select it
-        root_item = tracing._tree.topLevelItem(0)
+        # Select first session
+        root_item = select_first_session(tracing)
         assert root_item is not None
 
-        # Click on the item
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        # Detail panel should have been updated
+        # Detail panel should be updated
         detail = tracing._detail_panel
-        assert detail is not None
+        assert detail is not None, "Detail panel should exist"
 
-        # Header should not be the default "Select a session"
+        # Header should contain session info
         header_text = detail._header.text()
-        # Could be project name or session info
-        assert header_text, "Header should be set"
+        assert header_text, "Header should contain session info"
+        assert header_text != "Select a session", "Header should not be default text"
 
-    def test_session_selection_updates_metrics(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """Selecting a session updates the metrics in detail panel."""
-        click_nav(dashboard_window, SECTION_TRACING)
-
-        tracing = dashboard_window._tracing
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        # Select first item - must exist with data
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item is not None, (
-            "Expected at least one item in tree after data load"
+        # MetricsBar should be correct type (not just hasattr check)
+        assert isinstance(detail._metrics_bar, MetricsBar), (
+            f"Expected MetricsBar instance, got {type(detail._metrics_bar).__name__}"
         )
 
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
-        # Detail panel metrics bar should exist (refactored from _metric_duration/_metric_tokens)
-        detail = tracing._detail_panel
-        assert hasattr(detail, "_metrics_bar"), (
-            "Detail panel should have _metrics_bar attribute"
+        # MetricsBar should have all expected metric keys
+        expected_metrics = {"duration", "tokens", "tools", "files", "agents"}
+        actual_metrics = set(detail._metrics_bar._metrics.keys())
+        assert expected_metrics == actual_metrics, (
+            f"MetricsBar should have {expected_metrics}, got {actual_metrics}"
         )
 
 
 class TestTracingTabsNavigation:
-    """Test tabs navigation in detail panel."""
+    """Test tabs structure and navigation in detail panel."""
 
-    def test_tracing_tabs_exist(self, dashboard_window, qtbot):
-        """Detail panel has all required tabs."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        # Should have 6 tabs: transcript, tokens, tools, files, agents, timeline
-        assert hasattr(detail, "_tabs")
-        assert detail._tabs.count() == 6
-
-    def test_tracing_tabs_navigation(
-        self, dashboard_window, qtbot, click_nav, click_tab
+    def test_tabs_structure_default_and_navigation(
+        self, tracing_with_data, select_first_session, click_tab
     ):
-        """Can navigate between tabs."""
-        click_nav(dashboard_window, SECTION_TRACING)
+        """Verify tabs structure, default selection, and navigation.
 
-        tracing = dashboard_window._tracing
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
-
+        Consolidated test verifying:
+        - Exactly 6 tabs exist (transcript, tokens, tools, files, agents, timeline)
+        - Tab widget is correct QTabWidget type
+        - Default tab is transcript (index 0)
+        - Navigation to each tab works correctly
+        """
+        tracing, dashboard = tracing_with_data
         detail = tracing._detail_panel
-        tabs = detail._tabs
 
-        # Navigate to each tab by clicking on tab bar
+        # Strict type check on tabs widget
+        assert isinstance(detail._tabs, QTabWidget), (
+            f"Expected QTabWidget, got {type(detail._tabs).__name__}"
+        )
+
+        # Verify exact tab count
+        assert detail._tabs.count() == 6, f"Expected 6 tabs, got {detail._tabs.count()}"
+
+        # Verify default tab is transcript (index 0)
+        assert detail._tabs.currentIndex() == 0, (
+            f"Default tab should be 0 (transcript), got {detail._tabs.currentIndex()}"
+        )
+
+        # Test navigation to each tab
         tab_names = ["transcript", "tokens", "tools", "files", "agents", "timeline"]
         for i, name in enumerate(tab_names):
-            click_tab(tabs, i)
-            assert tabs.currentIndex() == i, f"Should be on {name} tab"
-
-    def test_transcript_tab_is_default(self, dashboard_window, qtbot):
-        """Transcript tab is selected by default."""
-        tracing = dashboard_window._tracing
-        detail = tracing._detail_panel
-
-        # Tab 0 is transcript
-        assert detail._tabs.currentIndex() == 0
+            click_tab(detail._tabs, i)
+            assert detail._tabs.currentIndex() == i, (
+                f"After clicking, should be on tab {i} ({name}), "
+                f"got {detail._tabs.currentIndex()}"
+            )
 
     @pytest.mark.parametrize(
-        "tab_name,tab_index",
+        "tab_name,tab_index,expected_tab_text",
         [
-            ("transcript", 0),
-            ("tokens", 1),
-            ("tools", 2),
-            ("files", 3),
-            ("agents", 4),
-            ("timeline", 5),
+            ("transcript", 0, None),
+            ("tokens", 1, None),
+            ("tools", 2, None),
+            ("files", 3, None),
+            ("agents", 4, None),
+            ("timeline", 5, None),
         ],
     )
-    def test_tab_exists_and_is_widget(
-        self, dashboard_window, qtbot, tab_name, tab_index
+    def test_tab_widget_type_and_accessibility(
+        self, dashboard_window, tab_name, tab_index, expected_tab_text
     ):
-        """Each tab exists and is a valid QWidget."""
-        from PyQt6.QtWidgets import QWidget
+        """Each tab exists, is accessible, and is a valid QWidget.
 
+        Parametrized test with strict assertions:
+        - Tab attribute exists on detail panel
+        - Tab is not None
+        - Tab is a QWidget subclass
+        - Tab is the same widget as in QTabWidget at corresponding index
+        """
         detail = dashboard_window._tracing._detail_panel
         tab_attr = f"_{tab_name}_tab"
 
-        assert hasattr(detail, tab_attr), f"Detail panel should have {tab_attr}"
+        # Strict attribute check
+        assert hasattr(detail, tab_attr), f"Detail panel missing attribute '{tab_attr}'"
+
         tab = getattr(detail, tab_attr)
+
+        # Not None check
         assert tab is not None, f"{tab_name} tab should not be None"
-        assert isinstance(tab, QWidget), f"{tab_name} tab should be a QWidget"
+
+        # Type check - must be QWidget subclass
+        assert isinstance(tab, QWidget), (
+            f"{tab_name} tab should be QWidget subclass, got {type(tab).__name__}"
+        )
+
+        # Verify tab is correctly added to QTabWidget at expected index
+        widget_at_index = detail._tabs.widget(tab_index)
+        assert widget_at_index is tab, (
+            f"Tab at index {tab_index} should be {tab_attr}, "
+            f"got {type(widget_at_index).__name__}"
+        )
+
+    def test_tab_tooltips_are_set(self, dashboard_window):
+        """Verify all tabs have tooltips configured."""
+        detail = dashboard_window._tracing._detail_panel
+        tabs = detail._tabs
+
+        expected_tooltips = [
+            "Transcript - Full conversation",
+            "Tokens - Usage breakdown",
+            "Tools - Tool calls",
+            "Files - File operations",
+            "Agents - Agent hierarchy",
+            "Timeline - Event timeline",
+        ]
+
+        for i, expected in enumerate(expected_tooltips):
+            tooltip = tabs.tabToolTip(i)
+            assert tooltip == expected, (
+                f"Tab {i} tooltip should be '{expected}', got '{tooltip}'"
+            )

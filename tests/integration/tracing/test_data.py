@@ -29,7 +29,8 @@ class TestTracingDataPersistence:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         initial_count = tracing._tree.topLevelItemCount()
-        assert initial_count > 0
+        # Fixture realistic_tracing() creates exactly 1 root session
+        assert initial_count == 1
 
         # Navigate away to Monitoring
         click_nav(dashboard_window, SECTION_MONITORING)
@@ -44,34 +45,32 @@ class TestTracingDataPersistence:
 class TestTracingSignals:
     """Test tracing signal handling."""
 
-    def test_open_terminal_signal_exists(self, dashboard_window, qtbot):
-        """Tracing section has open_terminal_requested signal."""
-        tracing = dashboard_window._tracing
-        assert hasattr(tracing, "open_terminal_requested")
-
-    def test_double_click_emits_signal(self, dashboard_window, qtbot, click_nav):
-        """Double-clicking item emits open_terminal_requested signal."""
+    def test_double_click_emits_open_terminal_signal(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Double-clicking item with session_id emits open_terminal_requested signal."""
         click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
-        data = MockAPIResponses.realistic_tracing()
-        dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
 
-        # Track signal
+        # Verify signal exists by connecting a slot (fails if signal doesn't exist)
         signals_received = []
         tracing.open_terminal_requested.connect(
             lambda sid: signals_received.append(sid)
         )
 
-        # Get first item and double-click - must exist with data
+        # Load data
+        data = MockAPIResponses.realistic_tracing()
+        dashboard_window._signals.tracing_updated.emit(data)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Get first item and double-click
         root_item = tracing._tree.topLevelItem(0)
-        assert root_item is not None, (
-            "Expected at least one item in tree after data load"
-        )
+        assert root_item is not None, "Expected root item in tree after data load"
 
         tracing._on_item_double_clicked(root_item, 0)
         qtbot.wait(50)
 
-        # Signal may or may not be emitted depending on data
-        # (session_id must be present in item data)
+        # Signal must be emitted with the expected session_id
+        assert len(signals_received) == 1, "Expected exactly one signal emission"
+        assert signals_received[0] == "sess-root-001"

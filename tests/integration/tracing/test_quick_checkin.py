@@ -444,730 +444,197 @@ def load_and_expand(dashboard_window, qtbot, click_nav):
 # =============================================================================
 
 
-class TestRootStructure:
-    """Tests for root node structure - STRICT EQUALITY."""
+# =============================================================================
+# CONSOLIDATED TESTS - Grouped by logical unit
+# =============================================================================
 
-    def test_exactly_one_root_item(self, dashboard_window, qtbot, click_nav):
-        """Tree must have exactly 1 root item."""
+
+class TestQuickCheckinSession:
+    """Consolidated tests for Quick check-in session hierarchy."""
+
+    def test_root_structure(self, dashboard_window, qtbot, click_nav):
+        """Root node: exactly 1 root with correct label, node_type, and 5 children."""
         tracing = load_and_expand(dashboard_window, qtbot, click_nav)
 
-        count = tracing._tree.topLevelItemCount()
-        assert count == 1, f"Expected exactly 1 root, got {count}"
-
-    def test_root_label_exact(self, dashboard_window, qtbot, click_nav):
-        """Root label must be exactly '🌳 project'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        # Exactly 1 root
+        assert tracing._tree.topLevelItemCount() == 1
 
         root = tracing._tree.topLevelItem(0)
-        label = root.text(0)
-        assert label == ROOT_LABEL, f"Expected '{ROOT_LABEL}', got '{label}'"
-
-    def test_root_has_exactly_5_children(self, dashboard_window, qtbot, click_nav):
-        """Root must have exactly 5 children (5 user turns)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        count = root.childCount()
-        assert count == TOTAL_ROOT_CHILDREN, (
-            f"Expected {TOTAL_ROOT_CHILDREN} children, got {count}"
-        )
-
-    def test_root_node_type_is_session(self, dashboard_window, qtbot, click_nav):
-        """Root node_type must be 'session'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
+        
+        # Root label
+        assert root.text(0) == ROOT_LABEL
+        
+        # Root node_type
         data = get_item_data(root)
-        node_type = data.get("node_type")
-        assert node_type == "session", f"Expected 'session', got '{node_type}'"
+        assert data.get("node_type") == "session"
+        
+        # Exactly 5 children (user turns)
+        assert root.childCount() == TOTAL_ROOT_CHILDREN
 
+    def test_user_turns_labels_and_types(self, dashboard_window, qtbot, click_nav):
+        """All 5 user turns: correct labels, node_types, and child counts."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
 
-# =============================================================================
-# TEST CLASS: User Turn Count and Labels
-# =============================================================================
+        expected = [
+            (UT1_LABEL, UT1_TOOL_COUNT),
+            (UT2_LABEL, UT2_TOOL_COUNT),
+            (UT3_LABEL, UT3_TOOL_COUNT),
+            (UT4_LABEL, UT4_TOOL_COUNT),
+            (UT5_LABEL, UT5_DELEGATION_COUNT),
+        ]
 
+        for i, (expected_label, expected_children) in enumerate(expected):
+            child = root.child(i)
+            # Label
+            assert child.text(0) == expected_label, f"UT{i+1} label mismatch"
+            # Node type
+            data = get_item_data(child)
+            assert data.get("node_type") == "user_turn", f"UT{i+1} node_type mismatch"
+            # Child count
+            assert child.childCount() == expected_children, f"UT{i+1} child count mismatch"
 
-class TestUserTurnsExact:
-    """Tests for user turns - STRICT EQUALITY."""
+    def test_ut2_webfetch_tools(self, dashboard_window, qtbot, click_nav):
+        """UT2 tools: 2 webfetch with correct labels, node_types, tool_names."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
+        ut2 = root.child(1)
 
-    def test_exactly_5_user_turns(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 5 user_turn items."""
+        # Tool 1
+        tool1 = ut2.child(0)
+        assert tool1.text(0) == UT2_TOOL1_LABEL
+        data1 = get_item_data(tool1)
+        assert data1.get("node_type") == "tool"
+        assert data1.get("tool_name") == UT2_TOOL1_NAME
+        assert data1.get("display_info") == UT2_TOOL1_DISPLAY
+
+        # Tool 2
+        tool2 = ut2.child(1)
+        assert tool2.text(0) == UT2_TOOL2_LABEL
+        data2 = get_item_data(tool2)
+        assert data2.get("node_type") == "tool"
+        assert data2.get("tool_name") == UT2_TOOL2_NAME
+        assert data2.get("display_info") == UT2_TOOL2_DISPLAY
+
+    def test_ut3_bash_tool(self, dashboard_window, qtbot, click_nav):
+        """UT3 tool: 1 bash with correct label, node_type, tool_name."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
+        ut3 = root.child(2)
+
+        tool = ut3.child(0)
+        assert tool.text(0) == UT3_TOOL1_LABEL
+        data = get_item_data(tool)
+        assert data.get("node_type") == "tool"
+        assert data.get("tool_name") == UT3_TOOL1_NAME
+        assert data.get("display_info") == UT3_TOOL1_DISPLAY
+
+    def test_ut4_read_tool(self, dashboard_window, qtbot, click_nav):
+        """UT4 tool: 1 read with correct label, node_type, tool_name."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
+        ut4 = root.child(3)
+
+        tool = ut4.child(0)
+        assert tool.text(0) == UT4_TOOL1_LABEL
+        data = get_item_data(tool)
+        assert data.get("node_type") == "tool"
+        assert data.get("tool_name") == UT4_TOOL1_NAME
+        assert data.get("display_info") == UT4_TOOL1_DISPLAY
+
+    def test_ut5_delegation_and_tools(self, dashboard_window, qtbot, click_nav):
+        """UT5 delegation: correct label, node_type, parent, and 2 read tools."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
+        ut5 = root.child(4)
+        delegation = ut5.child(0)
+
+        # Delegation node
+        assert delegation.text(0) == DELEG_LABEL
+        deleg_data = get_item_data(delegation)
+        assert deleg_data.get("node_type") in ("agent", "delegation")
+        assert deleg_data.get("subagent_type") == DELEG_AGENT_TYPE
+        assert deleg_data.get("parent_agent") == DELEG_PARENT_AGENT
+        assert delegation.childCount() == DELEG_TOOL_COUNT
+
+        # Delegation Tool 1
+        tool1 = delegation.child(0)
+        assert tool1.text(0) == DELEG_TOOL1_LABEL
+        data1 = get_item_data(tool1)
+        assert data1.get("node_type") == "tool"
+        assert data1.get("tool_name") == DELEG_TOOL1_NAME
+        assert data1.get("display_info") == DELEG_TOOL1_DISPLAY
+
+        # Delegation Tool 2
+        tool2 = delegation.child(1)
+        assert tool2.text(0) == DELEG_TOOL2_LABEL
+        data2 = get_item_data(tool2)
+        assert data2.get("node_type") == "tool"
+        assert data2.get("tool_name") == DELEG_TOOL2_NAME
+        assert data2.get("display_info") == DELEG_TOOL2_DISPLAY
+
+    def test_total_counts(self, dashboard_window, qtbot, click_nav):
+        """Total counts: 5 user_turns, 6 tools, 1 delegation."""
         tracing = load_and_expand(dashboard_window, qtbot, click_nav)
 
         user_turns = find_items_by_node_type(tracing._tree, "user_turn")
-        count = len(user_turns)
-        assert count == TOTAL_USER_TURNS, (
-            f"Expected {TOTAL_USER_TURNS} user turns, got {count}"
-        )
-
-    def test_user_turn_1_label_exact(self, dashboard_window, qtbot, click_nav):
-        """User Turn 1 label must match exactly."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut1 = root.child(0)
-        label = ut1.text(0)
-        assert label == UT1_LABEL, (
-            f"UT1 label mismatch:\nExpected: {UT1_LABEL}\nGot: {label}"
-        )
-
-    def test_user_turn_2_label_exact(self, dashboard_window, qtbot, click_nav):
-        """User Turn 2 label must match exactly."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        label = ut2.text(0)
-        assert label == UT2_LABEL, (
-            f"UT2 label mismatch:\nExpected: {UT2_LABEL}\nGot: {label}"
-        )
-
-    def test_user_turn_3_label_exact(self, dashboard_window, qtbot, click_nav):
-        """User Turn 3 label must match exactly."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        label = ut3.text(0)
-        assert label == UT3_LABEL, (
-            f"UT3 label mismatch:\nExpected: {UT3_LABEL}\nGot: {label}"
-        )
-
-    def test_user_turn_4_label_exact(self, dashboard_window, qtbot, click_nav):
-        """User Turn 4 label must match exactly."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        label = ut4.text(0)
-        assert label == UT4_LABEL, (
-            f"UT4 label mismatch:\nExpected: {UT4_LABEL}\nGot: {label}"
-        )
-
-    def test_user_turn_5_label_exact(self, dashboard_window, qtbot, click_nav):
-        """User Turn 5 label must match exactly."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        label = ut5.text(0)
-        assert label == UT5_LABEL, (
-            f"UT5 label mismatch:\nExpected: {UT5_LABEL}\nGot: {label}"
-        )
-
-    def test_all_user_turns_have_node_type_user_turn(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """All 5 children of root must have node_type 'user_turn'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        for i in range(TOTAL_USER_TURNS):
-            child = root.child(i)
-            data = get_item_data(child)
-            node_type = data.get("node_type")
-            assert node_type == "user_turn", (
-                f"Child {i} node_type: expected 'user_turn', got '{node_type}'"
-            )
-
-
-# =============================================================================
-# TEST CLASS: User Turn Children Count
-# =============================================================================
-
-
-class TestUserTurnChildrenCount:
-    """Tests for exact children count per user turn."""
-
-    def test_ut1_has_0_children(self, dashboard_window, qtbot, click_nav):
-        """User Turn 1 must have exactly 0 children."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut1 = root.child(0)
-        count = ut1.childCount()
-        assert count == UT1_TOOL_COUNT, (
-            f"UT1 children: expected {UT1_TOOL_COUNT}, got {count}"
-        )
-
-    def test_ut2_has_2_children(self, dashboard_window, qtbot, click_nav):
-        """User Turn 2 must have exactly 2 children (2 webfetch tools)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        count = ut2.childCount()
-        assert count == UT2_TOOL_COUNT, (
-            f"UT2 children: expected {UT2_TOOL_COUNT}, got {count}"
-        )
-
-    def test_ut3_has_1_child(self, dashboard_window, qtbot, click_nav):
-        """User Turn 3 must have exactly 1 child (1 bash tool)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        count = ut3.childCount()
-        assert count == UT3_TOOL_COUNT, (
-            f"UT3 children: expected {UT3_TOOL_COUNT}, got {count}"
-        )
-
-    def test_ut4_has_1_child(self, dashboard_window, qtbot, click_nav):
-        """User Turn 4 must have exactly 1 child (1 read tool)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        count = ut4.childCount()
-        assert count == UT4_TOOL_COUNT, (
-            f"UT4 children: expected {UT4_TOOL_COUNT}, got {count}"
-        )
-
-    def test_ut5_has_1_child(self, dashboard_window, qtbot, click_nav):
-        """User Turn 5 must have exactly 1 child (1 delegation)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        count = ut5.childCount()
-        assert count == UT5_DELEGATION_COUNT, (
-            f"UT5 children: expected {UT5_DELEGATION_COUNT}, got {count}"
-        )
-
-
-# =============================================================================
-# TEST CLASS: Tools in User Turn 2
-# =============================================================================
-
-
-class TestUT2Tools:
-    """Tests for tools in User Turn 2 - STRICT EQUALITY."""
-
-    def test_ut2_tool1_label_exact(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 1 label must be exactly '🌐 webfetch: https://www.weatherapi.com/'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool1 = ut2.child(0)
-        label = tool1.text(0)
-        assert label == UT2_TOOL1_LABEL, (
-            f"UT2 Tool1 label:\nExpected: {UT2_TOOL1_LABEL}\nGot: {label}"
-        )
-
-    def test_ut2_tool2_label_exact(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 2 label must be exactly '🌐 webfetch: https://openweathermap.org/api'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool2 = ut2.child(1)
-        label = tool2.text(0)
-        assert label == UT2_TOOL2_LABEL, (
-            f"UT2 Tool2 label:\nExpected: {UT2_TOOL2_LABEL}\nGot: {label}"
-        )
-
-    def test_ut2_tool1_node_type_is_tool(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 1 node_type must be 'tool'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool1 = ut2.child(0)
-        data = get_item_data(tool1)
-        assert data.get("node_type") == "tool"
-
-    def test_ut2_tool1_tool_name_is_webfetch(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 1 tool_name must be 'webfetch'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool1 = ut2.child(0)
-        data = get_item_data(tool1)
-        assert data.get("tool_name") == UT2_TOOL1_NAME
-
-    def test_ut2_tool1_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 1 display_info must be exactly 'https://www.weatherapi.com/'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool1 = ut2.child(0)
-        data = get_item_data(tool1)
-        assert data.get("display_info") == UT2_TOOL1_DISPLAY
-
-    def test_ut2_tool2_tool_name_is_webfetch(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 2 tool_name must be 'webfetch'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool2 = ut2.child(1)
-        data = get_item_data(tool2)
-        assert data.get("tool_name") == UT2_TOOL2_NAME
-
-    def test_ut2_tool2_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """UT2 Tool 2 display_info must be exactly 'https://openweathermap.org/api'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-        tool2 = ut2.child(1)
-        data = get_item_data(tool2)
-        assert data.get("display_info") == UT2_TOOL2_DISPLAY
-
-
-# =============================================================================
-# TEST CLASS: Tool in User Turn 3
-# =============================================================================
-
-
-class TestUT3Tool:
-    """Tests for tool in User Turn 3 - STRICT EQUALITY."""
-
-    def test_ut3_tool1_label_exact(self, dashboard_window, qtbot, click_nav):
-        """UT3 Tool 1 label must be exactly '🔧 bash: touch /tmp/test.txt'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        tool1 = ut3.child(0)
-        label = tool1.text(0)
-        assert label == UT3_TOOL1_LABEL, (
-            f"UT3 Tool1 label:\nExpected: {UT3_TOOL1_LABEL}\nGot: {label}"
-        )
-
-    def test_ut3_tool1_node_type_is_tool(self, dashboard_window, qtbot, click_nav):
-        """UT3 Tool 1 node_type must be 'tool'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        tool1 = ut3.child(0)
-        data = get_item_data(tool1)
-        assert data.get("node_type") == "tool"
-
-    def test_ut3_tool1_tool_name_is_bash(self, dashboard_window, qtbot, click_nav):
-        """UT3 Tool 1 tool_name must be 'bash'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        tool1 = ut3.child(0)
-        data = get_item_data(tool1)
-        assert data.get("tool_name") == UT3_TOOL1_NAME
-
-    def test_ut3_tool1_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """UT3 Tool 1 display_info must be exactly 'touch /tmp/test.txt'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        tool1 = ut3.child(0)
-        data = get_item_data(tool1)
-        assert data.get("display_info") == UT3_TOOL1_DISPLAY
-
-
-# =============================================================================
-# TEST CLASS: Tool in User Turn 4
-# =============================================================================
-
-
-class TestUT4Tool:
-    """Tests for tool in User Turn 4 - STRICT EQUALITY."""
-
-    def test_ut4_tool1_label_exact(self, dashboard_window, qtbot, click_nav):
-        """UT4 Tool 1 label must be exactly '📖 read: /path/to/README.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        tool1 = ut4.child(0)
-        label = tool1.text(0)
-        assert label == UT4_TOOL1_LABEL, (
-            f"UT4 Tool1 label:\nExpected: {UT4_TOOL1_LABEL}\nGot: {label}"
-        )
-
-    def test_ut4_tool1_node_type_is_tool(self, dashboard_window, qtbot, click_nav):
-        """UT4 Tool 1 node_type must be 'tool'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        tool1 = ut4.child(0)
-        data = get_item_data(tool1)
-        assert data.get("node_type") == "tool"
-
-    def test_ut4_tool1_tool_name_is_read(self, dashboard_window, qtbot, click_nav):
-        """UT4 Tool 1 tool_name must be 'read'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        tool1 = ut4.child(0)
-        data = get_item_data(tool1)
-        assert data.get("tool_name") == UT4_TOOL1_NAME
-
-    def test_ut4_tool1_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """UT4 Tool 1 display_info must be exactly '/path/to/README.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        tool1 = ut4.child(0)
-        data = get_item_data(tool1)
-        assert data.get("display_info") == UT4_TOOL1_DISPLAY
-
-
-# =============================================================================
-# TEST CLASS: Delegation in User Turn 5
-# =============================================================================
-
-
-class TestUT5Delegation:
-    """Tests for delegation in User Turn 5 - STRICT EQUALITY."""
-
-    def test_ut5_child_is_agent(self, dashboard_window, qtbot, click_nav):
-        """UT5 child must have node_type 'agent'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        data = get_item_data(delegation)
-        assert data.get("node_type") == "agent", (
-            f"Expected 'agent', got '{data.get('node_type')}'"
-        )
-
-    def test_delegation_label_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation label must be exactly '🔗 plan → roadmap'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        label = delegation.text(0)
-        assert label == DELEG_LABEL, (
-            f"Delegation label:\nExpected: {DELEG_LABEL}\nGot: {label}"
-        )
-
-    def test_delegation_subagent_type_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation subagent_type must be 'roadmap'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        data = get_item_data(delegation)
-        assert data.get("subagent_type") == DELEG_AGENT_TYPE
-
-    def test_delegation_parent_agent_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation parent_agent must be 'plan'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        data = get_item_data(delegation)
-        assert data.get("parent_agent") == DELEG_PARENT_AGENT
-
-    def test_delegation_has_exactly_2_children(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """Delegation must have exactly 2 children (2 read tools)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        count = delegation.childCount()
-        assert count == DELEG_TOOL_COUNT, (
-            f"Delegation children: expected {DELEG_TOOL_COUNT}, got {count}"
-        )
-
-
-# =============================================================================
-# TEST CLASS: Tools in Delegation
-# =============================================================================
-
-
-class TestDelegationTools:
-    """Tests for tools inside the delegation - STRICT EQUALITY."""
-
-    def test_deleg_tool1_label_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 1 label must be exactly '📖 read: /path/to/roadmap/README.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool1 = delegation.child(0)
-        label = tool1.text(0)
-        assert label == DELEG_TOOL1_LABEL, (
-            f"Deleg Tool1 label:\nExpected: {DELEG_TOOL1_LABEL}\nGot: {label}"
-        )
-
-    def test_deleg_tool2_label_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 2 label must be exactly '📖 read: /path/to/roadmap/SPRINTS.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool2 = delegation.child(1)
-        label = tool2.text(0)
-        assert label == DELEG_TOOL2_LABEL, (
-            f"Deleg Tool2 label:\nExpected: {DELEG_TOOL2_LABEL}\nGot: {label}"
-        )
-
-    def test_deleg_tool1_node_type_is_tool(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 1 node_type must be 'tool'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool1 = delegation.child(0)
-        data = get_item_data(tool1)
-        assert data.get("node_type") == "tool"
-
-    def test_deleg_tool1_tool_name_is_read(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 1 tool_name must be 'read'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool1 = delegation.child(0)
-        data = get_item_data(tool1)
-        assert data.get("tool_name") == DELEG_TOOL1_NAME
-
-    def test_deleg_tool1_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 1 display_info must be exactly '/path/to/roadmap/README.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool1 = delegation.child(0)
-        data = get_item_data(tool1)
-        assert data.get("display_info") == DELEG_TOOL1_DISPLAY
-
-    def test_deleg_tool2_node_type_is_tool(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 2 node_type must be 'tool'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool2 = delegation.child(1)
-        data = get_item_data(tool2)
-        assert data.get("node_type") == "tool"
-
-    def test_deleg_tool2_tool_name_is_read(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 2 tool_name must be 'read'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool2 = delegation.child(1)
-        data = get_item_data(tool2)
-        assert data.get("tool_name") == DELEG_TOOL2_NAME
-
-    def test_deleg_tool2_display_info_exact(self, dashboard_window, qtbot, click_nav):
-        """Delegation Tool 2 display_info must be exactly '/path/to/roadmap/SPRINTS.md'."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-        tool2 = delegation.child(1)
-        data = get_item_data(tool2)
-        assert data.get("display_info") == DELEG_TOOL2_DISPLAY
-
-
-# =============================================================================
-# TEST CLASS: Total Counts
-# =============================================================================
-
-
-class TestTotalCounts:
-    """Tests for total counts across the entire tree - STRICT EQUALITY."""
-
-    def test_exactly_6_tools_total(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 6 tool items in total."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        assert len(user_turns) == TOTAL_USER_TURNS
 
         tools = find_items_by_node_type(tracing._tree, "tool")
-        count = len(tools)
-        assert count == TOTAL_TOOLS, f"Total tools: expected {TOTAL_TOOLS}, got {count}"
+        assert len(tools) == TOTAL_TOOLS
 
-    def test_exactly_1_delegation_total(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 1 agent (delegation) item."""
+        delegations = find_items_by_node_type(tracing._tree, "agent")
+        delegations += find_items_by_node_type(tracing._tree, "delegation")
+        assert len(delegations) == TOTAL_DELEGATIONS
+
+    def test_hierarchy_parent_child_relationships(self, dashboard_window, qtbot, click_nav):
+        """Verify parent-child relationships in the tree."""
         tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        agents = find_items_by_node_type(tracing._tree, "agent")
-        count = len(agents)
-        assert count == TOTAL_DELEGATIONS, (
-            f"Total delegations: expected {TOTAL_DELEGATIONS}, got {count}"
-        )
-
-    def test_exactly_2_webfetch_tools(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 2 webfetch tools."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        webfetch_tools = find_items_by_tool_name(tracing._tree, "webfetch")
-        count = len(webfetch_tools)
-        assert count == 2, f"webfetch tools: expected 2, got {count}"
-
-    def test_exactly_1_bash_tool(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 1 bash tool."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        bash_tools = find_items_by_tool_name(tracing._tree, "bash")
-        count = len(bash_tools)
-        assert count == 1, f"bash tools: expected 1, got {count}"
-
-    def test_exactly_3_read_tools(self, dashboard_window, qtbot, click_nav):
-        """Must have exactly 3 read tools (1 in UT4 + 2 in delegation)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        read_tools = find_items_by_tool_name(tracing._tree, "read")
-        count = len(read_tools)
-        assert count == 3, f"read tools: expected 3, got {count}"
-
-    def test_total_items_in_tree(self, dashboard_window, qtbot, click_nav):
-        """Total items must be exactly 13 (1 root + 5 UT + 6 tools + 1 delegation)."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        all_items = get_all_tree_items(tracing._tree)
-        expected = 1 + TOTAL_USER_TURNS + TOTAL_TOOLS + TOTAL_DELEGATIONS  # 13
-        count = len(all_items)
-        assert count == expected, f"Total items: expected {expected}, got {count}"
-
-
-# =============================================================================
-# TEST CLASS: Hierarchy Validation
-# =============================================================================
-
-
-class TestHierarchy:
-    """Tests for parent-child relationships - STRICT EQUALITY."""
-
-    def test_ut2_tools_parent_is_ut2(self, dashboard_window, qtbot, click_nav):
-        """UT2 tools must have UT2 as their parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut2 = root.child(1)
-
-        for i in range(ut2.childCount()):
-            tool = ut2.child(i)
-            assert tool.parent() == ut2, f"Tool {i} parent mismatch"
-
-    def test_ut3_tool_parent_is_ut3(self, dashboard_window, qtbot, click_nav):
-        """UT3 tool must have UT3 as its parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut3 = root.child(2)
-        tool = ut3.child(0)
-
-        assert tool.parent() == ut3, "UT3 tool parent mismatch"
-
-    def test_ut4_tool_parent_is_ut4(self, dashboard_window, qtbot, click_nav):
-        """UT4 tool must have UT4 as its parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut4 = root.child(3)
-        tool = ut4.child(0)
-
-        assert tool.parent() == ut4, "UT4 tool parent mismatch"
-
-    def test_delegation_parent_is_ut5(self, dashboard_window, qtbot, click_nav):
-        """Delegation must have UT5 as its parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-
-        assert delegation.parent() == ut5, "Delegation parent mismatch"
-
-    def test_delegation_tools_parent_is_delegation(
-        self, dashboard_window, qtbot, click_nav
-    ):
-        """Delegation tools must have delegation as their parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-        ut5 = root.child(4)
-        delegation = ut5.child(0)
-
-        for i in range(delegation.childCount()):
-            tool = delegation.child(i)
-            assert tool.parent() == delegation, f"Delegation tool {i} parent mismatch"
-
-    def test_all_user_turns_parent_is_root(self, dashboard_window, qtbot, click_nav):
-        """All user turns must have root as their parent."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
         root = tracing._tree.topLevelItem(0)
 
+        # All user turns are children of root
         for i in range(TOTAL_USER_TURNS):
             ut = root.child(i)
-            assert ut.parent() == root, f"UT{i + 1} parent mismatch"
+            assert ut.parent() == root, f"UT{i+1} parent should be root"
 
-
-# =============================================================================
-# TEST CLASS: Order Validation
-# =============================================================================
-
-
-class TestOrder:
-    """Tests for item order - STRICT EQUALITY."""
-
-    def test_user_turns_order(self, dashboard_window, qtbot, click_nav):
-        """User turns must be in exact order: UT1, UT2, UT3, UT4, UT5."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
-
-        expected_labels = [UT1_LABEL, UT2_LABEL, UT3_LABEL, UT4_LABEL, UT5_LABEL]
-
-        for i, expected in enumerate(expected_labels):
-            ut = root.child(i)
-            actual = ut.text(0)
-            assert actual == expected, (
-                f"Order mismatch at index {i}:\nExpected: {expected}\nGot: {actual}"
-            )
-
-    def test_ut2_tools_order(self, dashboard_window, qtbot, click_nav):
-        """UT2 tools must be in order: weatherapi, openweathermap."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
+        # UT2 tools are children of UT2
         ut2 = root.child(1)
+        assert ut2.child(0).parent() == ut2
+        assert ut2.child(1).parent() == ut2
 
-        tool1_label = ut2.child(0).text(0)
-        tool2_label = ut2.child(1).text(0)
+        # UT3 tool is child of UT3
+        ut3 = root.child(2)
+        assert ut3.child(0).parent() == ut3
 
-        assert tool1_label == UT2_TOOL1_LABEL, f"UT2 Tool1 order mismatch"
-        assert tool2_label == UT2_TOOL2_LABEL, f"UT2 Tool2 order mismatch"
+        # UT4 tool is child of UT4
+        ut4 = root.child(3)
+        assert ut4.child(0).parent() == ut4
 
-    def test_delegation_tools_order(self, dashboard_window, qtbot, click_nav):
-        """Delegation tools must be in order: README.md, SPRINTS.md."""
-        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
-
-        root = tracing._tree.topLevelItem(0)
+        # Delegation is child of UT5, tools are children of delegation
         ut5 = root.child(4)
         delegation = ut5.child(0)
+        assert delegation.parent() == ut5
+        assert delegation.child(0).parent() == delegation
+        assert delegation.child(1).parent() == delegation
 
-        tool1_label = delegation.child(0).text(0)
-        tool2_label = delegation.child(1).text(0)
+    def test_items_order(self, dashboard_window, qtbot, click_nav):
+        """Verify items are in correct order."""
+        tracing = load_and_expand(dashboard_window, qtbot, click_nav)
+        root = tracing._tree.topLevelItem(0)
 
-        assert tool1_label == DELEG_TOOL1_LABEL, f"Deleg Tool1 order mismatch"
-        assert tool2_label == DELEG_TOOL2_LABEL, f"Deleg Tool2 order mismatch"
+        # User turns order
+        assert root.child(0).text(0) == UT1_LABEL
+        assert root.child(1).text(0) == UT2_LABEL
+        assert root.child(2).text(0) == UT3_LABEL
+        assert root.child(3).text(0) == UT4_LABEL
+        assert root.child(4).text(0) == UT5_LABEL
+
+        # UT2 tools order
+        ut2 = root.child(1)
+        assert ut2.child(0).text(0) == UT2_TOOL1_LABEL
+        assert ut2.child(1).text(0) == UT2_TOOL2_LABEL
+
+        # Delegation tools order
+        delegation = root.child(4).child(0)
+        assert delegation.child(0).text(0) == DELEG_TOOL1_LABEL
+        assert delegation.child(1).text(0) == DELEG_TOOL2_LABEL

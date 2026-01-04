@@ -29,7 +29,7 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
             "children": [
                 {
                     "session_id": "sess-child-001",
-                    "node_type": "agent",
+                    "node_type": "delegation",
                     "title": "Execute implementation",
                     "agent_type": "executor",
                     "parent_agent": "user",
@@ -43,7 +43,7 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
                 },
                 {
                     "session_id": "sess-child-002",
-                    "node_type": "agent",
+                    "node_type": "delegation",
                     "title": "Run tests",
                     "agent_type": "tester",
                     "parent_agent": "executor",
