@@ -324,143 +324,100 @@ class SecurityDatabase:
 
     # ===== Insert Methods =====
 
-    def insert_command(self, data: Dict[str, Any]) -> bool:
-        """Insert a command record"""
+    def _execute_insert(
+        self, sql: str, data: Dict[str, Any], specific_values: tuple
+    ) -> bool:
+        """Execute an INSERT statement with common field handling.
+
+        Handles connection management, MITRE serialization, and common fields.
+
+        Args:
+            sql: The INSERT SQL statement
+            data: The data dict with common fields (file_id, content_hash, etc.)
+            specific_values: Table-specific values inserted between session_id and risk_score
+
+        Returns:
+            True if a row was inserted, False otherwise
+        """
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
             mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO commands 
-                (file_id, content_hash, session_id, tool, command, 
-                 risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
-                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-                (
-                    data["file_id"],
-                    data["content_hash"],
-                    data["session_id"],
-                    data["tool"],
-                    data["command"],
-                    data["risk_score"],
-                    data["risk_level"],
-                    data["risk_reason"],
-                    data["timestamp"],
-                    data["scanned_at"],
-                    mitre_json,
-                    data.get("edr_sequence_bonus", 0),
-                    data.get("edr_correlation_bonus", 0),
-                ),
+            values = (
+                data["file_id"],
+                data["content_hash"],
+                data["session_id"],
+                *specific_values,
+                data["risk_score"],
+                data["risk_level"],
+                data["risk_reason"],
+                data["timestamp"],
+                data["scanned_at"],
+                mitre_json,
+                data.get("edr_sequence_bonus", 0),
+                data.get("edr_correlation_bonus", 0),
             )
+            cursor.execute(sql, values)
             conn.commit()
             return cursor.rowcount > 0
         finally:
             conn.close()
+
+    def insert_command(self, data: Dict[str, Any]) -> bool:
+        """Insert a command record"""
+        return self._execute_insert(
+            """
+            INSERT OR IGNORE INTO commands 
+            (file_id, content_hash, session_id, tool, command, 
+             risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
+             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            data,
+            (data["tool"], data["command"]),
+        )
 
     def insert_read(self, data: Dict[str, Any]) -> bool:
         """Insert a file read record"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO file_reads 
-                (file_id, content_hash, session_id, file_path, 
-                 risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
-                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        return self._execute_insert(
+            """
+            INSERT OR IGNORE INTO file_reads 
+            (file_id, content_hash, session_id, file_path, 
+             risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
+             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    data["file_id"],
-                    data["content_hash"],
-                    data["session_id"],
-                    data["file_path"],
-                    data["risk_score"],
-                    data["risk_level"],
-                    data["risk_reason"],
-                    data["timestamp"],
-                    data["scanned_at"],
-                    mitre_json,
-                    data.get("edr_sequence_bonus", 0),
-                    data.get("edr_correlation_bonus", 0),
-                ),
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-        finally:
-            conn.close()
+            data,
+            (data["file_path"],),
+        )
 
     def insert_write(self, data: Dict[str, Any]) -> bool:
         """Insert a file write/edit record"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO file_writes 
-                (file_id, content_hash, session_id, file_path, operation,
-                 risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
-                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        return self._execute_insert(
+            """
+            INSERT OR IGNORE INTO file_writes 
+            (file_id, content_hash, session_id, file_path, operation,
+             risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
+             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    data["file_id"],
-                    data["content_hash"],
-                    data["session_id"],
-                    data["file_path"],
-                    data["operation"],
-                    data["risk_score"],
-                    data["risk_level"],
-                    data["risk_reason"],
-                    data["timestamp"],
-                    data["scanned_at"],
-                    mitre_json,
-                    data.get("edr_sequence_bonus", 0),
-                    data.get("edr_correlation_bonus", 0),
-                ),
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-        finally:
-            conn.close()
+            data,
+            (data["file_path"], data["operation"]),
+        )
 
     def insert_webfetch(self, data: Dict[str, Any]) -> bool:
         """Insert a webfetch record"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
-            cursor.execute(
-                """
-                INSERT OR IGNORE INTO webfetches 
-                (file_id, content_hash, session_id, url,
-                 risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
-                 mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        return self._execute_insert(
+            """
+            INSERT OR IGNORE INTO webfetches 
+            (file_id, content_hash, session_id, url,
+             risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
+             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
-                (
-                    data["file_id"],
-                    data["content_hash"],
-                    data["session_id"],
-                    data["url"],
-                    data["risk_score"],
-                    data["risk_level"],
-                    data["risk_reason"],
-                    data["timestamp"],
-                    data["scanned_at"],
-                    mitre_json,
-                    data.get("edr_sequence_bonus", 0),
-                    data.get("edr_correlation_bonus", 0),
-                ),
-            )
-            conn.commit()
-            return cursor.rowcount > 0
-        finally:
-            conn.close()
+            data,
+            (data["url"],),
+        )
 
     # ===== Query Methods =====
 
