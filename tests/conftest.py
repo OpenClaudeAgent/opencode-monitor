@@ -4,11 +4,14 @@ Pytest configuration and shared fixtures for opencode_monitor tests.
 This module provides:
 - rumps mocking infrastructure for UI tests
 - Common fixtures for models, mocks, and test data factories
+- Analytics DB and tracing service fixtures
+- Qt application fixture (session scope)
 - Pytest markers and configuration
 """
 
 import sys
 import json
+import time
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Optional, Callable, Any
@@ -374,3 +377,88 @@ def prt_file_factory(mock_storage):
         return create_prt_file(mock_storage, msg_id, file_id, content)
 
     return factory
+
+
+# =============================================================================
+# Analytics Database Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def analytics_db(tmp_path: Path):
+    """Create a fresh AnalyticsDB (DuckDB) for each test.
+
+    This fixture is shared across all tests needing AnalyticsDB.
+    Uses a unique path per test to ensure isolation.
+    """
+    from opencode_monitor.analytics.db import AnalyticsDB
+
+    db_path = tmp_path / "test_analytics.duckdb"
+    db = AnalyticsDB(db_path)
+    db.connect()
+    return db
+
+
+# Alias for backward compatibility - tests can use either name
+@pytest.fixture
+def db(analytics_db):
+    """Alias for analytics_db - backward compatible fixture name."""
+    return analytics_db
+
+
+# =============================================================================
+# Tracing Data Service Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def tracing_service(analytics_db):
+    """Create a TracingDataService instance with analytics_db."""
+    from opencode_monitor.analytics.tracing import TracingDataService
+
+    return TracingDataService(db=analytics_db)
+
+
+# =============================================================================
+# Security Analyzer Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def risk_analyzer():
+    """Create a fresh RiskAnalyzer for security tests."""
+    from opencode_monitor.security.analyzer import RiskAnalyzer
+
+    return RiskAnalyzer()
+
+
+# =============================================================================
+# Time-based Test Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def base_time() -> float:
+    """Base timestamp for event-based tests (correlator, sequences, etc.)."""
+    return time.time()
+
+
+# =============================================================================
+# Qt Application Fixtures
+# =============================================================================
+
+
+@pytest.fixture(scope="session")
+def qapp():
+    """Create QApplication for the test session.
+
+    Session-scoped to avoid multiple QApplication instances.
+    Works for both unit tests and integration tests.
+    """
+    from PyQt6.QtWidgets import QApplication
+
+    app = QApplication.instance()
+    if app is None:
+        app = QApplication([])
+
+    yield app

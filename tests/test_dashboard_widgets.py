@@ -16,14 +16,7 @@ from PyQt6.QtCore import Qt, QSignalBlocker
 from PyQt6.QtGui import QColor
 
 
-# Ensure QApplication exists for all tests
-@pytest.fixture(scope="module")
-def qapp():
-    """Create QApplication instance for all tests."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
+# Note: 'qapp' fixture is provided by conftest.py with session scope
 
 
 @pytest.fixture

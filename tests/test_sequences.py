@@ -24,20 +24,27 @@ from opencode_monitor.security.sequences import (
 
 
 # =====================================================
-# Fixtures
+# Fixtures (base_time is provided by conftest.py)
 # =====================================================
 
 
 @pytest.fixture
-def analyzer() -> SequenceAnalyzer:
-    """Create a fresh SequenceAnalyzer for each test"""
+def sequence_analyzer() -> SequenceAnalyzer:
+    """Create a fresh SequenceAnalyzer for each test.
+
+    Named 'sequence_analyzer' to avoid confusion with 'risk_analyzer' in conftest.
+    """
     return SequenceAnalyzer(buffer_size=100, default_window_seconds=300.0)
 
 
+# Alias for backward compatibility
 @pytest.fixture
-def base_time() -> float:
-    """Base timestamp for events"""
-    return time.time()
+def analyzer(sequence_analyzer: SequenceAnalyzer) -> SequenceAnalyzer:
+    """Alias for sequence_analyzer."""
+    return sequence_analyzer
+
+
+# Note: 'base_time' fixture is now provided by conftest.py
 
 
 def create_event(

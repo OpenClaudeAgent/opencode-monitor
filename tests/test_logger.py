@@ -1,115 +1,115 @@
 """
 Tests for the logger module.
+Consolidated: 11 tests → 4 tests with stronger assertions.
 """
 
 import logging
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 import pytest
+
+from opencode_monitor.utils.logger import setup_logger
+from opencode_monitor.utils import logger
 
 
 class TestSetupLogger:
     """Tests for setup_logger function."""
 
-    def test_setup_logger_returns_logger(self):
-        """setup_logger should return a Logger instance."""
-        from opencode_monitor.utils.logger import setup_logger
+    def test_setup_logger_returns_configured_logger(self):
+        """setup_logger returns a properly configured Logger instance."""
+        unique_name = "test_logger_configured"
+        result = setup_logger(unique_name)
 
-        # Use a unique name to avoid conflicts with the global logger
-        logger = setup_logger("test_logger_unique")
-        assert isinstance(logger, logging.Logger)
-        assert logger.name == "test_logger_unique"
+        # Verify instance type, name, and that handlers were added
+        assert isinstance(result, logging.Logger)
+        assert result.name == unique_name
+        assert len(result.handlers) >= 1
+        assert result.hasHandlers()
 
     def test_setup_logger_avoids_duplicate_handlers(self):
-        """Calling setup_logger twice with same name should return existing logger."""
-        from opencode_monitor.utils.logger import setup_logger
-
-        # Create logger with handlers
+        """Calling setup_logger twice returns same logger without duplicating handlers."""
         logger_name = "test_duplicate_handlers"
+
         logger1 = setup_logger(logger_name)
-        handler_count_after_first = len(logger1.handlers)
+        initial_handler_count = len(logger1.handlers)
 
-        # Call again - should return same logger without adding handlers
         logger2 = setup_logger(logger_name)
-        handler_count_after_second = len(logger2.handlers)
 
+        # Same instance, same handler count
         assert logger1 is logger2
-        assert handler_count_after_first == handler_count_after_second
+        assert len(logger2.handlers) == initial_handler_count
+        assert initial_handler_count >= 1  # Should have at least one handler
 
-    def test_setup_logger_debug_mode_enabled(self):
-        """Logger should be DEBUG level when OPENCODE_DEBUG is set."""
-        from opencode_monitor.utils.logger import setup_logger
+    @pytest.mark.parametrize(
+        "env_value,expected_level,level_name",
+        [
+            ("1", logging.DEBUG, "DEBUG"),
+            ("true", logging.DEBUG, "DEBUG"),
+            ("", logging.INFO, "INFO"),
+        ],
+    )
+    def test_setup_logger_respects_debug_env(
+        self, env_value, expected_level, level_name
+    ):
+        """Logger level is controlled by OPENCODE_DEBUG environment variable."""
+        unique_name = f"test_level_{level_name.lower()}"
 
-        with patch.dict("os.environ", {"OPENCODE_DEBUG": "1"}):
-            logger = setup_logger("test_debug_mode")
-            assert logger.level == logging.DEBUG
+        with patch.dict("os.environ", {"OPENCODE_DEBUG": env_value}, clear=False):
+            result = setup_logger(unique_name)
 
-    def test_setup_logger_debug_mode_disabled(self):
-        """Logger should be INFO level when OPENCODE_DEBUG is not set."""
-        from opencode_monitor.utils.logger import setup_logger
-
-        with patch.dict("os.environ", {"OPENCODE_DEBUG": ""}, clear=False):
-            logger = setup_logger("test_info_mode")
-            assert logger.level == logging.INFO
+            assert result.level == expected_level
+            assert result.name == unique_name
+            assert logging.getLevelName(result.level) == level_name
 
 
 class TestLoggingFunctions:
     """Tests for convenience logging functions."""
 
-    def test_info_logs_message(self):
-        """info() should log at INFO level."""
-        from opencode_monitor.utils import logger
+    @pytest.mark.parametrize(
+        "log_func,log_method,message,args,expected_call",
+        [
+            # Simple messages
+            (logger.info, "info", "Test info message", (), ("Test info message",)),
+            (
+                logger.warn,
+                "warning",
+                "Test warning message",
+                (),
+                ("Test warning message",),
+            ),
+            (logger.error, "error", "Test error message", (), ("Test error message",)),
+            (logger.debug, "debug", "Test debug message", (), ("Test debug message",)),
+            # Messages with format args
+            (logger.info, "info", "Value is %d", (42,), ("Value is %d", 42)),
+            (
+                logger.warn,
+                "warning",
+                "Warning: %s occurred",
+                ("error",),
+                ("Warning: %s occurred", "error"),
+            ),
+            (
+                logger.error,
+                "error",
+                "Error code: %d - %s",
+                (500, "Internal"),
+                ("Error code: %d - %s", 500, "Internal"),
+            ),
+            (
+                logger.debug,
+                "debug",
+                "Debug data: %r",
+                ({"key": 1},),
+                ("Debug data: %r", {"key": 1}),
+            ),
+        ],
+    )
+    def test_logging_functions_delegate_correctly(
+        self, log_func, log_method, message, args, expected_call
+    ):
+        """All logging convenience functions delegate to the correct log method with proper args."""
+        with patch.object(logger.log, log_method) as mock_method:
+            log_func(message, *args)
 
-        with patch.object(logger.log, "info") as mock_info:
-            logger.info("Test info message")
-            mock_info.assert_called_once_with("Test info message")
-
-    def test_info_logs_with_args(self):
-        """info() should pass format args to logger."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "info") as mock_info:
-            logger.info("Value is %d", 42)
-            mock_info.assert_called_once_with("Value is %d", 42)
-
-    def test_warn_logs_message(self):
-        """warn() should log at WARNING level."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "warning") as mock_warning:
-            logger.warn("Test warning message")
-            mock_warning.assert_called_once_with("Test warning message")
-
-    def test_warn_logs_with_args(self):
-        """warn() should pass format args to logger."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "warning") as mock_warning:
-            logger.warn("Warning: %s occurred", "error")
-            mock_warning.assert_called_once_with("Warning: %s occurred", "error")
-
-    def test_error_logs_message(self):
-        """error() should log at ERROR level."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "error") as mock_error:
-            logger.error("Test error message")
-            mock_error.assert_called_once_with("Test error message")
-
-    def test_error_logs_with_args(self):
-        """error() should pass format args to logger."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "error") as mock_error:
-            logger.error("Error code: %d - %s", 500, "Internal error")
-            mock_error.assert_called_once_with(
-                "Error code: %d - %s", 500, "Internal error"
-            )
-
-    def test_debug_logs_message(self):
-        """debug() should log at DEBUG level."""
-        from opencode_monitor.utils import logger
-
-        with patch.object(logger.log, "debug") as mock_debug:
-            logger.debug("Test debug message")
-            mock_debug.assert_called_once_with("Test debug message")
+            mock_method.assert_called_once()
+            assert mock_method.call_args[0] == expected_call

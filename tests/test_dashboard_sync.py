@@ -16,17 +16,8 @@ from PyQt6.QtWidgets import QApplication
 
 
 # =============================================================================
-# Fixtures
+# Fixtures (qapp is provided by conftest.py with session scope)
 # =============================================================================
-
-
-@pytest.fixture(scope="module")
-def qapp():
-    """Create QApplication instance for all tests."""
-    app = QApplication.instance()
-    if app is None:
-        app = QApplication([])
-    yield app
 
 
 @pytest.fixture

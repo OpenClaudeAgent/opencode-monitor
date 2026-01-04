@@ -22,7 +22,7 @@ from opencode_monitor.security.correlator import (
 
 
 # =====================================================
-# Fixtures
+# Fixtures (base_time is provided by conftest.py)
 # =====================================================
 
 
@@ -32,10 +32,7 @@ def correlator() -> EventCorrelator:
     return EventCorrelator(buffer_size=200, default_window_seconds=300.0)
 
 
-@pytest.fixture
-def base_time() -> float:
-    """Base timestamp for events"""
-    return time.time()
+# Note: 'base_time' fixture is now provided by conftest.py
 
 
 def create_event(

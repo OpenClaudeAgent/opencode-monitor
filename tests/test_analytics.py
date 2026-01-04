@@ -18,13 +18,7 @@ from opencode_monitor.analytics.models import Todo, Project, TodoStats, ProjectS
 from opencode_monitor.analytics.queries import AnalyticsQueries
 
 
-@pytest.fixture
-def db(tmp_path: Path) -> AnalyticsDB:
-    """Create a fresh DuckDB database for each test."""
-    db_path = tmp_path / "test_analytics.duckdb"
-    db = AnalyticsDB(db_path)
-    db.connect()
-    return db
+# Note: 'db' fixture is now provided by conftest.py (analytics_db)
 
 
 @pytest.fixture

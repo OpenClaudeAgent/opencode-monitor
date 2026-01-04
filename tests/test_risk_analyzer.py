@@ -21,10 +21,12 @@ from opencode_monitor.security.analyzer import (
 )
 
 
+# Note: 'risk_analyzer' fixture is now provided by conftest.py
+# Alias for backward compatibility
 @pytest.fixture
-def analyzer() -> RiskAnalyzer:
-    """Create a fresh RiskAnalyzer for each test"""
-    return RiskAnalyzer()
+def analyzer(risk_analyzer: RiskAnalyzer) -> RiskAnalyzer:
+    """Alias for risk_analyzer from conftest."""
+    return risk_analyzer
 
 
 # =====================================================

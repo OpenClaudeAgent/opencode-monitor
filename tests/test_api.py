@@ -25,27 +25,19 @@ from opencode_monitor.analytics.tracing import (
 
 
 # =============================================================================
-# Fixtures
+# Fixtures (db, service are provided by conftest.py via tracing_service)
 # =============================================================================
 
 
+# Alias for compatibility - uses tracing_service from conftest
 @pytest.fixture
-def db(tmp_path: Path) -> AnalyticsDB:
-    """Create a fresh DuckDB database for each test."""
-    db_path = tmp_path / "test_api.duckdb"
-    db = AnalyticsDB(db_path)
-    db.connect()
-    return db
+def service(tracing_service: TracingDataService) -> TracingDataService:
+    """Alias for tracing_service from conftest."""
+    return tracing_service
 
 
 @pytest.fixture
-def service(db: AnalyticsDB) -> TracingDataService:
-    """Create a TracingDataService instance."""
-    return TracingDataService(db=db)
-
-
-@pytest.fixture
-def populated_db(db: AnalyticsDB) -> AnalyticsDB:
+def populated_db(db) -> AnalyticsDB:
     """Populate database with test data for API tests."""
     conn = db.connect()
 

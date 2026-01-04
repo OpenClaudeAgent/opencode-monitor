@@ -24,17 +24,8 @@ from opencode_monitor.analytics.queries.trace_queries import (
 
 
 # =============================================================================
-# Fixtures
+# Fixtures (db is provided by conftest.py)
 # =============================================================================
-
-
-@pytest.fixture
-def db(tmp_path: Path) -> AnalyticsDB:
-    """Create a fresh DuckDB database for each test."""
-    db_path = tmp_path / "test_traces.duckdb"
-    db = AnalyticsDB(db_path)
-    db.connect()
-    return db
 
 
 @pytest.fixture

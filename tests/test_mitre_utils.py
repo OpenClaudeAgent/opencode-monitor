@@ -1,4 +1,7 @@
-"""Tests for MITRE ATT&CK utilities."""
+"""
+Tests for MITRE ATT&CK utilities.
+Consolidated: 17 tests → 5 tests with stronger assertions.
+"""
 
 import pytest
 
@@ -11,101 +14,125 @@ from opencode_monitor.security.mitre_utils import (
 class TestSerializeMitreTechniques:
     """Tests for serialize_mitre_techniques function."""
 
-    def test_serialize_empty_list(self):
-        """Empty list serializes to '[]'."""
-        result = serialize_mitre_techniques([])
-        assert result == "[]"
-
-    def test_serialize_list_of_techniques(self):
-        """List of techniques serializes to JSON array."""
-        techniques = ["T1059.001", "T1566.001", "T1027"]
+    @pytest.mark.parametrize(
+        "techniques,expected_json,description",
+        [
+            ([], "[]", "empty list"),
+            (["T1059"], '["T1059"]', "single technique"),
+            (
+                ["T1059.001", "T1566.001", "T1027"],
+                '["T1059.001", "T1566.001", "T1027"]',
+                "multiple techniques",
+            ),
+            (
+                ["T1059", "T1059.001", "T1059.002"],
+                '["T1059", "T1059.001", "T1059.002"]',
+                "technique with subtechniques",
+            ),
+        ],
+    )
+    def test_serialize_valid_lists(self, techniques, expected_json, description):
+        """Valid technique lists serialize to correct JSON format."""
         result = serialize_mitre_techniques(techniques)
-        assert result == '["T1059.001", "T1566.001", "T1027"]'
 
-    def test_serialize_single_technique(self):
-        """Single technique in list serializes correctly."""
-        result = serialize_mitre_techniques(["T1059"])
-        assert result == '["T1059"]'
+        assert result == expected_json
+        assert result.startswith("[")
+        assert result.endswith("]")
+        # Verify it's valid JSON by checking structure
+        assert result.count("[") == 1
+        assert result.count("]") == 1
 
-    def test_serialize_none_returns_empty_array(self):
-        """None returns '[]'."""
-        result = serialize_mitre_techniques(None)
+    @pytest.mark.parametrize(
+        "invalid_input,input_type",
+        [
+            (None, "None"),
+            ("T1059", "string"),
+            ({"technique": "T1059"}, "dict"),
+            (123, "int"),
+            (12.34, "float"),
+            (set(["T1059"]), "set"),
+        ],
+    )
+    def test_serialize_invalid_inputs_return_empty_array(
+        self, invalid_input, input_type
+    ):
+        """Non-list inputs return empty array '[]' for type safety."""
+        result = serialize_mitre_techniques(invalid_input)
+
         assert result == "[]"
-
-    def test_serialize_string_returns_empty_array(self):
-        """String input returns '[]'."""
-        result = serialize_mitre_techniques("T1059")
-        assert result == "[]"
-
-    def test_serialize_dict_returns_empty_array(self):
-        """Dict input returns '[]'."""
-        result = serialize_mitre_techniques({"technique": "T1059"})
-        assert result == "[]"
-
-    def test_serialize_int_returns_empty_array(self):
-        """Integer input returns '[]'."""
-        result = serialize_mitre_techniques(123)
-        assert result == "[]"
+        assert isinstance(result, str)
+        assert len(result) == 2
 
 
 class TestDeserializeMitreTechniques:
     """Tests for deserialize_mitre_techniques function."""
 
-    def test_deserialize_empty_array_string(self):
-        """'[]' deserializes to empty list."""
-        result = deserialize_mitre_techniques("[]")
-        assert result == []
-
-    def test_deserialize_techniques_array(self):
-        """JSON array of techniques deserializes to list."""
-        json_str = '["T1059.001", "T1566.001", "T1027"]'
+    @pytest.mark.parametrize(
+        "json_str,expected_list,description",
+        [
+            ("[]", [], "empty array"),
+            ('["T1059"]', ["T1059"], "single technique"),
+            (
+                '["T1059.001", "T1566.001", "T1027"]',
+                ["T1059.001", "T1566.001", "T1027"],
+                "multiple techniques",
+            ),
+        ],
+    )
+    def test_deserialize_valid_json(self, json_str, expected_list, description):
+        """Valid JSON arrays deserialize to correct Python lists."""
         result = deserialize_mitre_techniques(json_str)
-        assert result == ["T1059.001", "T1566.001", "T1027"]
 
-    def test_deserialize_single_technique(self):
-        """Single technique in array deserializes correctly."""
-        result = deserialize_mitre_techniques('["T1059"]')
-        assert result == ["T1059"]
+        assert result == expected_list
+        assert isinstance(result, list)
+        assert len(result) == len(expected_list)
+        # Verify all items are strings
+        assert all(isinstance(item, str) for item in result)
 
-    def test_deserialize_none_returns_empty_list(self):
-        """None returns empty list."""
-        result = deserialize_mitre_techniques(None)
+    @pytest.mark.parametrize(
+        "invalid_input,description",
+        [
+            (None, "None value"),
+            ("", "empty string"),
+            ("not valid json", "invalid JSON"),
+            ('{"technique": "T1059"}', "JSON object instead of array"),
+            ('"T1059"', "JSON string instead of array"),
+            ("T1059", "plain string"),
+            ("[invalid", "malformed JSON"),
+        ],
+    )
+    def test_deserialize_invalid_inputs_return_empty_list(
+        self, invalid_input, description
+    ):
+        """Invalid or non-array inputs return empty list for error resilience."""
+        result = deserialize_mitre_techniques(invalid_input)
+
         assert result == []
-
-    def test_deserialize_empty_string_returns_empty_list(self):
-        """Empty string returns empty list."""
-        result = deserialize_mitre_techniques("")
-        assert result == []
-
-    def test_deserialize_invalid_json_returns_empty_list(self):
-        """Invalid JSON returns empty list."""
-        result = deserialize_mitre_techniques("not valid json")
-        assert result == []
-
-    def test_deserialize_json_object_returns_empty_list(self):
-        """JSON object (not array) returns empty list."""
-        result = deserialize_mitre_techniques('{"technique": "T1059"}')
-        assert result == []
-
-    def test_deserialize_json_string_returns_empty_list(self):
-        """JSON string (not array) returns empty list."""
-        result = deserialize_mitre_techniques('"T1059"')
-        assert result == []
+        assert isinstance(result, list)
+        assert len(result) == 0
 
 
 class TestRoundTrip:
-    """Tests for serialize/deserialize round-trip."""
+    """Tests for serialize/deserialize round-trip consistency."""
 
-    def test_roundtrip_empty_list(self):
-        """Empty list survives round-trip."""
-        original = []
+    @pytest.mark.parametrize(
+        "original",
+        [
+            [],
+            ["T1059"],
+            ["T1059.001", "T1566.001", "T1027"],
+            ["T1059", "T1059.001", "T1059.002", "T1059.003"],
+        ],
+    )
+    def test_roundtrip_preserves_data(self, original):
+        """Techniques survive serialize→deserialize round-trip unchanged."""
         serialized = serialize_mitre_techniques(original)
         deserialized = deserialize_mitre_techniques(serialized)
-        assert deserialized == original
 
-    def test_roundtrip_techniques(self):
-        """Techniques survive round-trip."""
-        original = ["T1059.001", "T1566.001", "T1027"]
-        serialized = serialize_mitre_techniques(original)
-        deserialized = deserialize_mitre_techniques(serialized)
         assert deserialized == original
+        assert len(deserialized) == len(original)
+        assert isinstance(serialized, str)
+        assert isinstance(deserialized, list)
+        # Verify order is preserved
+        for i, technique in enumerate(original):
+            assert deserialized[i] == technique

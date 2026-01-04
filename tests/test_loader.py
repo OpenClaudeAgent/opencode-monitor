@@ -37,17 +37,8 @@ from opencode_monitor.analytics.loader import (
 
 
 # =============================================================================
-# Fixtures
+# Fixtures (db is provided by conftest.py)
 # =============================================================================
-
-
-@pytest.fixture
-def db(tmp_path: Path) -> AnalyticsDB:
-    """Create a fresh DuckDB database for each test."""
-    db_path = tmp_path / "test_loader.duckdb"
-    db = AnalyticsDB(db_path)
-    db.connect()
-    return db
 
 
 @pytest.fixture
