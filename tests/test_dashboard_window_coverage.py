@@ -107,6 +107,19 @@ def mock_api_client_for_window():
     mock_client.get_tracing_tree.return_value = [
         {"session_id": "sess-1", "title": "Test Session"}
     ]
+    mock_client.get_security_data.return_value = {
+        "stats": {"critical": 0, "high": 1},
+        "commands": [
+            {
+                "command": "rm -rf",
+                "risk": "high",
+                "score": 80,
+                "reason": "dangerous",
+            }
+        ],
+        "files": [],
+        "critical_items": [],
+    }
 
     with patch("opencode_monitor.api.get_api_client") as mock_get:
         mock_get.return_value = mock_client
@@ -491,7 +504,7 @@ class TestFetchExceptionHandling:
                 id="monitoring",
             ),
             pytest.param(
-                "opencode_monitor.security.auditor.get_auditor",
+                "opencode_monitor.api.get_api_client",
                 "_fetch_security_data",
                 "Security fetch error",
                 id="security",
@@ -599,47 +612,26 @@ class TestDashboardFetchMethods:
                     window.deleteLater()
 
     def test_fetch_security_data_success(self, qapp, mock_api_client_for_window):
-        """_fetch_security_data fetches and emits security data."""
+        """_fetch_security_data fetches and emits security data via API."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
-        # Create mock command record
-        mock_cmd = MagicMock()
-        mock_cmd.command = "rm -rf"
-        mock_cmd.risk_level = "high"
-        mock_cmd.risk_score = 80
-        mock_cmd.risk_reason = "dangerous"
+        with patch.object(DashboardWindow, "_start_refresh"):
+            window = DashboardWindow()
+            try:
+                received_data = []
+                window._signals.security_updated.connect(
+                    lambda d: received_data.append(d)
+                )
 
-        mock_auditor = MagicMock()
-        mock_auditor.get_stats.return_value = {"critical": 0, "high": 1}
-        mock_auditor.get_all_commands.return_value = [mock_cmd]
-        mock_auditor.get_all_reads.return_value = []
-        mock_auditor.get_all_writes.return_value = []
-        mock_auditor.get_critical_commands.return_value = []
-        mock_auditor.get_commands_by_level.return_value = []
-        mock_auditor.get_sensitive_reads.return_value = []
-        mock_auditor.get_sensitive_writes.return_value = []
-        mock_auditor.get_risky_webfetches.return_value = []
+                window._fetch_security_data()
 
-        with patch(
-            "opencode_monitor.security.auditor.get_auditor", return_value=mock_auditor
-        ):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    received_data = []
-                    window._signals.security_updated.connect(
-                        lambda d: received_data.append(d)
-                    )
-
-                    window._fetch_security_data()
-
-                    assert len(received_data) == 1
-                    data = received_data[0]
-                    assert data["stats"]["critical"] == 0
-                    assert len(data["commands"]) == 1
-                finally:
-                    window.close()
-                    window.deleteLater()
+                assert len(received_data) == 1
+                data = received_data[0]
+                assert data["stats"]["critical"] == 0
+                assert len(data["commands"]) == 1
+            finally:
+                window.close()
+                window.deleteLater()
 
     def test_fetch_analytics_data_success(self, dashboard_window_isolated):
         """_fetch_analytics_data fetches and emits analytics data."""
@@ -991,89 +983,90 @@ class TestSecurityDataEdgeCases:
     """Tests for security data processing edge cases."""
 
     def test_fetch_security_with_critical_items(self, qapp, mock_api_client_for_window):
-        """_fetch_security_data processes critical items from all sources."""
+        """_fetch_security_data processes critical items from all sources via API."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
-        # Create mock records for each type
-        mock_critical_cmd = MagicMock()
-        mock_critical_cmd.command = "rm -rf /"
-        mock_critical_cmd.risk_level = "critical"
-        mock_critical_cmd.risk_score = 100
-        mock_critical_cmd.risk_reason = "Dangerous"
+        # Mock API to return security data with all item types
+        mock_api_client_for_window.get_security_data.return_value = {
+            "stats": {"critical": 2, "high": 2},
+            "commands": [],
+            "files": [
+                {
+                    "operation": "READ",
+                    "path": "/home/user/file.txt",
+                    "risk": "low",
+                    "score": 10,
+                    "reason": "Normal read",
+                },
+                {
+                    "operation": "WRITE",
+                    "path": "/tmp/output.txt",
+                    "risk": "low",
+                    "score": 5,
+                    "reason": "Normal write",
+                },
+            ],
+            "critical_items": [
+                {
+                    "type": "COMMAND",
+                    "details": "rm -rf /",
+                    "risk": "critical",
+                    "reason": "Dangerous",
+                    "score": 100,
+                },
+                {
+                    "type": "READ",
+                    "details": "/etc/passwd",
+                    "risk": "high",
+                    "reason": "Sensitive file",
+                    "score": 80,
+                },
+                {
+                    "type": "WRITE",
+                    "details": "/etc/shadow",
+                    "risk": "critical",
+                    "reason": "Password file",
+                    "score": 95,
+                },
+                {
+                    "type": "WEBFETCH",
+                    "details": "http://malware.com",
+                    "risk": "high",
+                    "reason": "Suspicious URL",
+                    "score": 85,
+                },
+            ],
+        }
 
-        mock_sensitive_read = MagicMock()
-        mock_sensitive_read.file_path = "/etc/passwd"
-        mock_sensitive_read.risk_level = "high"
-        mock_sensitive_read.risk_score = 80
-        mock_sensitive_read.risk_reason = "Sensitive file"
+        with patch.object(DashboardWindow, "_start_refresh"):
+            window = DashboardWindow()
+            try:
+                received_data = []
+                window._signals.security_updated.connect(
+                    lambda d: received_data.append(d)
+                )
 
-        mock_sensitive_write = MagicMock()
-        mock_sensitive_write.file_path = "/etc/shadow"
-        mock_sensitive_write.risk_level = "critical"
-        mock_sensitive_write.risk_score = 95
-        mock_sensitive_write.risk_reason = "Password file"
+                window._fetch_security_data()
 
-        mock_risky_fetch = MagicMock()
-        mock_risky_fetch.url = "http://malware.com"
-        mock_risky_fetch.risk_level = "high"
-        mock_risky_fetch.risk_score = 85
-        mock_risky_fetch.risk_reason = "Suspicious URL"
+                assert len(received_data) == 1
+                data = received_data[0]
 
-        mock_read = MagicMock()
-        mock_read.file_path = "/home/user/file.txt"
-        mock_read.risk_level = "low"
-        mock_read.risk_score = 10
-        mock_read.risk_reason = "Normal read"
+                # Check critical items include all types
+                critical_items = data["critical_items"]
+                types = [item["type"] for item in critical_items]
+                assert "COMMAND" in types
+                assert "READ" in types
+                assert "WRITE" in types
+                assert "WEBFETCH" in types
 
-        mock_write = MagicMock()
-        mock_write.file_path = "/tmp/output.txt"
-        mock_write.risk_level = "low"
-        mock_write.risk_score = 5
-        mock_write.risk_reason = "Normal write"
-
-        mock_auditor = MagicMock()
-        mock_auditor.get_stats.return_value = {"critical": 2, "high": 2}
-        mock_auditor.get_all_commands.return_value = []
-        mock_auditor.get_all_reads.return_value = [mock_read]
-        mock_auditor.get_all_writes.return_value = [mock_write]
-        mock_auditor.get_critical_commands.return_value = [mock_critical_cmd]
-        mock_auditor.get_commands_by_level.return_value = []
-        mock_auditor.get_sensitive_reads.return_value = [mock_sensitive_read]
-        mock_auditor.get_sensitive_writes.return_value = [mock_sensitive_write]
-        mock_auditor.get_risky_webfetches.return_value = [mock_risky_fetch]
-
-        with patch(
-            "opencode_monitor.security.auditor.get_auditor", return_value=mock_auditor
-        ):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    received_data = []
-                    window._signals.security_updated.connect(
-                        lambda d: received_data.append(d)
-                    )
-
-                    window._fetch_security_data()
-
-                    assert len(received_data) == 1
-                    data = received_data[0]
-
-                    # Check critical items include all types
-                    critical_items = data["critical_items"]
-                    types = [item["type"] for item in critical_items]
-                    assert "COMMAND" in types
-                    assert "READ" in types
-                    assert "WRITE" in types
-                    assert "WEBFETCH" in types
-
-                    # Check files include reads and writes
-                    files = data["files"]
-                    operations = [f["operation"] for f in files]
-                    assert "READ" in operations
-                    assert "WRITE" in operations
-                finally:
-                    window.close()
-                    window.deleteLater()
+                # Check files include reads and writes
+                files = data["files"]
+                operations = [f["operation"] for f in files]
+                assert "READ" in operations
+                assert "WRITE" in operations
+            finally:
+                window.close()
+                window.deleteLater()
 
 
 class TestMonitoringContextEdgeCases:
