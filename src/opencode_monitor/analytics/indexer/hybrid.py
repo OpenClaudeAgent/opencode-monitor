@@ -55,12 +55,50 @@ class HybridIndexer:
         self,
         storage_path: Optional[Path] = None,
         db_path: Optional[Path] = None,
+        # Injected dependencies (for testability)
+        db: Optional[AnalyticsDB] = None,
+        sync_state: Optional[SyncState] = None,
+        bulk_loader: Optional[BulkLoader] = None,
+        tracker: Optional[FileTracker] = None,
+        parser: Optional[FileParser] = None,
+        trace_builder: Optional[TraceBuilder] = None,
     ):
-        """Initialize the hybrid indexer."""
-        self._storage_path = storage_path or OPENCODE_STORAGE
-        self._db = AnalyticsDB(db_path)
+        """
+        Initialize the hybrid indexer.
 
-        # Components
+        Args:
+            storage_path: Path to opencode storage directory
+            db_path: Path to DuckDB database file
+
+            # Dependency injection (optional, for testing):
+            db: Injected AnalyticsDB instance
+            sync_state: Injected SyncState instance
+            bulk_loader: Injected BulkLoader instance
+            tracker: Injected FileTracker instance
+            parser: Injected FileParser instance
+            trace_builder: Injected TraceBuilder instance
+
+        Example (production):
+            indexer = HybridIndexer(storage_path=Path("/data"))
+
+        Example (testing with mocks):
+            mock_db = Mock(spec=AnalyticsDB)
+            indexer = HybridIndexer(db=mock_db)
+        """
+        self._storage_path = storage_path or OPENCODE_STORAGE
+
+        # Use injected db or create from path
+        self._db = db or AnalyticsDB(db_path)
+        self._db_injected = db is not None
+
+        # Injected components (will be used in start() if provided)
+        self._injected_sync_state = sync_state
+        self._injected_bulk_loader = bulk_loader
+        self._injected_tracker = tracker
+        self._injected_parser = parser
+        self._injected_trace_builder = trace_builder
+
+        # Active components (set in start())
         self._sync_state: Optional[SyncState] = None
         self._bulk_loader: Optional[BulkLoader] = None
         self._watcher: Optional[FileWatcher] = None
@@ -101,12 +139,14 @@ class HybridIndexer:
         # Connect to database
         self._db.connect()
 
-        # Initialize components
-        self._sync_state = SyncState(self._db)
-        self._tracker = FileTracker(self._db)
-        self._parser = FileParser()
-        self._trace_builder = TraceBuilder(self._db)
-        self._bulk_loader = BulkLoader(self._db, self._storage_path, self._sync_state)
+        # Initialize components (use injected if available, else create)
+        self._sync_state = self._injected_sync_state or SyncState(self._db)
+        self._tracker = self._injected_tracker or FileTracker(self._db)
+        self._parser = self._injected_parser or FileParser()
+        self._trace_builder = self._injected_trace_builder or TraceBuilder(self._db)
+        self._bulk_loader = self._injected_bulk_loader or BulkLoader(
+            self._db, self._storage_path, self._sync_state
+        )
 
         # Start watcher (queue-only mode during bulk)
         self._watcher = FileWatcher(
@@ -302,16 +342,115 @@ class HybridIndexer:
         return stats
 
 
-# Global instance
-_indexer: Optional[HybridIndexer] = None
+# =============================================================================
+# IndexerRegistry - Manages HybridIndexer instance for testability
+# =============================================================================
+
+
+class IndexerRegistry:
+    """
+    Registry for managing HybridIndexer instance.
+
+    Replaces global singleton pattern for better testability:
+    - clear() method for test cleanup between tests
+    - Dependency injection support via create()
+    - No global keyword needed
+
+    Usage in tests:
+        # Setup with mock
+        mock_db = Mock(spec=AnalyticsDB)
+        indexer = HybridIndexer(db=mock_db)
+        IndexerRegistry.set(indexer)
+
+        # Teardown
+        IndexerRegistry.clear()
+    """
+
+    _instance: Optional[HybridIndexer] = None
+
+    @classmethod
+    def get(cls) -> Optional[HybridIndexer]:
+        """Get the current indexer instance (may be None)."""
+        return cls._instance
+
+    @classmethod
+    def get_or_create(
+        cls,
+        storage_path: Optional[Path] = None,
+        db_path: Optional[Path] = None,
+        **kwargs,
+    ) -> HybridIndexer:
+        """Get existing indexer or create a new one."""
+        if cls._instance is None:
+            cls._instance = HybridIndexer(
+                storage_path=storage_path,
+                db_path=db_path,
+                **kwargs,
+            )
+        return cls._instance
+
+    @classmethod
+    def set(cls, indexer: HybridIndexer) -> None:
+        """Set the indexer instance (useful for tests with mocks)."""
+        cls._instance = indexer
+
+    @classmethod
+    def clear(cls) -> None:
+        """
+        Clear the registry (useful for test cleanup).
+
+        Stops the indexer if running before clearing.
+        """
+        if cls._instance:
+            cls._instance.stop()
+        cls._instance = None
+
+    @classmethod
+    def create(
+        cls,
+        storage_path: Optional[Path] = None,
+        db_path: Optional[Path] = None,
+        db: Optional[AnalyticsDB] = None,
+        sync_state: Optional[SyncState] = None,
+        **kwargs,
+    ) -> HybridIndexer:
+        """
+        Factory method to create and register an indexer.
+
+        Supports dependency injection for testability.
+
+        Args:
+            storage_path: Path to storage directory
+            db_path: Path to database file
+            db: Injected AnalyticsDB instance (for testing)
+            sync_state: Injected SyncState instance (for testing)
+            **kwargs: Additional arguments passed to HybridIndexer
+
+        Returns:
+            The created and registered HybridIndexer instance
+        """
+        # Clear existing instance if any
+        cls.clear()
+
+        indexer = HybridIndexer(
+            storage_path=storage_path,
+            db_path=db_path,
+            db=db,
+            sync_state=sync_state,
+            **kwargs,
+        )
+        cls._instance = indexer
+        return indexer
+
+
+# =============================================================================
+# Module-level functions (backward compatible)
+# =============================================================================
 
 
 def get_hybrid_indexer() -> HybridIndexer:
     """Get or create the global hybrid indexer instance."""
-    global _indexer
-    if _indexer is None:
-        _indexer = HybridIndexer()
-    return _indexer
+    return IndexerRegistry.get_or_create()
 
 
 def start_hybrid_indexer() -> None:
@@ -321,12 +460,23 @@ def start_hybrid_indexer() -> None:
 
 def stop_hybrid_indexer() -> None:
     """Stop the global hybrid indexer."""
-    global _indexer
-    if _indexer:
-        _indexer.stop()
-        _indexer = None
+    IndexerRegistry.clear()
 
 
 def get_sync_status() -> SyncStatus:
     """Get current sync status."""
-    return get_hybrid_indexer().get_status()
+    indexer = IndexerRegistry.get()
+    if indexer:
+        return indexer.get_status()
+    # Return default status if no indexer
+    return SyncStatus(
+        phase=SyncPhase.INIT,
+        t0=None,
+        progress=0,
+        files_total=0,
+        files_done=0,
+        queue_size=0,
+        eta_seconds=None,
+        last_indexed=None,
+        is_ready=False,
+    )
