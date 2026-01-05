@@ -99,6 +99,13 @@ class TraceBuilder:
         # Get prompt from delegation
         prompt_input = extract_prompt(part.arguments)
 
+        # Resolve parent trace immediately (don't wait for batch resolution)
+        parent_trace_id = None
+        if delegation.session_id:
+            parent_trace_id = self._resolve_parent_trace_id(
+                delegation.session_id, trace_id
+            )
+
         conn = self._db.connect()
 
         try:
@@ -113,7 +120,7 @@ class TraceBuilder:
                 [
                     trace_id,
                     delegation.session_id or "",
-                    None,  # parent_trace_id resolved later
+                    parent_trace_id,  # Resolved immediately
                     parent_agent,
                     delegation.child_agent,
                     prompt_input,
@@ -347,6 +354,35 @@ class TraceBuilder:
         except Exception as e:
             debug(f"[TraceBuilder] Failed to update root trace agents: {e}")
             return 0
+
+    def _resolve_parent_trace_id(self, session_id: str, trace_id: str) -> Optional[str]:
+        """Resolve parent trace ID for a delegation trace.
+
+        A delegation trace's parent is the trace whose child_session_id
+        matches the delegation's session_id.
+
+        Args:
+            session_id: Session ID of the delegation trace
+            trace_id: Trace ID to exclude from search
+
+        Returns:
+            Parent trace ID or None
+        """
+        conn = self._db.connect()
+        try:
+            result = conn.execute(
+                """
+                SELECT trace_id
+                FROM agent_traces
+                WHERE child_session_id = ?
+                  AND trace_id != ?
+                LIMIT 1
+                """,
+                [session_id, trace_id],
+            ).fetchone()
+            return result[0] if result else None
+        except Exception:
+            return None
 
     def _resolve_parent_agent(self, message_id: Optional[str]) -> Optional[str]:
         """Resolve parent agent from message.

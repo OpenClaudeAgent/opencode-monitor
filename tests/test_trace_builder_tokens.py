@@ -190,6 +190,184 @@ class TestCreateTraceUpdatesTokens:
         assert result[1] == 1050, f"Expected tokens_out=1050, got {result[1]}"
 
 
+# === Tests for parent trace resolution ===
+
+
+class TestParentTraceResolution:
+    """Tests for immediate parent trace resolution during creation."""
+
+    def test_resolves_parent_trace_on_creation(self, temp_db, trace_builder):
+        """Verify parent trace is resolved immediately when creating delegation trace."""
+        parent_session_id = "ses_parent_resolve"
+        child_session_id = "ses_child_resolve"
+
+        # First, create a root trace for the parent session
+        conn = temp_db.connect()
+        conn.execute(
+            """
+            INSERT INTO agent_traces 
+            (trace_id, session_id, subagent_type, prompt_input, started_at, child_session_id)
+            VALUES ('root_ses_parent_resolve', ?, 'user', 'root prompt', ?, ?)
+            """,
+            [
+                parent_session_id,
+                datetime.now() - timedelta(minutes=10),
+                parent_session_id,
+            ],
+        )
+
+        # Create delegation
+        delegation = ParsedDelegation(
+            id="prt_resolve_test",
+            session_id=parent_session_id,
+            message_id="msg_resolve",
+            parent_agent="user",
+            child_session_id=child_session_id,
+            child_agent="explore",
+            created_at=datetime.now() - timedelta(minutes=5),
+        )
+
+        part = ParsedPart(
+            id="prt_resolve_test",
+            message_id="msg_resolve",
+            session_id=parent_session_id,
+            part_type="tool_use",
+            content=None,
+            tool_name="task",
+            tool_status="completed",
+            call_id="call_resolve",
+            arguments='{"prompt": "test"}',
+            created_at=datetime.now() - timedelta(minutes=5),
+            ended_at=datetime.now(),
+            duration_ms=300000,
+            error_message=None,
+        )
+
+        # Create trace - parent should be resolved immediately
+        trace_id = trace_builder.create_trace_from_delegation(delegation, part)
+
+        # Verify parent_trace_id was set
+        result = conn.execute(
+            "SELECT parent_trace_id FROM agent_traces WHERE trace_id = ?",
+            [trace_id],
+        ).fetchone()
+
+        assert result[0] == "root_ses_parent_resolve", (
+            f"Expected parent_trace_id='root_ses_parent_resolve', got '{result[0]}'"
+        )
+
+    def test_no_parent_when_root_not_exists(self, temp_db, trace_builder):
+        """Verify parent_trace_id is NULL when no root trace exists."""
+        parent_session_id = "ses_orphan"
+        child_session_id = "ses_child_orphan"
+
+        # Don't create root trace - delegation will be orphan
+
+        delegation = ParsedDelegation(
+            id="prt_orphan_test",
+            session_id=parent_session_id,
+            message_id="msg_orphan",
+            parent_agent="user",
+            child_session_id=child_session_id,
+            child_agent="explore",
+            created_at=datetime.now(),
+        )
+
+        part = ParsedPart(
+            id="prt_orphan_test",
+            message_id="msg_orphan",
+            session_id=parent_session_id,
+            part_type="tool_use",
+            content=None,
+            tool_name="task",
+            tool_status="completed",
+            call_id="call_orphan",
+            arguments='{"prompt": "test"}',
+            created_at=datetime.now(),
+            ended_at=datetime.now(),
+            duration_ms=1000,
+            error_message=None,
+        )
+
+        trace_id = trace_builder.create_trace_from_delegation(delegation, part)
+
+        conn = temp_db.connect()
+        result = conn.execute(
+            "SELECT parent_trace_id FROM agent_traces WHERE trace_id = ?",
+            [trace_id],
+        ).fetchone()
+
+        assert result[0] is None, "parent_trace_id should be NULL when no root exists"
+
+    def test_chained_delegations_resolve_correctly(self, temp_db, trace_builder):
+        """Verify chained delegations (A -> B -> C) resolve parent correctly."""
+        session_a = "ses_chain_a"
+        session_b = "ses_chain_b"
+        session_c = "ses_chain_c"
+
+        conn = temp_db.connect()
+
+        # Create root trace for session A
+        conn.execute(
+            """
+            INSERT INTO agent_traces 
+            (trace_id, session_id, subagent_type, prompt_input, started_at, child_session_id)
+            VALUES ('root_chain_a', ?, 'user', 'root', ?, ?)
+            """,
+            [session_a, datetime.now() - timedelta(minutes=20), session_a],
+        )
+
+        # Create delegation A -> B (in session A, creates session B)
+        conn.execute(
+            """
+            INSERT INTO agent_traces 
+            (trace_id, session_id, parent_trace_id, subagent_type, prompt_input, 
+             started_at, child_session_id)
+            VALUES ('del_a_to_b', ?, 'root_chain_a', 'coordinator', 'delegate to B', ?, ?)
+            """,
+            [session_a, datetime.now() - timedelta(minutes=15), session_b],
+        )
+
+        # Now create delegation B -> C (should find del_a_to_b as parent)
+        delegation_b_to_c = ParsedDelegation(
+            id="del_b_to_c",
+            session_id=session_b,  # In session B
+            message_id="msg_b",
+            parent_agent="coordinator",
+            child_session_id=session_c,
+            child_agent="explore",
+            created_at=datetime.now() - timedelta(minutes=10),
+        )
+
+        part = ParsedPart(
+            id="del_b_to_c",
+            message_id="msg_b",
+            session_id=session_b,
+            part_type="tool_use",
+            content=None,
+            tool_name="task",
+            tool_status="completed",
+            call_id="call_b",
+            arguments='{"prompt": "explore"}',
+            created_at=datetime.now() - timedelta(minutes=10),
+            ended_at=datetime.now(),
+            duration_ms=600000,
+            error_message=None,
+        )
+
+        trace_id = trace_builder.create_trace_from_delegation(delegation_b_to_c, part)
+
+        # Verify parent is del_a_to_b (the trace that created session B)
+        result = conn.execute(
+            "SELECT parent_trace_id FROM agent_traces WHERE trace_id = ?",
+            [trace_id],
+        ).fetchone()
+
+        assert result[0] == "del_a_to_b", (
+            f"Expected parent_trace_id='del_a_to_b', got '{result[0]}'"
+        )
+
+
 # === Tests for backfill_missing_tokens ===
 
 
