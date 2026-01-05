@@ -21,7 +21,7 @@ import pytest
 
 
 @pytest.fixture
-def mock_api_client():
+def mock_api_client_for_window():
     """Mock API client to avoid real API calls."""
     mock_client = MagicMock()
     mock_client.is_available = True
@@ -49,7 +49,7 @@ def mock_api_client():
 
 
 @pytest.fixture
-def dashboard_window_isolated(qapp, mock_api_client):
+def dashboard_window_isolated(qapp, mock_api_client_for_window):
     """DashboardWindow without auto-refresh for isolated testing."""
     from opencode_monitor.dashboard.window import DashboardWindow
 
@@ -61,7 +61,7 @@ def dashboard_window_isolated(qapp, mock_api_client):
 
 
 @pytest.fixture
-def dashboard_window_minimal(qapp, mock_api_client):
+def dashboard_window_minimal(qapp, mock_api_client_for_window):
     """Create a DashboardWindow with mocked fetch methods.
 
     Uses the same approach as test_dashboard_sync.py which works.
@@ -404,7 +404,7 @@ class TestDashboardDataHandlers:
 class TestDashboardFetchMethods:
     """Tests for DashboardWindow fetch methods."""
 
-    def test_fetch_monitoring_data_success(self, qapp, mock_api_client):
+    def test_fetch_monitoring_data_success(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data fetches and emits monitoring data."""
         from opencode_monitor.dashboard.window import DashboardWindow
         from opencode_monitor.core.models import (
@@ -464,7 +464,7 @@ class TestDashboardFetchMethods:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_monitoring_data_handles_exception(self, qapp, mock_api_client):
+    def test_fetch_monitoring_data_handles_exception(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data logs error and continues on exception."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
@@ -483,7 +483,7 @@ class TestDashboardFetchMethods:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_security_data_success(self, qapp, mock_api_client):
+    def test_fetch_security_data_success(self, qapp, mock_api_client_for_window):
         """_fetch_security_data fetches and emits security data."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
@@ -526,7 +526,7 @@ class TestDashboardFetchMethods:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_security_data_handles_exception(self, qapp, mock_api_client):
+    def test_fetch_security_data_handles_exception(self, qapp, mock_api_client_for_window):
         """_fetch_security_data logs error and continues on exception."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
@@ -745,7 +745,7 @@ class TestDashboardFetchMethods:
 class TestMonitoringDataProcessing:
     """Tests for monitoring data edge cases and processing."""
 
-    def test_fetch_monitoring_with_waiting_agents(self, qapp, mock_api_client):
+    def test_fetch_monitoring_with_waiting_agents(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data correctly processes agents with pending ask_user."""
         from opencode_monitor.dashboard.window import DashboardWindow
         from opencode_monitor.core.models import (
@@ -808,7 +808,7 @@ class TestMonitoringDataProcessing:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_monitoring_idle_instance_count(self, qapp, mock_api_client):
+    def test_fetch_monitoring_idle_instance_count(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data counts idle instances correctly."""
         from opencode_monitor.dashboard.window import DashboardWindow
         from opencode_monitor.core.models import (
@@ -976,7 +976,7 @@ class TestSyncCheckerIdleMode:
 class TestSecurityDataEdgeCases:
     """Tests for security data processing edge cases."""
 
-    def test_fetch_security_with_critical_items(self, qapp, mock_api_client):
+    def test_fetch_security_with_critical_items(self, qapp, mock_api_client_for_window):
         """_fetch_security_data processes critical items from all sources."""
         from opencode_monitor.dashboard.window import DashboardWindow
 
@@ -1065,7 +1065,7 @@ class TestSecurityDataEdgeCases:
 class TestMonitoringContextEdgeCases:
     """Tests for monitoring context string edge cases."""
 
-    def test_fetch_monitoring_with_repo_context(self, qapp, mock_api_client):
+    def test_fetch_monitoring_with_repo_context(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data uses repo when agent name not available."""
         from opencode_monitor.dashboard.window import DashboardWindow
         from opencode_monitor.core.models import (
