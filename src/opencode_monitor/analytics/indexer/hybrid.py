@@ -193,6 +193,16 @@ class HybridIndexer:
 
     def _run_bulk_phase(self) -> None:
         """Run the bulk loading phase."""
+        # Skip if already in realtime mode (from previous run)
+        if self._sync_state.is_realtime:
+            info("[HybridIndexer] Already in realtime mode, skipping bulk")
+            # Start realtime processor directly
+            self._processor_thread = threading.Thread(
+                target=self._run_realtime_phase, daemon=True, name="hybrid-realtime"
+            )
+            self._processor_thread.start()
+            return
+
         try:
             # Load all historical files
             results = self._bulk_loader.load_all(self._t0)
