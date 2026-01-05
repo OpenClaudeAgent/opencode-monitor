@@ -8,6 +8,9 @@ Enhanced with EDR-like heuristics:
 - Kill chain detection (sequence analysis)
 - Multi-event correlation
 - MITRE ATT&CK mapping
+
+NOTE: Dependencies are imported dynamically in __init__ to support
+patching at the auditor package level (e.g., patching auditor.SecurityDatabase).
 """
 
 import threading
@@ -16,22 +19,26 @@ from datetime import datetime
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
-from ..analyzer import get_risk_analyzer
+# Type-only imports (for type hints, not runtime usage)
 from ..db import (
-    SecurityDatabase,
     AuditedCommand,
     AuditedFileRead,
     AuditedFileWrite,
     AuditedWebFetch,
 )
-from ..reporter import SecurityReporter
 from ..sequences import SequenceMatch
 from ..correlator import Correlation
 from ...utils.logger import info, error, debug
 
-from ._constants import OPENCODE_STORAGE, SCAN_INTERVAL
 from ._edr_handler import EDRHandler
 from ._file_processor import FileProcessor
+
+
+def _get_auditor_pkg():
+    """Import auditor package at runtime to support patching."""
+    from opencode_monitor.security import auditor as pkg
+
+    return pkg
 
 
 class SecurityAuditor:
@@ -49,10 +56,13 @@ class SecurityAuditor:
         self._lock = threading.Lock()
         self._scanned_ids: set = set()
 
+        # Import from parent package to support patching at auditor level
+        pkg = _get_auditor_pkg()
+
         # Initialize components
-        self._db = SecurityDatabase()
-        self._analyzer = get_risk_analyzer()
-        self._reporter = SecurityReporter()
+        self._db = pkg.SecurityDatabase()
+        self._analyzer = pkg.get_risk_analyzer()
+        self._reporter = pkg.SecurityReporter()
 
         # EDR handler (encapsulates sequence analyzer and correlator)
         self._edr_handler = EDRHandler(
@@ -93,27 +103,29 @@ class SecurityAuditor:
 
     def _scan_loop(self):
         """Main scanning loop"""
+        pkg = _get_auditor_pkg()
         self._run_scan()
 
         while self._running:
-            time.sleep(SCAN_INTERVAL)
+            time.sleep(pkg.SCAN_INTERVAL)
             if self._running:
                 self._run_scan()
 
     def _run_scan(self):
         """Run a scan for new files"""
+        pkg = _get_auditor_pkg()
         start_time = time.time()
         new_files = 0
         new_counts = {"commands": 0, "reads": 0, "writes": 0, "webfetches": 0}
 
-        if not OPENCODE_STORAGE.exists():
+        if not pkg.OPENCODE_STORAGE.exists():
             debug("OpenCode storage not found")
             return
 
         try:
             # Collect all new files first
             files_to_process: List[Path] = []
-            for msg_dir in OPENCODE_STORAGE.iterdir():
+            for msg_dir in pkg.OPENCODE_STORAGE.iterdir():
                 if not msg_dir.is_dir():
                     continue
 
@@ -393,7 +405,9 @@ def get_auditor() -> SecurityAuditor:
     """Get or create the global auditor instance"""
     global _auditor
     if _auditor is None:
-        _auditor = SecurityAuditor()
+        # Use package reference for patching support
+        pkg = _get_auditor_pkg()
+        _auditor = pkg.SecurityAuditor()
     return _auditor
 
 
