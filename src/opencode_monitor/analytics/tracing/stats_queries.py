@@ -138,15 +138,17 @@ class StatsQueriesMixin:
                 [start, end],
             ).fetchall()
 
-            # Skills load count (from skills)
+            # Skills load count (from parts where tool_name='skill', parse arguments JSON)
             skill_rows = self._conn.execute(
                 """
                 SELECT 
-                    skill_name as skill,
+                    json_extract_string(arguments, '$.name') as skill,
                     COUNT(*) as load_count
-                FROM skills
-                WHERE loaded_at >= ? AND loaded_at <= ?
-                GROUP BY skill_name
+                FROM parts
+                WHERE tool_name = 'skill'
+                  AND arguments IS NOT NULL
+                  AND created_at >= ? AND created_at <= ?
+                GROUP BY skill
                 ORDER BY load_count DESC
                 LIMIT 10
                 """,

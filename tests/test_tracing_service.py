@@ -211,7 +211,9 @@ class TestGetSessionSummary:
         assert result["meta"]["error"] == "Session not found"
         assert result["summary"] == {}
 
-    def test_returns_complete_summary(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_complete_summary(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should return complete session summary with all KPIs."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -239,7 +241,9 @@ class TestGetSessionSummary:
         assert "tokens_by_type" in result["charts"]
         assert "tools_by_name" in result["charts"]
 
-    def test_calculates_token_metrics(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_calculates_token_metrics(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should correctly calculate token metrics."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -254,7 +258,9 @@ class TestGetSessionSummary:
         # Total = input + output = 620
         assert tokens["total"] == 620
 
-    def test_calculates_tool_metrics(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_calculates_tool_metrics(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should correctly calculate tool metrics."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -276,7 +282,9 @@ class TestGetSessionSummary:
 class TestGetSessionTokens:
     """Tests for get_session_tokens method."""
 
-    def test_returns_token_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_token_details(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should return detailed token breakdown."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_tokens("ses_001")
@@ -296,7 +304,9 @@ class TestGetSessionTokens:
 class TestGetSessionTools:
     """Tests for get_session_tools method."""
 
-    def test_returns_tool_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_tool_details(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should return detailed tool breakdown."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_tools("ses_001")
@@ -316,7 +326,9 @@ class TestGetSessionTools:
 class TestGetSessionFiles:
     """Tests for get_session_files method."""
 
-    def test_returns_file_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_file_details(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """Should return file operation details."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_files("ses_001")
@@ -436,6 +448,95 @@ class TestGetGlobalStats:
         period = result["meta"]["period"]
         assert period["start"] is not None
         assert period["end"] is not None
+
+    def test_returns_agents_tools_skills_lists(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
+        """Should return agents, tools, and skills lists with correct format."""
+        # Add skill data - parts with tool_name='skill' and arguments JSON
+        conn = populated_db.connect()
+        conn.execute(
+            """INSERT INTO parts 
+               (id, message_id, part_type, tool_name, tool_status, created_at,
+                session_id, call_id, ended_at, duration_ms, arguments)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt_skill_001",
+                "msg_002",
+                "tool",
+                "skill",
+                "completed",
+                datetime(2026, 1, 1, 10, 4, 0),
+                "ses_001",
+                None,
+                datetime(2026, 1, 1, 10, 4, 1),
+                1000,
+                '{"name": "functional-testing"}',
+            ],
+        )
+        conn.execute(
+            """INSERT INTO parts 
+               (id, message_id, part_type, tool_name, tool_status, created_at,
+                session_id, call_id, ended_at, duration_ms, arguments)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt_skill_002",
+                "msg_002",
+                "tool",
+                "skill",
+                "completed",
+                datetime(2026, 1, 1, 10, 5, 0),
+                "ses_001",
+                None,
+                datetime(2026, 1, 1, 10, 5, 1),
+                1000,
+                '{"name": "agentic-flow"}',
+            ],
+        )
+
+        service = TracingDataService(db=populated_db)
+        start = datetime(2026, 1, 1)
+        end = datetime(2026, 1, 2)
+
+        result = service.get_global_stats(start, end)
+
+        # Check agents list structure (from agent_traces)
+        assert "agents" in result
+        assert isinstance(result["agents"], list)
+        if result["agents"]:
+            agent = result["agents"][0]
+            assert "agent" in agent  # Key is 'agent', not 'agent_name'
+            assert "messages" in agent
+            assert "tokens" in agent
+            assert agent["agent"] == "executor"  # From populated_db agent_trace
+
+        # Check tools list structure (from parts)
+        assert "tools" in result
+        assert isinstance(result["tools"], list)
+        assert len(result["tools"]) >= 3  # read, write, bash, skill
+        tool = result["tools"][0]
+        assert "tool" in tool  # Key is 'tool', not 'tool_name'
+        assert "invocations" in tool
+        assert "failures" in tool
+        assert "failure_rate" in tool  # New field
+
+        # Check that bash has correct failure count (1 error in populated_db)
+        bash_tool = next((t for t in result["tools"] if t["tool"] == "bash"), None)
+        if bash_tool:
+            assert bash_tool["failures"] == 1
+            assert bash_tool["failure_rate"] == "100.0%"  # 1 failure out of 1
+
+        # Check skills list structure (from parts where tool_name='skill')
+        assert "skills" in result
+        assert isinstance(result["skills"], list)
+        assert len(result["skills"]) >= 2  # functional-testing, agentic-flow
+        skill = result["skills"][0]
+        assert "skill" in skill  # Key is 'skill', not 'skill_name'
+        assert "load_count" in skill
+
+        # Verify skill names are extracted from JSON arguments
+        skill_names = [s["skill"] for s in result["skills"]]
+        assert "functional-testing" in skill_names or "agentic-flow" in skill_names
 
 
 # =============================================================================
@@ -617,7 +718,9 @@ class TestPerformance:
 class TestResponseFormat:
     """Tests for standardized response format."""
 
-    def test_all_responses_have_meta(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_all_responses_have_meta(
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
+    ):
         """All responses should have meta section."""
         service = TracingDataService(db=populated_db)
 

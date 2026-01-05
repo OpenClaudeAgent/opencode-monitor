@@ -1111,3 +1111,180 @@ class TestMonitoringContextEdgeCases:
                 finally:
                     window.close()
                     window.deleteLater()
+
+
+# =============================================================================
+# AnalyticsSection Tests - Key Format Compatibility
+# =============================================================================
+
+
+class TestAnalyticsSectionKeyFormats:
+    """Tests for AnalyticsSection handling of different key formats.
+
+    The API returns data with keys 'tool' and 'skill', but we should
+    also accept 'tool_name' and 'skill_name' for backward compatibility.
+    """
+
+    @pytest.fixture
+    def analytics_section(self, qapp):
+        """Create AnalyticsSection for testing."""
+        from opencode_monitor.dashboard.sections.analytics import AnalyticsSection
+
+        section = AnalyticsSection()
+        yield section
+        section.deleteLater()
+
+    def test_update_data_with_tool_key(self, analytics_section):
+        """AnalyticsSection accepts 'tool' key (API format)."""
+        # API format uses 'tool' key
+        tools = [
+            {"tool": "bash", "invocations": 10, "failures": 1, "failure_rate": "10.0%"},
+            {"tool": "read", "invocations": 5, "failures": 0, "failure_rate": "0.0%"},
+        ]
+
+        analytics_section.update_data(
+            sessions=10,
+            messages=100,
+            tokens="5K",
+            cache_hit="60%",
+            agents=[],
+            tools=tools,
+            skills=[],
+        )
+
+        # Verify data was processed - check first row in tools table
+        assert analytics_section._tools_table.rowCount() == 2
+        assert analytics_section._tools_table.item(0, 0).text() == "bash"
+
+    def test_update_data_with_tool_name_key(self, analytics_section):
+        """AnalyticsSection accepts 'tool_name' key (fallback format)."""
+        # Fallback format uses 'tool_name' key
+        tools = [
+            {
+                "tool_name": "write",
+                "invocations": 8,
+                "failures": 2,
+                "failure_rate": "25.0%",
+            },
+        ]
+
+        analytics_section.update_data(
+            sessions=5,
+            messages=50,
+            tokens="2K",
+            cache_hit="40%",
+            agents=[],
+            tools=tools,
+            skills=[],
+        )
+
+        # Verify data was processed
+        assert analytics_section._tools_table.rowCount() == 1
+        assert analytics_section._tools_table.item(0, 0).text() == "write"
+
+    def test_update_data_with_skill_key(self, analytics_section):
+        """AnalyticsSection accepts 'skill' key (API format)."""
+        # API format uses 'skill' key
+        skills = [
+            {"skill": "functional-testing", "load_count": 5},
+            {"skill": "agentic-flow", "load_count": 3},
+        ]
+
+        analytics_section.update_data(
+            sessions=10,
+            messages=100,
+            tokens="5K",
+            cache_hit="60%",
+            agents=[],
+            tools=[],
+            skills=skills,
+        )
+
+        # Verify data was processed
+        assert analytics_section._skills_table.rowCount() == 2
+        assert analytics_section._skills_table.item(0, 0).text() == "functional-testing"
+
+    def test_update_data_with_skill_name_key(self, analytics_section):
+        """AnalyticsSection accepts 'skill_name' key (fallback format)."""
+        # Fallback format uses 'skill_name' key
+        skills = [
+            {"skill_name": "qml-testing", "load_count": 2},
+        ]
+
+        analytics_section.update_data(
+            sessions=5,
+            messages=50,
+            tokens="2K",
+            cache_hit="40%",
+            agents=[],
+            tools=[],
+            skills=skills,
+        )
+
+        # Verify data was processed
+        assert analytics_section._skills_table.rowCount() == 1
+        assert analytics_section._skills_table.item(0, 0).text() == "qml-testing"
+
+    def test_update_data_uses_api_failure_rate(self, analytics_section):
+        """AnalyticsSection uses failure_rate from API if available."""
+        # API provides pre-calculated failure_rate
+        tools = [
+            {"tool": "bash", "invocations": 10, "failures": 2, "failure_rate": "20.0%"},
+        ]
+
+        analytics_section.update_data(
+            sessions=10,
+            messages=100,
+            tokens="5K",
+            cache_hit="60%",
+            agents=[],
+            tools=tools,
+            skills=[],
+        )
+
+        # Check that failure_rate from API is displayed (column 3)
+        assert analytics_section._tools_table.item(0, 3).text() == "20.0%"
+
+    def test_update_data_calculates_failure_rate_if_missing(self, analytics_section):
+        """AnalyticsSection calculates failure_rate if not provided by API."""
+        # No failure_rate provided - should calculate
+        tools = [
+            {"tool": "bash", "invocations": 10, "failures": 3},
+        ]
+
+        analytics_section.update_data(
+            sessions=10,
+            messages=100,
+            tokens="5K",
+            cache_hit="60%",
+            agents=[],
+            tools=tools,
+            skills=[],
+        )
+
+        # Should calculate 3/10 = 30%
+        assert analytics_section._tools_table.item(0, 3).text() == "30.0%"
+
+    def test_update_data_agents_format(self, analytics_section):
+        """AnalyticsSection correctly processes agents data."""
+        agents = [
+            {"agent": "executor", "messages": 50, "tokens": 10000},
+            {"agent": "tester", "messages": 30, "tokens": 5000},
+        ]
+
+        analytics_section.update_data(
+            sessions=10,
+            messages=100,
+            tokens="15K",
+            cache_hit="60%",
+            agents=agents,
+            tools=[],
+            skills=[],
+        )
+
+        # Verify agents table has data
+        assert analytics_section._agents_table.rowCount() == 2
+        assert analytics_section._agents_table.item(0, 0).text() == "executor"
+        # Share column (index 3) should show percentage
+        share_text = analytics_section._agents_table.item(0, 3).text()
+        assert "%" in share_text

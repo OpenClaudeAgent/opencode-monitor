@@ -181,8 +181,12 @@ class AnalyticsSection(QWidget):
         for tool in tools[: UI["top_items_limit"]]:
             invocations = tool.get("invocations", 0)
             failures = tool.get("failures", 0)
-            rate = f"{failures / invocations * 100:.1f}%" if invocations > 0 else "0%"
-            tool_name = tool.get("tool_name", "")
+            # Use failure_rate from API if available, else calculate
+            rate = tool.get(
+                "failure_rate",
+                f"{failures / invocations * 100:.1f}%" if invocations > 0 else "0%",
+            )
+            tool_name = tool.get("tool", "") or tool.get("tool_name", "")
             tool_variant = get_operation_variant(tool_name)
 
             self._tools_table.add_row(
@@ -199,7 +203,7 @@ class AnalyticsSection(QWidget):
         for skill in skills[: UI["top_items_limit"]]:
             self._skills_table.add_row(
                 [
-                    skill.get("skill_name", ""),
+                    skill.get("skill", "") or skill.get("skill_name", ""),
                     str(skill.get("load_count", 0)),
                 ]
             )
