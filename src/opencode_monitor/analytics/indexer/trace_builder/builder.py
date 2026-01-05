@@ -15,9 +15,10 @@ from datetime import datetime
 from typing import Optional
 import uuid
 
-from ..db import AnalyticsDB
-from .parsers import ParsedDelegation, ParsedPart
-from ...utils.logger import debug
+from ...db import AnalyticsDB
+from ..parsers import ParsedDelegation, ParsedPart
+from ....utils.logger import debug
+from .helpers import determine_status, extract_prompt
 
 
 # Constants for root session traces
@@ -90,13 +91,13 @@ class TraceBuilder:
             return None
 
         trace_id = delegation.id or str(uuid.uuid4())
-        status = self._determine_status(part.tool_status)
+        status = determine_status(part.tool_status)
 
         # Resolve parent agent from message
         parent_agent = self._resolve_parent_agent(delegation.message_id)
 
         # Get prompt from delegation
-        prompt_input = self._extract_prompt(part.arguments)
+        prompt_input = extract_prompt(part.arguments)
 
         conn = self._db.connect()
 
@@ -285,26 +286,6 @@ class TraceBuilder:
             debug(f"[TraceBuilder] Failed to update root trace agents: {e}")
             return 0
 
-    def _determine_status(self, tool_status: Optional[str]) -> str:
-        """Determine trace status from tool status.
-
-        Args:
-            tool_status: Raw tool status string
-
-        Returns:
-            Normalized status (running/completed/error)
-        """
-        if not tool_status:
-            return "running"
-
-        status_lower = tool_status.lower()
-        if status_lower in ("completed", "success"):
-            return "completed"
-        elif status_lower in ("error", "failed"):
-            return "error"
-        else:
-            return "running"
-
     def _resolve_parent_agent(self, message_id: Optional[str]) -> Optional[str]:
         """Resolve parent agent from message.
 
@@ -326,26 +307,6 @@ class TraceBuilder:
             return result[0] if result else None
         except Exception:
             return None
-
-    def _extract_prompt(self, arguments: Optional[str]) -> str:
-        """Extract prompt from task tool arguments.
-
-        Args:
-            arguments: JSON string of tool arguments
-
-        Returns:
-            Prompt text or empty string
-        """
-        if not arguments:
-            return ""
-
-        import json
-
-        try:
-            data = json.loads(arguments)
-            return data.get("prompt", "") or ""
-        except (json.JSONDecodeError, TypeError):
-            return ""
 
     def create_root_trace(
         self,
