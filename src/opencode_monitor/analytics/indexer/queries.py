@@ -71,10 +71,11 @@ FROM read_json_auto('{path}/**/*.json',
 # IMPORTANT: Uses explicit columns schema to ensure both 'time' and 'state.time'
 # columns exist even if some JSON files don't have them. Without this, DuckDB fails
 # with "column not found" error when referencing missing struct keys.
+# NOTE: state.metadata.sessionId is extracted for task delegations to link child sessions.
 LOAD_PARTS_SQL = """
 INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
-    call_id, created_at, ended_at, duration_ms, arguments, error_message
+    call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id
 )
 SELECT 
     id,
@@ -103,7 +104,9 @@ SELECT
         ELSE NULL 
     END as duration_ms,
     to_json(TRY(state."input")) as arguments,
-    NULL as error_message
+    NULL as error_message,
+    -- Extract child_session_id from state.metadata.sessionId for task delegations
+    TRY(state.metadata.sessionId) as child_session_id
 FROM read_json_auto('{path}/**/*.json',
     maximum_object_size=10485760,
     ignore_errors=true,
@@ -116,7 +119,7 @@ FROM read_json_auto('{path}/**/*.json',
         'text': 'VARCHAR',
         'tool': 'VARCHAR',
         'callID': 'VARCHAR',
-        'state': 'STRUCT(status VARCHAR, "input" JSON, "time" STRUCT("start" BIGINT, "end" BIGINT))',
+        'state': 'STRUCT(status VARCHAR, "input" JSON, "time" STRUCT("start" BIGINT, "end" BIGINT), metadata STRUCT(sessionId VARCHAR))',
         'time': 'STRUCT("start" BIGINT, "end" BIGINT)'
     }}
 )
@@ -154,6 +157,8 @@ SELECT COUNT(*) FROM agent_traces WHERE trace_id LIKE 'root_%'
 """
 
 # Query for creating delegation traces from task parts
+# NOTE: child_session_id is now extracted directly from state.metadata.sessionId
+# during parts loading (not from arguments which contains state.input)
 CREATE_DELEGATION_TRACES_SQL = """
 INSERT OR IGNORE INTO agent_traces (
     trace_id, session_id, parent_trace_id, parent_agent, subagent_type,
@@ -185,7 +190,7 @@ SELECT
         WHEN 'error' THEN 'error'
         ELSE 'running'
     END as status,
-    json_extract_string(p.arguments, '$.session_id') as child_session_id
+    p.child_session_id as child_session_id
 FROM parts p
 LEFT JOIN messages m ON p.message_id = m.id
 WHERE p.tool_name = 'task'

@@ -219,8 +219,28 @@ def create_task_part_json(
     child_session_id: str = None,
     status: str = "completed",
 ) -> dict:
-    """Factory to create task delegation part JSON data."""
+    """Factory to create task delegation part JSON data.
+
+    Note: child_session_id is stored in state.metadata.sessionId (not in state.input).
+    This matches the actual OpenCode JSON format where metadata contains the child session.
+    """
     now_ms = int(datetime.now().timestamp() * 1000)
+    state = {
+        "status": status,
+        "input": {
+            "subagent_type": subagent_type,
+            "prompt": prompt,
+        },
+        "time": {
+            "start": now_ms,
+            "end": now_ms + 10000,
+        },
+    }
+
+    # Add metadata with sessionId if child_session_id is provided
+    if child_session_id:
+        state["metadata"] = {"sessionId": child_session_id}
+
     return {
         "id": part_id,
         "sessionID": session_id,
@@ -229,18 +249,7 @@ def create_task_part_json(
         "tool": "task",
         "text": None,  # Required field for BulkLoader
         "callID": f"call_{part_id}",
-        "state": {
-            "status": status,
-            "input": {
-                "subagent_type": subagent_type,
-                "prompt": prompt,
-                "session_id": child_session_id,
-            },
-            "time": {
-                "start": now_ms,
-                "end": now_ms + 10000,
-            },
-        },
+        "state": state,
         "time": {
             "start": now_ms,
             "end": now_ms + 10000,

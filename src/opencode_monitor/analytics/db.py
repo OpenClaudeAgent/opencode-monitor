@@ -456,6 +456,7 @@ class AnalyticsDB:
         add_column("parts", "arguments", "TEXT")
         add_column("parts", "result_summary", "TEXT")
         add_column("parts", "error_message", "TEXT")
+        add_column("parts", "child_session_id", "VARCHAR")  # For task delegations
 
         # Sessions - additional columns for stats
         add_column("sessions", "ended_at", "TIMESTAMP")
