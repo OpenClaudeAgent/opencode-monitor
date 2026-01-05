@@ -8,10 +8,14 @@ This solves DuckDB's multi-process concurrency limitations.
 import urllib.request
 import urllib.error
 import json
+import time
 from typing import Optional
 
 from ..utils.logger import debug, error
 from .config import API_HOST, API_PORT, API_TIMEOUT
+
+# Cache duration for health check (seconds)
+HEALTH_CHECK_CACHE_DURATION = 5
 
 
 class AnalyticsAPIClient:
@@ -34,6 +38,7 @@ class AnalyticsAPIClient:
         self._base_url = f"http://{host}:{port}"
         self._timeout = timeout
         self._available: Optional[bool] = None
+        self._last_health_check: float = 0  # Timestamp of last health check
 
     def _request(self, endpoint: str, params: Optional[dict] = None) -> Optional[dict]:
         """Make an HTTP GET request to the API.
@@ -80,13 +85,23 @@ class AnalyticsAPIClient:
     def is_available(self) -> bool:
         """Check if the API is available.
 
-        Always performs a health check to ensure current status.
+        Uses cached result for HEALTH_CHECK_CACHE_DURATION seconds to reduce
+        overhead from repeated checks (dashboard checks availability 3+ times per refresh).
         """
+        now = time.time()
+        # Use cached result if recent enough
+        if (
+            self._available is not None
+            and (now - self._last_health_check) < HEALTH_CHECK_CACHE_DURATION
+        ):
+            return self._available
+        # Otherwise perform fresh health check
         return self.health_check()
 
     def health_check(self) -> bool:
         """Check if the API server is responding."""
         result = self._request("/api/health")
+        self._last_health_check = time.time()
         return result is not None
 
     def get_stats(self) -> Optional[dict]:
@@ -187,6 +202,22 @@ class AnalyticsAPIClient:
         Preferred over get_sync_status() for detailed progress info.
         """
         return self._request("/api/sync/status")
+
+    def get_security_data(
+        self, row_limit: int = 100, top_limit: int = 10
+    ) -> Optional[dict]:
+        """Get security audit data for dashboard.
+
+        Args:
+            row_limit: Max rows for commands table
+            top_limit: Max items for top lists
+
+        Returns:
+            Dict with stats, commands, files, critical_items, or None
+        """
+        return self._request(
+            "/api/security", {"row_limit": row_limit, "top_limit": top_limit}
+        )
 
 
 # Global client instance

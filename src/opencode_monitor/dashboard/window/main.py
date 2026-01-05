@@ -42,6 +42,10 @@ from .sync import SyncChecker
 class DashboardWindow(QMainWindow):
     """Main dashboard window with sidebar navigation."""
 
+    # Secondary data (security, analytics, tracing) refreshes every N iterations
+    # With refresh_interval_ms=2000 and divisor=5, secondary refreshes every 10s
+    SECONDARY_REFRESH_DIVISOR = 5
+
     def __init__(self, parent: QWidget | None = None):
         """Initialize dashboard window.
 
@@ -54,6 +58,7 @@ class DashboardWindow(QMainWindow):
         self._refresh_timer: Optional[QTimer] = None
         self._agent_tty_map: dict[str, str] = {}  # agent_id -> tty mapping
         self._sync_checker: Optional[SyncChecker] = None
+        self._refresh_count = 0  # Counter for adaptive polling
 
         self._setup_window()
         self._setup_ui()
@@ -194,11 +199,23 @@ class DashboardWindow(QMainWindow):
         self._sync_checker = SyncChecker(on_sync_detected=self._refresh_all_data)
 
     def _refresh_all_data(self) -> None:
-        """Refresh all section data in background threads."""
+        """Refresh all section data in background threads.
+
+        Performance optimization: Uses adaptive polling to reduce CPU usage.
+        - Monitoring data refreshes every 2s (real-time agent detection)
+        - Secondary data (security, analytics, tracing) refreshes every 10s
+        """
+        # Always refresh monitoring (real-time requirement for agent detection)
         threading.Thread(target=self._fetch_monitoring_data, daemon=True).start()
-        threading.Thread(target=self._fetch_security_data, daemon=True).start()
-        threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
-        threading.Thread(target=self._fetch_tracing_data, daemon=True).start()
+
+        # Secondary data refreshes less frequently (every SECONDARY_REFRESH_DIVISOR iterations)
+        # This reduces API calls from 4/2s to 1/2s + 3/10s = ~60% reduction
+        if self._refresh_count % self.SECONDARY_REFRESH_DIVISOR == 0:
+            threading.Thread(target=self._fetch_security_data, daemon=True).start()
+            threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
+            threading.Thread(target=self._fetch_tracing_data, daemon=True).start()
+
+        self._refresh_count += 1
 
     def _fetch_monitoring_data(self) -> None:
         """Fetch monitoring data from core module."""
@@ -320,112 +337,32 @@ class DashboardWindow(QMainWindow):
             error(f"[Dashboard] Monitoring fetch error: {e}")
 
     def _fetch_security_data(self) -> None:
-        """Fetch security data from auditor."""
-        try:
-            from ...security.auditor import get_auditor
+        """Fetch security data via API to avoid DuckDB lock conflicts.
 
-            auditor = get_auditor()
-            stats = auditor.get_stats()
+        Uses the menubar's API server instead of directly accessing the
+        security auditor, which would cause DuckDB lock errors since the
+        menubar process holds the write lock.
+        """
+        try:
+            from ...api import get_api_client
+
+            client = get_api_client()
+
+            # Check if API is available
+            if not client.is_available:
+                from ...utils.logger import debug
+
+                debug("[Dashboard] API not available for security data")
+                return
+
             row_limit = UI["table_row_limit"]
             top_limit = UI["top_items_limit"]
 
-            commands = auditor.get_all_commands(limit=row_limit)
-            reads = auditor.get_all_reads(limit=top_limit)
-            writes = auditor.get_all_writes(limit=top_limit)
+            # Fetch security data from API (data is already formatted)
+            data = client.get_security_data(row_limit=row_limit, top_limit=top_limit)
 
-            # Get critical/high items
-            critical_cmds = auditor.get_critical_commands(limit=row_limit)
-            high_cmds = auditor.get_commands_by_level("high", limit=row_limit)
-            sensitive_reads = auditor.get_sensitive_reads(limit=top_limit)
-            sensitive_writes = auditor.get_sensitive_writes(limit=top_limit)
-            risky_fetches = auditor.get_risky_webfetches(limit=top_limit)
-
-            # Build critical items list
-            critical_items = []
-            for c in critical_cmds + high_cmds:
-                critical_items.append(
-                    {
-                        "type": "COMMAND",
-                        "details": c.command,
-                        "risk": c.risk_level,
-                        "reason": c.risk_reason,
-                        "score": c.risk_score,
-                    }
-                )
-            for r in sensitive_reads:
-                critical_items.append(
-                    {
-                        "type": "READ",
-                        "details": r.file_path,
-                        "risk": r.risk_level,
-                        "reason": r.risk_reason,
-                        "score": r.risk_score,
-                    }
-                )
-            for w in sensitive_writes:
-                critical_items.append(
-                    {
-                        "type": "WRITE",
-                        "details": w.file_path,
-                        "risk": w.risk_level,
-                        "reason": w.risk_reason,
-                        "score": w.risk_score,
-                    }
-                )
-            for f in risky_fetches:
-                critical_items.append(
-                    {
-                        "type": "WEBFETCH",
-                        "details": f.url,
-                        "risk": f.risk_level,
-                        "reason": f.risk_reason,
-                        "score": f.risk_score,
-                    }
-                )
-
-            # Combine file operations
-            files = []
-            for r in reads:
-                files.append(
-                    {
-                        "operation": "READ",
-                        "path": r.file_path,
-                        "risk": r.risk_level,
-                        "score": r.risk_score,
-                        "reason": r.risk_reason,
-                    }
-                )
-            for w in writes:
-                files.append(
-                    {
-                        "operation": "WRITE",
-                        "path": w.file_path,
-                        "risk": w.risk_level,
-                        "reason": w.risk_reason,
-                        "score": w.risk_score,
-                    }
-                )
-
-            files.sort(key=lambda x: x.get("score", 0), reverse=True)
-
-            # Format commands
-            cmds = []
-            for c in commands:
-                cmds.append(
-                    {
-                        "command": c.command,
-                        "risk": c.risk_level,
-                        "score": c.risk_score,
-                        "reason": c.risk_reason,
-                    }
-                )
-
-            data = {
-                "stats": stats,
-                "commands": cmds,
-                "files": files[:row_limit],
-                "critical_items": critical_items,
-            }
+            if not data:
+                return
 
             self._signals.security_updated.emit(data)
 
