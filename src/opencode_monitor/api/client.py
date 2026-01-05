@@ -161,6 +161,33 @@ class AnalyticsAPIClient:
         """
         return self._request("/api/tracing/tree", {"days": days})
 
+    def get_sync_status(self) -> Optional[dict]:
+        """Get sync status including backfill state (legacy format).
+
+        DEPRECATED: Use get_detailed_sync_status() for comprehensive info.
+
+        Returns:
+            Dict with backfill_active (bool), initial_backfill_done (bool),
+            timestamp, and additional fields (phase, progress) for migration.
+        """
+        return self._request("/api/sync_status")
+
+    def get_detailed_sync_status(self) -> Optional[dict]:
+        """Get detailed sync status from hybrid indexer.
+
+        Returns comprehensive status including:
+            - phase: Current sync phase (bulk_sessions, bulk_messages, realtime, etc.)
+            - progress: Percentage complete (0-100)
+            - files_total: Total files to process
+            - files_done: Files processed so far
+            - queue_size: Files waiting in queue
+            - eta_seconds: Estimated time to completion
+            - is_ready: True when data is available for queries
+
+        Preferred over get_sync_status() for detailed progress info.
+        """
+        return self._request("/api/sync/status")
+
 
 # Global client instance
 _api_client: Optional[AnalyticsAPIClient] = None
