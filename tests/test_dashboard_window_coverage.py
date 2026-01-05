@@ -16,6 +16,70 @@ import pytest
 
 
 # =============================================================================
+# Factories
+# =============================================================================
+
+
+def make_mock_state(
+    agents=None,
+    pending_todos=0,
+    in_progress_todos=0,
+    port=8080,
+    tty="/dev/ttys001",
+):
+    """Factory for creating mock State objects."""
+    from opencode_monitor.core.models import State, Instance, Todos
+
+    if agents is None:
+        agents = []
+
+    return State(
+        instances=[Instance(port=port, tty=tty, agents=agents)],
+        todos=Todos(pending=pending_todos, in_progress=in_progress_todos),
+    )
+
+
+def make_mock_agent(
+    agent_id="agent-1",
+    title="Test Agent",
+    status=None,
+    tools=None,
+    has_pending_ask_user=False,
+    ask_user_title="",
+    ask_user_question="",
+    ask_user_options=None,
+    ask_user_agent="",
+    ask_user_repo="",
+    ask_user_branch="",
+):
+    """Factory for creating mock Agent objects."""
+    from opencode_monitor.core.models import Agent, SessionStatus
+
+    if status is None:
+        status = SessionStatus.BUSY
+    if tools is None:
+        tools = []
+    if ask_user_options is None:
+        ask_user_options = []
+
+    return Agent(
+        id=agent_id,
+        title=title,
+        dir="project",
+        full_dir="/home/user/project",
+        status=status,
+        tools=tools,
+        has_pending_ask_user=has_pending_ask_user,
+        ask_user_title=ask_user_title,
+        ask_user_question=ask_user_question,
+        ask_user_options=ask_user_options,
+        ask_user_agent=ask_user_agent,
+        ask_user_repo=ask_user_repo,
+        ask_user_branch=ask_user_branch,
+    )
+
+
+# =============================================================================
 # Fixtures
 # =============================================================================
 
@@ -46,6 +110,18 @@ def mock_api_client_for_window():
     with patch("opencode_monitor.api.get_api_client") as mock_get:
         mock_get.return_value = mock_client
         yield mock_client
+
+
+@pytest.fixture
+def dashboard_window_simple(qapp, mock_api_client_for_window):
+    """Simple DashboardWindow for testing - no auto-refresh, easy cleanup."""
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    with patch.object(DashboardWindow, "_start_refresh"):
+        window = DashboardWindow()
+        yield window
+        window.close()
+        window.deleteLater()
 
 
 @pytest.fixture
@@ -289,7 +365,7 @@ class TestDashboardDataHandlers:
         )
 
         # Verify sidebar status update
-        window._sidebar.set_status.assert_called()
+        window._sidebar.set_status.assert_called_once()
 
     def test_on_monitoring_data_with_zero_agents(self, dashboard_window_minimal):
         """_on_monitoring_data shows 'Idle' status when no agents."""
@@ -397,6 +473,86 @@ class TestDashboardDataHandlers:
 
 
 # =============================================================================
+# Parameterized Tests - Exception Handling
+# =============================================================================
+
+
+class TestFetchExceptionHandling:
+    """Parameterized tests for fetch method exception handling."""
+
+    @pytest.mark.parametrize(
+        "patch_target,method_name,error_msg_contains",
+        [
+            pytest.param(
+                "asyncio.new_event_loop",
+                "_fetch_monitoring_data",
+                "Monitoring fetch error",
+                id="monitoring",
+            ),
+            pytest.param(
+                "opencode_monitor.security.auditor.get_auditor",
+                "_fetch_security_data",
+                "Security fetch error",
+                id="security",
+            ),
+            pytest.param(
+                "opencode_monitor.api.get_api_client",
+                "_fetch_analytics_data",
+                "Analytics fetch error",
+                id="analytics",
+            ),
+        ],
+    )
+    def test_fetch_handles_exception(
+        self, dashboard_window_simple, patch_target, method_name, error_msg_contains
+    ):
+        """Fetch methods log error and continue on exception."""
+        window = dashboard_window_simple
+
+        with patch(patch_target, side_effect=RuntimeError("Test error")):
+            with patch("opencode_monitor.utils.logger.error") as mock_error:
+                # Call the method - should not raise
+                getattr(window, method_name)()
+                mock_error.assert_called_once()
+                assert error_msg_contains in mock_error.call_args[0][0]
+
+
+class TestFetchApiUnavailable:
+    """Parameterized tests for API unavailable handling."""
+
+    @pytest.mark.parametrize(
+        "method_name,signal_name",
+        [
+            pytest.param("_fetch_analytics_data", "analytics_updated", id="analytics"),
+            pytest.param("_fetch_tracing_data", "tracing_updated", id="tracing"),
+        ],
+    )
+    def test_fetch_returns_early_when_api_unavailable(
+        self, qapp, method_name, signal_name
+    ):
+        """Fetch methods return early when API is unavailable."""
+        from opencode_monitor.dashboard.window import DashboardWindow
+
+        mock_client = MagicMock()
+        mock_client.is_available = False
+
+        with patch("opencode_monitor.api.get_api_client", return_value=mock_client):
+            with patch.object(DashboardWindow, "_start_refresh"):
+                window = DashboardWindow()
+                try:
+                    received_data = []
+                    signal = getattr(window._signals, signal_name)
+                    signal.connect(lambda d: received_data.append(d))
+
+                    getattr(window, method_name)()
+
+                    assert len(received_data) == 0
+                finally:
+                    window.close()
+                    window.deleteLater()
+
+
+# =============================================================================
 # main.py Tests - Fetch Methods
 # =============================================================================
 
@@ -407,34 +563,11 @@ class TestDashboardFetchMethods:
     def test_fetch_monitoring_data_success(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data fetches and emits monitoring data."""
         from opencode_monitor.dashboard.window import DashboardWindow
-        from opencode_monitor.core.models import (
-            State,
-            Instance,
-            Agent,
-            SessionStatus,
-            Todos,
-            Tool,
-        )
+        from opencode_monitor.core.models import Tool
 
-        # Create mock state
-        mock_state = State(
-            instances=[
-                Instance(
-                    port=8080,
-                    tty="/dev/ttys001",
-                    agents=[
-                        Agent(
-                            id="agent-1",
-                            title="Test Agent",
-                            dir="project",
-                            full_dir="/home/user/project",
-                            status=SessionStatus.BUSY,
-                            tools=[Tool(name="bash", arg="ls -la", elapsed_ms=100)],
-                        ),
-                    ],
-                )
-            ],
-            todos=Todos(pending=2, in_progress=1),
+        agent = make_mock_agent(tools=[Tool(name="bash", arg="ls -la", elapsed_ms=100)])
+        mock_state = make_mock_state(
+            agents=[agent], pending_todos=2, in_progress_todos=1
         )
 
         with patch("asyncio.new_event_loop") as mock_loop_factory:
@@ -460,25 +593,6 @@ class TestDashboardFetchMethods:
                     assert data["busy"] == 1
                     assert len(data["agents_data"]) == 1
                     assert len(data["tools_data"]) == 1
-                finally:
-                    window.close()
-                    window.deleteLater()
-
-    def test_fetch_monitoring_data_handles_exception(self, qapp, mock_api_client_for_window):
-        """_fetch_monitoring_data logs error and continues on exception."""
-        from opencode_monitor.dashboard.window import DashboardWindow
-
-        with patch("asyncio.new_event_loop") as mock_loop_factory:
-            mock_loop_factory.side_effect = RuntimeError("Test error")
-
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    with patch("opencode_monitor.utils.logger.error") as mock_error:
-                        # Should not raise
-                        window._fetch_monitoring_data()
-                        mock_error.assert_called_once()
-                        assert "Monitoring fetch error" in mock_error.call_args[0][0]
                 finally:
                     window.close()
                     window.deleteLater()
@@ -526,25 +640,6 @@ class TestDashboardFetchMethods:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_security_data_handles_exception(self, qapp, mock_api_client_for_window):
-        """_fetch_security_data logs error and continues on exception."""
-        from opencode_monitor.dashboard.window import DashboardWindow
-
-        with patch(
-            "opencode_monitor.security.auditor.get_auditor",
-            side_effect=RuntimeError("DB error"),
-        ):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    with patch("opencode_monitor.utils.logger.error") as mock_error:
-                        window._fetch_security_data()
-                        mock_error.assert_called_once()
-                        assert "Security fetch error" in mock_error.call_args[0][0]
-                finally:
-                    window.close()
-                    window.deleteLater()
-
     def test_fetch_analytics_data_success(self, dashboard_window_isolated):
         """_fetch_analytics_data fetches and emits analytics data."""
         window = dashboard_window_isolated
@@ -562,31 +657,6 @@ class TestDashboardFetchMethods:
         data = received_data[0]
         assert data["sessions"] == 10
         assert data["messages"] == 100
-
-    def test_fetch_analytics_data_api_unavailable(self, qapp):
-        """_fetch_analytics_data returns early when API unavailable."""
-        from opencode_monitor.dashboard.window import DashboardWindow
-
-        mock_client = MagicMock()
-        mock_client.is_available = False
-
-        with patch("opencode_monitor.api.get_api_client", return_value=mock_client):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    received_data = []
-                    window._signals.analytics_updated.connect(
-                        lambda d: received_data.append(d)
-                    )
-
-                    with patch("opencode_monitor.utils.logger.debug") as mock_debug:
-                        window._fetch_analytics_data()
-
-                    # No data emitted
-                    assert len(received_data) == 0
-                finally:
-                    window.close()
-                    window.deleteLater()
 
     def test_fetch_analytics_data_no_stats(self, qapp):
         """_fetch_analytics_data returns early when no stats returned."""
@@ -660,25 +730,6 @@ class TestDashboardFetchMethods:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_analytics_data_handles_exception(self, qapp):
-        """_fetch_analytics_data logs error and continues on exception."""
-        from opencode_monitor.dashboard.window import DashboardWindow
-
-        with patch(
-            "opencode_monitor.api.get_api_client",
-            side_effect=RuntimeError("API error"),
-        ):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    with patch("opencode_monitor.utils.logger.error") as mock_error:
-                        window._fetch_analytics_data()
-                        mock_error.assert_called_once()
-                        assert "Analytics fetch error" in mock_error.call_args[0][0]
-                finally:
-                    window.close()
-                    window.deleteLater()
-
     def test_fetch_tracing_data_success(self, dashboard_window_isolated):
         """_fetch_tracing_data fetches and emits tracing data."""
         window = dashboard_window_isolated
@@ -692,30 +743,6 @@ class TestDashboardFetchMethods:
         data = received_data[0]
         assert "session_hierarchy" in data
         assert len(data["session_hierarchy"]) == 1
-
-    def test_fetch_tracing_data_api_unavailable(self, qapp):
-        """_fetch_tracing_data returns early when API unavailable."""
-        from opencode_monitor.dashboard.window import DashboardWindow
-
-        mock_client = MagicMock()
-        mock_client.is_available = False
-
-        with patch("opencode_monitor.api.get_api_client", return_value=mock_client):
-            with patch.object(DashboardWindow, "_start_refresh"):
-                window = DashboardWindow()
-                try:
-                    received_data = []
-                    window._signals.tracing_updated.connect(
-                        lambda d: received_data.append(d)
-                    )
-
-                    with patch("opencode_monitor.utils.logger.debug"):
-                        window._fetch_tracing_data()
-
-                    assert len(received_data) == 0
-                finally:
-                    window.close()
-                    window.deleteLater()
 
     def test_fetch_tracing_data_handles_exception(self, qapp):
         """_fetch_tracing_data logs error with traceback on exception."""
@@ -745,41 +772,23 @@ class TestDashboardFetchMethods:
 class TestMonitoringDataProcessing:
     """Tests for monitoring data edge cases and processing."""
 
-    def test_fetch_monitoring_with_waiting_agents(self, qapp, mock_api_client_for_window):
+    def test_fetch_monitoring_with_waiting_agents(
+        self, qapp, mock_api_client_for_window
+    ):
         """_fetch_monitoring_data correctly processes agents with pending ask_user."""
         from opencode_monitor.dashboard.window import DashboardWindow
-        from opencode_monitor.core.models import (
-            State,
-            Instance,
-            Agent,
-            SessionStatus,
-            Todos,
-        )
 
-        mock_state = State(
-            instances=[
-                Instance(
-                    port=8080,
-                    tty="",
-                    agents=[
-                        Agent(
-                            id="agent-wait",
-                            title="Waiting Agent",
-                            dir="project",
-                            full_dir="/home/user/project",
-                            status=SessionStatus.BUSY,
-                            has_pending_ask_user=True,
-                            ask_user_title="Need Input",
-                            ask_user_question="What next?",
-                            ask_user_options=["Option A", "Option B"],
-                            ask_user_agent="my-agent",
-                            ask_user_branch="main",
-                        ),
-                    ],
-                )
-            ],
-            todos=Todos(pending=0, in_progress=0),
+        agent = make_mock_agent(
+            agent_id="agent-wait",
+            title="Waiting Agent",
+            has_pending_ask_user=True,
+            ask_user_title="Need Input",
+            ask_user_question="What next?",
+            ask_user_options=["Option A", "Option B"],
+            ask_user_agent="my-agent",
+            ask_user_branch="main",
         )
+        mock_state = make_mock_state(agents=[agent], tty="")
 
         with patch("asyncio.new_event_loop") as mock_loop_factory:
             mock_loop = MagicMock()
@@ -808,7 +817,9 @@ class TestMonitoringDataProcessing:
                     window.close()
                     window.deleteLater()
 
-    def test_fetch_monitoring_idle_instance_count(self, qapp, mock_api_client_for_window):
+    def test_fetch_monitoring_idle_instance_count(
+        self, qapp, mock_api_client_for_window
+    ):
         """_fetch_monitoring_data counts idle instances correctly."""
         from opencode_monitor.dashboard.window import DashboardWindow
         from opencode_monitor.core.models import (
@@ -1068,40 +1079,19 @@ class TestMonitoringContextEdgeCases:
     def test_fetch_monitoring_with_repo_context(self, qapp, mock_api_client_for_window):
         """_fetch_monitoring_data uses repo when agent name not available."""
         from opencode_monitor.dashboard.window import DashboardWindow
-        from opencode_monitor.core.models import (
-            State,
-            Instance,
-            Agent,
-            SessionStatus,
-            Todos,
-        )
 
         # Agent with ask_user_repo but no ask_user_agent
-        mock_state = State(
-            instances=[
-                Instance(
-                    port=8080,
-                    tty="",
-                    agents=[
-                        Agent(
-                            id="agent-repo",
-                            title="Repo Agent",
-                            dir="project",
-                            full_dir="/home/user/project",
-                            status=SessionStatus.BUSY,
-                            has_pending_ask_user=True,
-                            ask_user_title="Input needed",
-                            ask_user_question="Question?",
-                            ask_user_options=[],
-                            ask_user_agent="",  # No agent name
-                            ask_user_repo="my-repo",  # Has repo
-                            ask_user_branch="feature",
-                        ),
-                    ],
-                )
-            ],
-            todos=Todos(pending=0, in_progress=0),
+        agent = make_mock_agent(
+            agent_id="agent-repo",
+            title="Repo Agent",
+            has_pending_ask_user=True,
+            ask_user_title="Input needed",
+            ask_user_question="Question?",
+            ask_user_agent="",  # No agent name
+            ask_user_repo="my-repo",  # Has repo
+            ask_user_branch="feature",
         )
+        mock_state = make_mock_state(agents=[agent], tty="")
 
         with patch("asyncio.new_event_loop") as mock_loop_factory:
             mock_loop = MagicMock()
