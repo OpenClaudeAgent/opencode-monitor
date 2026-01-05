@@ -115,11 +115,11 @@ class AuditorTestContext:
 def auditor_with_mocks(mock_db, mock_analyzer):
     """Create auditor with all dependencies mocked. Returns AuditorTestContext."""
     with (
-        patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
+        patch("opencode_monitor.security.auditor.core.SecurityDatabase") as mock_db_cls,
         patch(
-            "opencode_monitor.security.auditor.get_risk_analyzer"
+            "opencode_monitor.security.auditor.core.get_risk_analyzer"
         ) as mock_analyzer_fn,
-        patch("opencode_monitor.security.auditor.SecurityReporter"),
+        patch("opencode_monitor.security.auditor.core.SecurityReporter"),
     ):
         mock_db_cls.return_value = mock_db
         mock_analyzer_fn.return_value = mock_analyzer
@@ -174,12 +174,14 @@ class TestSecurityAuditorInitAndLifecycle:
     ):
         """Test initialization loads stats and lifecycle works correctly."""
         with (
-            patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
-                "opencode_monitor.security.auditor.get_risk_analyzer"
+                "opencode_monitor.security.auditor.core.SecurityDatabase"
+            ) as mock_db_cls,
+            patch(
+                "opencode_monitor.security.auditor.core.get_risk_analyzer"
             ) as mock_analyzer_fn,
             patch(
-                "opencode_monitor.security.auditor.SecurityReporter"
+                "opencode_monitor.security.auditor.core.SecurityReporter"
             ) as mock_reporter_cls,
         ):
             mock_db = MagicMock()
@@ -351,13 +353,15 @@ class TestRunScan:
     ):
         """Run scan handles all scenarios correctly."""
         with (
-            patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
-                "opencode_monitor.security.auditor.get_risk_analyzer"
+                "opencode_monitor.security.auditor.core.SecurityDatabase"
+            ) as mock_db_cls,
+            patch(
+                "opencode_monitor.security.auditor.core.get_risk_analyzer"
             ) as mock_analyzer_fn,
-            patch("opencode_monitor.security.auditor.SecurityReporter"),
+            patch("opencode_monitor.security.auditor.core.SecurityReporter"),
             patch(
-                "opencode_monitor.security.auditor.OPENCODE_STORAGE"
+                "opencode_monitor.security.auditor.core.OPENCODE_STORAGE"
             ) as mock_storage_path,
         ):
             mock_db = MagicMock()
@@ -405,7 +409,7 @@ class TestRunScan:
 
             if storage_exists and not setup_exception:
                 with patch(
-                    "opencode_monitor.security.auditor.OPENCODE_STORAGE", storage
+                    "opencode_monitor.security.auditor.core.OPENCODE_STORAGE", storage
                 ):
                     auditor._run_scan()
             else:
@@ -442,7 +446,7 @@ class TestRunScan:
             json.dumps(create_tool_content("webfetch", url="https://example.com"))
         )
 
-        with patch("opencode_monitor.security.auditor.OPENCODE_STORAGE", storage):
+        with patch("opencode_monitor.security.auditor.core.OPENCODE_STORAGE", storage):
             auditor._run_scan()
 
         auditor.mock_db.insert_command.assert_called()
@@ -463,7 +467,7 @@ class TestRunScan:
         with (
             patch.object(auditor._auditor, "_run_scan") as mock_run,
             patch(
-                "opencode_monitor.security.auditor.time.sleep",
+                "opencode_monitor.security.auditor.core.time.sleep",
                 side_effect=stop_after_second,
             ),
         ):
@@ -569,7 +573,7 @@ class TestPublicAPIAndGlobals:
     )
     def test_singleton_functions(self, stop_when_none):
         """Global singleton lifecycle works correctly."""
-        import opencode_monitor.security.auditor as mod
+        import opencode_monitor.security.auditor.core as mod
 
         mod._auditor = None
 
