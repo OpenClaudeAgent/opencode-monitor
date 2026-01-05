@@ -90,6 +90,16 @@ class MockAnalyticsAPIClient:
         self._log_call("get_global_stats", days=days)
         return self._responses.get("global_stats")
 
+    def get_sessions(self, days: int = 30, limit: int = 100) -> Optional[list]:
+        """Return configured sessions list."""
+        self._log_call("get_sessions", days=days, limit=limit)
+        return self._responses.get("sessions", [])
+
+    def get_delegations(self, days: int = 30, limit: int = 1000) -> Optional[list]:
+        """Return configured delegations list."""
+        self._log_call("get_delegations", days=days, limit=limit)
+        return self._responses.get("delegations", [])
+
     def get_session_summary(self, session_id: str) -> Optional[dict]:
         """Return configured session summary."""
         self._log_call("get_session_summary", session_id=session_id)
@@ -136,6 +146,23 @@ class MockAnalyticsAPIClient:
         """Return configured session prompts."""
         self._log_call("get_session_prompts", session_id=session_id)
         return None
+
+    def get_session_operations(self, session_id: str) -> Optional[list]:
+        """Return configured session operations."""
+        self._log_call("get_session_operations", session_id=session_id)
+        operations = self._responses.get("session_operations", {})
+        return operations.get(session_id, [])
+
+    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
+        """Return configured tracing tree (session hierarchy)."""
+        self._log_call("get_tracing_tree", days=days)
+        return self._responses.get("session_hierarchy", [])
+
+    def get_conversation(self, session_id: str) -> Optional[dict]:
+        """Return configured conversation for a session."""
+        self._log_call("get_conversation", session_id=session_id)
+        conversations = self._responses.get("conversations", {})
+        return conversations.get(session_id)
 
     def get_call_log(self) -> list[tuple[str, dict]]:
         """Return log of all API calls made during test."""
@@ -248,37 +275,6 @@ def patched_security():
         yield mock_auditor
 
 
-def _create_dashboard_window(qtbot, *, show: bool = True):
-    """Create a dashboard window with timers stopped.
-
-    Internal helper to avoid duplication between dashboard fixtures.
-
-    Args:
-        qtbot: pytest-qt's qtbot fixture for UI interaction
-        show: Whether to show the window (default: True)
-
-    Returns:
-        DashboardWindow: Configured dashboard window with timers stopped
-    """
-    from opencode_monitor.dashboard.window import DashboardWindow
-
-    window = DashboardWindow()
-    qtbot.addWidget(window)
-
-    # Stop timers BEFORE yield to avoid interference during tests
-    # The 2000ms refresh timer could fire and overwrite manually emitted data
-    if window._refresh_timer:
-        window._refresh_timer.stop()
-    if window._sync_checker:
-        window._sync_checker.stop()
-
-    if show:
-        window.show()
-        qtbot.waitExposed(window)
-
-    return window
-
-
 @pytest.fixture
 def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_security):
     """Create a dashboard window with all dependencies mocked.
@@ -295,8 +291,24 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
     Yields:
         DashboardWindow: Fully mocked dashboard window
     """
-    window = _create_dashboard_window(qtbot, show=True)
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    window = DashboardWindow()
+    qtbot.addWidget(window)
+
+    # Stop timers BEFORE yield to avoid interference during tests
+    # The 2000ms refresh timer could fire and overwrite manually emitted data
+    if window._refresh_timer:
+        window._refresh_timer.stop()
+    if window._sync_checker:
+        window._sync_checker.stop()
+
+    window.show()
+    qtbot.waitExposed(window)
+
     yield window
+
+    # Cleanup
     window.close()
 
 
@@ -305,8 +317,21 @@ def dashboard_window_hidden(
     qtbot, patched_api_client, patched_monitoring, patched_security
 ):
     """Create a dashboard window without showing it."""
-    window = _create_dashboard_window(qtbot, show=False)
+    from opencode_monitor.dashboard.window import DashboardWindow
+
+    window = DashboardWindow()
+    qtbot.addWidget(window)
+
+    # Stop timers BEFORE yield to avoid interference during tests
+    # The 2000ms refresh timer could fire and overwrite manually emitted data
+    if window._refresh_timer:
+        window._refresh_timer.stop()
+    if window._sync_checker:
+        window._sync_checker.stop()
+
     yield window
+
+    # Cleanup
     window.close()
 
 

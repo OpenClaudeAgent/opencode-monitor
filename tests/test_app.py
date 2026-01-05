@@ -204,15 +204,14 @@ def mock_dependencies():
         ),
         patch("opencode_monitor.analytics.collector.get_collector", mock_get_collector),
         patch(
-            "opencode_monitor.analytics.indexer.unified.start_indexer",
+            "opencode_monitor.analytics.indexer.start_indexer",
             mock_start_indexer,
         ),
-        patch(
-            "opencode_monitor.analytics.indexer.unified.get_indexer", mock_get_indexer
-        ),
+        patch("opencode_monitor.analytics.indexer.get_indexer", mock_get_indexer),
     ):
         # Remove ALL cached app modules so they get re-imported with mocks
         # The app package has: __init__, core, menu, handlers
+        # NOTE: Do NOT remove indexer modules - we need the mock to stay applied
         modules_to_remove = [
             "opencode_monitor.app",
             "opencode_monitor.app.core",

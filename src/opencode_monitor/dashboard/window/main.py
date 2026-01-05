@@ -13,11 +13,7 @@ polls sync_meta table to detect when new data is available.
 """
 
 import threading
-import time
-from datetime import datetime
-from typing import Callable, Optional
-
-# API client is used for all data fetching to avoid DuckDB concurrency issues
+from typing import Optional
 
 from PyQt6.QtWidgets import (
     QMainWindow,
@@ -28,102 +24,19 @@ from PyQt6.QtWidgets import (
     QApplication,
     QFrame,
 )
-from PyQt6.QtCore import QTimer, pyqtSignal, QObject, Qt
+from PyQt6.QtCore import QTimer, Qt
 from PyQt6.QtGui import QCloseEvent, QIcon, QPixmap, QPainter, QFont
 
-from .styles import get_stylesheet, COLORS, UI
-from .widgets import Sidebar
-from .sections import (
+from ..styles import get_stylesheet, COLORS, UI
+from ..widgets import Sidebar
+from ..sections import (
     MonitoringSection,
     SecuritySection,
     AnalyticsSection,
     TracingSection,
 )
-
-
-class DataSignals(QObject):
-    """Signals for thread-safe data updates."""
-
-    monitoring_updated = pyqtSignal(dict)
-    security_updated = pyqtSignal(dict)
-    analytics_updated = pyqtSignal(dict)
-    tracing_updated = pyqtSignal(dict)
-
-
-class SyncChecker:
-    """Polls sync_meta to detect when menubar has synced new data.
-
-    The dashboard operates in read-only mode. The menubar updates sync_meta
-    when it syncs new data. This class polls that table and triggers a
-    refresh when new data is detected.
-
-    Performance optimization: Skips refresh during backfill to avoid
-    hammering the API with heavy requests while indexing is in progress.
-    """
-
-    POLL_FAST_MS = 2000  # During activity
-    POLL_SLOW_MS = 5000  # At rest
-    POLL_BACKFILL_MS = 10000  # During backfill - much slower
-    IDLE_THRESHOLD_S = 30  # Switch to slow after 30s without change
-
-    def __init__(self, on_sync_detected: Callable[[], None]):
-        """Initialize the sync checker.
-
-        Args:
-            on_sync_detected: Callback to invoke when new sync is detected.
-        """
-        self._on_sync = on_sync_detected
-        self._known_sync: Optional[datetime] = None
-        self._last_change_time = time.time()
-        self._backfill_active = False
-
-        self._timer = QTimer()
-        self._timer.timeout.connect(self._check)
-        self._timer.start(self.POLL_FAST_MS)
-
-    @property
-    def is_backfill_active(self) -> bool:
-        """Check if backfill is currently active."""
-        return self._backfill_active
-
-    def _check(self) -> None:
-        """Check if API is available and data has changed."""
-        try:
-            from ..api import get_api_client
-
-            client = get_api_client()
-
-            # Use API health check instead of direct DB access
-            if client.is_available:
-                # Check backfill status first
-                sync_status = client.get_sync_status()
-                if sync_status:
-                    self._backfill_active = sync_status.get("backfill_active", False)
-
-                    if self._backfill_active:
-                        # During backfill, slow down polling and skip refresh
-                        self._timer.setInterval(self.POLL_BACKFILL_MS)
-                        return  # Don't trigger refresh during backfill
-
-                # Get stats to check for changes
-                stats = client.get_stats()
-                if stats:
-                    # Use session count as change indicator
-                    current = stats.get("sessions", 0)
-
-                    if current != self._known_sync:
-                        self._known_sync = current
-                        self._last_change_time = time.time()
-                        self._timer.setInterval(self.POLL_FAST_MS)  # Active mode
-                        self._on_sync()  # Trigger refresh
-                    elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
-                        self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
-        except Exception:
-            pass  # API may not be available
-
-    def stop(self) -> None:
-        """Stop the sync checker."""
-        self._timer.stop()
+from .signals import DataSignals
+from .sync import SyncChecker
 
 
 class DashboardWindow(QMainWindow):
@@ -248,14 +161,14 @@ class DashboardWindow(QMainWindow):
         """Handle request to open terminal for an agent."""
         tty = self._agent_tty_map.get(agent_id)
         if tty:
-            from ..ui.terminal import focus_iterm2
+            from ...ui.terminal import focus_iterm2
 
             focus_iterm2(tty)
 
     def _on_open_terminal_session(self, session_id: str) -> None:
         """Handle request to open terminal for a session (from tracing)."""
         # For now, just log - could be extended to find session's terminal
-        from ..utils.logger import debug
+        from ...utils.logger import debug
 
         debug(f"Open terminal requested for session: {session_id}")
 
@@ -291,8 +204,8 @@ class DashboardWindow(QMainWindow):
         """Fetch monitoring data from core module."""
         try:
             import asyncio
-            from ..core.monitor import fetch_all_instances
-            from ..core.models import SessionStatus
+            from ...core.monitor import fetch_all_instances
+            from ...core.models import SessionStatus
 
             loop = asyncio.new_event_loop()
             state = loop.run_until_complete(fetch_all_instances())
@@ -402,14 +315,14 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ..utils.logger import error
+            from ...utils.logger import error
 
             error(f"[Dashboard] Monitoring fetch error: {e}")
 
     def _fetch_security_data(self) -> None:
         """Fetch security data from auditor."""
         try:
-            from ..security.auditor import get_auditor
+            from ...security.auditor import get_auditor
 
             auditor = get_auditor()
             stats = auditor.get_stats()
@@ -519,20 +432,20 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ..utils.logger import error
+            from ...utils.logger import error
 
             error(f"[Dashboard] Security fetch error: {e}")
 
     def _fetch_analytics_data(self) -> None:
         """Fetch analytics data via API to avoid DuckDB concurrency issues."""
         try:
-            from ..api import get_api_client
+            from ...api import get_api_client
 
             client = get_api_client()
 
             # Check if API is available
             if not client.is_available:
-                from ..utils.logger import debug
+                from ...utils.logger import debug
 
                 debug("[Dashboard] API not available for analytics")
                 return
@@ -582,7 +495,7 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ..utils.logger import error
+            from ...utils.logger import error
 
             error(f"[Dashboard] Analytics fetch error: {e}")
 
@@ -639,10 +552,10 @@ class DashboardWindow(QMainWindow):
         Performance optimization: Skips fetching during backfill to avoid
         heavy queries while indexing is in progress.
         """
-        from ..utils.logger import debug, error
+        from ...utils.logger import debug, error
 
         try:
-            from ..api import get_api_client
+            from ...api import get_api_client
 
             client = get_api_client()
 
@@ -690,36 +603,3 @@ class DashboardWindow(QMainWindow):
             self._sync_checker.stop()
         if a0:
             a0.accept()
-
-
-# Global reference to dashboard subprocess
-_dashboard_process = None
-
-
-def show_dashboard() -> None:
-    """Show the dashboard window in a separate process.
-
-    Since rumps has its own event loop, we launch the PyQt dashboard
-    as a subprocess to avoid conflicts between event loops.
-    """
-    import subprocess
-    import sys
-
-    global _dashboard_process
-
-    # Kill existing dashboard if running
-    if _dashboard_process is not None:
-        poll_result = _dashboard_process.poll()
-        if poll_result is None:
-            _dashboard_process.terminate()
-            try:
-                _dashboard_process.wait(timeout=2)
-            except subprocess.TimeoutExpired:
-                _dashboard_process.kill()
-        _dashboard_process = None
-
-    # Launch dashboard as a separate process
-    _dashboard_process = subprocess.Popen(
-        [sys.executable, "-m", "opencode_monitor.dashboard"],
-        start_new_session=True,
-    )

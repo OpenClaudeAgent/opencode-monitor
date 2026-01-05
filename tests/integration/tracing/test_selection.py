@@ -14,6 +14,8 @@ from opencode_monitor.dashboard.sections.tracing.detail_panel.components import 
     MetricsBar,
 )
 
+from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
 
