@@ -112,7 +112,17 @@ class AuditorTestContext:
 
 
 @pytest.fixture
-def auditor_with_mocks(mock_db, mock_analyzer):
+def mock_scanner():
+    """Create mock SecurityScannerDuckDB."""
+    scanner = MagicMock()
+    scanner.get_unscanned_files.return_value = []
+    scanner.get_scanned_count.return_value = 0
+    scanner.mark_scanned_batch.return_value = 0
+    return scanner
+
+
+@pytest.fixture
+def auditor_with_mocks(mock_db, mock_analyzer, mock_scanner):
     """Create auditor with all dependencies mocked. Returns AuditorTestContext."""
     with (
         patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
@@ -120,9 +130,11 @@ def auditor_with_mocks(mock_db, mock_analyzer):
             "opencode_monitor.security.auditor.get_risk_analyzer"
         ) as mock_analyzer_fn,
         patch("opencode_monitor.security.auditor.SecurityReporter"),
+        patch("opencode_monitor.security.db.SecurityScannerDuckDB") as mock_scanner_cls,
     ):
         mock_db_cls.return_value = mock_db
         mock_analyzer_fn.return_value = mock_analyzer
+        mock_scanner_cls.return_value = mock_scanner
         yield AuditorTestContext(SecurityAuditor(), mock_db, mock_analyzer)
 
 
@@ -173,6 +185,10 @@ class TestSecurityAuditorInitAndLifecycle:
         expected_running,
     ):
         """Test initialization loads stats and lifecycle works correctly."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_scanned_count.return_value = 0
+        mock_scanner.get_unscanned_files.return_value = []
+
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
@@ -181,11 +197,15 @@ class TestSecurityAuditorInitAndLifecycle:
             patch(
                 "opencode_monitor.security.auditor.SecurityReporter"
             ) as mock_reporter_cls,
+            patch(
+                "opencode_monitor.security.db.SecurityScannerDuckDB"
+            ) as mock_scanner_cls,
         ):
             mock_db = MagicMock()
             mock_db.get_stats.return_value = cached_stats
             mock_db.get_all_scanned_ids.return_value = scanned_ids
             mock_db_cls.return_value = mock_db
+            mock_scanner_cls.return_value = mock_scanner
 
             auditor = SecurityAuditor()
 
@@ -198,7 +218,8 @@ class TestSecurityAuditorInitAndLifecycle:
             assert auditor._stats["total_scanned"] == expected_scanned
             assert auditor._stats["total_commands"] == expected_commands
             assert auditor._stats["last_scan"] is None
-            assert len(auditor._scanned_ids) == expected_ids_count
+            # Note: _scanned_ids is now always empty (tracking moved to DuckDB)
+            assert len(auditor._scanned_ids) == 0
 
             # Execute lifecycle actions if any
             if actions:
@@ -329,27 +350,28 @@ class TestRunScan:
     """Tests for _run_scan method."""
 
     @pytest.mark.parametrize(
-        "scenario,storage_exists,already_scanned,running,expect_insert,setup_exception",
+        "scenario,files_to_scan,running,expect_insert,setup_exception",
         [
-            ("process_new", True, set(), True, True, None),
-            ("skip_scanned", True, {"prt_001.json"}, True, False, None),
-            ("no_storage", False, set(), True, False, None),
-            ("exception", True, set(), True, False, PermissionError("No access")),
-            ("not_running", True, set(), False, False, None),
+            ("process_new", ["prt_001.json"], True, True, None),
+            ("no_files", [], True, False, None),
+            ("exception", ["prt_001.json"], True, False, PermissionError("No access")),
+            ("not_running", ["prt_001.json", "prt_002.json"], False, False, None),
         ],
-        ids=["process_new", "skip_scanned", "no_storage", "exception", "not_running"],
+        ids=["process_new", "no_files", "exception", "not_running"],
     )
     def test_run_scan_scenarios(
         self,
         tmp_path,
         scenario,
-        storage_exists,
-        already_scanned,
+        files_to_scan,
         running,
         expect_insert,
         setup_exception,
     ):
-        """Run scan handles all scenarios correctly."""
+        """Run scan handles all scenarios correctly using DuckDB scanner."""
+        mock_scanner = MagicMock()
+        mock_scanner.get_scanned_count.return_value = 0
+
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
@@ -357,13 +379,14 @@ class TestRunScan:
             ) as mock_analyzer_fn,
             patch("opencode_monitor.security.auditor.SecurityReporter"),
             patch(
-                "opencode_monitor.security.auditor.OPENCODE_STORAGE"
-            ) as mock_storage_path,
+                "opencode_monitor.security.db.SecurityScannerDuckDB"
+            ) as mock_scanner_cls,
         ):
             mock_db = MagicMock()
             mock_db.get_stats.return_value = make_default_stats()
-            mock_db.get_all_scanned_ids.return_value = already_scanned
+            mock_db.get_all_scanned_ids.return_value = set()
             mock_db_cls.return_value = mock_db
+            mock_scanner_cls.return_value = mock_scanner
 
             mock_analyzer = MagicMock()
             mock_analyzer.analyze_file_path.return_value = RiskResult(
@@ -371,79 +394,79 @@ class TestRunScan:
             )
             mock_analyzer_fn.return_value = mock_analyzer
 
+            # Create actual test files
             storage = tmp_path / "storage"
-            if storage_exists:
-                if scenario == "not_running":
-                    for i in range(5):
-                        msg_dir = storage / f"msg_{i:03d}"
-                        msg_dir.mkdir(parents=True)
-                        (msg_dir / f"prt_{i:03d}.json").write_text(
-                            json.dumps(create_tool_content("bash", command="ls"))
-                        )
-                else:
-                    msg_dir = storage / "msg_001"
-                    msg_dir.mkdir(parents=True)
-                    (msg_dir / "prt_001.json").write_text(
-                        json.dumps(create_tool_content("bash", command="ls -la"))
-                    )
+            msg_dir = storage / "msg_001"
+            msg_dir.mkdir(parents=True)
 
-                if setup_exception:
-                    mock_storage_path.exists.return_value = True
-                    mock_storage_path.iterdir.side_effect = setup_exception
-                else:
-                    mock_storage_path.exists.return_value = True
-                    mock_storage_path.iterdir.return_value = [msg_dir]
+            # Create files that will be returned by the scanner
+            file_paths = []
+            for fname in files_to_scan:
+                prt_file = msg_dir / fname
+                prt_file.write_text(
+                    json.dumps(create_tool_content("bash", command="ls -la"))
+                )
+                file_paths.append(prt_file)
+
+            # Configure scanner to return these files (or raise exception)
+            if setup_exception:
+                mock_scanner.get_unscanned_files.side_effect = setup_exception
             else:
-                mock_storage_path.exists.return_value = False
+                mock_scanner.get_unscanned_files.return_value = file_paths
 
             auditor = SecurityAuditor()
             auditor._running = running
             if not running:
                 auditor._thread = MagicMock()
-            elif running:
-                auditor._thread = MagicMock()
 
-            if storage_exists and not setup_exception:
-                with patch(
-                    "opencode_monitor.security.auditor.OPENCODE_STORAGE", storage
-                ):
-                    auditor._run_scan()
-            else:
-                auditor._run_scan()
+            auditor._run_scan()
 
             if expect_insert:
                 mock_db.insert_command.assert_called_once()
                 assert auditor._stats["total_scanned"] == 1
-            elif scenario == "skip_scanned":
+                mock_scanner.mark_scanned_batch.assert_called_once()
+            elif scenario == "no_files":
                 mock_db.insert_command.assert_not_called()
-            elif scenario == "no_storage":
-                mock_storage_path.iterdir.assert_not_called()
             elif scenario == "not_running":
+                # Scan stops early when not running
                 assert auditor._stats["total_scanned"] == 0
 
     def test_routes_all_tools_and_scan_loop_works(self, auditor_with_mocks, tmp_path):
         """Scan routes tools correctly; loop runs periodically; update_stat works."""
         auditor = auditor_with_mocks
 
-        # Test tool routing
+        # Test tool routing - create test files
         storage = tmp_path / "storage"
         msg_dir = storage / "msg_001"
         msg_dir.mkdir(parents=True)
-        (msg_dir / "prt_bash.json").write_text(
-            json.dumps(create_tool_content("bash", command="ls"))
-        )
-        (msg_dir / "prt_read.json").write_text(
+
+        bash_file = msg_dir / "prt_bash.json"
+        bash_file.write_text(json.dumps(create_tool_content("bash", command="ls")))
+
+        read_file = msg_dir / "prt_read.json"
+        read_file.write_text(
             json.dumps(create_tool_content("read", filePath="/etc/passwd"))
         )
-        (msg_dir / "prt_write.json").write_text(
+
+        write_file = msg_dir / "prt_write.json"
+        write_file.write_text(
             json.dumps(create_tool_content("write", filePath="/tmp/out"))
         )
-        (msg_dir / "prt_fetch.json").write_text(
+
+        fetch_file = msg_dir / "prt_fetch.json"
+        fetch_file.write_text(
             json.dumps(create_tool_content("webfetch", url="https://example.com"))
         )
 
-        with patch("opencode_monitor.security.auditor.OPENCODE_STORAGE", storage):
-            auditor._run_scan()
+        # Configure the mock scanner to return these files
+        auditor._scanner.get_unscanned_files.return_value = [
+            bash_file,
+            read_file,
+            write_file,
+            fetch_file,
+        ]
+
+        auditor._run_scan()
 
         auditor.mock_db.insert_command.assert_called()
         auditor.mock_db.insert_read.assert_called()

@@ -33,6 +33,7 @@ from ._constants import OPENCODE_STORAGE, SCAN_INTERVAL
 from ..analyzer import analyze_command, get_risk_analyzer
 from ..db import (
     SecurityDatabase,
+    SecurityScannerDuckDB,
     AuditedCommand,
     AuditedFileRead,
     AuditedFileWrite,
@@ -64,6 +65,7 @@ __all__ = [
     "get_risk_analyzer",
     # From db
     "SecurityDatabase",
+    "SecurityScannerDuckDB",
     "AuditedCommand",
     "AuditedFileRead",
     "AuditedFileWrite",

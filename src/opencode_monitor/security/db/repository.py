@@ -1,11 +1,13 @@
 """
 Security Database Repository - SQLite operations for security audit data
+
+Also provides DuckDB integration for efficient file scanning via file_index table.
 """
 
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Type
+from typing import List, Dict, Any, Type, Optional
 
 from ...utils.logger import debug
 from ..mitre_utils import serialize_mitre_techniques
@@ -586,3 +588,129 @@ class SecurityDatabase:
     def get_all_webfetches(self, limit: int = 10000) -> List[AuditedWebFetch]:
         """Get all webfetches"""
         return self._get_all(WEBFETCHES_CONFIG, limit, 0)
+
+
+class SecurityScannerDuckDB:
+    """DuckDB-based file scanner for security auditor.
+
+    Uses file_index table to find unscanned files efficiently via SQL query
+    instead of expensive filesystem iteration (152k files → O(1) query).
+
+    Architecture:
+    - file_index: populated by analytics indexer, contains all prt_*.json files
+    - security_scanned: tracks files already processed by security auditor
+    - Query: LEFT JOIN to find files in file_index but not in security_scanned
+    """
+
+    def __init__(self, db: Optional["AnalyticsDB"] = None):
+        """Initialize with optional injected DuckDB connection.
+
+        Args:
+            db: Optional AnalyticsDB instance. If None, creates one lazily.
+                Pass a mock or in-memory DB for testing.
+        """
+        self._db: Optional["AnalyticsDB"] = db
+        self._owns_db = db is None  # Track if we should close the connection
+
+    def _get_db(self) -> "AnalyticsDB":
+        """Get or create DuckDB connection (lazy initialization)."""
+        if self._db is None:
+            from ...analytics.db import AnalyticsDB
+
+            self._db = AnalyticsDB()
+            self._owns_db = True
+        return self._db
+
+    def get_unscanned_files(self, limit: int = 1000) -> List[Path]:
+        """Get files from file_index that haven't been security scanned.
+
+        Uses efficient SQL query instead of filesystem iteration.
+
+        Args:
+            limit: Maximum number of files to return
+
+        Returns:
+            List of Path objects for unscanned files
+        """
+        db = self._get_db()
+        conn = db.connect()
+
+        # Query: find part files not yet scanned
+        result = conn.execute(
+            """
+            SELECT f.file_path
+            FROM file_index f
+            LEFT JOIN security_scanned s ON f.file_path = s.file_path
+            WHERE f.file_type = 'part' AND s.file_path IS NULL
+            ORDER BY f.mtime DESC
+            LIMIT ?
+            """,
+            [limit],
+        ).fetchall()
+
+        return [Path(row[0]) for row in result]
+
+    def mark_scanned(self, file_path: Path) -> None:
+        """Mark a single file as scanned.
+
+        Args:
+            file_path: Path to the file that was scanned
+        """
+        db = self._get_db()
+        conn = db.connect()
+        conn.execute(
+            """
+            INSERT OR REPLACE INTO security_scanned (file_path, scanned_at)
+            VALUES (?, CURRENT_TIMESTAMP)
+            """,
+            [str(file_path)],
+        )
+
+    def mark_scanned_batch(self, file_paths: List[Path]) -> int:
+        """Mark multiple files as scanned in a single batch.
+
+        Args:
+            file_paths: List of paths to mark as scanned
+
+        Returns:
+            Number of files marked
+        """
+        if not file_paths:
+            return 0
+
+        db = self._get_db()
+        conn = db.connect()
+
+        records = [(str(p),) for p in file_paths]
+        conn.executemany(
+            """
+            INSERT OR REPLACE INTO security_scanned (file_path, scanned_at)
+            VALUES (?, CURRENT_TIMESTAMP)
+            """,
+            records,
+        )
+        return len(records)
+
+    def get_scanned_count(self) -> int:
+        """Get count of files already scanned.
+
+        Returns:
+            Number of files in security_scanned table
+        """
+        db = self._get_db()
+        conn = db.connect()
+        result = conn.execute("SELECT COUNT(*) FROM security_scanned").fetchone()
+        return result[0] if result else 0
+
+    def clear_scanned(self) -> None:
+        """Clear all scanned records (for testing/reset)."""
+        db = self._get_db()
+        conn = db.connect()
+        conn.execute("DELETE FROM security_scanned")
+        debug("[SecurityScannerDuckDB] Cleared security_scanned table")
+
+    def close(self) -> None:
+        """Close the DuckDB connection if we own it."""
+        if self._db is not None and self._owns_db:
+            self._db.close()
+            self._db = None

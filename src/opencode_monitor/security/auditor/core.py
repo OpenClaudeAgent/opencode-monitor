@@ -64,6 +64,11 @@ class SecurityAuditor:
         self._analyzer = pkg.get_risk_analyzer()
         self._reporter = pkg.SecurityReporter()
 
+        # DuckDB scanner for efficient file discovery (replaces filesystem scan)
+        from ..db import SecurityScannerDuckDB
+
+        self._scanner = SecurityScannerDuckDB()
+
         # EDR handler (encapsulates sequence analyzer and correlator)
         self._edr_handler = EDRHandler(
             buffer_size=100,
@@ -80,9 +85,13 @@ class SecurityAuditor:
         self._stats["last_scan"] = None
         self._stats["sequences_detected"] = 0
         self._stats["correlations_detected"] = 0
-        self._scanned_ids = self._db.get_all_scanned_ids()
 
-        info(f"Loaded {len(self._scanned_ids)} scanned file IDs from database")
+        # Note: _scanned_ids kept for backwards compatibility but no longer used
+        # The DuckDB scanner now tracks scanned files in security_scanned table
+        self._scanned_ids = set()
+
+        scanned_count = self._scanner.get_scanned_count()
+        info(f"Security scanner initialized ({scanned_count} files already scanned)")
 
     def start(self):
         """Start background scanning thread"""
@@ -99,6 +108,9 @@ class SecurityAuditor:
         self._running = False
         if self._thread:
             self._thread.join(timeout=5)
+        # Close DuckDB connection
+        if hasattr(self, "_scanner"):
+            self._scanner.close()
         info("Security auditor stopped")
 
     def _scan_loop(self):
@@ -112,30 +124,25 @@ class SecurityAuditor:
                 self._run_scan()
 
     def _run_scan(self):
-        """Run a scan for new files"""
-        pkg = _get_auditor_pkg()
+        """Run a scan for new files.
+
+        Uses DuckDB file_index + security_scanned tables for efficient lookup
+        instead of filesystem iteration (O(1) query vs O(152k) iteration).
+        """
         start_time = time.time()
         new_files = 0
         new_counts = {"commands": 0, "reads": 0, "writes": 0, "webfetches": 0}
-
-        if not pkg.OPENCODE_STORAGE.exists():
-            debug("OpenCode storage not found")
-            return
+        scanned_files: List[Path] = []
 
         try:
-            # Collect all new files first
-            files_to_process: List[Path] = []
-            for msg_dir in pkg.OPENCODE_STORAGE.iterdir():
-                if not msg_dir.is_dir():
-                    continue
+            # Get unscanned files from DuckDB (efficient SQL query)
+            # This replaces the expensive filesystem iteration:
+            # OLD: for msg_dir in STORAGE.iterdir(): for prt in msg_dir.glob("prt_*.json")
+            # NEW: SELECT file_path FROM file_index LEFT JOIN security_scanned ...
+            files_to_process = self._scanner.get_unscanned_files(limit=1000)
 
-                if not self._running and self._thread is not None:
-                    break
-
-                for prt_file in msg_dir.glob("prt_*.json"):
-                    file_id = prt_file.name
-                    if file_id not in self._scanned_ids:
-                        files_to_process.append(prt_file)
+            if not files_to_process:
+                return
 
             # For batch scans (many files), disable EDR sequence analysis
             # to avoid false positives from out-of-order processing
@@ -149,7 +156,11 @@ class SecurityAuditor:
                 if not self._running and self._thread is not None:
                     break
 
-                file_id = prt_file.name
+                # Skip if file no longer exists (may have been cleaned up)
+                if not prt_file.exists():
+                    scanned_files.append(prt_file)  # Mark anyway to avoid retry
+                    continue
+
                 # For batch scans, skip EDR analysis
                 result = self._process_file(prt_file, skip_edr=is_batch_scan)
                 if result:
@@ -172,8 +183,12 @@ class SecurityAuditor:
                             new_counts["webfetches"] += 1
                             self._update_stat(f"webfetches_{result['risk_level']}")
 
-                self._scanned_ids.add(file_id)
+                scanned_files.append(prt_file)
                 new_files += 1
+
+            # Mark all processed files as scanned in DuckDB (batch operation)
+            if scanned_files:
+                self._scanner.mark_scanned_batch(scanned_files)
 
             # Update totals
             self._stats["total_scanned"] += new_files

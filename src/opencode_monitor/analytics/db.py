@@ -395,6 +395,15 @@ class AnalyticsDB:
             ON file_operations(operation)
         """)
 
+        # Security scanned files table - tracks files already processed by security auditor
+        # Uses file_index to find unscanned files via LEFT JOIN instead of filesystem scan
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS security_scanned (
+                file_path VARCHAR PRIMARY KEY,
+                scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+
         debug("Analytics database schema created")
 
     def _migrate_columns(self, conn: duckdb.DuckDBPyConnection) -> None:

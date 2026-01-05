@@ -8,7 +8,7 @@ from .models import (
     AuditedFileWrite,
     AuditedWebFetch,
 )
-from .repository import SecurityDatabase
+from .repository import SecurityDatabase, SecurityScannerDuckDB
 
 __all__ = [
     "AuditedCommand",
@@ -16,4 +16,5 @@ __all__ = [
     "AuditedFileWrite",
     "AuditedWebFetch",
     "SecurityDatabase",
+    "SecurityScannerDuckDB",
 ]
