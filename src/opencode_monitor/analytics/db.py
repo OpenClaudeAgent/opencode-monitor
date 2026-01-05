@@ -395,13 +395,20 @@ class AnalyticsDB:
             ON file_operations(operation)
         """)
 
-        # Security scanned files table - tracks files already processed by security auditor
-        # Uses file_index to find unscanned files via LEFT JOIN instead of filesystem scan
+        # Security scanned parts table - tracks parts already processed by security auditor
+        # Uses parts table to find unscanned files via LEFT JOIN instead of filesystem scan
+        # Note: Stores part_id (e.g., prt_xxx) instead of file_path for efficient joins
         conn.execute("""
             CREATE TABLE IF NOT EXISTS security_scanned (
-                file_path VARCHAR PRIMARY KEY,
+                part_id VARCHAR PRIMARY KEY,
                 scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
+        """)
+
+        # Create index for efficient LEFT JOIN with parts table
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_security_scanned_part
+            ON security_scanned(part_id)
         """)
 
         debug("Analytics database schema created")
@@ -472,6 +479,25 @@ class AnalyticsDB:
         add_column("sessions", "duration_ms", "INTEGER")
         add_column("sessions", "is_root", "BOOLEAN", "TRUE")
         add_column("sessions", "project_name", "VARCHAR")
+
+        # Migrate security_scanned table: file_path → part_id
+        # If old schema exists (file_path column), recreate table with new schema
+        if column_exists("security_scanned", "file_path"):
+            try:
+                conn.execute("DROP TABLE security_scanned")
+                conn.execute("""
+                    CREATE TABLE security_scanned (
+                        part_id VARCHAR PRIMARY KEY,
+                        scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                    )
+                """)
+                conn.execute("""
+                    CREATE INDEX IF NOT EXISTS idx_security_scanned_part
+                    ON security_scanned(part_id)
+                """)
+                debug("Migrated security_scanned: file_path → part_id")
+            except Exception as e:
+                debug(f"Failed to migrate security_scanned: {e}")
 
     def clear_data(self) -> None:
         """Clear all data from the database."""

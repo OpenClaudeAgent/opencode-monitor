@@ -593,14 +593,17 @@ class SecurityDatabase:
 class SecurityScannerDuckDB:
     """DuckDB-based file scanner for security auditor.
 
-    Uses file_index table to find unscanned files efficiently via SQL query
+    Uses parts table to find unscanned files efficiently via SQL query
     instead of expensive filesystem iteration (152k files → O(1) query).
 
     Architecture:
-    - file_index: populated by analytics indexer, contains all prt_*.json files
-    - security_scanned: tracks files already processed by security auditor
-    - Query: LEFT JOIN to find files in file_index but not in security_scanned
+    - parts: populated by analytics loader, contains all part records
+    - security_scanned: tracks part_ids already processed by security auditor
+    - Query: LEFT JOIN to find parts not in security_scanned
     """
+
+    # Storage path for part files
+    STORAGE_PATH = Path.home() / ".local/share/opencode/storage/part"
 
     def __init__(self, db: Optional["AnalyticsDB"] = None):
         """Initialize with optional injected DuckDB connection.
@@ -621,10 +624,22 @@ class SecurityScannerDuckDB:
             self._owns_db = True
         return self._db
 
-    def get_unscanned_files(self, limit: int = 1000) -> List[Path]:
-        """Get files from file_index that haven't been security scanned.
+    @staticmethod
+    def _extract_part_id(file_path: Path) -> str:
+        """Extract part_id from file path.
 
-        Uses efficient SQL query instead of filesystem iteration.
+        Args:
+            file_path: Path like .../part/{message_id}/{part_id}.json
+
+        Returns:
+            part_id (e.g., prt_abc123)
+        """
+        return file_path.stem  # Remove .json extension
+
+    def get_unscanned_files(self, limit: int = 1000) -> List[Path]:
+        """Get files from parts table that haven't been security scanned.
+
+        Uses efficient SQL query on parts table instead of filesystem iteration.
 
         Args:
             limit: Maximum number of files to return
@@ -635,20 +650,29 @@ class SecurityScannerDuckDB:
         db = self._get_db()
         conn = db.connect()
 
-        # Query: find part files not yet scanned
+        # Query: find parts not yet scanned
+        # parts table has: id (part_id), message_id, session_id, ...
         result = conn.execute(
             """
-            SELECT f.file_path
-            FROM file_index f
-            LEFT JOIN security_scanned s ON f.file_path = s.file_path
-            WHERE f.file_type = 'part' AND s.file_path IS NULL
-            ORDER BY f.mtime DESC
+            SELECT p.id as part_id, p.message_id
+            FROM parts p
+            LEFT JOIN security_scanned s ON p.id = s.part_id
+            WHERE s.part_id IS NULL
+            ORDER BY p.created_at DESC
             LIMIT ?
             """,
             [limit],
         ).fetchall()
 
-        return [Path(row[0]) for row in result]
+        # Construct file paths from part_id and message_id
+        # Path: ~/.local/share/opencode/storage/part/{message_id}/{part_id}.json
+        paths = []
+        for part_id, message_id in result:
+            if message_id:  # Ensure message_id exists
+                path = self.STORAGE_PATH / message_id / f"{part_id}.json"
+                paths.append(path)
+
+        return paths
 
     def mark_scanned(self, file_path: Path) -> None:
         """Mark a single file as scanned.
@@ -658,12 +682,13 @@ class SecurityScannerDuckDB:
         """
         db = self._get_db()
         conn = db.connect()
+        part_id = self._extract_part_id(file_path)
         conn.execute(
             """
-            INSERT OR REPLACE INTO security_scanned (file_path, scanned_at)
+            INSERT OR REPLACE INTO security_scanned (part_id, scanned_at)
             VALUES (?, CURRENT_TIMESTAMP)
             """,
-            [str(file_path)],
+            [part_id],
         )
 
     def mark_scanned_batch(self, file_paths: List[Path]) -> int:
@@ -681,10 +706,11 @@ class SecurityScannerDuckDB:
         db = self._get_db()
         conn = db.connect()
 
-        records = [(str(p),) for p in file_paths]
+        # Extract part_id from each path
+        records = [(self._extract_part_id(p),) for p in file_paths]
         conn.executemany(
             """
-            INSERT OR REPLACE INTO security_scanned (file_path, scanned_at)
+            INSERT OR REPLACE INTO security_scanned (part_id, scanned_at)
             VALUES (?, CURRENT_TIMESTAMP)
             """,
             records,
