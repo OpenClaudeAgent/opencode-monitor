@@ -304,6 +304,7 @@ class TracingSection(QWidget):
                     trace_count=data.get("trace_count", 0),
                     children_count=len(data.get("children", [])),
                     prompt_input=data.get("prompt_input"),
+                    node_type=data.get("node_type"),
                 )
         else:
             # Fallback for unknown types

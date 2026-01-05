@@ -13,9 +13,10 @@ FIXED_TEST_DATE = datetime(2024, 1, 15, 10, 30, 0)
 EXPECTED_TRACING = {
     "root_session_title": "Implement feature X",
     "root_session_id": "sess-root-001",
-    "child_agent_type": "executor",
-    "total_sessions": 3,
-    "total_traces": 3,
+    "child_subagent_type": "executor",  # API uses subagent_type, not agent_type
+    "delegation_subagent_type": "tester",  # executor → tester delegation
+    "total_sessions": 4,  # root + 2 user_turns + 1 delegation
+    "total_traces": 4,
     "root_tokens_in": 5000,
     "root_tokens_out": 8000,
     "root_duration_ms": 125000,
