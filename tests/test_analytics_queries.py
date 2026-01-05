@@ -1546,83 +1546,45 @@ class TestDelegationExtendedChains:
 class TestEdgeCases:
     """Tests for edge cases to improve coverage."""
 
-    def test_get_todos_empty_result(self, analytics_db, queries):
-        """get_todos should return empty list when no todos exist."""
-        todos = queries.get_todos()
-        assert todos == []
+    @pytest.mark.parametrize(
+        "method_name,call_args",
+        [
+            ("get_todos", {}),
+            ("get_projects", {}),
+            ("get_project_stats", {"days": 1}),
+        ],
+    )
+    def test_simple_methods_return_empty_list(
+        self, analytics_db, queries, method_name, call_args
+    ):
+        """Methods should return empty list when no data exists."""
+        method = getattr(queries, method_name)
+        result = method(**call_args)
+        assert result == []
 
-    def test_get_projects_empty(self, analytics_db, queries):
-        """get_projects should return empty list when no projects."""
-        projects = queries.get_projects()
-        assert projects == []
-
-    def test_get_project_stats_empty(self, analytics_db, queries):
-        """get_project_stats should return empty list when no projects."""
-        stats = queries.get_project_stats(days=1)
-        assert stats == []
-
-    def test_get_directory_stats_empty(self, analytics_db, queries):
-        """_get_directory_stats should return empty list when no sessions."""
+    @pytest.mark.parametrize(
+        "method_name",
+        [
+            "_get_directory_stats",
+            "_get_model_stats",
+            "_get_agent_roles",
+            "_get_agent_delegation_stats",
+            "_get_hourly_delegations",
+            "_get_daily_stats",
+            "_get_skills_by_agent",
+        ],
+    )
+    def test_date_range_methods_return_empty_list(
+        self, analytics_db, queries, method_name
+    ):
+        """Date-range methods should return empty list when no data exists."""
         now = datetime.now()
         start_date = now - timedelta(days=1)
         end_date = now
 
-        stats = queries._get_directory_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_model_stats_empty(self, analytics_db, queries):
-        """_get_model_stats should return empty list when no messages."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_model_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_agent_roles_empty(self, analytics_db, queries):
-        """_get_agent_roles should return empty list when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        roles = queries._get_agent_roles(start_date, end_date)
-        assert roles == []
-
-    def test_get_agent_delegation_stats_empty(self, analytics_db, queries):
-        """_get_agent_delegation_stats should return empty when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        stats = queries._get_agent_delegation_stats(start_date, end_date)
-        assert stats == []
-
-    def test_get_hourly_delegations_empty(self, analytics_db, queries):
-        """_get_hourly_delegations should return empty list when no delegations."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        hourly = queries._get_hourly_delegations(start_date, end_date)
-        assert hourly == []
-
-    def test_get_daily_stats_empty(self, analytics_db, queries):
-        """_get_daily_stats should return empty list when no data."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        daily = queries._get_daily_stats(start_date, end_date)
-        assert daily == []
-
-    def test_get_skills_by_agent_empty(self, analytics_db, queries):
-        """_get_skills_by_agent should return empty list when no skills."""
-        now = datetime.now()
-        start_date = now - timedelta(days=1)
-        end_date = now
-
-        skills = queries._get_skills_by_agent(start_date, end_date)
-        assert skills == []
+        method = getattr(queries, method_name)
+        result = method(start_date, end_date)
+        assert result == []
 
     def test_session_with_null_title(self, analytics_db, queries):
         """Sessions with NULL title should display as 'Untitled'."""
