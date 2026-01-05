@@ -16,7 +16,14 @@ from werkzeug.serving import make_server
 from ..analytics import TracingDataService
 from ..utils.logger import info, debug
 from .config import API_HOST, API_PORT
-from .routes import health_bp, stats_bp, sessions_bp, tracing_bp, delegations_bp
+from .routes import (
+    health_bp,
+    stats_bp,
+    sessions_bp,
+    tracing_bp,
+    delegations_bp,
+    security_bp,
+)
 from .routes._context import RouteContext
 
 
@@ -72,6 +79,7 @@ class AnalyticsAPIServer:
         self._app.register_blueprint(sessions_bp)
         self._app.register_blueprint(tracing_bp)
         self._app.register_blueprint(delegations_bp)
+        self._app.register_blueprint(security_bp)
 
     def start(self) -> None:
         """Start the API server in a background thread."""
