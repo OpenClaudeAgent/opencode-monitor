@@ -132,6 +132,11 @@ class TraceBuilder:
             debug(
                 f"[TraceBuilder] Created trace {trace_id} for {delegation.child_agent}"
             )
+
+            # Update tokens from child session messages (may already be indexed)
+            if delegation.child_session_id:
+                self.update_trace_tokens(delegation.child_session_id)
+
             return trace_id
 
         except Exception as e:
@@ -173,6 +178,63 @@ class TraceBuilder:
 
         except Exception as e:
             debug(f"[TraceBuilder] Failed to update tokens: {e}")
+
+    def backfill_missing_tokens(self) -> int:
+        """Backfill tokens for all traces with child_session_id but no tokens.
+
+        This fixes traces that were created before their child session
+        messages were indexed.
+
+        Returns:
+            Number of traces updated
+        """
+        conn = self._db.connect()
+
+        try:
+            # Find traces with child_session but no tokens
+            traces = conn.execute(
+                """
+                SELECT child_session_id
+                FROM agent_traces
+                WHERE child_session_id IS NOT NULL
+                  AND (tokens_in IS NULL OR tokens_in = 0)
+                  AND (tokens_out IS NULL OR tokens_out = 0)
+                """
+            ).fetchall()
+
+            updated = 0
+            for (child_session_id,) in traces:
+                # Get tokens from child session
+                result = conn.execute(
+                    """
+                    SELECT
+                        COALESCE(SUM(tokens_input), 0),
+                        COALESCE(SUM(tokens_output), 0)
+                    FROM messages
+                    WHERE session_id = ?
+                    """,
+                    [child_session_id],
+                ).fetchone()
+
+                if result and (result[0] > 0 or result[1] > 0):
+                    conn.execute(
+                        """
+                        UPDATE agent_traces
+                        SET tokens_in = ?, tokens_out = ?
+                        WHERE child_session_id = ?
+                        """,
+                        [result[0], result[1], child_session_id],
+                    )
+                    updated += 1
+
+            if updated > 0:
+                debug(f"[TraceBuilder] Backfilled tokens for {updated} traces")
+
+            return updated
+
+        except Exception as e:
+            debug(f"[TraceBuilder] Failed to backfill tokens: {e}")
+            return 0
 
     def resolve_parent_traces(self) -> int:
         """Resolve parent_trace_id for traces based on session membership.

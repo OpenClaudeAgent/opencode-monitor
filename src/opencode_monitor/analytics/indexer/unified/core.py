@@ -261,6 +261,13 @@ class UnifiedIndexer:
             if resolved > 0:
                 debug(f"[Backfill #{cycle_num}] Resolved {resolved} parent traces")
 
+            # Backfill tokens for traces created before their child session messages
+            backfilled = self._trace_builder.backfill_missing_tokens()
+            if backfilled > 0:
+                debug(
+                    f"[Backfill #{cycle_num}] Backfilled tokens for {backfilled} traces"
+                )
+
             speed = total_processed / elapsed if elapsed > 0 else 0
             info(
                 f"[Backfill #{cycle_num}] DONE: {total_processed} files in {elapsed:.1f}s ({speed:.0f}/s) | "
