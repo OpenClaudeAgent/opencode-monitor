@@ -1029,6 +1029,10 @@ def extract_traces(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
                 else:
                     status = "running"
 
+                # Filter by actual trace timestamp (mtime filter may pass stale data)
+                if started_at and started_at < cutoff:
+                    continue
+
                 # Extract tools used from metadata.summary
                 tools_used = []
                 metadata = state.get("metadata", {})
