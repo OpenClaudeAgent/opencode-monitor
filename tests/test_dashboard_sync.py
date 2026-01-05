@@ -23,6 +23,7 @@ def mock_api_client():
     mock_client = MagicMock()
     mock_client.is_available = True
     mock_client.get_stats.return_value = {"sessions": 0}
+    mock_client.get_sync_status.return_value = {"backfill_active": False}
 
     # Patch at the source module where it's imported from
     with patch("opencode_monitor.api.get_api_client") as mock_get:

@@ -269,10 +269,10 @@ class TestLoadersDirectoryNotExists:
         ],
     )
     def test_returns_zero_when_directory_not_exists(
-        self, db: AnalyticsDB, storage_path: Path, loader_func, expected_count
+        self, temp_db: AnalyticsDB, storage_path: Path, loader_func, expected_count
     ):
         """All loaders return 0 when their directory doesn't exist."""
-        result = loader_func(db, storage_path)
+        result = loader_func(temp_db, storage_path)
         assert result == expected_count
 
 
@@ -285,7 +285,7 @@ class TestLoadValidData:
     """Tests for loading valid data from JSON files."""
 
     def test_loads_sessions_with_correct_data(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads sessions from valid JSON files with correct data in database."""
         session_dir = storage_path / "session"
@@ -302,13 +302,13 @@ class TestLoadValidData:
                 created_ts=current_timestamp + i * 1000,
             )
 
-        result = load_sessions_fast(db, storage_path)
+        result = load_sessions_fast(temp_db, storage_path)
 
         # Verify count
         assert result == 3
 
         # Verify data in database
-        conn = db.connect()
+        conn = temp_db.connect()
         sessions = conn.execute(
             "SELECT id, title, project_id, directory FROM sessions ORDER BY id"
         ).fetchall()
@@ -332,7 +332,7 @@ class TestLoadValidData:
         assert sessions[2][1] == "Session 2"
 
     def test_loads_messages_with_token_metrics(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads messages with correct token metrics from JSON files."""
         message_dir = storage_path / "message"
@@ -359,13 +359,13 @@ class TestLoadValidData:
             created_ts=current_timestamp + 1000,
         )
 
-        result = load_messages_fast(db, storage_path)
+        result = load_messages_fast(temp_db, storage_path)
 
         # Verify count
         assert result == 2
 
         # Verify data in database
-        conn = db.connect()
+        conn = temp_db.connect()
         messages = conn.execute(
             "SELECT id, session_id, role, agent, tokens_input, tokens_output FROM messages ORDER BY id"
         ).fetchall()
@@ -389,7 +389,7 @@ class TestLoadValidData:
         assert messages[1][5] == 0
 
     def test_loads_only_tool_type_parts(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads only parts with type='tool', ignoring other types."""
         part_dir = storage_path / "part"
@@ -421,12 +421,12 @@ class TestLoadValidData:
             start_ts=current_timestamp,
         )
 
-        result = load_parts_fast(db, storage_path)
+        result = load_parts_fast(temp_db, storage_path)
 
         # Only tool parts should be loaded (2 tools, 1 text ignored)
         assert result == 2
 
-        conn = db.connect()
+        conn = temp_db.connect()
         parts = conn.execute(
             "SELECT id, tool_name, message_id FROM parts ORDER BY id"
         ).fetchall()
@@ -502,7 +502,7 @@ class TestSkipOldData:
     )
     def test_skips_old_data_based_on_max_days(
         self,
-        db: AnalyticsDB,
+        temp_db: AnalyticsDB,
         storage_path: Path,
         current_timestamp: int,
         old_timestamp: int,
@@ -520,7 +520,7 @@ class TestSkipOldData:
         create_recent(storage_path, current_timestamp)
         create_old(storage_path, old_timestamp)
 
-        result = loader_func(db, storage_path, max_days=30)
+        result = loader_func(temp_db, storage_path, max_days=30)
 
         # Only recent data should be loaded
         assert result == 1
@@ -535,7 +535,7 @@ class TestSkillsLoading:
     """Comprehensive tests for skills loading."""
 
     def test_loads_skills_with_filtering_and_validation(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads skill invocations with proper filtering and data validation."""
         part_dir = storage_path / "part"
@@ -591,13 +591,13 @@ class TestSkillsLoading:
         invalid_dir.mkdir()
         (invalid_dir / "prt_invalid.json").write_text("{ not valid json }")
 
-        result = load_skills(db, storage_path)
+        result = load_skills(temp_db, storage_path)
 
         # Only 3 valid skills should be loaded
         assert result == 3
 
         # Verify data in database (id is auto-generated, so don't test it)
-        conn = db.connect()
+        conn = temp_db.connect()
         skills = conn.execute(
             "SELECT skill_name, session_id, message_id FROM skills ORDER BY skill_name"
         ).fetchall()
@@ -636,11 +636,11 @@ class TestDelegationsLoading:
     """Comprehensive tests for delegations loading."""
 
     def test_loads_delegations_with_parent_resolution(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads delegations with proper filtering and parent agent resolution."""
         # First insert messages to be parents
-        conn = db.connect()
+        conn = temp_db.connect()
         conn.execute(
             """INSERT INTO messages (id, session_id, role, agent, created_at)
                VALUES ('msg_parent', 'ses_001', 'assistant', 'executor', CURRENT_TIMESTAMP)"""
@@ -701,7 +701,7 @@ class TestDelegationsLoading:
             )
         )
 
-        result = load_delegations(db, storage_path)
+        result = load_delegations(temp_db, storage_path)
 
         # Only 3 valid delegations should be loaded
         assert result == 3
@@ -747,12 +747,12 @@ class TestLoadOpencodeData:
     """Tests for load_opencode_data orchestration function."""
 
     def test_returns_error_when_storage_not_found(
-        self, db: AnalyticsDB, tmp_path: Path
+        self, temp_db: AnalyticsDB, tmp_path: Path
     ):
         """Returns error dict when storage path doesn't exist."""
         non_existent = tmp_path / "non_existent"
 
-        result = load_opencode_data(db=db, storage_path=non_existent)
+        result = load_opencode_data(db=temp_db, storage_path=non_existent)
 
         assert result["error"] == "Storage not found"
         assert result["sessions"] == 0
@@ -762,10 +762,10 @@ class TestLoadOpencodeData:
         assert result.get("skills", 0) == 0
         assert result.get("delegations", 0) == 0
 
-    def test_clear_vs_preserve_data_behavior(self, db: AnalyticsDB, storage_path: Path):
+    def test_clear_vs_preserve_data_behavior(self, temp_db: AnalyticsDB, storage_path: Path):
         """Tests clear_first=True vs False behavior."""
         # Pre-populate database
-        conn = db.connect()
+        conn = temp_db.connect()
         conn.execute(
             """INSERT INTO sessions (id, title, created_at)
                VALUES ('existing', 'Existing', CURRENT_TIMESTAMP)"""
@@ -775,7 +775,7 @@ class TestLoadOpencodeData:
         (storage_path / "session").mkdir()
 
         # Test clear_first=True
-        load_opencode_data(db=db, storage_path=storage_path, clear_first=True)
+        load_opencode_data(db=temp_db, storage_path=storage_path, clear_first=True)
         count_after_clear = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
         assert count_after_clear[0] == 0
 
@@ -785,12 +785,12 @@ class TestLoadOpencodeData:
                VALUES ('existing2', 'Existing2', CURRENT_TIMESTAMP)"""
         )
 
-        load_opencode_data(db=db, storage_path=storage_path, clear_first=False)
+        load_opencode_data(db=temp_db, storage_path=storage_path, clear_first=False)
         count_after_preserve = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
         assert count_after_preserve[0] == 1
 
     def test_loads_all_data_types_with_options(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads all data types correctly with skip_parts option."""
         # Create directories
@@ -822,7 +822,7 @@ class TestLoadOpencodeData:
         )
 
         # Test with skip_parts=True (default)
-        result1 = load_opencode_data(db=db, storage_path=storage_path, clear_first=True)
+        result1 = load_opencode_data(db=temp_db, storage_path=storage_path, clear_first=True)
 
         assert result1["sessions"] == 1
         assert result1["messages"] == 1
@@ -833,13 +833,13 @@ class TestLoadOpencodeData:
 
         # Test with skip_parts=False
         result2 = load_opencode_data(
-            db=db, storage_path=storage_path, clear_first=True, skip_parts=False
+            db=temp_db, storage_path=storage_path, clear_first=True, skip_parts=False
         )
 
         # All tool-type parts loaded (bash + skill + task = 3 parts)
         assert result2["parts"] == 3
 
-    def test_uses_defaults_when_not_provided(self, db: AnalyticsDB, storage_path: Path):
+    def test_uses_defaults_when_not_provided(self, temp_db: AnalyticsDB, storage_path: Path):
         """Uses default storage path and creates DB when not provided."""
         (storage_path / "session").mkdir()
 
@@ -847,7 +847,7 @@ class TestLoadOpencodeData:
             "opencode_monitor.analytics.loaders.get_opencode_storage_path"
         ) as mock_path:
             mock_path.return_value = Path("/non/existent/path")
-            load_opencode_data(db=db)
+            load_opencode_data(db=temp_db)
             mock_path.assert_called_once()
 
         with patch("opencode_monitor.analytics.loaders.AnalyticsDB") as mock_db_class:
@@ -866,13 +866,13 @@ class TestLoadOpencodeData:
 class TestEdgeCases:
     """Tests for edge cases and special content handling."""
 
-    def test_handles_empty_directories(self, db: AnalyticsDB, storage_path: Path):
+    def test_handles_empty_directories(self, temp_db: AnalyticsDB, storage_path: Path):
         """Handles empty session/message/part directories gracefully."""
         (storage_path / "session").mkdir()
         (storage_path / "message").mkdir()
         (storage_path / "part").mkdir()
 
-        result = load_opencode_data(db=db, storage_path=storage_path)
+        result = load_opencode_data(db=temp_db, storage_path=storage_path)
 
         # Verify all counts are zero
         assert result["sessions"] == 0
@@ -885,14 +885,14 @@ class TestEdgeCases:
         assert "error" not in result
 
         # Verify database is empty
-        conn = db.connect()
+        conn = temp_db.connect()
         session_count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
         message_count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()
         assert session_count[0] == 0
         assert message_count[0] == 0
 
     def test_handles_special_content_variations(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Handles unicode, special characters, and nested structures."""
         session_dir = storage_path / "session"
@@ -945,11 +945,11 @@ class TestEdgeCases:
             )
         )
 
-        result = load_sessions_fast(db, storage_path)
+        result = load_sessions_fast(temp_db, storage_path)
 
         assert result == 3
 
-        conn = db.connect()
+        conn = temp_db.connect()
         sessions = conn.execute("SELECT id, title FROM sessions ORDER BY id").fetchall()
 
         assert len(sessions) == 3
@@ -958,7 +958,7 @@ class TestEdgeCases:
         assert "accents" in unicode_session[1]
 
     def test_handles_null_and_missing_values(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Handles null/missing time values and optional fields."""
         part_dir = storage_path / "part"
@@ -990,13 +990,13 @@ class TestEdgeCases:
             current_timestamp,
         )
 
-        result = load_skills(db, storage_path)
+        result = load_skills(temp_db, storage_path)
 
         # Both should load (null time means no cutoff filter)
         assert result >= 1
 
     def test_handles_invalid_json_gracefully(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Handles invalid JSON files without crashing."""
         session_dir = storage_path / "session"
@@ -1013,11 +1013,11 @@ class TestEdgeCases:
         (invalid_dir / "session.json").write_text("{ invalid json }")
 
         # Returns 0 because malformed JSON causes query to fail
-        result = load_sessions_fast(db, storage_path)
+        result = load_sessions_fast(temp_db, storage_path)
         assert result == 0
 
     def test_handles_missing_required_fields(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Handles sessions with missing required fields (WHERE id IS NOT NULL)."""
         session_dir = storage_path / "session"
@@ -1044,7 +1044,7 @@ class TestEdgeCases:
             session_dir, "ses_valid", title="Valid", created_ts=current_timestamp
         )
 
-        result = load_sessions_fast(db, storage_path)
+        result = load_sessions_fast(temp_db, storage_path)
 
         # Only valid session should be loaded
         assert result == 1
@@ -1301,7 +1301,7 @@ class TestLoadTracesWithRootSessions:
     """Tests for load_traces function including root sessions."""
 
     def test_loads_both_root_and_delegation_traces(
-        self, db: AnalyticsDB, storage_path: Path, current_timestamp: int
+        self, temp_db: AnalyticsDB, storage_path: Path, current_timestamp: int
     ):
         """Loads both root sessions and delegation traces into agent_traces table."""
         session_dir = storage_path / "session"
@@ -1341,12 +1341,12 @@ class TestLoadTracesWithRootSessions:
             start_ts=current_timestamp,
         )
 
-        result = load_traces(db, storage_path)
+        result = load_traces(temp_db, storage_path)
 
         # At least 1 root + 1 delegation
         assert result >= 2
 
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Verify root traces
         root_traces = conn.execute(

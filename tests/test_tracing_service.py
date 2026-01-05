@@ -38,9 +38,9 @@ def service(tracing_service: TracingDataService) -> TracingDataService:
 
 
 @pytest.fixture
-def populated_db(db: AnalyticsDB) -> AnalyticsDB:
+def populated_db(temp_db: AnalyticsDB) -> AnalyticsDB:
     """Populate database with test data."""
-    conn = db.connect()
+    conn = temp_db.connect()
 
     # Insert test session
     conn.execute(
@@ -193,7 +193,7 @@ def populated_db(db: AnalyticsDB) -> AnalyticsDB:
         ],
     )
 
-    return db
+    return temp_db
 
 
 # =============================================================================
@@ -211,7 +211,7 @@ class TestGetSessionSummary:
         assert result["meta"]["error"] == "Session not found"
         assert result["summary"] == {}
 
-    def test_returns_complete_summary(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_complete_summary(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return complete session summary with all KPIs."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -239,7 +239,7 @@ class TestGetSessionSummary:
         assert "tokens_by_type" in result["charts"]
         assert "tools_by_name" in result["charts"]
 
-    def test_calculates_token_metrics(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_calculates_token_metrics(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should correctly calculate token metrics."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -254,7 +254,7 @@ class TestGetSessionSummary:
         # Total = input + output = 620
         assert tokens["total"] == 620
 
-    def test_calculates_tool_metrics(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_calculates_tool_metrics(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should correctly calculate tool metrics."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_summary("ses_001")
@@ -276,7 +276,7 @@ class TestGetSessionSummary:
 class TestGetSessionTokens:
     """Tests for get_session_tokens method."""
 
-    def test_returns_token_details(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_token_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return detailed token breakdown."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_tokens("ses_001")
@@ -296,7 +296,7 @@ class TestGetSessionTokens:
 class TestGetSessionTools:
     """Tests for get_session_tools method."""
 
-    def test_returns_tool_details(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_tool_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return detailed tool breakdown."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_tools("ses_001")
@@ -316,7 +316,7 @@ class TestGetSessionTools:
 class TestGetSessionFiles:
     """Tests for get_session_files method."""
 
-    def test_returns_file_details(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_file_details(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return file operation details."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_files("ses_001")
@@ -336,7 +336,7 @@ class TestGetSessionTimeline:
     """Tests for get_session_timeline method."""
 
     def test_returns_chronological_events(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Should return events sorted chronologically."""
         service = TracingDataService(db=populated_db)
@@ -363,7 +363,7 @@ class TestGetSessionTimeline:
 class TestGetSessionAgents:
     """Tests for get_session_agents method."""
 
-    def test_returns_agent_list(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_agent_list(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return list of agents involved in session."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_agents("ses_001")
@@ -382,7 +382,7 @@ class TestGetSessionAgents:
 class TestGetSessionPrompts:
     """Tests for get_session_prompts method."""
 
-    def test_returns_prompt_data(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_returns_prompt_data(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """Should return user prompt and output."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_prompts("ses_001")
@@ -412,7 +412,7 @@ class TestGetGlobalStats:
     """Tests for get_global_stats method."""
 
     def test_returns_global_statistics(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Should return aggregated global statistics."""
         service = TracingDataService(db=populated_db)
@@ -447,7 +447,7 @@ class TestGetComparison:
     """Tests for get_comparison method."""
 
     def test_compares_multiple_sessions(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Should compare metrics across sessions."""
         service = TracingDataService(db=populated_db)
@@ -475,7 +475,7 @@ class TestUpdateSessionStats:
     """Tests for update_session_stats method."""
 
     def test_updates_session_stats_table(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Should update session_stats aggregation table."""
         service = TracingDataService(db=populated_db)
@@ -501,7 +501,7 @@ class TestUpdateDailyStats:
     """Tests for update_daily_stats method."""
 
     def test_updates_daily_stats_table(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Should update daily_stats aggregation table."""
         service = TracingDataService(db=populated_db)
@@ -547,7 +547,7 @@ class TestTracingConfig:
         assert config.cost_per_1k_cache == 0.001
 
     def test_service_uses_custom_config(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Service should use custom config for calculations."""
         custom_config = TracingConfig(
@@ -571,7 +571,7 @@ class TestPerformance:
     """Tests for performance requirements."""
 
     def test_get_session_summary_under_100ms(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """get_session_summary should complete in under 100ms."""
         import time
@@ -592,7 +592,7 @@ class TestPerformance:
         )
 
     def test_get_global_stats_under_100ms(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """get_global_stats should complete in under 100ms."""
         import time
@@ -617,7 +617,7 @@ class TestPerformance:
 class TestResponseFormat:
     """Tests for standardized response format."""
 
-    def test_all_responses_have_meta(self, db: AnalyticsDB, populated_db: AnalyticsDB):
+    def test_all_responses_have_meta(self, temp_db: AnalyticsDB, populated_db: AnalyticsDB):
         """All responses should have meta section."""
         service = TracingDataService(db=populated_db)
 
@@ -634,7 +634,7 @@ class TestResponseFormat:
             assert "generated_at" in response["meta"]
 
     def test_summary_and_details_structure(
-        self, db: AnalyticsDB, populated_db: AnalyticsDB
+        self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
         """Responses should have summary and details sections."""
         service = TracingDataService(db=populated_db)

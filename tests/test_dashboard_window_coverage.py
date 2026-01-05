@@ -90,6 +90,7 @@ def mock_api_client_for_window():
     mock_client = MagicMock()
     mock_client.is_available = True
     mock_client.get_stats.return_value = {"sessions": 0}
+    mock_client.get_sync_status.return_value = {"backfill_active": False}
     mock_client.get_global_stats.return_value = {
         "summary": {
             "total_sessions": 10,
@@ -892,6 +893,7 @@ class TestSyncCheckerIdleMode:
         mock_client = MagicMock()
         mock_client.is_available = True
         mock_client.get_stats.return_value = {"sessions": 5}
+        mock_client.get_sync_status.return_value = {"backfill_active": False}
 
         callback_calls = []
 
@@ -922,6 +924,7 @@ class TestSyncCheckerIdleMode:
         mock_client = MagicMock()
         mock_client.is_available = True
         mock_client.get_stats.return_value = {"sessions": 1}
+        mock_client.get_sync_status.return_value = {"backfill_active": False}
 
         callback_calls = []
 

@@ -270,12 +270,12 @@ class TestExtractTraces:
 class TestLoadTraces:
     """Tests for load_traces function."""
 
-    def test_returns_zero_when_no_traces(self, db: AnalyticsDB, storage_path: Path):
+    def test_returns_zero_when_no_traces(self, temp_db: AnalyticsDB, storage_path: Path):
         """Should return 0 when no traces to load."""
-        count = load_traces(db, storage_path, max_days=30)
+        count = load_traces(temp_db, storage_path, max_days=30)
         assert count == 0
 
-    def test_loads_traces_into_database(self, db: AnalyticsDB, storage_path: Path):
+    def test_loads_traces_into_database(self, temp_db: AnalyticsDB, storage_path: Path):
         """Should load extracted traces into database."""
         create_task_part(
             storage_path,
@@ -287,12 +287,12 @@ class TestLoadTraces:
             output="Tests created",
         )
 
-        count = load_traces(db, storage_path, max_days=30)
+        count = load_traces(temp_db, storage_path, max_days=30)
 
         assert count == 1
 
         # Verify in database
-        conn = db.connect()
+        conn = temp_db.connect()
         result = conn.execute(
             "SELECT trace_id, subagent_type FROM agent_traces"
         ).fetchone()
@@ -334,14 +334,14 @@ class TestTraceQueries:
     """Tests for TraceQueries class."""
 
     @pytest.fixture
-    def queries(self, db: AnalyticsDB) -> TraceQueries:
+    def queries(self, temp_db: AnalyticsDB) -> TraceQueries:
         """Create TraceQueries instance."""
-        return TraceQueries(db)
+        return TraceQueries(temp_db)
 
     @pytest.fixture
-    def populated_db(self, db: AnalyticsDB) -> AnalyticsDB:
+    def populated_db(self, temp_db: AnalyticsDB) -> AnalyticsDB:
         """Populate database with test traces."""
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Insert test traces
         traces = [
@@ -408,7 +408,7 @@ class TestTraceQueries:
                 list(t),
             )
 
-        return db
+        return temp_db
 
     def test_get_traces_by_session(self, populated_db: AnalyticsDB):
         """Should return all traces for a session."""

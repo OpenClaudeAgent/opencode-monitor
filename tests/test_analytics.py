@@ -43,9 +43,9 @@ def collector():
 class TestDatabaseSchema:
     """Tests for database schema creation."""
 
-    def test_creates_all_tables(self, db: AnalyticsDB):
+    def test_creates_all_tables(self, temp_db: AnalyticsDB):
         """Database creates all required tables including new ones."""
-        conn = db.connect()
+        conn = temp_db.connect()
         tables = conn.execute(
             "SELECT table_name FROM information_schema.tables WHERE table_schema = 'main'"
         ).fetchall()
@@ -62,9 +62,9 @@ class TestDatabaseSchema:
         }
         assert expected.issubset(table_names)
 
-    def test_sessions_has_new_columns(self, db: AnalyticsDB):
+    def test_sessions_has_new_columns(self, temp_db: AnalyticsDB):
         """Sessions table has enriched columns."""
-        conn = db.connect()
+        conn = temp_db.connect()
         cols = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'sessions'"
         ).fetchall()
@@ -73,9 +73,9 @@ class TestDatabaseSchema:
         new_cols = {"parent_id", "version", "additions", "deletions", "files_changed"}
         assert new_cols.issubset(col_names)
 
-    def test_messages_has_new_columns(self, db: AnalyticsDB):
+    def test_messages_has_new_columns(self, temp_db: AnalyticsDB):
         """Messages table has enriched columns."""
-        conn = db.connect()
+        conn = temp_db.connect()
         cols = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'messages'"
         ).fetchall()
@@ -84,9 +84,9 @@ class TestDatabaseSchema:
         new_cols = {"mode", "cost", "finish_reason", "working_dir"}
         assert new_cols.issubset(col_names)
 
-    def test_parts_has_new_columns(self, db: AnalyticsDB):
+    def test_parts_has_new_columns(self, temp_db: AnalyticsDB):
         """Parts table has enriched columns."""
-        conn = db.connect()
+        conn = temp_db.connect()
         cols = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'parts'"
         ).fetchall()
@@ -95,9 +95,9 @@ class TestDatabaseSchema:
         new_cols = {"session_id", "call_id", "ended_at", "duration_ms"}
         assert new_cols.issubset(col_names)
 
-    def test_todos_table_structure(self, db: AnalyticsDB):
+    def test_todos_table_structure(self, temp_db: AnalyticsDB):
         """Todos table has correct structure."""
-        conn = db.connect()
+        conn = temp_db.connect()
         cols = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'todos'"
         ).fetchall()
@@ -115,9 +115,9 @@ class TestDatabaseSchema:
         }
         assert expected == col_names
 
-    def test_projects_table_structure(self, db: AnalyticsDB):
+    def test_projects_table_structure(self, temp_db: AnalyticsDB):
         """Projects table has correct structure."""
-        conn = db.connect()
+        conn = temp_db.connect()
         cols = conn.execute(
             "SELECT column_name FROM information_schema.columns WHERE table_name = 'projects'"
         ).fetchall()
@@ -136,10 +136,10 @@ class TestCollectorInserts:
     """Tests for collector insert methods."""
 
     def test_insert_session_with_summary(
-        self, db: AnalyticsDB, collector: AnalyticsCollector
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
     ):
         """Insert session with summary data (additions, deletions, files)."""
-        conn = db.connect()
+        conn = temp_db.connect()
         data = {
             "id": "ses_test",
             "projectID": "proj_001",
@@ -166,10 +166,10 @@ class TestCollectorInserts:
         assert result[4] == 5  # files_changed
 
     def test_insert_message_with_cost(
-        self, db: AnalyticsDB, collector: AnalyticsCollector
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
     ):
         """Insert message with cost, mode, and finish_reason."""
-        conn = db.connect()
+        conn = temp_db.connect()
         data = {
             "id": "msg_test",
             "sessionID": "ses_test",
@@ -203,10 +203,10 @@ class TestCollectorInserts:
         assert result[3] == "/test/path"
 
     def test_insert_part_with_duration(
-        self, db: AnalyticsDB, collector: AnalyticsCollector
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
     ):
         """Insert part with session_id, call_id, and duration."""
-        conn = db.connect()
+        conn = temp_db.connect()
         data = {
             "id": "prt_test",
             "sessionID": "ses_test",
@@ -229,10 +229,10 @@ class TestCollectorInserts:
         assert result[2] == 10000  # 10 seconds in ms
 
     def test_insert_todos(
-        self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Insert todos for a session."""
-        conn = db.connect()
+        conn = temp_db.connect()
         todos = [
             {
                 "id": "1",
@@ -259,9 +259,9 @@ class TestCollectorInserts:
         assert results[1][2] == "Second task"
         assert results[1][3] == "in_progress"
 
-    def test_insert_project(self, db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_insert_project(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
         """Insert a project."""
-        conn = db.connect()
+        conn = temp_db.connect()
         data = {
             "id": "proj_001",
             "worktree": "/test/path",
@@ -287,7 +287,7 @@ class TestAnalyticsQueries:
 
     def _setup_test_todos(
         self,
-        db: AnalyticsDB,
+        temp_db: AnalyticsDB,
         collector: AnalyticsCollector,
         tmp_path: Path,
     ) -> list[dict]:
@@ -296,7 +296,7 @@ class TestAnalyticsQueries:
         Creates 2 todos (one completed, one pending) and inserts them.
         Returns the todo list for assertions.
         """
-        conn = db.connect()
+        conn = temp_db.connect()
         todos = [
             {"id": "1", "content": "Task 1", "status": "completed", "priority": "high"},
             {"id": "2", "content": "Task 2", "status": "pending", "priority": "low"},
@@ -306,19 +306,19 @@ class TestAnalyticsQueries:
         collector._insert_todos(conn, "ses_test", todos, todo_file)
         return todos
 
-    def test_get_todos_empty(self, db: AnalyticsDB):
+    def test_get_todos_empty(self, temp_db: AnalyticsDB):
         """Get todos returns empty list when no data."""
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_todos()
         assert result == []
 
     def test_get_todos_with_data(
-        self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Get todos returns correct data."""
-        self._setup_test_todos(db, collector, tmp_path)
+        self._setup_test_todos(temp_db, collector, tmp_path)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_todos()
 
         assert len(result) == 2
@@ -326,28 +326,28 @@ class TestAnalyticsQueries:
         assert result[0].content == "Task 1"
 
     def test_get_todos_filter_by_status(
-        self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Get todos can filter by status."""
-        self._setup_test_todos(db, collector, tmp_path)
+        self._setup_test_todos(temp_db, collector, tmp_path)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_todos(status="completed")
 
         assert len(result) == 1
         assert result[0].status == "completed"
 
-    def test_get_projects_empty(self, db: AnalyticsDB):
+    def test_get_projects_empty(self, temp_db: AnalyticsDB):
         """Get projects returns empty list when no data."""
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_projects()
         assert result == []
 
     def test_get_projects_with_data(
-        self, db: AnalyticsDB, collector: AnalyticsCollector
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
     ):
         """Get projects returns correct data."""
-        conn = db.connect()
+        conn = temp_db.connect()
         data = {
             "id": "proj_001",
             "worktree": "/test/path",
@@ -356,7 +356,7 @@ class TestAnalyticsQueries:
         }
         collector._insert_project(conn, data)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_projects()
 
         assert len(result) == 1
@@ -364,9 +364,9 @@ class TestAnalyticsQueries:
         assert result[0].worktree == "/test/path"
         assert result[0].vcs == "git"
 
-    def test_get_code_stats(self, db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_code_stats(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
         """Get code stats returns additions/deletions totals."""
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Use current timestamp (in ms) for recent data
         now_ms = int(time.time() * 1000)
@@ -383,7 +383,7 @@ class TestAnalyticsQueries:
             }
             collector._insert_session(conn, data)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_code_stats(days=30)
 
         assert result["additions"] == 300
@@ -391,9 +391,9 @@ class TestAnalyticsQueries:
         assert result["files_changed"] == 15
         assert result["sessions_with_changes"] == 3
 
-    def test_get_cost_stats(self, db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_cost_stats(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
         """Get cost stats returns cost totals."""
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Use current timestamp (in ms) for recent data
         now_ms = int(time.time() * 1000)
@@ -410,15 +410,15 @@ class TestAnalyticsQueries:
             }
             collector._insert_message(conn, data)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_cost_stats(days=30)
 
         assert result["total_cost"] == pytest.approx(0.03, rel=0.01)
         assert result["messages_with_cost"] == 3
 
-    def test_get_tool_performance(self, db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_tool_performance(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
         """Get tool performance stats."""
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Use current timestamp (in ms) for recent data
         now_ms = int(time.time() * 1000)
@@ -439,7 +439,7 @@ class TestAnalyticsQueries:
             }
             collector._insert_part(conn, data)
 
-        queries = AnalyticsQueries(db)
+        queries = AnalyticsQueries(temp_db)
         result = queries.get_tool_performance(days=30)
 
         assert len(result) == 1
@@ -456,17 +456,17 @@ class TestAnalyticsQueries:
 class TestDatabaseUtilities:
     """Tests for database utility methods."""
 
-    def test_get_stats_includes_new_tables(self, db: AnalyticsDB):
+    def test_get_stats_includes_new_tables(self, temp_db: AnalyticsDB):
         """Get stats includes todos and projects."""
-        result = db.get_stats()
+        result = temp_db.get_stats()
         assert "todos" in result
         assert "projects" in result
 
     def test_clear_data_clears_new_tables(
-        self, db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
+        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
     ):
         """Clear data clears todos and projects too."""
-        conn = db.connect()
+        conn = temp_db.connect()
 
         # Insert some data
         collector._insert_project(
@@ -489,7 +489,7 @@ class TestDatabaseUtilities:
         )
 
         # Clear and verify
-        db.clear_data()
+        temp_db.clear_data()
 
         assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 0
         assert conn.execute("SELECT COUNT(*) FROM todos").fetchone()[0] == 0
