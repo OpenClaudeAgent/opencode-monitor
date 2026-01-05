@@ -105,6 +105,86 @@ class StatsQueriesMixin:
                 }
             )
 
+            # Top Agents (from agent_traces by subagent_type)
+            agent_rows = self._conn.execute(
+                """
+                SELECT 
+                    subagent_type as agent,
+                    COUNT(*) as messages,
+                    COALESCE(SUM(tokens_in + tokens_out), 0) as tokens
+                FROM agent_traces
+                WHERE started_at >= ? AND started_at <= ?
+                GROUP BY subagent_type
+                ORDER BY tokens DESC
+                LIMIT 10
+                """,
+                [start, end],
+            ).fetchall()
+
+            # Top Tools with failure rate (from parts)
+            tool_rows = self._conn.execute(
+                """
+                SELECT 
+                    tool_name as tool,
+                    COUNT(*) as invocations,
+                    SUM(CASE WHEN tool_status = 'error' THEN 1 ELSE 0 END) as failures
+                FROM parts
+                WHERE tool_name IS NOT NULL 
+                  AND created_at >= ? AND created_at <= ?
+                GROUP BY tool_name
+                ORDER BY invocations DESC
+                LIMIT 10
+                """,
+                [start, end],
+            ).fetchall()
+
+            # Skills load count (from skills)
+            skill_rows = self._conn.execute(
+                """
+                SELECT 
+                    skill_name as skill,
+                    COUNT(*) as load_count
+                FROM skills
+                WHERE loaded_at >= ? AND loaded_at <= ?
+                GROUP BY skill_name
+                ORDER BY load_count DESC
+                LIMIT 10
+                """,
+                [start, end],
+            ).fetchall()
+
+            # Format agents list
+            agents_list = [
+                {
+                    "agent": row[0] or "unknown",
+                    "messages": row[1] or 0,
+                    "tokens": row[2] or 0,
+                }
+                for row in agent_rows
+            ]
+
+            # Format tools list with failure rate
+            tools_list = [
+                {
+                    "tool": row[0] or "unknown",
+                    "invocations": row[1] or 0,
+                    "failures": row[2] or 0,
+                    "failure_rate": f"{(row[2] / row[1] * 100):.1f}%"
+                    if row[1] > 0
+                    else "0.0%",
+                }
+                for row in tool_rows
+            ]
+
+            # Format skills list
+            skills_list = [
+                {
+                    "skill": row[0] or "unknown",
+                    "load_count": row[1] or 0,
+                }
+                for row in skill_rows
+            ]
+
             return {
                 "meta": {
                     "period": {
@@ -134,6 +214,10 @@ class StatsQueriesMixin:
                         "unique_tools": tool_stats[1] or 0,
                     },
                 },
+                # Detailed breakdowns for dashboard tables
+                "agents": agents_list,
+                "tools": tools_list,
+                "skills": skills_list,
             }
 
         except Exception as e:

@@ -422,9 +422,10 @@ class DashboardWindow(QMainWindow):
                 "messages": summary.get("total_messages", 0),
                 "tokens": tokens_str,
                 "cache_hit": cache_hit,
-                "agents": [],  # API doesn't provide detailed agent breakdown yet
-                "tools": [],  # API doesn't provide detailed tool breakdown yet
-                "skills": [],  # API doesn't provide detailed skill breakdown yet
+                # Use detailed breakdowns from API
+                "agents": global_stats.get("agents", []),
+                "tools": global_stats.get("tools", []),
+                "skills": global_stats.get("skills", []),
             }
 
             self._signals.analytics_updated.emit(data)
