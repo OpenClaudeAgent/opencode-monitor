@@ -586,6 +586,7 @@ class TraceBuilder:
         try:
             # Find root sessions that might need segmentation
             # (have messages with different agents)
+            # EXCLUDE sessions that already have segment traces
             sessions = conn.execute(
                 """
                 SELECT DISTINCT m.session_id
@@ -596,6 +597,11 @@ class TraceBuilder:
                   AND m.role = 'assistant'
                   AND m.agent IS NOT NULL
                   AND m.agent NOT IN ('compaction', 'summarizer', 'title')
+                  AND NOT EXISTS (
+                      SELECT 1 FROM agent_traces seg
+                      WHERE seg.session_id = m.session_id
+                        AND seg.trace_id LIKE '%_seg%'
+                  )
                 GROUP BY m.session_id
                 HAVING COUNT(DISTINCT m.agent) > 1
                 """

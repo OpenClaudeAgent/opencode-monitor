@@ -243,11 +243,20 @@ class FileTracker:
         directory: Path,
         file_type: str,
         limit: int = 100,
+        max_mtime: Optional[float] = None,
+        only_new: bool = False,
     ) -> list[Path]:
         """Get files not yet indexed or changed since last indexing.
 
         Efficiently finds files needing indexing by comparing filesystem
         with database index.
+
+        Args:
+            max_mtime: If provided, only include files with mtime <= this value.
+                      Used by backfill to ignore files created after indexer start.
+            only_new: If True, only return files that have NEVER been indexed.
+                     Ignores modified files. Used by backfill to avoid
+                     re-processing files that the watcher should handle.
 
         Args:
             directory: Directory to scan
@@ -283,6 +292,10 @@ class FileTracker:
                     except OSError:
                         continue
 
+        # Filter by max_mtime if provided (backfill cutoff)
+        if max_mtime is not None:
+            files_with_mtime = [(m, p) for m, p in files_with_mtime if m <= max_mtime]
+
         # Sort by mtime DESC (most recent first)
         files_with_mtime.sort(key=lambda x: x[0], reverse=True)
 
@@ -311,8 +324,9 @@ class FileTracker:
             if path_str not in indexed_files:
                 # New file - needs indexing
                 unindexed.append(path)
-            else:
-                # Check if changed
+            elif not only_new:
+                # Check if changed (only if we're not in "only_new" mode)
+                # In only_new mode, we skip modified files - watcher handles those
                 stored_mtime, stored_size = indexed_files[path_str]
                 try:
                     current_size = path.stat().st_size

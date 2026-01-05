@@ -32,9 +32,10 @@ from ...utils.logger import debug, info
 OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
 
 # Backfill configuration
-BACKFILL_BATCH_SIZE = 10000  # Max files per cycle (increased for parallel)
+BACKFILL_BATCH_SIZE = 50000  # Max files per cycle (large for fast initial backfill)
 BACKFILL_THROTTLE_MS = 1  # Minimal pause
-BACKFILL_INTERVAL = 2  # Seconds between backfill cycles
+BACKFILL_INTERVAL = 2  # Seconds between backfill cycles (during initial)
+BACKFILL_INTERVAL_SLOW = 60  # Seconds between cycles after initial backfill
 NUM_WORKERS = 8  # Number of parallel workers
 
 
@@ -79,6 +80,9 @@ class UnifiedIndexer:
         # State
         self._running = False
         self._lock = threading.Lock()
+        self._backfilling = False  # True when backfill is actively processing
+        self._start_timestamp: Optional[float] = None  # Cutoff for backfill
+        self._initial_backfill_done = False  # True after first complete pass
 
         # Statistics
         self._stats = {
@@ -101,6 +105,9 @@ class UnifiedIndexer:
 
         self._running = True
         self._stats["start_time"] = datetime.now().isoformat()
+        self._start_timestamp = (
+            time.time()
+        )  # Cutoff: backfill only processes files older than this
 
         info("[UnifiedIndexer] Starting...")
         info(f"[UnifiedIndexer] Storage path: {self._storage_path}")
@@ -164,7 +171,21 @@ class UnifiedIndexer:
         self._queue.put(file_type, path)
 
     def _process_queue_loop(self) -> None:
-        """Process files from the queue continuously."""
+        """Process files from the queue continuously.
+
+        IMPORTANT: Waits until initial backfill completes to avoid
+        DuckDB write-write conflicts between threads.
+        """
+        # Wait for initial backfill to complete before processing
+        # Files detected by watcher will queue up and be processed after
+        while self._running and not self._initial_backfill_done:
+            time.sleep(0.5)
+
+        if self._running:
+            queued = self._queue.size
+            if queued > 0:
+                info(f"[Processor] Starting - {queued} files queued during backfill")
+
         while self._running:
             batch = self._queue.get_batch(max_items=50, timeout=0.1)
             if not batch:
@@ -183,17 +204,36 @@ class UnifiedIndexer:
             info("[UnifiedIndexer] Running initial backfill...")
             self._run_backfill()
 
-        # Then periodic backfill
+        # Then periodic backfill (slower after initial pass)
         while self._running:
-            time.sleep(BACKFILL_INTERVAL)
+            interval = (
+                BACKFILL_INTERVAL_SLOW
+                if self._initial_backfill_done
+                else BACKFILL_INTERVAL
+            )
+            time.sleep(interval)
             if self._running:
                 self._run_backfill()
+
+    @property
+    def is_backfilling(self) -> bool:
+        """Check if backfill is currently active."""
+        return self._backfilling
+
+    @property
+    def initial_backfill_done(self) -> bool:
+        """Check if initial backfill has completed."""
+        return self._initial_backfill_done
 
     def _run_backfill(self) -> None:
         """Run a backfill cycle for unindexed files.
 
         Uses batch INSERT for high performance.
+
+        Only processes files created BEFORE the indexer started (cutoff timestamp).
+        Files created AFTER are handled by the real-time watcher.
         """
+        self._backfilling = True
         start_time = time.time()
         total_processed = 0
         cycle_num = self._stats.get("backfill_cycles", 0) + 1
@@ -204,8 +244,15 @@ class UnifiedIndexer:
 
             directory = self._storage_path / file_type
             scan_start = time.time()
+            # Backfill only processes files that have NEVER been indexed.
+            # Modified files are handled by the watcher in real-time.
+            # Also use start_timestamp as cutoff to ignore files created after start.
             unindexed = self._tracker.get_unindexed_files(
-                directory, file_type, limit=BACKFILL_BATCH_SIZE
+                directory,
+                file_type,
+                limit=BACKFILL_BATCH_SIZE,
+                max_mtime=self._start_timestamp,
+                only_new=True,  # Don't re-process modified files - watcher handles those
             )
             scan_time = time.time() - scan_start
 
@@ -237,25 +284,6 @@ class UnifiedIndexer:
         self._stats["last_backfill"] = datetime.now().isoformat()
 
         if total_processed > 0:
-            # Update root trace agents from messages (root traces created with user type)
-            updated_agents = self._trace_builder.update_root_trace_agents()
-            if updated_agents > 0:
-                debug(
-                    f"[Backfill #{cycle_num}] Updated {updated_agents} root trace agents"
-                )
-
-            # Create conversation segments for sessions with multiple agents
-            segments_created = self._trace_builder.analyze_all_sessions_for_segments()
-            if segments_created > 0:
-                debug(
-                    f"[Backfill #{cycle_num}] Created {segments_created} conversation segments"
-                )
-
-            # Resolve parent traces after processing new data
-            resolved = self._trace_builder.resolve_parent_traces()
-            if resolved > 0:
-                debug(f"[Backfill #{cycle_num}] Resolved {resolved} parent traces")
-
             speed = total_processed / elapsed if elapsed > 0 else 0
             info(
                 f"[Backfill #{cycle_num}] DONE: {total_processed} files in {elapsed:.1f}s ({speed:.0f}/s) | "
@@ -265,7 +293,49 @@ class UnifiedIndexer:
                 f"Traces: {self._stats.get('traces_created', 0)}"
             )
         else:
-            info(f"[Backfill #{cycle_num}] No new files to index ({elapsed:.1f}s)")
+            if not self._initial_backfill_done:
+                self._initial_backfill_done = True
+                info(
+                    f"[Backfill #{cycle_num}] Initial backfill COMPLETE - running post-processing..."
+                )
+
+                # Run post-processing ONCE after initial backfill completes
+                # (not after each batch, to avoid write-write conflicts)
+                self._run_post_backfill_processing(cycle_num)
+            else:
+                debug(f"[Backfill #{cycle_num}] No new files to index ({elapsed:.1f}s)")
+
+        self._backfilling = False
+
+    def _run_post_backfill_processing(self, cycle_num: int) -> None:
+        """Run post-processing after initial backfill completes.
+
+        This is called ONCE after all files are indexed, not after each batch.
+        This avoids DuckDB write-write conflicts between concurrent operations.
+
+        Args:
+            cycle_num: Current backfill cycle number for logging
+        """
+        # Update root trace agents from messages (root traces created with user type)
+        updated_agents = self._trace_builder.update_root_trace_agents()
+        if updated_agents > 0:
+            debug(f"[Backfill #{cycle_num}] Updated {updated_agents} root trace agents")
+
+        # Create conversation segments for sessions with multiple agents
+        segments_created = self._trace_builder.analyze_all_sessions_for_segments()
+        if segments_created > 0:
+            debug(
+                f"[Backfill #{cycle_num}] Created {segments_created} conversation segments"
+            )
+
+        # Resolve parent traces after processing new data
+        resolved = self._trace_builder.resolve_parent_traces()
+        if resolved > 0:
+            debug(f"[Backfill #{cycle_num}] Resolved {resolved} parent traces")
+
+        info(
+            f"[Backfill #{cycle_num}] Post-processing complete - switching to maintenance mode"
+        )
 
     def _batch_process_files(self, file_type: str, files: list[Path]) -> int:
         """Process files in batch with bulk INSERT.
@@ -365,45 +435,63 @@ class UnifiedIndexer:
         return len(records)
 
     def _batch_process_messages(self, files: list[Path]) -> int:
-        """Batch process message files."""
-        records = []
-        paths_processed = []
+        """Batch process message files with parallel parsing."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Parse all files
-        for path in files:
+        records: list[tuple] = []
+        paths_processed: list[tuple[Path, str]] = []
+        errors: list[tuple[Path, str]] = []
+
+        def parse_file(path: Path) -> dict:
+            """Parse a single file - runs in thread pool."""
             raw_data = self._parser.read_json(path)
             if raw_data is None:
-                self._tracker.mark_error(path, "message", "Failed to read JSON")
-                continue
+                return {"status": "error", "path": path, "error": "Failed to read JSON"}
 
             parsed = self._parser.parse_message(raw_data)
             if not parsed:
-                self._tracker.mark_error(path, "message", "Invalid data")
-                continue
+                return {"status": "error", "path": path, "error": "Invalid data"}
 
-            records.append(
-                (
-                    parsed.id,
-                    parsed.session_id,
-                    parsed.parent_id,
-                    parsed.role,
-                    parsed.agent,
-                    parsed.model_id,
-                    parsed.provider_id,
-                    parsed.mode,
-                    parsed.cost,
-                    parsed.finish_reason,
-                    parsed.working_dir,
-                    parsed.tokens_input,
-                    parsed.tokens_output,
-                    parsed.tokens_reasoning,
-                    parsed.tokens_cache_read,
-                    parsed.tokens_cache_write,
-                    parsed.created_at,
-                    parsed.completed_at,
-                )
-            )
-            paths_processed.append((path, parsed.id))
+            return {"status": "ok", "path": path, "parsed": parsed}
+
+        # Parallel file parsing with thread pool
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+            futures = [executor.submit(parse_file, path) for path in files]
+
+            for future in as_completed(futures):
+                result = future.result()
+
+                if result["status"] == "error":
+                    errors.append((result["path"], result["error"]))
+                else:
+                    parsed = result["parsed"]
+                    records.append(
+                        (
+                            parsed.id,
+                            parsed.session_id,
+                            parsed.parent_id,
+                            parsed.role,
+                            parsed.agent,
+                            parsed.model_id,
+                            parsed.provider_id,
+                            parsed.mode,
+                            parsed.cost,
+                            parsed.finish_reason,
+                            parsed.working_dir,
+                            parsed.tokens_input,
+                            parsed.tokens_output,
+                            parsed.tokens_reasoning,
+                            parsed.tokens_cache_read,
+                            parsed.tokens_cache_write,
+                            parsed.created_at,
+                            parsed.completed_at,
+                        )
+                    )
+                    paths_processed.append((result["path"], parsed.id))
+
+        # Mark errors
+        for path, error_msg in errors:
+            self._tracker.mark_error(path, "message", error_msg)
 
         if not records:
             return 0
@@ -431,47 +519,72 @@ class UnifiedIndexer:
         return len(records)
 
     def _batch_process_parts(self, files: list[Path]) -> int:
-        """Batch process part files."""
-        records = []
-        paths_processed = []
-        delegations = []
+        """Batch process part files with parallel parsing."""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
 
-        # Parse all files
-        for path in files:
+        records: list[tuple] = []
+        paths_processed: list[tuple[Path, str]] = []
+        delegations: list[tuple] = []
+        errors: list[tuple[Path, str]] = []
+
+        def parse_file(path: Path) -> dict:
+            """Parse a single file - runs in thread pool."""
             raw_data = self._parser.read_json(path)
             if raw_data is None:
-                self._tracker.mark_error(path, "part", "Failed to read JSON")
-                continue
+                return {"status": "error", "path": path, "error": "Failed to read JSON"}
 
             parsed = self._parser.parse_part(raw_data)
             if not parsed:
-                self._tracker.mark_error(path, "part", "Invalid data")
-                continue
+                return {"status": "error", "path": path, "error": "Invalid data"}
 
-            records.append(
-                (
-                    parsed.id,
-                    parsed.session_id,
-                    parsed.message_id,
-                    parsed.part_type,
-                    parsed.content,
-                    parsed.tool_name,
-                    parsed.tool_status,
-                    parsed.call_id,
-                    parsed.created_at,
-                    parsed.ended_at,
-                    parsed.duration_ms,
-                    parsed.arguments,
-                    parsed.error_message,
-                )
-            )
-            paths_processed.append((path, parsed.id))
-
-            # Check for delegation (task tool)
+            # Check for delegation
+            delegation = None
             if parsed.tool_name == "task" and parsed.tool_status == "completed":
                 delegation = self._parser.parse_delegation(raw_data)
-                if delegation:
-                    delegations.append((delegation, parsed))
+
+            return {
+                "status": "ok",
+                "path": path,
+                "parsed": parsed,
+                "delegation": delegation,
+            }
+
+        # Parallel file parsing with thread pool
+        with ThreadPoolExecutor(max_workers=NUM_WORKERS) as executor:
+            futures = [executor.submit(parse_file, path) for path in files]
+
+            for future in as_completed(futures):
+                result = future.result()
+
+                if result["status"] == "error":
+                    errors.append((result["path"], result["error"]))
+                else:
+                    parsed = result["parsed"]
+                    records.append(
+                        (
+                            parsed.id,
+                            parsed.session_id,
+                            parsed.message_id,
+                            parsed.part_type,
+                            parsed.content,
+                            parsed.tool_name,
+                            parsed.tool_status,
+                            parsed.call_id,
+                            parsed.created_at,
+                            parsed.ended_at,
+                            parsed.duration_ms,
+                            parsed.arguments,
+                            parsed.error_message,
+                        )
+                    )
+                    paths_processed.append((result["path"], parsed.id))
+
+                    if result["delegation"]:
+                        delegations.append((result["delegation"], parsed))
+
+        # Mark errors
+        for path, error_msg in errors:
+            self._tracker.mark_error(path, "part", error_msg)
 
         if not records:
             return 0
@@ -494,12 +607,14 @@ class UnifiedIndexer:
         )
 
         # Create traces for delegations
-        for delegation, part in delegations:
-            trace_id = self._trace_builder.create_trace_from_delegation(
-                delegation, part
-            )
-            if trace_id:
-                self._stats["traces_created"] += 1
+        # Skip during initial backfill for performance - traces created in post-processing
+        if self._initial_backfill_done:
+            for delegation, part in delegations:
+                trace_id = self._trace_builder.create_trace_from_delegation(
+                    delegation, part
+                )
+                if trace_id:
+                    self._stats["traces_created"] += 1
 
         self._stats["parts_indexed"] += len(records)
         return len(records)

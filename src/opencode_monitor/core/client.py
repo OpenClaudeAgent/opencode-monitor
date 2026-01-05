@@ -16,7 +16,8 @@ from typing import Optional, Any
 REQUEST_TIMEOUT = 2
 
 # Thread pool for parallel HTTP requests
-_executor = ThreadPoolExecutor(max_workers=20)
+# Reduced from 20 to 4 to avoid thread contention
+_executor = ThreadPoolExecutor(max_workers=4)
 
 
 def _clean_json(raw: str) -> str:

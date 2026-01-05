@@ -56,10 +56,14 @@ class SyncChecker:
     The dashboard operates in read-only mode. The menubar updates sync_meta
     when it syncs new data. This class polls that table and triggers a
     refresh when new data is detected.
+
+    Performance optimization: Skips refresh during backfill to avoid
+    hammering the API with heavy requests while indexing is in progress.
     """
 
     POLL_FAST_MS = 2000  # During activity
     POLL_SLOW_MS = 5000  # At rest
+    POLL_BACKFILL_MS = 10000  # During backfill - much slower
     IDLE_THRESHOLD_S = 30  # Switch to slow after 30s without change
 
     def __init__(self, on_sync_detected: Callable[[], None]):
@@ -71,10 +75,16 @@ class SyncChecker:
         self._on_sync = on_sync_detected
         self._known_sync: Optional[datetime] = None
         self._last_change_time = time.time()
+        self._backfill_active = False
 
         self._timer = QTimer()
         self._timer.timeout.connect(self._check)
         self._timer.start(self.POLL_FAST_MS)
+
+    @property
+    def is_backfill_active(self) -> bool:
+        """Check if backfill is currently active."""
+        return self._backfill_active
 
     def _check(self) -> None:
         """Check if API is available and data has changed."""
@@ -85,6 +95,16 @@ class SyncChecker:
 
             # Use API health check instead of direct DB access
             if client.is_available:
+                # Check backfill status first
+                sync_status = client.get_sync_status()
+                if sync_status:
+                    self._backfill_active = sync_status.get("backfill_active", False)
+
+                    if self._backfill_active:
+                        # During backfill, slow down polling and skip refresh
+                        self._timer.setInterval(self.POLL_BACKFILL_MS)
+                        return  # Don't trigger refresh during backfill
+
                 # Get stats to check for changes
                 stats = client.get_stats()
                 if stats:
@@ -615,6 +635,9 @@ class DashboardWindow(QMainWindow):
 
         Uses the new /api/tracing/tree endpoint which returns a pre-built
         hierarchy. No client-side aggregation needed anymore.
+
+        Performance optimization: Skips fetching during backfill to avoid
+        heavy queries while indexing is in progress.
         """
         from ..utils.logger import debug, error
 
@@ -626,6 +649,12 @@ class DashboardWindow(QMainWindow):
             # Check if API is available
             if not client.is_available:
                 debug("[Dashboard] API not available, menubar may not be running")
+                return
+
+            # Skip heavy tracing fetch during backfill
+            sync_status = client.get_sync_status()
+            if sync_status and sync_status.get("backfill_active", False):
+                debug("[Dashboard] Skipping tracing fetch - backfill in progress")
                 return
 
             # Get hierarchical tree directly from API - no client-side aggregation
