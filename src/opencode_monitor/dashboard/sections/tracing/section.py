@@ -385,7 +385,11 @@ class TracingSection(QWidget):
                         )
                 elif node_type == "user_turn":
                     # User initiated conversation with agent
-                    effective_agent = agent_type or extract_agent_from_title(title)
+                    effective_agent = (
+                        session.get("subagent_type")
+                        or agent_type
+                        or extract_agent_from_title(title)
+                    )
                     icon = "💬"
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"
@@ -395,9 +399,13 @@ class TracingSection(QWidget):
                         label = f"{icon} agent"
                     item.setText(0, label)
                     item.setForeground(0, QColor(COLORS["tree_child"]))
-                elif node_type == "delegation":
+                elif node_type in ("delegation", "agent"):
                     # Agent delegating to sub-agent
-                    effective_agent = agent_type or extract_agent_from_title(title)
+                    effective_agent = (
+                        session.get("subagent_type")
+                        or agent_type
+                        or extract_agent_from_title(title)
+                    )
                     icon = "🔗"
                     if effective_agent and parent_agent:
                         label = f"{icon} {parent_agent} → {effective_agent}"

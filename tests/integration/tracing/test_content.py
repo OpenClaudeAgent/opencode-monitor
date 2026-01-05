@@ -272,7 +272,11 @@ class TestTracingTreeContent:
         )
 
     def test_tree_shows_agent_children(self, dashboard_window, qtbot, click_nav):
-        """Tree shows child agents under root session."""
+        """Tree shows child agents under root session with correct hierarchy.
+
+        Tests the 3-level hierarchy: session → user_turn → agent (delegation) → tool
+        Verifies that node_type="agent" (delegation) displays correct subagent_type.
+        """
         click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
@@ -284,12 +288,45 @@ class TestTracingTreeContent:
         root_item = tracing._tree.topLevelItem(0)
         assert root_item is not None, "Expected at least one root item in tree"
 
-        # If root has children, verify they exist and have text
-        if root_item.childCount() > 0:
-            first_child = root_item.child(0)
-            assert first_child is not None, "Child at index 0 should not be None"
-            child_text = first_child.text(0)
-            assert child_text, f"Child item should have text, got empty string"
+        # Root should have children (user_turns)
+        assert root_item.childCount() > 0, "Root session should have children"
+
+        # First child is user_turn with subagent_type="executor"
+        first_child = root_item.child(0)
+        assert first_child is not None, "Child at index 0 should not be None"
+        child_text = first_child.text(0)
+        assert child_text, "Child item should have text"
+        assert "executor" in child_text, (
+            f"First user_turn should display 'executor' (subagent_type), got: '{child_text}'"
+        )
+
+        # First child should have grandchildren (tools + delegation)
+        assert first_child.childCount() > 0, (
+            "user_turn should have children (tools and/or delegations)"
+        )
+
+        # Find the delegation (node_type="agent") among grandchildren
+        # It should display "tester" (the subagent_type of the delegation)
+        delegation_found = False
+        for i in range(first_child.childCount()):
+            grandchild = first_child.child(i)
+            grandchild_text = grandchild.text(0)
+            # Delegation should show "tester" and use 🔗 icon
+            if "tester" in grandchild_text:
+                delegation_found = True
+                assert "🔗" in grandchild_text, (
+                    f"Delegation should use 🔗 icon, got: '{grandchild_text}'"
+                )
+                # Delegation should have its own children (tools)
+                assert grandchild.childCount() > 0, (
+                    "Delegation (executor → tester) should have tool children"
+                )
+                break
+
+        assert delegation_found, (
+            "Should find delegation with subagent_type='tester' in tree. "
+            "This tests that node_type='agent' is correctly handled as delegation."
+        )
 
     def test_tree_item_has_data(self, dashboard_window, qtbot, click_nav):
         """Tree items have associated data for selection handling."""
