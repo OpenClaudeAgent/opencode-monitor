@@ -10,7 +10,7 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor, QFont
 
-from ..styles import COLORS, UI
+from ..styles import COLORS, FONTS, RADIUS, SPACING, UI
 
 
 class DataTable(QTableWidget):
@@ -40,11 +40,39 @@ class DataTable(QTableWidget):
 
         self.setSortingEnabled(True)
 
-        # Alternating row colors
+        # Alternating row colors - IMPROVED CONTRAST
         palette = self.palette()
         palette.setColor(palette.ColorRole.Base, QColor(COLORS["bg_surface"]))
         palette.setColor(palette.ColorRole.AlternateBase, QColor(COLORS["bg_elevated"]))
         self.setPalette(palette)
+
+        # Styling - ADDED CUSTOM STYLESHEET
+        self.setStyleSheet(f"""
+            QTableWidget {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_default"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+            QTableWidget::item {{
+                padding: {SPACING["sm"]}px;
+                color: {COLORS["text_secondary"]};
+            }}
+            QTableWidget::item:selected {{
+                background-color: {COLORS["bg_active"]};
+                color: {COLORS["text_primary"]};
+            }}
+            QHeaderView::section {{
+                background-color: {COLORS["bg_elevated"]};
+                color: {COLORS["text_secondary"]};
+                border: none;
+                border-bottom: 1px solid {COLORS["border_default"]};
+                padding: {SPACING["sm"]}px;
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_bold"]};
+                text-transform: uppercase;
+                letter-spacing: {FONTS["tracking_wide"]}px;
+            }}
+        """)
 
         # Hide row numbers
         v_header = self.verticalHeader()
