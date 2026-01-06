@@ -8,17 +8,21 @@ Design Philosophy:
 """
 
 COLORS = {
-    # Backgrounds (layered depth)
-    "bg_base": "#0f0f0f",  # Deepest background
+    # Backgrounds (layered depth) - IMPROVED CONTRAST
+    "bg_base": "#0d0d0d",  # Deepest background (darker than before)
     "bg_surface": "#1a1a1a",  # Cards, panels
-    "bg_elevated": "#252525",  # Elevated elements
+    "bg_elevated": "#222222",  # Elevated elements (MORE CONTRAST: was #252525)
     "bg_hover": "#2a2a2a",  # Hover states
     "bg_active": "#303030",  # Active/pressed states
-    # Text hierarchy
-    "text_primary": "#ffffff",  # Primary text
-    "text_secondary": "#a0a0a0",  # Secondary text
-    "text_muted": "#666666",  # Muted/disabled text
-    "text_inverse": "#0f0f0f",  # Text on light backgrounds
+    # NEW: Subtle accent backgrounds for cards
+    "bg_surface_blue": "rgba(59, 130, 246, 0.04)",
+    "bg_surface_green": "rgba(34, 197, 94, 0.04)",
+    "bg_surface_amber": "rgba(245, 158, 11, 0.04)",
+    # Text hierarchy - IMPROVED READABILITY
+    "text_primary": "#f5f5f5",  # Primary text (MORE READABLE: was #ffffff)
+    "text_secondary": "#b3b3b3",  # Secondary text (MORE READABLE: was #a0a0a0)
+    "text_muted": "#737373",  # Muted/disabled (MORE READABLE: was #666666)
+    "text_inverse": "#0d0d0d",  # Text on light backgrounds
     # Accent colors
     "accent_primary": "#3b82f6",  # Blue 500
     "accent_primary_hover": "#60a5fa",  # Blue 400
@@ -63,10 +67,11 @@ COLORS = {
     "type_grep_bg": "rgba(16, 185, 129, 0.20)",
     "type_skill": "#8b5cf6",  # Violet 500
     "type_skill_bg": "rgba(139, 92, 246, 0.20)",
-    # Borders (subtle)
-    "border_subtle": "rgba(255, 255, 255, 0.06)",
-    "border_default": "rgba(255, 255, 255, 0.10)",
-    "border_strong": "rgba(255, 255, 255, 0.15)",
+    # Borders - MORE VISIBLE
+    "border_subtle": "rgba(255, 255, 255, 0.08)",  # MORE VISIBLE (was 0.06)
+    "border_default": "rgba(255, 255, 255, 0.12)",  # MORE VISIBLE (was 0.10)
+    "border_strong": "rgba(255, 255, 255, 0.18)",  # MORE VISIBLE (was 0.15)
+    "border_accent": "rgba(59, 130, 246, 0.4)",  # NEW: for highlights
     # Sidebar
     "sidebar_bg": "#111111",
     "sidebar_hover": "rgba(255, 255, 255, 0.04)",
