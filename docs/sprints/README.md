@@ -4,20 +4,15 @@ Sprint records and current work tracking.
 
 ## Current Sprint
 
-**Code Quality Sprint** (Jan 2026) - See [backlog/code-quality-plan.md](../backlog/code-quality-plan.md)
-
-| Epic | Points | Status |
-|------|--------|--------|
-| Security Fixes (CVE + SQL) | 9 | Pending |
-| Type Safety (mypy) | 18 | Pending |
-| Code Hygiene (bandit) | 7 | Pending |
+Aucun sprint actif. Voir [backlog/](../backlog/) pour les plans disponibles.
 
 ## Completed Sprints
 
 | Sprint | Date | Points | Stories |
 |--------|------|--------|---------|
-| [UI Modernization](./2026-01-ui-modernization.md) | Jan 2026 | 8 | 5 |
+| [Code Quality](../archive/plans/code-quality-plan.md) | Jan 2026 | 34 | 17 |
 | [Complexity Refactoring](../archive/plans/refactoring-plan.md) | Jan 2026 | 8 | 3 |
+| [UI Modernization](./2026-01-ui-modernization.md) | Jan 2026 | 8 | 5 |
 
 ## Sprint Workflow
 

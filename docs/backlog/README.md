@@ -10,14 +10,13 @@ See [sprints/](../sprints/) for current work.
 
 | # | Plan | Priority | Dependencies |
 |---|------|----------|--------------|
+| 34 | [Parts enrichment](./plan-34-parts-enrichment.md) | P1 | - |
+| 35 | [Todos & Projects](./plan-35-todos-projects-loading.md) | P1 | - |
+| 37 | [API consolidation](./plan-37-api-consolidation.md) | P1 | 34, 35 |
 | 18 | [OpenCode hooks](./plan-18-opencode-hooks.md) | P2 | - |
 | 21 | [Dashboard enrichment](./plan-21-dashboard-enrichment.md) | P2 | - |
 | 23 | [DateTime selector](./plan-23-datetime-selector.md) | P3 | - |
 | 32 | [Tracing Datadog vision](./plan-32-tracing-datadog-vision.md) | P3 | - |
-| 34 | [Parts enrichment](./plan-34-parts-enrichment.md) | P1 | - |
-| 35 | [Todos & Projects](./plan-35-todos-projects-loading.md) | P1 | - |
-| 37 | [API consolidation](./plan-37-api-consolidation.md) | P1 | 34, 35 |
-| - | [Code quality](./code-quality-plan.md) | P0 | - |
 
 ## Workflow
 

@@ -42,6 +42,7 @@ Read-only archive of completed plans from v1.0 to v2.23.
 | 38 | [Python analysis CLI](./plans/plan-38-python-analysis-cli.md) | v2.23.0 | Completed |
 | 39 | [Unified indexer](./plans/plan-39-unified-indexer.md) | - | Completed |
 | - | [Refactoring plan](./plans/refactoring-plan.md) | - | Completed |
+| - | [Code quality plan](./plans/code-quality-plan.md) | - | Completed |
 
 ## Notes
 
