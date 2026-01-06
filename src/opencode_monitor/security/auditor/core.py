@@ -1,25 +1,18 @@
 """
-Security Auditor - Background scanner for OpenCode command history
+Security Auditor - Query-only service for security data
 
-Scans OpenCode storage files, analyzes commands for security risks,
-and stores results in the unified analytics DuckDB database for audit purposes.
+This auditor queries the `parts` table which is enriched by the
+SecurityEnrichmentWorker with risk scores. It no longer scans files
+or manages its own database tables.
 
-Enhanced with EDR-like heuristics:
-- Kill chain detection (sequence analysis)
-- Multi-event correlation
-- MITRE ATT&CK mapping
-
-NOTE: Dependencies are imported dynamically in __init__ to support
-patching at the auditor package level (e.g., patching auditor.SecurityDatabase).
+The public API is preserved for backwards compatibility.
 """
 
+import json
 import threading
-import time
 from datetime import datetime
-from pathlib import Path
-from typing import Optional, Dict, Any, List
+from typing import Any, Dict, List, Optional
 
-# Type-only imports (for type hints, not runtime usage)
 from ..db import (
     AuditedCommand,
     AuditedFileRead,
@@ -28,318 +21,368 @@ from ..db import (
 )
 from ..sequences import SequenceMatch
 from ..correlator import Correlation
-from ...utils.logger import info, error, debug
+from ...analytics.db import AnalyticsDB
+from ...utils.logger import info, debug
 
 from ._edr_handler import EDRHandler
-from ._file_processor import FileProcessor
-
-
-def _get_auditor_pkg():
-    """Import auditor package at runtime to support patching."""
-    from opencode_monitor.security import auditor as pkg
-
-    return pkg
 
 
 class SecurityAuditor:
-    """Background scanner for OpenCode command security analysis
+    """Query-only security auditor for parts table.
 
-    Enhanced with EDR-like heuristics:
-    - SequenceAnalyzer: Detects kill chain patterns
-    - EventCorrelator: Correlates related events
-    - MITRE ATT&CK: Techniques tagged on all alerts
+    This class provides the same public API as the original auditor,
+    but queries the unified `parts` table instead of separate
+    security_* tables. The enrichment is handled by SecurityEnrichmentWorker.
     """
 
-    def __init__(self):
-        self._running = False
-        self._thread: Optional[threading.Thread] = None
+    def __init__(self, db: Optional[AnalyticsDB] = None):
+        """Initialize the auditor.
+
+        Args:
+            db: Optional AnalyticsDB instance. Creates one if not provided.
+        """
+        self._db = db or AnalyticsDB()
+        self._owns_db = db is None  # Track if we created the DB
         self._lock = threading.Lock()
-        self._scanned_ids: set = set()
+        self._running = False
+        self._thread = None  # Kept for backwards compatibility
 
-        # Import from parent package to support patching at auditor level
-        pkg = _get_auditor_pkg()
-
-        # Initialize components
-        # SecurityDatabase now includes scanner methods (merged from SecurityScannerDuckDB)
-        self._db = pkg.SecurityDatabase()
-        self._analyzer = pkg.get_risk_analyzer()
-        self._reporter = pkg.SecurityReporter()
-
-        # EDR handler (encapsulates sequence analyzer and correlator)
+        # EDR handler (kept for sequence/correlation analysis)
         self._edr_handler = EDRHandler(
             buffer_size=100,
             correlator_buffer_size=200,
-            window_seconds=300.0,  # 5 minutes
+            window_seconds=300.0,
             max_recent=50,
         )
 
-        # File processor
-        self._file_processor = FileProcessor(self._analyzer)
+        # Stats cache
+        self._stats: Dict[str, Any] = self._load_stats()
 
-        # Load cached stats (typed as Any to allow None/str values for last_scan)
-        self._stats: Dict[str, Any] = self._db.get_stats()
-        self._stats["last_scan"] = None
-        self._stats["sequences_detected"] = 0
-        self._stats["correlations_detected"] = 0
+        info("Security auditor initialized (query-only mode)")
 
-        # Note: _scanned_ids kept for backwards compatibility but no longer used
-        # The DuckDB tracks scanned files in security_scanned table
-        self._scanned_ids = set()
+    def _load_stats(self) -> Dict[str, Any]:
+        """Load stats from parts table."""
+        conn = self._db.connect()
+        try:
+            result = conn.execute("""
+                SELECT 
+                    COUNT(*) FILTER (WHERE security_enriched_at IS NOT NULL) as total_scanned,
+                    COUNT(*) FILTER (WHERE tool_name = 'bash' AND security_enriched_at IS NOT NULL) as total_commands,
+                    COUNT(*) FILTER (WHERE tool_name = 'read' AND security_enriched_at IS NOT NULL) as total_reads,
+                    COUNT(*) FILTER (WHERE tool_name IN ('write', 'edit') AND security_enriched_at IS NOT NULL) as total_writes,
+                    COUNT(*) FILTER (WHERE tool_name = 'webfetch' AND security_enriched_at IS NOT NULL) as total_webfetches,
+                    COUNT(*) FILTER (WHERE risk_level = 'critical') as critical,
+                    COUNT(*) FILTER (WHERE risk_level = 'high') as high,
+                    COUNT(*) FILTER (WHERE risk_level = 'medium') as medium,
+                    COUNT(*) FILTER (WHERE risk_level = 'low') as low,
+                    MAX(security_enriched_at) as last_scan
+                FROM parts
+            """).fetchone()
 
-        scanned_count = self._db.get_scanned_count()
-        info(f"Security scanner initialized ({scanned_count} files already scanned)")
+            return {
+                "total_scanned": result[0] or 0,
+                "total_commands": result[1] or 0,
+                "total_reads": result[2] or 0,
+                "total_writes": result[3] or 0,
+                "total_webfetches": result[4] or 0,
+                "critical": result[5] or 0,
+                "high": result[6] or 0,
+                "medium": result[7] or 0,
+                "low": result[8] or 0,
+                "last_scan": result[9].isoformat() if result[9] else None,
+                "sequences_detected": 0,
+                "correlations_detected": 0,
+            }
+        except Exception as e:
+            debug(f"Error loading stats: {e}")
+            return {
+                "total_scanned": 0,
+                "total_commands": 0,
+                "total_reads": 0,
+                "total_writes": 0,
+                "total_webfetches": 0,
+                "critical": 0,
+                "high": 0,
+                "medium": 0,
+                "low": 0,
+                "last_scan": None,
+                "sequences_detected": 0,
+                "correlations_detected": 0,
+            }
 
     def start(self):
-        """Start background scanning thread"""
-        if self._running:
-            return
-
+        """Start the auditor (no-op in query-only mode)."""
         self._running = True
-        self._thread = threading.Thread(target=self._scan_loop, daemon=True)
-        self._thread.start()
-        info("Security auditor started")
+        info("Security auditor started (query-only mode)")
 
     def stop(self):
-        """Stop background scanning"""
+        """Stop the auditor."""
         self._running = False
-        if self._thread:
-            self._thread.join(timeout=5)
-        # Close DuckDB connection
-        if hasattr(self, "_db"):
+        if self._owns_db:
             self._db.close()
         info("Security auditor stopped")
-
-    def _scan_loop(self):
-        """Main scanning loop"""
-        pkg = _get_auditor_pkg()
-        self._run_scan()
-
-        while self._running:
-            time.sleep(pkg.SCAN_INTERVAL)
-            if self._running:
-                self._run_scan()
-
-    def _run_scan(self):
-        """Run a scan for new files.
-
-        Uses DuckDB file_index + security_scanned tables for efficient lookup
-        instead of filesystem iteration (O(1) query vs O(152k) iteration).
-        """
-        start_time = time.time()
-        new_files = 0
-        new_counts = {"commands": 0, "reads": 0, "writes": 0, "webfetches": 0}
-        scanned_files: List[Path] = []
-
-        try:
-            # Get unscanned files from DuckDB (efficient SQL query)
-            # This replaces the expensive filesystem iteration:
-            # OLD: for msg_dir in STORAGE.iterdir(): for prt in msg_dir.glob("prt_*.json")
-            # NEW: SELECT part_id FROM parts LEFT JOIN security_scanned ...
-            files_to_process = self._db.get_unscanned_files(limit=1000)
-
-            if not files_to_process:
-                return
-
-            # For batch scans (many files), disable EDR sequence analysis
-            # to avoid false positives from out-of-order processing
-            is_batch_scan = len(files_to_process) > 50
-            if is_batch_scan:
-                # Clear EDR buffers before batch scan to avoid stale data
-                self._edr_handler.clear_all()
-
-            # Process files
-            for prt_file in files_to_process:
-                if not self._running and self._thread is not None:
-                    break
-
-                # Skip if file no longer exists (may have been cleaned up)
-                if not prt_file.exists():
-                    scanned_files.append(prt_file)  # Mark anyway to avoid retry
-                    continue
-
-                # For batch scans, skip EDR analysis
-                result = self._process_file(prt_file, skip_edr=is_batch_scan)
-                if result:
-                    result_type = result.get("type")
-
-                    if result_type == "command":
-                        if self._db.insert_command(result):
-                            new_counts["commands"] += 1
-                            self._update_stat(result["risk_level"])
-                    elif result_type == "read":
-                        if self._db.insert_read(result):
-                            new_counts["reads"] += 1
-                            self._update_stat(f"reads_{result['risk_level']}")
-                    elif result_type == "write":
-                        if self._db.insert_write(result):
-                            new_counts["writes"] += 1
-                            self._update_stat(f"writes_{result['risk_level']}")
-                    elif result_type == "webfetch":
-                        if self._db.insert_webfetch(result):
-                            new_counts["webfetches"] += 1
-                            self._update_stat(f"webfetches_{result['risk_level']}")
-
-                scanned_files.append(prt_file)
-                new_files += 1
-
-            # Mark all processed files as scanned in DuckDB (batch operation)
-            if scanned_files:
-                self._db.mark_scanned_batch(scanned_files)
-
-            # Update totals
-            self._stats["total_scanned"] += new_files
-            self._stats["total_commands"] += new_counts["commands"]
-            self._stats["total_reads"] += new_counts["reads"]
-            self._stats["total_writes"] += new_counts["writes"]
-            self._stats["total_webfetches"] += new_counts["webfetches"]
-            self._stats["last_scan"] = datetime.now().isoformat()
-
-            self._db.update_scan_stats(
-                self._stats["total_scanned"],
-                self._stats["total_commands"],
-                self._stats["last_scan"],
-            )
-
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: scan errors logged, scan continues next cycle
-            error(f"Scan error: {e}")
-
-        elapsed = time.time() - start_time
-        if new_files > 0:
-            debug(f"Scan: {new_files} files, {new_counts} in {elapsed:.2f}s")
-
-    def _update_stat(self, key: str):
-        """Increment a stat counter"""
-        if key in self._stats:
-            self._stats[key] += 1
-
-    def _process_file(
-        self, prt_file: Path, skip_edr: bool = False
-    ) -> Optional[Dict[str, Any]]:
-        """Process a single part file
-
-        Args:
-            prt_file: Path to the part file to process
-            skip_edr: If True, skip EDR sequence/correlation analysis
-                      (used during batch scans to avoid false positives)
-        """
-        return self._file_processor.process_file(
-            prt_file,
-            edr_processor=self._edr_handler,
-            skip_edr=skip_edr,
-        )
-
-    # ===== Legacy compatibility methods =====
-    # These are kept for backwards compatibility with existing code
-
-    def _process_edr_analysis(
-        self,
-        tool: str,
-        target: str,
-        session_id: str,
-        timestamp: Optional[float],
-        risk_score: int,
-    ) -> Dict[str, Any]:
-        """Process event through EDR analyzers - delegates to EDRHandler."""
-        return self._edr_handler.process_event(
-            tool=tool,
-            target=target,
-            session_id=session_id,
-            timestamp=timestamp,
-            risk_score=risk_score,
-        )
-
-    def _apply_edr_and_build_result(
-        self,
-        base_data: Dict[str, Any],
-        tool: str,
-        target: str,
-        event_type: str,
-        analysis_score: int,
-        analysis_level: str,
-        analysis_reason: str,
-        analysis_mitre: List[str],
-        skip_edr: bool,
-        empty_edr: Dict[str, Any],
-        extra_fields: Optional[Dict[str, Any]] = None,
-    ) -> Dict[str, Any]:
-        """Apply EDR analysis and build the final result - delegates to file processor."""
-        from ._file_processor import build_audit_result
-
-        edr = (
-            empty_edr
-            if skip_edr
-            else self._process_edr_analysis(
-                tool=tool,
-                target=target,
-                session_id=base_data["session_id"],
-                timestamp=base_data["timestamp"],
-                risk_score=analysis_score,
-            )
-        )
-
-        return build_audit_result(
-            base_data=base_data,
-            event_type=event_type,
-            analysis_score=analysis_score,
-            analysis_level=analysis_level,
-            analysis_reason=analysis_reason,
-            analysis_mitre=analysis_mitre,
-            edr_result=edr,
-            extra_fields=extra_fields,
-        )
 
     # ===== Public API =====
 
     def get_stats(self) -> Dict[str, Any]:
-        """Get current scan statistics"""
+        """Get current statistics."""
+        # Refresh stats from DB
+        self._stats = self._load_stats()
         with self._lock:
             return self._stats.copy()
 
     def get_critical_commands(self, limit: int = 20) -> List[AuditedCommand]:
-        """Get recent critical and high risk commands"""
-        return self._db.get_commands_by_level(["critical", "high"], limit)
+        """Get recent critical and high risk commands."""
+        return self.get_commands_by_level(
+            "critical", limit // 2
+        ) + self.get_commands_by_level("high", limit // 2)
 
     def get_commands_by_level(
         self, level: str, limit: int = 50
     ) -> List[AuditedCommand]:
-        """Get commands by risk level"""
-        return self._db.get_commands_by_level([level], limit)
+        """Get commands by risk level."""
+        levels = [level] if isinstance(level, str) else level
+        conn = self._db.connect()
+
+        # Build IN clause for levels
+        placeholders = ",".join(["?" for _ in levels])
+
+        rows = conn.execute(
+            f"""
+            SELECT 
+                id, id as file_id, session_id, tool_name,
+                arguments->>'$.command' as command,
+                risk_score, risk_level, risk_reason,
+                EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
+                security_enriched_at::VARCHAR as scanned_at,
+                COALESCE(mitre_techniques, '[]') as mitre_techniques
+            FROM parts
+            WHERE tool_name = 'bash'
+              AND risk_level IN ({placeholders})
+              AND security_enriched_at IS NOT NULL
+            ORDER BY risk_score DESC, created_at DESC
+            LIMIT ?
+        """,
+            levels + [limit],
+        ).fetchall()
+
+        return [
+            AuditedCommand(
+                id=i,
+                file_id=row[1] or "",
+                session_id=row[2] or "",
+                tool=row[3] or "bash",
+                command=row[4] or "",
+                risk_score=row[5] or 0,
+                risk_level=row[6] or "low",
+                risk_reason=row[7] or "",
+                timestamp=row[8] or 0,
+                scanned_at=row[9] or "",
+                mitre_techniques=row[10] or "[]",
+            )
+            for i, row in enumerate(rows)
+        ]
 
     def get_all_commands(
         self, limit: int = 100, offset: int = 0
     ) -> List[AuditedCommand]:
-        """Get all commands with pagination"""
-        return self._db.get_all_commands(limit, offset)
+        """Get all commands with pagination."""
+        conn = self._db.connect()
+
+        rows = conn.execute(
+            """
+            SELECT 
+                id, id as file_id, session_id, tool_name,
+                arguments->>'$.command' as command,
+                risk_score, risk_level, risk_reason,
+                EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
+                security_enriched_at::VARCHAR as scanned_at,
+                COALESCE(mitre_techniques, '[]') as mitre_techniques
+            FROM parts
+            WHERE tool_name = 'bash'
+              AND security_enriched_at IS NOT NULL
+            ORDER BY created_at DESC
+            LIMIT ? OFFSET ?
+        """,
+            [limit, offset],
+        ).fetchall()
+
+        return [
+            AuditedCommand(
+                id=i,
+                file_id=row[1] or "",
+                session_id=row[2] or "",
+                tool=row[3] or "bash",
+                command=row[4] or "",
+                risk_score=row[5] or 0,
+                risk_level=row[6] or "low",
+                risk_reason=row[7] or "",
+                timestamp=row[8] or 0,
+                scanned_at=row[9] or "",
+                mitre_techniques=row[10] or "[]",
+            )
+            for i, row in enumerate(rows)
+        ]
 
     def get_sensitive_reads(self, limit: int = 20) -> List[AuditedFileRead]:
-        """Get recent sensitive file reads"""
-        return self._db.get_reads_by_level(["critical", "high"], limit)
+        """Get recent sensitive file reads."""
+        return self._get_reads_by_level(["critical", "high"], limit)
 
     def get_all_reads(self, limit: int = 10000) -> List[AuditedFileRead]:
-        """Get all file reads"""
-        return self._db.get_all_reads(limit)
+        """Get all file reads."""
+        return self._get_reads_by_level(["critical", "high", "medium", "low"], limit)
+
+    def _get_reads_by_level(
+        self, levels: List[str], limit: int
+    ) -> List[AuditedFileRead]:
+        """Get file reads by risk levels."""
+        conn = self._db.connect()
+        placeholders = ",".join(["?" for _ in levels])
+
+        rows = conn.execute(
+            f"""
+            SELECT 
+                id, id as file_id, session_id,
+                arguments->>'$.filePath' as file_path,
+                risk_score, risk_level, risk_reason,
+                EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
+                security_enriched_at::VARCHAR as scanned_at,
+                COALESCE(mitre_techniques, '[]') as mitre_techniques
+            FROM parts
+            WHERE tool_name = 'read'
+              AND risk_level IN ({placeholders})
+              AND security_enriched_at IS NOT NULL
+            ORDER BY risk_score DESC, created_at DESC
+            LIMIT ?
+        """,
+            levels + [limit],
+        ).fetchall()
+
+        return [
+            AuditedFileRead(
+                id=i,
+                file_id=row[1] or "",
+                session_id=row[2] or "",
+                file_path=row[3] or "",
+                risk_score=row[4] or 0,
+                risk_level=row[5] or "low",
+                risk_reason=row[6] or "",
+                timestamp=row[7] or 0,
+                scanned_at=row[8] or "",
+                mitre_techniques=row[9] or "[]",
+            )
+            for i, row in enumerate(rows)
+        ]
 
     def get_sensitive_writes(self, limit: int = 20) -> List[AuditedFileWrite]:
-        """Get recent sensitive file writes"""
-        return self._db.get_writes_by_level(["critical", "high"], limit)
+        """Get recent sensitive file writes."""
+        return self._get_writes_by_level(["critical", "high"], limit)
 
     def get_all_writes(self, limit: int = 10000) -> List[AuditedFileWrite]:
-        """Get all file writes"""
-        return self._db.get_all_writes(limit)
+        """Get all file writes."""
+        return self._get_writes_by_level(["critical", "high", "medium", "low"], limit)
+
+    def _get_writes_by_level(
+        self, levels: List[str], limit: int
+    ) -> List[AuditedFileWrite]:
+        """Get file writes by risk levels."""
+        conn = self._db.connect()
+        placeholders = ",".join(["?" for _ in levels])
+
+        rows = conn.execute(
+            f"""
+            SELECT 
+                id, id as file_id, session_id, tool_name,
+                arguments->>'$.filePath' as file_path,
+                risk_score, risk_level, risk_reason,
+                EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
+                security_enriched_at::VARCHAR as scanned_at,
+                COALESCE(mitre_techniques, '[]') as mitre_techniques
+            FROM parts
+            WHERE tool_name IN ('write', 'edit')
+              AND risk_level IN ({placeholders})
+              AND security_enriched_at IS NOT NULL
+            ORDER BY risk_score DESC, created_at DESC
+            LIMIT ?
+        """,
+            levels + [limit],
+        ).fetchall()
+
+        return [
+            AuditedFileWrite(
+                id=i,
+                file_id=row[1] or "",
+                session_id=row[2] or "",
+                file_path=row[4] or "",
+                operation=row[3] or "write",
+                risk_score=row[5] or 0,
+                risk_level=row[6] or "low",
+                risk_reason=row[7] or "",
+                timestamp=row[8] or 0,
+                scanned_at=row[9] or "",
+                mitre_techniques=row[10] or "[]",
+            )
+            for i, row in enumerate(rows)
+        ]
 
     def get_risky_webfetches(self, limit: int = 20) -> List[AuditedWebFetch]:
-        """Get recent risky webfetch operations"""
-        return self._db.get_webfetches_by_level(["critical", "high"], limit)
+        """Get recent risky webfetch operations."""
+        return self._get_webfetches_by_level(["critical", "high"], limit)
 
     def get_all_webfetches(self, limit: int = 10000) -> List[AuditedWebFetch]:
-        """Get all webfetches"""
-        return self._db.get_all_webfetches(limit)
+        """Get all webfetches."""
+        return self._get_webfetches_by_level(
+            ["critical", "high", "medium", "low"], limit
+        )
+
+    def _get_webfetches_by_level(
+        self, levels: List[str], limit: int
+    ) -> List[AuditedWebFetch]:
+        """Get webfetches by risk levels."""
+        conn = self._db.connect()
+        placeholders = ",".join(["?" for _ in levels])
+
+        rows = conn.execute(
+            f"""
+            SELECT 
+                id, id as file_id, session_id,
+                arguments->>'$.url' as url,
+                risk_score, risk_level, risk_reason,
+                EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
+                security_enriched_at::VARCHAR as scanned_at,
+                COALESCE(mitre_techniques, '[]') as mitre_techniques
+            FROM parts
+            WHERE tool_name = 'webfetch'
+              AND risk_level IN ({placeholders})
+              AND security_enriched_at IS NOT NULL
+            ORDER BY risk_score DESC, created_at DESC
+            LIMIT ?
+        """,
+            levels + [limit],
+        ).fetchall()
+
+        return [
+            AuditedWebFetch(
+                id=i,
+                file_id=row[1] or "",
+                session_id=row[2] or "",
+                url=row[3] or "",
+                risk_score=row[4] or 0,
+                risk_level=row[5] or "low",
+                risk_reason=row[6] or "",
+                timestamp=row[7] or 0,
+                scanned_at=row[8] or "",
+                mitre_techniques=row[9] or "[]",
+            )
+            for i, row in enumerate(rows)
+        ]
 
     def generate_report(self) -> str:
-        """Generate a text report of security findings"""
-        return self._reporter.generate_summary_report(
+        """Generate a text report of security findings."""
+        from ..reporter import SecurityReporter
+
+        reporter = SecurityReporter()
+        return reporter.generate_summary_report(
             stats=self.get_stats(),
             critical_cmds=self.get_critical_commands(10),
             sensitive_reads=self.get_sensitive_reads(10),
@@ -347,25 +390,24 @@ class SecurityAuditor:
             risky_fetches=self.get_risky_webfetches(10),
         )
 
-    # ===== EDR API =====
+    # ===== EDR API (kept for backwards compatibility) =====
 
     def get_recent_sequences(self) -> List[SequenceMatch]:
-        """Get recently detected kill chain sequences"""
+        """Get recently detected kill chain sequences."""
         return self._edr_handler.get_recent_sequences()
 
     def get_recent_correlations(self) -> List[Correlation]:
-        """Get recently detected event correlations"""
+        """Get recently detected event correlations."""
         return self._edr_handler.get_recent_correlations()
 
     def get_session_events(self, session_id: str) -> List[Dict[str, Any]]:
-        """Get all tracked events for a session"""
+        """Get all tracked events for a session."""
         return self._edr_handler.get_session_events(session_id)
 
     def get_edr_stats(self) -> Dict[str, Any]:
-        """Get EDR-specific statistics"""
+        """Get EDR-specific statistics."""
         edr_stats = self._edr_handler.get_stats()
         with self._lock:
-            # Merge with main stats for backwards compatibility
             return {
                 "sequences_detected": self._stats.get("sequences_detected", 0)
                 + edr_stats["sequences_detected"],
@@ -377,7 +419,7 @@ class SecurityAuditor:
             }
 
     def clear_edr_buffers(self) -> None:
-        """Clear all EDR analyzer buffers (useful for testing)"""
+        """Clear all EDR analyzer buffers."""
         self._edr_handler.clear_all()
 
     # ===== Legacy EDR properties for backwards compatibility =====
@@ -413,22 +455,20 @@ _auditor: Optional[SecurityAuditor] = None
 
 
 def get_auditor() -> SecurityAuditor:
-    """Get or create the global auditor instance"""
+    """Get or create the global auditor instance."""
     global _auditor
     if _auditor is None:
-        # Use package reference for patching support
-        pkg = _get_auditor_pkg()
-        _auditor = pkg.SecurityAuditor()
+        _auditor = SecurityAuditor()
     return _auditor
 
 
 def start_auditor():
-    """Start the security auditor"""
+    """Start the security auditor."""
     get_auditor().start()
 
 
 def stop_auditor():
-    """Stop the security auditor"""
+    """Stop the security auditor."""
     global _auditor
     if _auditor:
         _auditor.stop()

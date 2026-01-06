@@ -454,157 +454,9 @@ class AnalyticsDB:
             ON patches(git_hash)
         """)
 
-        # Security scanned parts table - tracks parts already processed by security auditor
-        # Uses parts table to find unscanned files via LEFT JOIN instead of filesystem scan
-        # Note: Stores part_id (e.g., prt_xxx) instead of file_path for efficient joins
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_scanned (
-                part_id VARCHAR PRIMARY KEY,
-                scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """)
-
-        # Create index for efficient LEFT JOIN with parts table
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_security_scanned_part
-            ON security_scanned(part_id)
-        """)
-
-        # ============================================================
-        # Security Audit Tables (migrated from SQLite)
-        # ============================================================
-
-        # Security commands table - bash commands analyzed for risk
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_commands (
-                id VARCHAR PRIMARY KEY,
-                file_id VARCHAR UNIQUE NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                session_id VARCHAR,
-                tool VARCHAR NOT NULL,
-                command VARCHAR NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level VARCHAR NOT NULL,
-                risk_reason VARCHAR,
-                command_timestamp BIGINT,
-                scanned_at TIMESTAMP NOT NULL,
-                mitre_techniques VARCHAR DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Security file reads table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_file_reads (
-                id VARCHAR PRIMARY KEY,
-                file_id VARCHAR UNIQUE NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                session_id VARCHAR,
-                file_path VARCHAR NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level VARCHAR NOT NULL,
-                risk_reason VARCHAR,
-                read_timestamp BIGINT,
-                scanned_at TIMESTAMP NOT NULL,
-                mitre_techniques VARCHAR DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Security file writes table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_file_writes (
-                id VARCHAR PRIMARY KEY,
-                file_id VARCHAR UNIQUE NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                session_id VARCHAR,
-                file_path VARCHAR NOT NULL,
-                operation VARCHAR NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level VARCHAR NOT NULL,
-                risk_reason VARCHAR,
-                write_timestamp BIGINT,
-                scanned_at TIMESTAMP NOT NULL,
-                mitre_techniques VARCHAR DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Security webfetches table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_webfetches (
-                id VARCHAR PRIMARY KEY,
-                file_id VARCHAR UNIQUE NOT NULL,
-                content_hash VARCHAR NOT NULL,
-                session_id VARCHAR,
-                url VARCHAR NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level VARCHAR NOT NULL,
-                risk_reason VARCHAR,
-                fetch_timestamp BIGINT,
-                scanned_at TIMESTAMP NOT NULL,
-                mitre_techniques VARCHAR DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Security scan stats table
-        conn.execute("""
-            CREATE TABLE IF NOT EXISTS security_stats (
-                id INTEGER PRIMARY KEY DEFAULT 1,
-                last_full_scan TIMESTAMP,
-                total_files_scanned INTEGER DEFAULT 0,
-                total_commands INTEGER DEFAULT 0
-            )
-        """)
-        # Insert initial row if empty
-        conn.execute("""
-            INSERT INTO security_stats (id)
-            SELECT 1
-            WHERE NOT EXISTS (SELECT 1 FROM security_stats WHERE id = 1)
-        """)
-
-        # Indexes for security tables
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_commands_file_id
-            ON security_commands(file_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_commands_risk
-            ON security_commands(risk_level, risk_score DESC)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_commands_session
-            ON security_commands(session_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_reads_file_id
-            ON security_file_reads(file_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_reads_risk
-            ON security_file_reads(risk_level)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_writes_file_id
-            ON security_file_writes(file_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_writes_risk
-            ON security_file_writes(risk_level)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_webfetches_file_id
-            ON security_webfetches(file_id)
-        """)
-        conn.execute("""
-            CREATE INDEX IF NOT EXISTS idx_sec_webfetches_risk
-            ON security_webfetches(risk_level)
-        """)
+        # NOTE: Old security_* tables removed in Plan 42
+        # Security data is now stored in the unified `parts` table
+        # with risk_score, risk_level, risk_reason, mitre_techniques columns
 
         debug("Analytics database schema created")
 
@@ -623,15 +475,8 @@ class AnalyticsDB:
             "session_stats",
             "daily_stats",
             "sync_meta",
-            "security_scanned",
             "step_events",
             "patches",
-            # Security audit tables
-            "security_commands",
-            "security_file_reads",
-            "security_file_writes",
-            "security_webfetches",
-            "security_stats",
         }
     )
 
@@ -718,24 +563,8 @@ class AnalyticsDB:
         add_column("parts", "mitre_techniques", "VARCHAR")  # JSON array as string
         add_column("parts", "security_enriched_at", "TIMESTAMP")
 
-        # Migrate security_scanned table: file_path → part_id
-        # If old schema exists (file_path column), recreate table with new schema
-        if column_exists("security_scanned", "file_path"):
-            try:
-                conn.execute("DROP TABLE security_scanned")
-                conn.execute("""
-                    CREATE TABLE security_scanned (
-                        part_id VARCHAR PRIMARY KEY,
-                        scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-                    )
-                """)
-                conn.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_security_scanned_part
-                    ON security_scanned(part_id)
-                """)
-                debug("Migrated security_scanned: file_path → part_id")
-            except Exception as e:
-                debug(f"Failed to migrate security_scanned: {e}")
+        # NOTE: security_scanned table migration removed in Plan 42
+        # Security tracking now uses parts.security_enriched_at column
 
     def clear_data(self) -> None:
         """Clear all data from the database."""
@@ -753,12 +582,6 @@ class AnalyticsDB:
         conn.execute("DELETE FROM daily_stats")
         conn.execute("DELETE FROM step_events")
         conn.execute("DELETE FROM patches")
-        # Security tables
-        conn.execute("DELETE FROM security_commands")
-        conn.execute("DELETE FROM security_file_reads")
-        conn.execute("DELETE FROM security_file_writes")
-        conn.execute("DELETE FROM security_webfetches")
-        conn.execute("DELETE FROM security_scanned")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -780,12 +603,6 @@ class AnalyticsDB:
             "daily_stats",
             "step_events",
             "patches",
-            # Security tables
-            "security_commands",
-            "security_file_reads",
-            "security_file_writes",
-            "security_webfetches",
-            "security_scanned",
         ]:
             try:
                 # Table names are from hardcoded list above, not user input

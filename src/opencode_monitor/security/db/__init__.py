@@ -1,5 +1,8 @@
 """
-Security Database Module
+Security Database Module - Data models for security auditing
+
+Note: SecurityDatabase and SecurityScannerDuckDB are deprecated.
+The auditor now queries the unified `parts` table directly.
 """
 
 from .models import (
@@ -8,13 +11,10 @@ from .models import (
     AuditedFileWrite,
     AuditedWebFetch,
 )
-from .repository import SecurityDatabase, SecurityScannerDuckDB
 
 __all__ = [
     "AuditedCommand",
     "AuditedFileRead",
     "AuditedFileWrite",
     "AuditedWebFetch",
-    "SecurityDatabase",
-    "SecurityScannerDuckDB",
 ]

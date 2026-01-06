@@ -1,18 +1,14 @@
 """
 Security Auditor Package
 
-Provides background scanning and analysis of OpenCode command history
-for security risks, with EDR-like heuristics for detecting attack patterns.
+Provides query-only access to security data from the parts table.
+The actual enrichment is handled by SecurityEnrichmentWorker.
 
 Public API:
-- SecurityAuditor: Main auditor class
+- SecurityAuditor: Query-only auditor class
 - get_auditor(): Get or create global auditor instance
-- start_auditor(): Start the background scanning
+- start_auditor(): Start the auditor (no-op in query-only mode)
 - stop_auditor(): Stop the auditor
-
-Backwards compatibility:
-All symbols that were accessible via `from opencode_monitor.security.auditor import X`
-in the original auditor.py are re-exported here for API compatibility.
 """
 
 # Core auditor API
@@ -27,12 +23,8 @@ from .core import (
 from ._constants import OPENCODE_STORAGE, SCAN_INTERVAL
 
 # Re-export symbols from sibling modules for backwards compatibility
-# These were imported in the original auditor.py and thus accessible via
-# `from opencode_monitor.security.auditor import X`
 from ..analyzer import analyze_command, get_risk_analyzer
 from ..db import (
-    SecurityDatabase,
-    SecurityScannerDuckDB,
     AuditedCommand,
     AuditedFileRead,
     AuditedFileWrite,
@@ -43,17 +35,16 @@ from ..sequences import SequenceAnalyzer, SequenceMatch, create_event_from_audit
 from ..correlator import EventCorrelator, Correlation
 
 # Re-export for backwards compatibility with tests
-# that access the module-level _auditor variable
 from . import core as _core
 
-# Expose time for patching in tests (re-exported so not unused)
+# Expose time for patching in tests
 import time  # noqa: F401, E402
 
 
 __all__ = [
     # Core API
     "SecurityAuditor",
-    "time",  # Exposed for test patching
+    "time",
     "get_auditor",
     "start_auditor",
     "stop_auditor",
@@ -63,9 +54,7 @@ __all__ = [
     # From analyzer
     "analyze_command",
     "get_risk_analyzer",
-    # From db
-    "SecurityDatabase",
-    "SecurityScannerDuckDB",
+    # From db (models only, no repository)
     "AuditedCommand",
     "AuditedFileRead",
     "AuditedFileWrite",
