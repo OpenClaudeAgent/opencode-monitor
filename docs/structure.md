@@ -189,7 +189,7 @@ opencode-monitor/
 │       │   │   ├── _edr_handler.py   # EDR event handling
 │       │   │   └── _file_processor.py
 │       │   │
-│       │   ├── db/                   # Hybrid storage (SQLite + DuckDB)
+│       │   ├── db/                   # DuckDB storage (unified)
 │       │   │   ├── __init__.py
 │       │   │   ├── models.py         # Audit data classes
 │       │   │   └── repository.py     # Database operations
@@ -314,7 +314,7 @@ Risk analysis and security monitoring:
 
 - **`analyzer/`**: Command and file risk analysis
 - **`auditor/`**: Background security scanner
-- **`db/`**: Hybrid storage (SQLite for audit data, DuckDB for scanning)
+- **`db/`**: Unified DuckDB storage (all security data in analytics.duckdb)
 - **`correlator.py`**: Event correlation
 - **`mitre_utils.py`**: MITRE ATT&CK technique mapping
 - **`sequences.py`**: Kill chain detection (exfiltration, script execution, supply chain)
@@ -361,7 +361,7 @@ OpenCode Storage Files
         ↓
     security/analyzer/ (risk scoring + MITRE mapping)
         ↓
-    security/db/ (SQLite audit + DuckDB scan tracking)
+    security/db/ (DuckDB - unified with analytics)
         ↓
     api/routes/security.py
         ↓
@@ -378,14 +378,12 @@ Settings stored in `~/.config/opencode-monitor/settings.json`:
 }
 ```
 
-Databases:
-- Analytics: `~/.config/opencode-monitor/analytics.duckdb` (DuckDB)
-- Security audit: `~/.config/opencode-monitor/security.db` (SQLite)
-- Security scanning: via `security_scanned` table in DuckDB
+Database:
+- `~/.config/opencode-monitor/analytics.duckdb` (DuckDB) - All data (analytics + security)
 
 ## DuckDB Schema
 
-The analytics database (`analytics.duckdb`) contains 15 tables organized in 4 functional groups:
+The unified database (`analytics.duckdb`) contains 21 tables organized in 5 functional groups:
 
 ### Core Data Tables
 
@@ -503,34 +501,88 @@ The analytics database (`analytics.duckdb`) contains 15 tables organized in 4 fu
 │ updated_at           │  │                      │
 └──────────────────────┘  └──────────────────────┘
 
+┌──────────────────────┐
+│      SYNC_META       │
+├──────────────────────┤
+│ id (PK)              │
+│ last_sync            │
+│ sync_count           │
+└──────────────────────┘
+```
+
+### Security Tables
+
+```
+┌─────────────────────────────────────────────────────────────────────────┐
+│                          SECURITY_COMMANDS                              │
+├─────────────────────────────────────────────────────────────────────────┤
+│ id (PK)          │ file_id          │ content_hash     │ session_id     │
+│ tool             │ command          │ risk_score       │ risk_level     │
+│ risk_reason      │ command_timestamp│ scanned_at       │                │
+│ mitre_techniques │ edr_sequence_bonus│ edr_correlation_bonus            │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SECURITY_FILE_READS                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│ id (PK)          │ file_id          │ content_hash     │ session_id     │
+│ file_path        │ risk_score       │ risk_level       │ risk_reason    │
+│ read_timestamp   │ scanned_at       │ mitre_techniques │                │
+│ edr_sequence_bonus│ edr_correlation_bonus                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SECURITY_FILE_WRITES                            │
+├─────────────────────────────────────────────────────────────────────────┤
+│ id (PK)          │ file_id          │ content_hash     │ session_id     │
+│ file_path        │ operation        │ risk_score       │ risk_level     │
+│ risk_reason      │ write_timestamp  │ scanned_at       │ mitre_techniques│
+│ edr_sequence_bonus│ edr_correlation_bonus                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────┐
+│                         SECURITY_WEBFETCHES                             │
+├─────────────────────────────────────────────────────────────────────────┤
+│ id (PK)          │ file_id          │ content_hash     │ session_id     │
+│ url              │ risk_score       │ risk_level       │ risk_reason    │
+│ fetch_timestamp  │ scanned_at       │ mitre_techniques │                │
+│ edr_sequence_bonus│ edr_correlation_bonus                               │
+└─────────────────────────────────────────────────────────────────────────┘
+
 ┌──────────────────────┐  ┌──────────────────────┐
-│      SYNC_META       │  │  SECURITY_SCANNED    │
+│   SECURITY_STATS     │  │  SECURITY_SCANNED    │
 ├──────────────────────┤  ├──────────────────────┤
 │ id (PK)              │  │ part_id (PK)         │
-│ last_sync            │  │ scanned_at           │
-│ sync_count           │  │                      │
+│ total_files_scanned  │  │ scanned_at           │
+│ total_commands       │  │                      │
+│ last_full_scan       │  │                      │
 └──────────────────────┘  └──────────────────────┘
 ```
 
 ### Table Summary
 
-| Group          | Table            | Purpose                              |
-|----------------|------------------|--------------------------------------|
-| **Core**       | sessions         | Session metadata and git stats       |
-| **Core**       | messages         | Messages with token metrics          |
-| **Core**       | parts            | Content, tool calls, delegations     |
-| **Tracing**    | agent_traces     | Task tool invocation traces          |
-| **Tracing**    | delegations      | Agent delegation records             |
-| **Tracing**    | file_operations  | File read/write/edit tracking        |
-| **Auxiliary**  | skills           | Loaded skill tracking                |
-| **Auxiliary**  | todos            | Session todos                        |
-| **Auxiliary**  | projects         | Project metadata                     |
-| **Auxiliary**  | step_events      | Step start/finish events             |
-| **Auxiliary**  | patches          | Git commit tracking                  |
-| **Aggregation**| session_stats    | Pre-calculated session KPIs          |
-| **Aggregation**| daily_stats      | Daily aggregated metrics             |
-| **Metadata**   | sync_meta        | Dashboard sync signaling             |
-| **Metadata**   | security_scanned | Security audit progress              |
+| Group          | Table                 | Purpose                              |
+|----------------|-----------------------|--------------------------------------|
+| **Core**       | sessions              | Session metadata and git stats       |
+| **Core**       | messages              | Messages with token metrics          |
+| **Core**       | parts                 | Content, tool calls, delegations     |
+| **Tracing**    | agent_traces          | Task tool invocation traces          |
+| **Tracing**    | delegations           | Agent delegation records             |
+| **Tracing**    | file_operations       | File read/write/edit tracking        |
+| **Auxiliary**  | skills                | Loaded skill tracking                |
+| **Auxiliary**  | todos                 | Session todos                        |
+| **Auxiliary**  | projects              | Project metadata                     |
+| **Auxiliary**  | step_events           | Step start/finish events             |
+| **Auxiliary**  | patches               | Git commit tracking                  |
+| **Aggregation**| session_stats         | Pre-calculated session KPIs          |
+| **Aggregation**| daily_stats           | Daily aggregated metrics             |
+| **Metadata**   | sync_meta             | Dashboard sync signaling             |
+| **Security**   | security_commands     | Audited bash commands with risk      |
+| **Security**   | security_file_reads   | Audited file reads with risk         |
+| **Security**   | security_file_writes  | Audited file writes with risk        |
+| **Security**   | security_webfetches   | Audited web fetches with risk        |
+| **Security**   | security_stats        | Security scan statistics             |
+| **Security**   | security_scanned      | Security audit progress tracking     |
 
 ## Development
 

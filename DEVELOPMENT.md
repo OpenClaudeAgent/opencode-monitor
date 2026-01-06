@@ -35,7 +35,7 @@ OpenCode Monitor consists of two main components:
 │  │ - security scan │  │ - handle clicks  │  │                 │  │
 │  └─────────────────┘  └──────────────────┘  └─────────────────┘  │
 │                                                                   │
-│  Databases: DuckDB (analytics + security scan), SQLite (audit)    │
+│  Database: DuckDB (analytics + security) - unified                │
 └───────────────────────────────────────────────────────────────────┘
                                │
                                │ REST API (127.0.0.1:19876)
@@ -83,7 +83,7 @@ OpenCode Monitor consists of two main components:
 | **Security** | |
 | `security/analyzer/` | Risk analysis for commands/files/URLs |
 | `security/auditor/` | Background security scanner |
-| `security/db/` | Hybrid storage (SQLite audit + DuckDB scan) |
+| `security/db/` | DuckDB storage (unified with analytics) |
 | `security/mitre_utils.py` | MITRE ATT&CK mapping |
 | `security/sequences.py` | Kill chain detection |
 | `security/correlator.py` | Event correlation across sessions |
@@ -246,14 +246,7 @@ uv run python -m tools.pycode --json symbols src/opencode_monitor/app.py
 # Settings
 cat ~/.config/opencode-monitor/settings.json
 
-# Security database stats
-sqlite3 ~/.config/opencode-monitor/security.db "
-SELECT 'Commands:', COUNT(*) FROM commands;
-SELECT 'Reads:', COUNT(*) FROM file_reads;
-SELECT 'Writes:', COUNT(*) FROM file_writes;
-"
-
-# Analytics database stats
+# Database stats (unified DuckDB)
 uv run python3 -c "
 from opencode_monitor.analytics import AnalyticsDB
 db = AnalyticsDB()
@@ -261,6 +254,9 @@ stats = db.get_stats()
 for table, count in stats.items():
     print(f'{table}: {count}')
 "
+
+# Security stats via API
+curl -s http://127.0.0.1:19876/api/security | jq '.data.stats'
 ```
 
 ## Debugging

@@ -165,7 +165,7 @@ opencode-monitor/
 │       ├── security/             # Security audit
 │       │   ├── analyzer/         # Risk analysis
 │       │   ├── auditor/          # Background scanner
-│       │   ├── db/               # Hybrid storage (SQLite + DuckDB)
+│       │   ├── db/               # DuckDB storage (unified)
 │       │   └── sequences.py      # Kill chain detection
 │       ├── ui/                   # Menu bar UI
 │       │   ├── menu.py           # Menu builder
