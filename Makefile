@@ -30,25 +30,25 @@ run:
 # === Testing ===
 
 test:
-	@uv run python -m pytest tests/ -v --ignore=tests/integration
+	@uv run python -m pytest tests/ -v -n auto --ignore=tests/integration
 
 test-unit:
-	@uv run python -m pytest tests/ -v --ignore=tests/integration -m "not integration"
+	@uv run python -m pytest tests/ -v -n auto --ignore=tests/integration -m "not integration"
 
 test-integration:
-	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/integration/ -v -m integration
+	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/integration/ -v -n auto -m integration
 
 test-integration-visible:
-	@uv run python -m pytest tests/integration/ -v -m integration
+	@uv run python -m pytest tests/integration/ -v -n auto -m integration
 
 test-all:
-	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/ -v
+	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/ -v -n auto
 
 coverage:
-	@uv run python -m pytest tests/ --cov=src/opencode_monitor --cov-report=term-missing
+	@uv run python -m pytest tests/ -n auto --cov=src/opencode_monitor --cov-report=term-missing
 
 coverage-html:
-	@uv run python -m pytest tests/ --cov=src/opencode_monitor --cov-report=html
+	@uv run python -m pytest tests/ -n auto --cov=src/opencode_monitor --cov-report=html
 	@open htmlcov/index.html
 
 # === Maintenance ===
