@@ -15,43 +15,79 @@ make coverage
 
 ## Architecture
 
-### Single App Architecture
+### Multi-Process Architecture
 
-OpenCode Monitor is a native macOS menu bar app built with [rumps](https://github.com/jaredks/rumps).
+OpenCode Monitor consists of two main components:
+
+1. **Menu Bar App** (rumps) - Real-time monitoring
+2. **PyQt6 Dashboard** - Analytics and tracing visualization
 
 ```
-┌─────────────────────────────────────────────┐
-│           OpenCodeApp (rumps.App)           │
-│                                             │
-│  ┌─────────────────┐  ┌──────────────────┐  │
-│  │ Background      │  │ UI Thread        │  │
-│  │ Thread          │  │ (main)           │  │
-│  │                 │  │                  │  │
-│  │ - fetch state   │  │ - build menu     │  │
-│  │ - fetch usage   │──▶ - update title   │  │
-│  │ - security scan │  │ - handle clicks  │  │
-│  └─────────────────┘  └──────────────────┘  │
-│                                             │
-│  State: self._state, self._usage (in-memory)│
-└─────────────────────────────────────────────┘
+┌───────────────────────────────────────────────────────────────────┐
+│                     OpenCodeApp (rumps.App)                       │
+│                                                                   │
+│  ┌─────────────────┐  ┌──────────────────┐  ┌─────────────────┐  │
+│  │ Background      │  │ UI Thread        │  │ Services        │  │
+│  │ Thread          │  │ (main)           │  │                 │  │
+│  │                 │  │                  │  │ - API Server    │  │
+│  │ - fetch state   │  │ - build menu     │  │ - Indexer       │  │
+│  │ - fetch usage   │──▶ - update title   │  │ - Auditor       │  │
+│  │ - security scan │  │ - handle clicks  │  │                 │  │
+│  └─────────────────┘  └──────────────────┘  └─────────────────┘  │
+│                                                                   │
+│  Databases: DuckDB (analytics + security scan), SQLite (audit)    │
+└───────────────────────────────────────────────────────────────────┘
+                               │
+                               │ REST API (127.0.0.1:19876)
+                               ▼
+┌───────────────────────────────────────────────────────────────────┐
+│                         PyQt6 Dashboard                           │
+│                                                                   │
+│  ┌─────────────┐  ┌─────────────┐  ┌─────────────┐  ┌──────────┐ │
+│  │ Monitoring  │  │ Security    │  │ Analytics   │  │ Tracing  │ │
+│  │ Section     │  │ Section     │  │ Section     │  │ Section  │ │
+│  └─────────────┘  └─────────────┘  └─────────────┘  └──────────┘ │
+└───────────────────────────────────────────────────────────────────┘
 ```
 
 ### Key Components
 
 | Module | Purpose |
 |--------|---------|
-| `app.py` | Main rumps application, orchestration |
-| `core/monitor.py` | Async detection of OpenCode instances |
+| **Menu Bar App** | |
+| `app/core.py` | Main rumps application, orchestration |
+| `app/handlers.py` | Event callbacks (HandlersMixin) |
+| `app/menu.py` | Menu building (MenuMixin) |
+| **Core Monitoring** | |
+| `core/monitor/` | Async detection of OpenCode instances |
 | `core/usage.py` | Claude API usage fetching |
 | `core/models.py` | Data classes (State, Agent, etc.) |
 | `core/client.py` | OpenCode HTTP client |
-| `security/analyzer.py` | Risk analysis for commands/files/URLs |
-| `security/auditor.py` | Background security scanner |
-| `security/db/` | SQLite storage for audit data |
-| `analytics/db.py` | DuckDB database for analytics |
-| `analytics/loader.py` | OpenCode JSON data loader |
-| `analytics/queries.py` | Analytics queries (periods, agents, tools) |
-| `analytics/report.py` | Report generation |
+| **REST API** | |
+| `api/server.py` | Flask API server |
+| `api/client.py` | API client for dashboard |
+| `api/routes/` | API endpoints |
+| **Analytics** | |
+| `analytics/db.py` | DuckDB database management (15 tables) |
+| `analytics/indexer/` | Unified indexer (real-time + backfill) |
+| `analytics/indexer/unified/` | Modular indexer components |
+| `analytics/loaders/` | Specialized data loaders |
+| `analytics/queries/` | SQL query modules |
+| `analytics/tracing/` | Tracing data service |
+| `analytics/report/` | HTML report generation |
+| **Dashboard** | |
+| `dashboard/window/` | PyQt6 main window |
+| `dashboard/sections/` | UI sections (monitoring, security, analytics, tracing) |
+| `dashboard/widgets/` | Reusable UI components |
+| `dashboard/styles/` | Design system |
+| **Security** | |
+| `security/analyzer/` | Risk analysis for commands/files/URLs |
+| `security/auditor/` | Background security scanner |
+| `security/db/` | Hybrid storage (SQLite audit + DuckDB scan) |
+| `security/mitre_utils.py` | MITRE ATT&CK mapping |
+| `security/sequences.py` | Kill chain detection |
+| `security/correlator.py` | Event correlation across sessions |
+| **Utilities** | |
 | `ui/menu.py` | Menu construction |
 | `utils/settings.py` | Preferences persistence |
 
@@ -93,7 +129,7 @@ class Agent:
     my_field: str = ""
 ```
 
-2. Extract in `core/monitor.py` `fetch_instance()`:
+2. Extract in `core/monitor/fetcher.py` `fetch_instance()`:
 ```python
 my_field = info.get("myField", "")
 agent = Agent(
@@ -110,7 +146,7 @@ if agent.my_field:
 
 ### Add Security Pattern
 
-1. Add pattern in `security/analyzer.py`:
+1. Add pattern in `security/analyzer/patterns.py`:
 
 For commands:
 ```python
@@ -153,8 +189,8 @@ print(f'Session: {u.five_hour.utilization}%')
 # Test instance detection
 uv run python3 -c "
 import asyncio
-from opencode_monitor.core.monitor import fetch_all_instances
-state = asyncio.run(fetch_all_instances())
+from opencode_monitor.core.monitor import fetch_instances
+state = asyncio.run(fetch_instances())
 print(f'Instances: {state.instance_count}')
 "
 
@@ -255,11 +291,22 @@ uv run python3 bin/opencode-menubar 2>&1 | tee /tmp/opencode-debug.log
 
 Defined in `pyproject.toml`:
 
+**Runtime:**
 - **rumps**: macOS menu bar framework
 - **aiohttp**: Async HTTP client
 - **duckdb**: Analytics database (fast columnar queries)
+- **PyQt6**: Dashboard UI framework
+- **plotly**: Chart generation
+- **flask**: REST API server
+- **watchdog**: File system monitoring
+
+**Development:**
 - **pytest**: Testing framework
 - **pytest-cov**: Coverage reporting
+- **pytest-qt**: PyQt6 testing
+- **pytest-asyncio**: Async test support
+- **ruff**: Linting
+- **jedi/radon/vulture**: Code analysis tools
 
 Install with:
 ```bash

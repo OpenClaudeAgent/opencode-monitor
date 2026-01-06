@@ -6,6 +6,7 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 
 ## Features
 
+### Menu Bar
 - **Real-time monitoring** of OpenCode instances
 - **Agent hierarchy** with main agents and sub-agents
 - **Tools display** showing currently running tools
@@ -13,10 +14,15 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 - **MCP Notify tracking** 🔔 indicator when agent awaits user response
 - **Todos tracking** with progress indicators
 - **Claude API usage** (session + weekly)
-- **Analytics dashboard** with token usage statistics (by period, agent, tool, skill)
-- **Security audit** with risk analysis of commands, file operations, and web fetches
 - **Click to focus** iTerm2 on the agent's terminal
 - **Configurable settings** via menu
+
+### PyQt6 Dashboard
+- **Monitoring section** - real-time instance overview
+- **Analytics section** - token usage statistics (by period, agent, tool, skill)
+- **Tracing section** - agent delegation tree with timeline and transcript
+- **Security section** - risk analysis with MITRE ATT&CK mapping
+- **HTML reports** with Plotly charts
 
 ## Installation
 
@@ -131,37 +137,50 @@ opencode-monitor/
 │   └── opencode-menubar          # Entry point script
 ├── src/
 │   └── opencode_monitor/         # Python package
-│       ├── app.py                # Main rumps application
+│       ├── app/                  # Menu bar application
+│       │   ├── core.py           # OpenCodeApp main class
+│       │   ├── handlers.py       # Event callbacks
+│       │   └── menu.py           # Menu building
 │       ├── core/                 # Core monitoring
 │       │   ├── client.py         # OpenCode API client
 │       │   ├── models.py         # Data classes
-│       │   ├── monitor.py        # Instance detection
+│       │   ├── monitor/          # Instance detection
 │       │   └── usage.py          # Claude API usage
-│       ├── analytics/            # Usage analytics
-│       │   ├── db.py             # DuckDB storage
-│       │   ├── loader.py         # JSON data loader
-│       │   ├── queries.py        # Analytics queries
-│       │   └── report.py         # Report generation
+│       ├── api/                  # REST API (Flask)
+│       │   ├── server.py         # Flask server
+│       │   ├── client.py         # API client
+│       │   └── routes/           # API endpoints
+│       ├── analytics/            # Usage analytics (DuckDB)
+│       │   ├── db.py             # Database management
+│       │   ├── indexer/          # Real-time + backfill indexer
+│       │   ├── loaders/          # Data loaders
+│       │   ├── queries/          # SQL queries
+│       │   ├── tracing/          # Tracing service
+│       │   └── report/           # HTML report generation
+│       ├── dashboard/            # PyQt6 dashboard
+│       │   ├── sections/         # UI sections
+│       │   ├── widgets/          # Reusable components
+│       │   ├── styles/           # Design system
+│       │   └── window/           # Main window
 │       ├── security/             # Security audit
-│       │   ├── analyzer.py       # Risk analysis
-│       │   ├── auditor.py        # Background scanner
-│       │   ├── db/               # SQLite storage
-│       │   └── reporter.py       # Report generation
-│       ├── ui/                   # UI components
+│       │   ├── analyzer/         # Risk analysis
+│       │   ├── auditor/          # Background scanner
+│       │   ├── db/               # Hybrid storage (SQLite + DuckDB)
+│       │   └── sequences.py      # Kill chain detection
+│       ├── ui/                   # Menu bar UI
 │       │   ├── menu.py           # Menu builder
 │       │   └── terminal.py       # iTerm2 focus
 │       └── utils/                # Utilities
-│           ├── logger.py         # Logging
-│           └── settings.py       # Configuration
-├── tests/                        # Unit tests
-├── roadmap/                      # Feature plans
+├── tools/pycode/                 # Python analysis CLI
+├── tests/                        # Unit & integration tests
+├── docs/                         # Documentation
 ├── pyproject.toml                # Python dependencies
 └── Makefile                      # Dev commands
 ```
 
 ## Roadmap
 
-See [roadmap/README.md](roadmap/README.md) for planned features.
+See [docs/backlog/](docs/backlog/) for planned features and [docs/archive/](docs/archive/) for completed plans.
 
 ## Changelog
 

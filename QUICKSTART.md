@@ -44,6 +44,7 @@ Quit
 - **⚙️ Preferences** → Configure refresh rate
 - **📊 Open Claude Usage** → Open Claude usage page
 - **🛡️ Security Audit** → View security analysis of commands
+- **📊 Dashboard** → Open PyQt6 dashboard for analytics and tracing
 
 ## 4. Configure
 
