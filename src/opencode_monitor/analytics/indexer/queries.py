@@ -72,10 +72,12 @@ FROM read_json_auto('{path}/**/*.json',
 # columns exist even if some JSON files don't have them. Without this, DuckDB fails
 # with "column not found" error when referencing missing struct keys.
 # NOTE: state.metadata.sessionId is extracted for task delegations to link child sessions.
+# Plan 34: Enriched columns added - reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name
 LOAD_PARTS_SQL = """
 INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
-    call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id
+    call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id,
+    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name
 )
 SELECT 
     id,
@@ -106,7 +108,18 @@ SELECT
     to_json(TRY(state."input")) as arguments,
     NULL as error_message,
     -- Extract child_session_id from state.metadata.sessionId for task delegations
-    TRY(state.metadata.sessionId) as child_session_id
+    TRY(state.metadata.sessionId) as child_session_id,
+    -- Plan 34: Enriched columns
+    -- reasoning_text: extract text when type='reasoning'
+    CASE WHEN type = 'reasoning' THEN text ELSE NULL END as reasoning_text,
+    -- anthropic_signature: extract from metadata.anthropic.signature
+    TRY(metadata.anthropic.signature) as anthropic_signature,
+    -- compaction_auto: extract auto flag when type='compaction'
+    CASE WHEN type = 'compaction' THEN COALESCE(TRY(auto), FALSE) ELSE NULL END as compaction_auto,
+    -- file_mime: extract mime when type='file'
+    CASE WHEN type = 'file' THEN TRY(mime) ELSE NULL END as file_mime,
+    -- file_name: extract filename when type='file'
+    CASE WHEN type = 'file' THEN TRY(filename) ELSE NULL END as file_name
 FROM read_json_auto('{path}/**/*.json',
     maximum_object_size=10485760,
     ignore_errors=true,
@@ -120,7 +133,11 @@ FROM read_json_auto('{path}/**/*.json',
         'tool': 'VARCHAR',
         'callID': 'VARCHAR',
         'state': 'STRUCT(status VARCHAR, "input" JSON, "time" STRUCT("start" BIGINT, "end" BIGINT), metadata STRUCT(sessionId VARCHAR))',
-        'time': 'STRUCT("start" BIGINT, "end" BIGINT)'
+        'time': 'STRUCT("start" BIGINT, "end" BIGINT)',
+        'metadata': 'STRUCT(anthropic STRUCT(signature VARCHAR))',
+        'auto': 'BOOLEAN',
+        'mime': 'VARCHAR',
+        'filename': 'VARCHAR'
     }}
 )
 """
@@ -201,4 +218,81 @@ WHERE p.tool_name = 'task'
 # Query for counting delegation traces
 COUNT_DELEGATION_TRACES_SQL = """
 SELECT COUNT(*) FROM agent_traces WHERE trace_id LIKE 'del_%'
+"""
+
+# Template for loading step events (step-start, step-finish) into step_events table
+# These are parts with type='step-start' or type='step-finish'
+LOAD_STEP_EVENTS_SQL = """
+INSERT OR REPLACE INTO step_events (
+    id, session_id, message_id, event_type, reason, snapshot_hash,
+    cost, tokens_input, tokens_output, tokens_reasoning,
+    tokens_cache_read, tokens_cache_write, created_at
+)
+SELECT 
+    id,
+    sessionID as session_id,
+    messageID as message_id,
+    CASE type
+        WHEN 'step-start' THEN 'start'
+        WHEN 'step-finish' THEN 'finish'
+    END as event_type,
+    TRY(reason) as reason,
+    TRY(snapshot) as snapshot_hash,
+    COALESCE(TRY(cost), 0) as cost,
+    COALESCE(TRY(tokens."input"), 0) as tokens_input,
+    COALESCE(TRY(tokens.output), 0) as tokens_output,
+    COALESCE(TRY(tokens.reasoning), 0) as tokens_reasoning,
+    COALESCE(TRY(tokens.cacheRead), 0) as tokens_cache_read,
+    COALESCE(TRY(tokens.cacheWrite), 0) as tokens_cache_write,
+    COALESCE(
+        to_timestamp(TRY("time"."start") / 1000.0),
+        to_timestamp(TRY("time".created) / 1000.0)
+    ) as created_at
+FROM read_json_auto('{path}/**/*.json',
+    maximum_object_size=10485760,
+    ignore_errors=true,
+    union_by_name=true,
+    columns={{
+        'id': 'VARCHAR',
+        'sessionID': 'VARCHAR',
+        'messageID': 'VARCHAR',
+        'type': 'VARCHAR',
+        'reason': 'VARCHAR',
+        'snapshot': 'VARCHAR',
+        'cost': 'DOUBLE',
+        'tokens': 'STRUCT("input" BIGINT, output BIGINT, reasoning BIGINT, cacheRead BIGINT, cacheWrite BIGINT)',
+        'time': 'STRUCT("start" BIGINT, created BIGINT)'
+    }}
+)
+WHERE type IN ('step-start', 'step-finish')
+"""
+
+# Template for loading patches into patches table
+# These are parts with type='patch'
+LOAD_PATCHES_SQL = """
+INSERT OR REPLACE INTO patches (
+    id, session_id, message_id, git_hash, files, created_at
+)
+SELECT 
+    id,
+    sessionID as session_id,
+    messageID as message_id,
+    hash as git_hash,
+    COALESCE(TRY(files), []) as files,
+    to_timestamp(TRY("time"."start") / 1000.0) as created_at
+FROM read_json_auto('{path}/**/*.json',
+    maximum_object_size=10485760,
+    ignore_errors=true,
+    union_by_name=true,
+    columns={{
+        'id': 'VARCHAR',
+        'sessionID': 'VARCHAR',
+        'messageID': 'VARCHAR',
+        'type': 'VARCHAR',
+        'hash': 'VARCHAR',
+        'files': 'VARCHAR[]',
+        'time': 'STRUCT("start" BIGINT)'
+    }}
+)
+WHERE type = 'patch' AND hash IS NOT NULL
 """

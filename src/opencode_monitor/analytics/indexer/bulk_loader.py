@@ -19,6 +19,8 @@ from .queries import (
     LOAD_SESSIONS_SQL,
     LOAD_MESSAGES_SQL,
     LOAD_PARTS_SQL,
+    LOAD_STEP_EVENTS_SQL,
+    LOAD_PATCHES_SQL,
     CREATE_ROOT_TRACES_SQL,
     COUNT_ROOT_TRACES_SQL,
     CREATE_DELEGATION_TRACES_SQL,
@@ -74,6 +76,8 @@ class BulkLoader:
         self._sessions_loaded = 0
         self._messages_loaded = 0
         self._parts_loaded = 0
+        self._step_events_loaded = 0
+        self._patches_loaded = 0
 
     # Allowed file types for bulk loading - prevents path injection
     _ALLOWED_FILE_TYPES = frozenset({"session", "message", "part"})
@@ -142,6 +146,14 @@ class BulkLoader:
         results["part"] = self.load_parts(cutoff_time)
         done += results["part"].files_loaded
         self._sync_state.update_progress(done)
+        self._sync_state.checkpoint()
+
+        # Step events (from part files - step-start, step-finish)
+        results["step_event"] = self.load_step_events(cutoff_time)
+        self._sync_state.checkpoint()
+
+        # Patches (from part files - patch type)
+        results["patch"] = self.load_patches(cutoff_time)
         self._sync_state.checkpoint()
 
         return results
@@ -265,6 +277,70 @@ class BulkLoader:
             debug(f"[BulkLoader] Part load error: {e}")
             return BulkLoadResult("part", 0, time.time() - start, 0, 1)
 
+    def load_step_events(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
+        """Load step events (step-start, step-finish) via DuckDB native JSON reading."""
+        start = time.time()
+        path = self._storage_path / "part"
+
+        if not path.exists():
+            return BulkLoadResult("step_event", 0, 0, 0, 0)
+
+        conn = self._db.connect()
+
+        try:
+            # Load step events from part files (they share the same storage)
+            query = LOAD_STEP_EVENTS_SQL.format(path=path)
+            conn.execute(query)
+
+            # Count loaded
+            result = conn.execute("SELECT COUNT(*) FROM step_events").fetchone()
+            count = result[0] if result else 0
+            self._step_events_loaded = count
+
+            elapsed = time.time() - start
+            speed = count / elapsed if elapsed > 0 else 0
+
+            info(
+                f"[BulkLoader] Step events: {count:,} in {elapsed:.1f}s ({speed:.0f}/s)"
+            )
+
+            return BulkLoadResult("step_event", count, elapsed, speed, 0)
+
+        except Exception as e:
+            debug(f"[BulkLoader] Step events load error: {e}")
+            return BulkLoadResult("step_event", 0, time.time() - start, 0, 1)
+
+    def load_patches(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
+        """Load patches (git commits) via DuckDB native JSON reading."""
+        start = time.time()
+        path = self._storage_path / "part"
+
+        if not path.exists():
+            return BulkLoadResult("patch", 0, 0, 0, 0)
+
+        conn = self._db.connect()
+
+        try:
+            # Load patches from part files (they share the same storage)
+            query = LOAD_PATCHES_SQL.format(path=path)
+            conn.execute(query)
+
+            # Count loaded
+            result = conn.execute("SELECT COUNT(*) FROM patches").fetchone()
+            count = result[0] if result else 0
+            self._patches_loaded = count
+
+            elapsed = time.time() - start
+            speed = count / elapsed if elapsed > 0 else 0
+
+            info(f"[BulkLoader] Patches: {count:,} in {elapsed:.1f}s ({speed:.0f}/s)")
+
+            return BulkLoadResult("patch", count, elapsed, speed, 0)
+
+        except Exception as e:
+            debug(f"[BulkLoader] Patch load error: {e}")
+            return BulkLoadResult("patch", 0, time.time() - start, 0, 1)
+
     def _create_root_traces(self, conn) -> int:
         """Create root traces for sessions without parent."""
         try:
@@ -302,6 +378,8 @@ class BulkLoader:
             "sessions_loaded": self._sessions_loaded,
             "messages_loaded": self._messages_loaded,
             "parts_loaded": self._parts_loaded,
+            "step_events_loaded": self._step_events_loaded,
+            "patches_loaded": self._patches_loaded,
             "total_loaded": self._sessions_loaded
             + self._messages_loaded
             + self._parts_loaded,
