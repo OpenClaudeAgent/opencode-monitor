@@ -296,6 +296,16 @@ class AnalyticsDB:
             ON parts(session_id)
         """)
 
+        # Indexes for security enrichment (Plan 42)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_risk
+            ON parts(risk_level, risk_score DESC)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_tool_unenriched
+            ON parts(tool_name, security_enriched_at)
+        """)
+
         # Indexes for agent_traces table
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_traces_session
@@ -699,6 +709,14 @@ class AnalyticsDB:
         add_column("sessions", "duration_ms", "INTEGER")
         add_column("sessions", "is_root", "BOOLEAN", "TRUE")
         add_column("sessions", "project_name", "VARCHAR")
+
+        # Parts - security enrichment columns (Plan 42)
+        # These columns are populated by SecurityEnrichmentWorker, NOT the indexer
+        add_column("parts", "risk_score", "INTEGER")
+        add_column("parts", "risk_level", "VARCHAR")
+        add_column("parts", "risk_reason", "VARCHAR")
+        add_column("parts", "mitre_techniques", "VARCHAR")  # JSON array as string
+        add_column("parts", "security_enriched_at", "TIMESTAMP")
 
         # Migrate security_scanned table: file_path → part_id
         # If old schema exists (file_path column), recreate table with new schema

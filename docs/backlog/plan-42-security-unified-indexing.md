@@ -2,7 +2,13 @@
 
 ## Objective
 
-Unify security data loading with the existing bulk loader and file watcher, eliminating the separate security scanner process. The auditor would query DuckDB directly instead of maintaining its own scan loop.
+Eliminate file I/O from the security auditor entirely. The existing indexer (bulk loader + file watcher) already reads all files efficiently via DuckDB's `read_json()`. The security worker should:
+
+1. **Never read files** - only query the `parts` table
+2. **Enrich data in place** - add risk scores to existing `parts` rows
+3. **Work asynchronously** - background enrichment without blocking
+
+**Key principle**: One reader (indexer), one enricher (security worker), one table (parts).
 
 ## Current Architecture
 
@@ -270,8 +276,13 @@ New module `security/enrichment/worker.py`:
 class SecurityEnrichmentWorker:
     """Async worker that enriches parts with security scores.
     
-    Queries unenriched parts from DuckDB, computes risk scores,
-    and updates the parts table in batches.
+    IMPORTANT: This worker NEVER reads files from disk!
+    All data comes from querying the parts table (populated by indexer).
+    
+    Flow:
+    1. Query: SELECT unenriched rows FROM parts
+    2. Analyze: Python risk analyzer on data from DB
+    3. Update: UPDATE parts SET risk_score, risk_level, etc.
     """
     
     def __init__(self, db: AnalyticsDB):
@@ -291,15 +302,19 @@ class SecurityEnrichmentWorker:
         while self._running:
             enriched = self._enrich_batch(limit=500)
             if enriched == 0:
-                time.sleep(5)  # Nothing to do, wait
+                time.sleep(2)  # Nothing to do, wait
             else:
-                time.sleep(0.1)  # More work, continue quickly
+                time.sleep(0.05)  # More work, continue quickly
     
     def _enrich_batch(self, limit: int = 500) -> int:
-        """Enrich a batch of unenriched parts."""
+        """Enrich a batch of unenriched parts.
+        
+        NO FILE I/O - all data from DB query!
+        """
         conn = self._db.connect()
         
-        # Get unenriched parts (commands, reads, writes, webfetches)
+        # Query unenriched parts - data already in DB from indexer
+        # The 'arguments' column contains the JSON with command/filePath/url
         parts = conn.execute("""
             SELECT id, tool_name, 
                    arguments->>'command' as command,
@@ -308,18 +323,19 @@ class SecurityEnrichmentWorker:
             FROM parts 
             WHERE security_enriched_at IS NULL
               AND tool_name IN ('bash', 'read', 'write', 'edit', 'webfetch')
+            ORDER BY created_at DESC
             LIMIT ?
         """, [limit]).fetchall()
         
         if not parts:
             return 0
         
-        # Compute scores
+        # Compute scores using Python analyzer (no file reads!)
         updates = []
         for part_id, tool, command, file_path, url in parts:
             if tool == 'bash' and command:
                 result = self._analyzer.analyze_command(command)
-            elif tool in ('read',) and file_path:
+            elif tool == 'read' and file_path:
                 result = self._analyzer.analyze_file_path(file_path)
             elif tool in ('write', 'edit') and file_path:
                 result = self._analyzer.analyze_file_path(file_path)
@@ -330,19 +346,35 @@ class SecurityEnrichmentWorker:
             
             updates.append((
                 result.score, result.level, result.reason,
-                json.dumps(result.mitre_techniques),
+                json.dumps(getattr(result, 'mitre_techniques', [])),
                 datetime.now(), part_id
             ))
         
-        # Batch update
+        # Batch UPDATE - no INSERT, just enriching existing rows
         conn.executemany("""
             UPDATE parts SET 
-                risk_score = ?, risk_level = ?, risk_reason = ?,
-                mitre_techniques = ?, security_enriched_at = ?
+                risk_score = ?, 
+                risk_level = ?, 
+                risk_reason = ?,
+                mitre_techniques = ?, 
+                security_enriched_at = ?
             WHERE id = ?
         """, updates)
         
         return len(updates)
+    
+    def get_enrichment_progress(self) -> dict:
+        """Get enrichment progress stats."""
+        conn = self._db.connect()
+        result = conn.execute("""
+            SELECT 
+                COUNT(*) FILTER (WHERE security_enriched_at IS NOT NULL) as enriched,
+                COUNT(*) FILTER (WHERE security_enriched_at IS NULL 
+                    AND tool_name IN ('bash', 'read', 'write', 'edit', 'webfetch')) as pending,
+                COUNT(*) as total
+            FROM parts
+        """).fetchone()
+        return {"enriched": result[0], "pending": result[1], "total": result[2]}
 ```
 
 ### Phase 3: Integrate Worker with App (1h)
