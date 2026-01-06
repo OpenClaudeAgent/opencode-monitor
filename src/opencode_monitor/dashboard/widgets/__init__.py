@@ -20,6 +20,12 @@ from .cards import MetricCard, MetricsRow, Card, SectionCard
 
 # Badges
 from .badges import Badge, RiskBadge, TypeBadge, StatusBadge
+from .cell_badge import (
+    CellBadge,
+    create_risk_badge,
+    create_type_badge,
+    create_score_badge,
+)
 
 # Tables
 from .tables import DataTable
@@ -47,6 +53,10 @@ __all__ = [
     "RiskBadge",
     "TypeBadge",
     "StatusBadge",
+    "CellBadge",
+    "create_risk_badge",
+    "create_type_badge",
+    "create_score_badge",
     # Tables
     "DataTable",
     # Controls

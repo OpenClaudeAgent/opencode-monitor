@@ -112,9 +112,9 @@ class TestMetricCard:
         card.set_value("999")
         assert card._value_label.text() == "999"
 
-        # Minimum dimensions
-        assert card.minimumWidth() >= 130
-        assert card.minimumHeight() >= 90
+        # Minimum dimensions (compact design)
+        assert card.minimumWidth() >= 110
+        assert card.minimumHeight() >= 80
 
         # Shadow effect applied
         effect = card.graphicsEffect()
@@ -413,9 +413,9 @@ class TestDataTable:
 
         # Class constants
         assert hasattr(DataTable, "ROW_HEIGHT")
-        assert DataTable.ROW_HEIGHT == 48
+        assert DataTable.ROW_HEIGHT == 40  # Updated: more compact tables
         assert hasattr(DataTable, "HEADER_HEIGHT")
-        assert DataTable.HEADER_HEIGHT == 44
+        assert DataTable.HEADER_HEIGHT == 36  # Updated: more compact tables
 
         # Sorting enabled
         assert table.isSortingEnabled()

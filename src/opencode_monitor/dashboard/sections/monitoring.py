@@ -17,6 +17,7 @@ from ..widgets import (
     EmptyState,
     StatusBadge,
     SectionCard,
+    create_type_badge,
 )
 from ..styles import SPACING, COL_WIDTH, format_duration_ms
 from .colors import get_operation_variant
@@ -280,6 +281,11 @@ class MonitoringSection(QWidget):
                         duration,
                     ],
                 )
+
+                # Add type badge for tool name (column 0)
+                row = self._tools_table.rowCount() - 1
+                type_badge = create_type_badge(tool_name)
+                self._tools_table.setCellWidget(row, 0, type_badge)
         else:
             self._tools_table.hide()
             self._tools_empty.show()

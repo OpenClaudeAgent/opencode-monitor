@@ -16,6 +16,9 @@ from ..widgets import (
     PageHeader,
     EmptyState,
     SectionCard,
+    create_risk_badge,
+    create_type_badge,
+    create_score_badge,
 )
 from ..styles import SPACING, COL_WIDTH, UI
 from .colors import get_operation_variant
@@ -187,6 +190,15 @@ class SecuritySection(QWidget):
                             reason,
                         ],
                     )
+
+                    # Add badges for critical alerts
+                    row = self._critical_table.rowCount() - 1
+                    # Type badge (column 0)
+                    type_badge = create_type_badge(item_type)
+                    self._critical_table.setCellWidget(row, 0, type_badge)
+                    # Risk badge (column 2)
+                    risk_badge = create_risk_badge(risk)
+                    self._critical_table.setCellWidget(row, 2, risk_badge)
             else:
                 self._critical_table.hide()
                 self._critical_empty.show()
@@ -211,6 +223,16 @@ class SecuritySection(QWidget):
                 ],
                 full_values=[command, risk.upper(), str(cmd.get("score", 0)), reason],
             )
+
+            # Add badges for commands
+            row = self._commands_table.rowCount() - 1
+            # Risk badge (column 1)
+            risk_badge = create_risk_badge(risk)
+            self._commands_table.setCellWidget(row, 1, risk_badge)
+            # Score badge (column 2)
+            score_val = cmd.get("score", 0)
+            score_badge = create_score_badge(score_val)
+            self._commands_table.setCellWidget(row, 2, score_badge)
 
         # Files
         self._files_table.clear_data()
@@ -237,3 +259,16 @@ class SecuritySection(QWidget):
                     str(f.get("score", 0)),
                 ],
             )
+
+            # Add badges for files
+            row = self._files_table.rowCount() - 1
+            # Type badge (column 0)
+            type_badge = create_type_badge(operation)
+            self._files_table.setCellWidget(row, 0, type_badge)
+            # Risk badge (column 2)
+            risk_badge = create_risk_badge(risk)
+            self._files_table.setCellWidget(row, 2, risk_badge)
+            # Score badge (column 3)
+            score_val = f.get("score", 0)
+            score_badge = create_score_badge(score_val)
+            self._files_table.setCellWidget(row, 3, score_badge)
