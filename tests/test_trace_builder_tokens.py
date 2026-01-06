@@ -529,3 +529,253 @@ class TestTokenAggregationFlow:
 
         assert result[0] == 600, f"Expected tokens_in=600, got {result[0]}"
         assert result[1] == 3000, f"Expected tokens_out=3000, got {result[1]}"
+
+
+# === Tests for parent_agent resolution ===
+
+
+class TestParentAgentResolution:
+    """Tests for parent_agent being correctly set from parent's subagent_type.
+
+    This is a regression test for the bug where child traces showed
+    'user -> explore' instead of 'plan -> explore' because:
+    1. Root traces are created with subagent_type='user'
+    2. resolve_parent_traces() ran BEFORE update_root_trace_agents()
+    3. So parent_agent was copied as 'user' instead of actual agent
+    """
+
+    def test_resolve_parent_traces_updates_parent_agent(self, temp_db, trace_builder):
+        """Verify resolve_parent_traces updates parent_agent from parent's subagent_type."""
+        parent_session_id = "ses_parent_agent_test"
+        child_session_id = "ses_child_agent_test"
+
+        conn = temp_db.connect()
+
+        # Create root trace with subagent_type='plan' (already updated)
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at, 
+             child_session_id, parent_agent)
+            VALUES ('root_ses_parent_agent_test', ?, 'plan', 'root prompt', ?, ?, 'user')
+            """,
+            [
+                parent_session_id,
+                datetime.now() - timedelta(minutes=10),
+                parent_session_id,
+            ],
+        )
+
+        # Create child trace with parent_agent='user' (wrong - should be 'plan')
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at,
+             child_session_id, parent_agent, parent_trace_id)
+            VALUES ('child_trace', ?, 'explore', 'child prompt', ?, ?, 'user', 'root_ses_parent_agent_test')
+            """,
+            [parent_session_id, datetime.now(), child_session_id],
+        )
+
+        # Verify initial state: parent_agent is 'user'
+        result = conn.execute(
+            "SELECT parent_agent FROM agent_traces WHERE trace_id = 'child_trace'"
+        ).fetchone()
+        assert result[0] == "user", "Initial parent_agent should be 'user'"
+
+        # Run resolve_parent_traces
+        trace_builder.resolve_parent_traces()
+
+        # Verify parent_agent is now 'plan' (from parent's subagent_type)
+        result = conn.execute(
+            "SELECT parent_agent FROM agent_traces WHERE trace_id = 'child_trace'"
+        ).fetchone()
+        assert result[0] == "plan", f"Expected parent_agent='plan', got '{result[0]}'"
+
+    def test_update_root_trace_agents_from_messages(self, temp_db, trace_builder):
+        """Verify update_root_trace_agents updates subagent_type from first message."""
+        session_id = "ses_root_agent_update"
+
+        conn = temp_db.connect()
+
+        # Create root trace with subagent_type='user' (initial state)
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at, 
+             child_session_id, parent_agent)
+            VALUES ('root_ses_root_agent_update', ?, 'user', 'root prompt', ?, ?, 'user')
+            """,
+            [session_id, datetime.now() - timedelta(minutes=10), session_id],
+        )
+
+        # Create assistant message with agent='plan'
+        conn.execute(
+            """
+            INSERT INTO messages (id, session_id, role, agent, created_at)
+            VALUES ('msg_agent_1', ?, 'assistant', 'plan', ?)
+            """,
+            [session_id, datetime.now()],
+        )
+
+        # Verify initial state: subagent_type is 'user'
+        result = conn.execute(
+            "SELECT subagent_type FROM agent_traces WHERE trace_id = 'root_ses_root_agent_update'"
+        ).fetchone()
+        assert result[0] == "user", "Initial subagent_type should be 'user'"
+
+        # Run update_root_trace_agents
+        trace_builder.update_root_trace_agents()
+
+        # Verify subagent_type is now 'plan'
+        result = conn.execute(
+            "SELECT subagent_type FROM agent_traces WHERE trace_id = 'root_ses_root_agent_update'"
+        ).fetchone()
+        assert result[0] == "plan", f"Expected subagent_type='plan', got '{result[0]}'"
+
+    def test_correct_order_root_update_then_resolve(self, temp_db, trace_builder):
+        """Integration test: correct order updates parent_agent correctly.
+
+        This tests the full scenario:
+        1. Root trace created with subagent_type='user'
+        2. Child trace created with parent_agent='user'
+        3. Messages show root is actually 'plan'
+        4. update_root_trace_agents() -> root becomes 'plan'
+        5. resolve_parent_traces() -> child's parent_agent becomes 'plan'
+        """
+        parent_session_id = "ses_order_test_parent"
+        child_session_id = "ses_order_test_child"
+
+        conn = temp_db.connect()
+
+        # Step 1: Create root trace with subagent_type='user'
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at, 
+             child_session_id, parent_agent)
+            VALUES ('root_ses_order_test_parent', ?, 'user', 'root prompt', ?, ?, 'user')
+            """,
+            [
+                parent_session_id,
+                datetime.now() - timedelta(minutes=10),
+                parent_session_id,
+            ],
+        )
+
+        # Step 2: Create child trace with parent_agent='user' and parent_trace_id set
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at,
+             child_session_id, parent_agent, parent_trace_id)
+            VALUES ('child_order_test', ?, 'explore', 'child prompt', ?, ?, 'user', 'root_ses_order_test_parent')
+            """,
+            [parent_session_id, datetime.now(), child_session_id],
+        )
+
+        # Step 3: Create message showing root is 'plan'
+        conn.execute(
+            """
+            INSERT INTO messages (id, session_id, role, agent, created_at)
+            VALUES ('msg_order_1', ?, 'assistant', 'plan', ?)
+            """,
+            [parent_session_id, datetime.now()],
+        )
+
+        # Step 4: Run update_root_trace_agents FIRST (correct order)
+        trace_builder.update_root_trace_agents()
+
+        # Verify root is now 'plan'
+        result = conn.execute(
+            "SELECT subagent_type FROM agent_traces WHERE trace_id = 'root_ses_order_test_parent'"
+        ).fetchone()
+        assert result[0] == "plan", (
+            f"Root subagent_type should be 'plan', got '{result[0]}'"
+        )
+
+        # Step 5: Run resolve_parent_traces
+        trace_builder.resolve_parent_traces()
+
+        # Verify child's parent_agent is 'plan' (not 'user')
+        result = conn.execute(
+            "SELECT parent_agent FROM agent_traces WHERE trace_id = 'child_order_test'"
+        ).fetchone()
+        assert result[0] == "plan", f"Expected parent_agent='plan', got '{result[0]}'"
+
+    def test_wrong_order_produces_wrong_parent_agent(self, temp_db, trace_builder):
+        """Regression test: wrong order produces wrong parent_agent.
+
+        This documents the bug: if resolve_parent_traces() runs BEFORE
+        update_root_trace_agents(), the parent_agent stays 'user'.
+        """
+        parent_session_id = "ses_wrong_order_parent"
+        child_session_id = "ses_wrong_order_child"
+
+        conn = temp_db.connect()
+
+        # Create root trace with subagent_type='user'
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at, 
+             child_session_id, parent_agent)
+            VALUES ('root_ses_wrong_order_parent', ?, 'user', 'root prompt', ?, ?, 'user')
+            """,
+            [
+                parent_session_id,
+                datetime.now() - timedelta(minutes=10),
+                parent_session_id,
+            ],
+        )
+
+        # Create child trace with parent_agent=NULL (will be resolved)
+        conn.execute(
+            """
+            INSERT INTO agent_traces
+            (trace_id, session_id, subagent_type, prompt_input, started_at,
+             child_session_id, parent_agent, parent_trace_id)
+            VALUES ('child_wrong_order', ?, 'explore', 'child prompt', ?, ?, NULL, 'root_ses_wrong_order_parent')
+            """,
+            [parent_session_id, datetime.now(), child_session_id],
+        )
+
+        # Create message showing root should be 'plan'
+        conn.execute(
+            """
+            INSERT INTO messages (id, session_id, role, agent, created_at)
+            VALUES ('msg_wrong_1', ?, 'assistant', 'plan', ?)
+            """,
+            [parent_session_id, datetime.now()],
+        )
+
+        # WRONG ORDER: resolve_parent_traces BEFORE update_root_trace_agents
+        trace_builder.resolve_parent_traces()
+
+        # Bug: parent_agent is 'user' because root's subagent_type is still 'user'
+        result = conn.execute(
+            "SELECT parent_agent FROM agent_traces WHERE trace_id = 'child_wrong_order'"
+        ).fetchone()
+        assert result[0] == "user", (
+            f"Bug state: parent_agent should be 'user', got '{result[0]}'"
+        )
+
+        # Now run update_root_trace_agents (fixes root)
+        trace_builder.update_root_trace_agents()
+
+        # Root is now 'plan'
+        result = conn.execute(
+            "SELECT subagent_type FROM agent_traces WHERE trace_id = 'root_ses_wrong_order_parent'"
+        ).fetchone()
+        assert result[0] == "plan", f"Root should be 'plan', got '{result[0]}'"
+
+        # Run resolve_parent_traces again to fix the child
+        trace_builder.resolve_parent_traces()
+
+        # Now parent_agent is correctly 'plan'
+        result = conn.execute(
+            "SELECT parent_agent FROM agent_traces WHERE trace_id = 'child_wrong_order'"
+        ).fetchone()
+        assert result[0] == "plan", (
+            f"Fixed: parent_agent should be 'plan', got '{result[0]}'"
+        )
