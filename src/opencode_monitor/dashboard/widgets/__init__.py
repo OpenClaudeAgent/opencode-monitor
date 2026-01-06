@@ -16,7 +16,7 @@ backwards compatibility with the original widgets.py module.
 from .navigation import NavItem, Sidebar
 
 # Cards
-from .cards import MetricCard, MetricsRow, Card
+from .cards import MetricCard, MetricsRow, Card, SectionCard
 
 # Badges
 from .badges import Badge, RiskBadge, TypeBadge, StatusBadge
@@ -41,6 +41,7 @@ __all__ = [
     "MetricCard",
     "MetricsRow",
     "Card",
+    "SectionCard",
     # Badges
     "Badge",
     "RiskBadge",

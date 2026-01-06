@@ -170,3 +170,92 @@ class Card(QFrame):
 
     def add_widget(self, widget: QWidget) -> None:
         self._layout.addWidget(widget)
+
+
+class SectionCard(QWidget):
+    """Sober section card with subtle background and border.
+
+    Design philosophy: Color = information, NOT decoration
+    - Background: #151515 (slightly elevated from #0d0d0d)
+    - Border: Gray subtle (no colored accents)
+    - Header: Title + optional subtitle
+    - Subtle separator between header and content
+    """
+
+    def __init__(
+        self,
+        title: str,
+        subtitle: str = "",
+        parent: QWidget | None = None,
+    ):
+        super().__init__(parent)
+        self._setup_ui(title, subtitle)
+
+    def _setup_ui(self, title: str, subtitle: str) -> None:
+        # Sober styling - NO colored accents
+        self.setStyleSheet("""
+            SectionCard {
+                background-color: #151515;
+                border: 1px solid rgba(255, 255, 255, 0.08);
+                border-radius: 8px;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(20, 16, 20, 20)
+        layout.setSpacing(12)
+
+        # Header
+        header = QWidget()
+        header_layout = QVBoxLayout(header)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(4)
+
+        # Title
+        title_label = QLabel(title)
+        title_label.setStyleSheet(f"""
+            font-size: 15px;
+            font-weight: 600;
+            color: {COLORS["text_primary"]};
+            background: transparent;
+            border: none;
+        """)
+        header_layout.addWidget(title_label)
+
+        # Subtitle (optional)
+        if subtitle:
+            subtitle_label = QLabel(subtitle)
+            subtitle_label.setStyleSheet(f"""
+                font-size: 13px;
+                color: {COLORS["text_muted"]};
+                background: transparent;
+                border: none;
+            """)
+            header_layout.addWidget(subtitle_label)
+
+        layout.addWidget(header)
+
+        # Subtle separator
+        separator = QFrame()
+        separator.setFrameShape(QFrame.Shape.HLine)
+        separator.setStyleSheet("""
+            background-color: rgba(255, 255, 255, 0.06);
+            max-height: 1px;
+            border: none;
+        """)
+        layout.addWidget(separator)
+
+        # Content container
+        self._content = QWidget()
+        self._content_layout = QVBoxLayout(self._content)
+        self._content_layout.setContentsMargins(0, 0, 0, 0)
+        self._content_layout.setSpacing(0)
+        layout.addWidget(self._content)
+
+    def add_widget(self, widget: QWidget) -> None:
+        """Add a widget to the card content."""
+        self._content_layout.addWidget(widget)
+
+    def set_content_visible(self, visible: bool) -> None:
+        """Show/hide content area."""
+        self._content.setVisible(visible)
