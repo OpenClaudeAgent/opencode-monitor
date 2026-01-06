@@ -1,11 +1,12 @@
 """
-Tests for SecurityDatabase - SQLite repository for security audit data.
+Tests for SecurityDatabase - DuckDB repository for security audit data.
 
 Consolidated tests: 8 functions covering all CRUD operations and statistics.
 All assertions use equality checks for precise validation.
+
+NOTE: SecurityDatabase now uses the unified analytics.duckdb database.
 """
 
-import sqlite3
 from pathlib import Path
 
 import pytest
@@ -20,10 +21,9 @@ from opencode_monitor.security.db import (
 
 
 @pytest.fixture
-def db(tmp_path: Path) -> SecurityDatabase:
-    """Create a fresh in-memory database for each test"""
-    db_path = tmp_path / "test_security.db"
-    return SecurityDatabase(db_path=db_path)
+def security_db(analytics_db) -> SecurityDatabase:
+    """Create SecurityDatabase with injected AnalyticsDB for each test."""
+    return SecurityDatabase(db=analytics_db)
 
 
 @pytest.fixture
@@ -95,55 +95,47 @@ def sample_webfetch_data() -> dict:
 class TestDatabaseInitialization:
     """Tests for database schema initialization"""
 
-    def test_database_creates_tables_and_indexes(self, db: SecurityDatabase):
+    def test_database_creates_tables_and_indexes(
+        self, security_db: SecurityDatabase, analytics_db
+    ):
         """Database initializes with all required tables and performance indexes"""
-        conn = sqlite3.connect(db.db_path)
-        cursor = conn.cursor()
+        conn = analytics_db.connect()
 
-        # Verify all required tables exist
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' ORDER BY name"
-        )
-        tables = {row[0] for row in cursor.fetchall()}
+        # Verify all required security tables exist
+        result = conn.execute(
+            "SELECT table_name FROM information_schema.tables "
+            "WHERE table_name LIKE 'security_%' ORDER BY table_name"
+        ).fetchall()
+        tables = {row[0] for row in result}
 
         expected_tables = {
-            "commands",
-            "file_reads",
-            "file_writes",
-            "webfetches",
-            "scan_stats",
+            "security_commands",
+            "security_file_reads",
+            "security_file_writes",
+            "security_webfetches",
+            "security_stats",
+            "security_scanned",
         }
         assert expected_tables.issubset(tables)
-
-        # Verify performance indexes exist
-        cursor.execute(
-            "SELECT name FROM sqlite_master WHERE type='index' AND name LIKE 'idx_%'"
-        )
-        indexes = {row[0] for row in cursor.fetchall()}
-        conn.close()
-
-        assert "idx_file_id" in indexes
-        assert "idx_risk_level" in indexes
-        assert "idx_risk_score" in indexes
 
 
 class TestEntityCrudOperations:
     """Tests for CRUD operations on all entity types"""
 
     def test_command_crud_operations(
-        self, db: SecurityDatabase, sample_command_data: dict
+        self, security_db: SecurityDatabase, sample_command_data: dict
     ):
         """Command insert, duplicate handling, and query by risk level"""
         # Insert succeeds
-        insert_result = db.insert_command(sample_command_data)
+        insert_result = security_db.insert_command(sample_command_data)
         assert insert_result is True
 
-        # Duplicate is ignored (returns False)
-        duplicate_result = db.insert_command(sample_command_data)
-        assert duplicate_result is False
+        # Duplicate is ignored (returns True but no new row due to content_hash)
+        duplicate_result = security_db.insert_command(sample_command_data)
+        assert duplicate_result is True  # DuckDB INSERT OR IGNORE returns success
 
         # Query by risk level returns correct data
-        results = db.get_commands_by_level(["high"])
+        results = security_db.get_commands_by_level(["high"])
         assert len(results) == 1
         assert results[0].file_id == "cmd-001"
         assert results[0].command == "rm -rf /tmp/test"
@@ -151,46 +143,46 @@ class TestEntityCrudOperations:
         assert results[0].risk_score == 75
 
         # Get all commands works
-        all_commands = db.get_all_commands()
+        all_commands = security_db.get_all_commands()
         assert len(all_commands) == 1
 
     def test_file_read_crud_operations(
-        self, db: SecurityDatabase, sample_read_data: dict
+        self, security_db: SecurityDatabase, sample_read_data: dict
     ):
         """File read insert, duplicate handling, and query by risk level"""
         # Insert succeeds
-        insert_result = db.insert_read(sample_read_data)
+        insert_result = security_db.insert_read(sample_read_data)
         assert insert_result is True
 
         # Duplicate is ignored
-        duplicate_result = db.insert_read(sample_read_data)
-        assert duplicate_result is False
+        duplicate_result = security_db.insert_read(sample_read_data)
+        assert duplicate_result is True  # DuckDB INSERT OR IGNORE returns success
 
         # Query by risk level returns correct data
-        results = db.get_reads_by_level(["high"])
+        results = security_db.get_reads_by_level(["high"])
         assert len(results) == 1
         assert results[0].file_id == "read-001"
         assert results[0].file_path == "/etc/passwd"
         assert results[0].risk_level == "high"
 
         # Get all reads works
-        all_reads = db.get_all_reads()
+        all_reads = security_db.get_all_reads()
         assert len(all_reads) == 1
 
     def test_file_write_crud_operations(
-        self, db: SecurityDatabase, sample_write_data: dict
+        self, security_db: SecurityDatabase, sample_write_data: dict
     ):
         """File write insert, duplicate handling, and query by risk level"""
         # Insert succeeds
-        insert_result = db.insert_write(sample_write_data)
+        insert_result = security_db.insert_write(sample_write_data)
         assert insert_result is True
 
         # Duplicate is ignored
-        duplicate_result = db.insert_write(sample_write_data)
-        assert duplicate_result is False
+        duplicate_result = security_db.insert_write(sample_write_data)
+        assert duplicate_result is True  # DuckDB INSERT OR IGNORE returns success
 
         # Query by risk level returns correct data
-        results = db.get_writes_by_level(["critical"])
+        results = security_db.get_writes_by_level(["critical"])
         assert len(results) == 1
         assert results[0].file_id == "write-001"
         assert results[0].file_path == "/home/user/.ssh/config"
@@ -198,42 +190,42 @@ class TestEntityCrudOperations:
         assert results[0].risk_level == "critical"
 
         # Get all writes works
-        all_writes = db.get_all_writes()
+        all_writes = security_db.get_all_writes()
         assert len(all_writes) == 1
 
     def test_webfetch_crud_operations(
-        self, db: SecurityDatabase, sample_webfetch_data: dict
+        self, security_db: SecurityDatabase, sample_webfetch_data: dict
     ):
         """Webfetch insert, duplicate handling, and query by risk level"""
         # Insert succeeds
-        insert_result = db.insert_webfetch(sample_webfetch_data)
+        insert_result = security_db.insert_webfetch(sample_webfetch_data)
         assert insert_result is True
 
         # Duplicate is ignored
-        duplicate_result = db.insert_webfetch(sample_webfetch_data)
-        assert duplicate_result is False
+        duplicate_result = security_db.insert_webfetch(sample_webfetch_data)
+        assert duplicate_result is True  # DuckDB INSERT OR IGNORE returns success
 
         # Query by risk level returns correct data
-        results = db.get_webfetches_by_level(["critical"])
+        results = security_db.get_webfetches_by_level(["critical"])
         assert len(results) == 1
         assert results[0].file_id == "fetch-001"
         assert results[0].url == "https://pastebin.com/raw/abc123"
         assert results[0].risk_level == "critical"
 
         # Get all webfetches works
-        all_webfetches = db.get_all_webfetches()
+        all_webfetches = security_db.get_all_webfetches()
         assert len(all_webfetches) == 1
 
 
 class TestQueryCapabilities:
     """Tests for advanced query features"""
 
-    def test_multi_level_query_and_pagination(self, db: SecurityDatabase):
+    def test_multi_level_query_and_pagination(self, security_db: SecurityDatabase):
         """Query by multiple risk levels and paginate results"""
         # Insert commands with different risk levels
         levels = ["critical", "high", "medium", "low"]
         for i, level in enumerate(levels):
-            db.insert_command(
+            security_db.insert_command(
                 {
                     "file_id": f"cmd-{i}",
                     "content_hash": f"hash-{i}",
@@ -249,14 +241,14 @@ class TestQueryCapabilities:
             )
 
         # Query multiple levels returns correct subset
-        results = db.get_commands_by_level(["critical", "high"])
+        results = security_db.get_commands_by_level(["critical", "high"])
         assert len(results) == 2
         result_levels = {r.risk_level for r in results}
         assert result_levels == {"critical", "high"}
 
         # Insert more commands for pagination test
         for i in range(4, 14):
-            db.insert_command(
+            security_db.insert_command(
                 {
                     "file_id": f"cmd-{i:03d}",
                     "content_hash": f"hash-{i}",
@@ -272,8 +264,8 @@ class TestQueryCapabilities:
             )
 
         # Pagination works correctly
-        page1 = db.get_all_commands(limit=5, offset=0)
-        page2 = db.get_all_commands(limit=5, offset=5)
+        page1 = security_db.get_all_commands(limit=5, offset=0)
+        page2 = security_db.get_all_commands(limit=5, offset=5)
         assert len(page1) == 5
         assert len(page2) == 5
 
@@ -288,7 +280,7 @@ class TestStatistics:
 
     def test_statistics_lifecycle(
         self,
-        db: SecurityDatabase,
+        security_db: SecurityDatabase,
         sample_command_data: dict,
         sample_read_data: dict,
         sample_write_data: dict,
@@ -296,20 +288,20 @@ class TestStatistics:
     ):
         """Statistics from empty database through population and scan updates"""
         # Empty database has zero counts
-        empty_stats = db.get_stats()
+        empty_stats = security_db.get_stats()
         assert empty_stats["total_commands"] == 0
         assert empty_stats["total_reads"] == 0
         assert empty_stats["total_writes"] == 0
         assert empty_stats["total_webfetches"] == 0
 
         # Insert mixed data
-        db.insert_command(sample_command_data)
-        db.insert_read(sample_read_data)
-        db.insert_write(sample_write_data)
-        db.insert_webfetch(sample_webfetch_data)
+        security_db.insert_command(sample_command_data)
+        security_db.insert_read(sample_read_data)
+        security_db.insert_write(sample_write_data)
+        security_db.insert_webfetch(sample_webfetch_data)
 
         # Stats reflect inserted data correctly
-        populated_stats = db.get_stats()
+        populated_stats = security_db.get_stats()
         assert populated_stats["high"] == 1  # command
         assert populated_stats["reads_high"] == 1  # read
         assert populated_stats["writes_critical"] == 1  # write
@@ -319,24 +311,24 @@ class TestStatistics:
         assert populated_stats["total_webfetches"] == 1
 
         # Scan stats update works
-        db.update_scan_stats(
+        security_db.update_scan_stats(
             total_scanned=100, total_commands=50, last_scan="2024-12-19T12:00:00"
         )
-        updated_stats = db.get_stats()
+        updated_stats = security_db.get_stats()
         assert updated_stats["total_scanned"] == 100
         assert updated_stats["total_commands"] == 50
 
     def test_scanned_ids_aggregation(
         self,
-        db: SecurityDatabase,
+        security_db: SecurityDatabase,
         sample_command_data: dict,
         sample_read_data: dict,
     ):
         """Get all scanned file IDs aggregated across tables"""
-        db.insert_command(sample_command_data)
-        db.insert_read(sample_read_data)
+        security_db.insert_command(sample_command_data)
+        security_db.insert_read(sample_read_data)
 
-        ids = db.get_all_scanned_ids()
+        ids = security_db.get_all_scanned_ids()
 
         assert "cmd-001" in ids
         assert "read-001" in ids

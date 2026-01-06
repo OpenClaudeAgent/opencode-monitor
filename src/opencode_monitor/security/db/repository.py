@@ -1,10 +1,10 @@
 """
-Security Database Repository - SQLite operations for security audit data
+Security Database Repository - DuckDB operations for security audit data.
 
-Also provides DuckDB integration for efficient file scanning via file_index table.
+All security audit data is now stored in the unified analytics.duckdb database.
 """
 
-import sqlite3
+import uuid
 from dataclasses import dataclass
 from pathlib import Path
 from typing import TYPE_CHECKING, List, Dict, Any, Type, Optional
@@ -23,11 +23,14 @@ from .models import (
 )
 
 # Allowed table names - whitelist for SQL injection prevention
-_ALLOWED_TABLES = frozenset({"commands", "file_reads", "file_writes", "webfetches"})
-
-# Paths
-CONFIG_DIR = Path.home() / ".config/opencode-monitor"
-DB_PATH = CONFIG_DIR / "security.db"
+_ALLOWED_TABLES = frozenset(
+    {
+        "security_commands",
+        "security_file_reads",
+        "security_file_writes",
+        "security_webfetches",
+    }
+)
 
 
 @dataclass(frozen=True)
@@ -42,7 +45,7 @@ class TableConfig:
 
 # Table configurations - defines select columns for each table
 COMMANDS_CONFIG = TableConfig(
-    table="commands",
+    table="security_commands",
     columns="""id, file_id, session_id, tool, command, 
                risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
                COALESCE(mitre_techniques, '[]'), 
@@ -53,7 +56,7 @@ COMMANDS_CONFIG = TableConfig(
 )
 
 READS_CONFIG = TableConfig(
-    table="file_reads",
+    table="security_file_reads",
     columns="""id, file_id, session_id, file_path, 
                risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
                COALESCE(mitre_techniques, '[]'), 
@@ -64,7 +67,7 @@ READS_CONFIG = TableConfig(
 )
 
 WRITES_CONFIG = TableConfig(
-    table="file_writes",
+    table="security_file_writes",
     columns="""id, file_id, session_id, file_path, operation,
                risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
                COALESCE(mitre_techniques, '[]'), 
@@ -75,7 +78,7 @@ WRITES_CONFIG = TableConfig(
 )
 
 WEBFETCHES_CONFIG = TableConfig(
-    table="webfetches",
+    table="security_webfetches",
     columns="""id, file_id, session_id, url,
                risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
                COALESCE(mitre_techniques, '[]'), 
@@ -87,548 +90,9 @@ WEBFETCHES_CONFIG = TableConfig(
 
 
 class SecurityDatabase:
-    """SQLite repository for security audit data"""
+    """DuckDB repository for security audit data.
 
-    def __init__(self, db_path: Path = DB_PATH):
-        self.db_path = db_path
-        self._init_db()
-
-    def _get_connection(self) -> sqlite3.Connection:
-        """Get a database connection"""
-        return sqlite3.connect(self.db_path)
-
-    def _init_db(self):
-        """Initialize SQLite database schema"""
-        CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-
-        conn = self._get_connection()
-        cursor = conn.cursor()
-
-        # Commands table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS commands (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT UNIQUE NOT NULL,
-                content_hash TEXT NOT NULL,
-                session_id TEXT,
-                tool TEXT NOT NULL,
-                command TEXT NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level TEXT NOT NULL,
-                risk_reason TEXT,
-                command_timestamp INTEGER,
-                scanned_at TEXT NOT NULL,
-                mitre_techniques TEXT DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # File reads table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS file_reads (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT UNIQUE NOT NULL,
-                content_hash TEXT NOT NULL,
-                session_id TEXT,
-                file_path TEXT NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level TEXT NOT NULL,
-                risk_reason TEXT,
-                read_timestamp INTEGER,
-                scanned_at TEXT NOT NULL,
-                mitre_techniques TEXT DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # File writes table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS file_writes (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT UNIQUE NOT NULL,
-                content_hash TEXT NOT NULL,
-                session_id TEXT,
-                file_path TEXT NOT NULL,
-                operation TEXT NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level TEXT NOT NULL,
-                risk_reason TEXT,
-                write_timestamp INTEGER,
-                scanned_at TEXT NOT NULL,
-                mitre_techniques TEXT DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Webfetches table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS webfetches (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                file_id TEXT UNIQUE NOT NULL,
-                content_hash TEXT NOT NULL,
-                session_id TEXT,
-                url TEXT NOT NULL,
-                risk_score INTEGER NOT NULL,
-                risk_level TEXT NOT NULL,
-                risk_reason TEXT,
-                fetch_timestamp INTEGER,
-                scanned_at TEXT NOT NULL,
-                mitre_techniques TEXT DEFAULT '[]',
-                edr_sequence_bonus INTEGER DEFAULT 0,
-                edr_correlation_bonus INTEGER DEFAULT 0
-            )
-        """)
-
-        # Stats table
-        cursor.execute("""
-            CREATE TABLE IF NOT EXISTS scan_stats (
-                id INTEGER PRIMARY KEY,
-                last_full_scan TEXT,
-                total_files_scanned INTEGER DEFAULT 0,
-                total_commands INTEGER DEFAULT 0
-            )
-        """)
-
-        # Indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_file_id ON commands(file_id)")
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_risk_level ON commands(risk_level)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_risk_score ON commands(risk_score DESC)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_reads_file_id ON file_reads(file_id)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_reads_risk_level ON file_reads(risk_level)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_writes_file_id ON file_writes(file_id)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_writes_risk_level ON file_writes(risk_level)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_webfetches_file_id ON webfetches(file_id)"
-        )
-        cursor.execute(
-            "CREATE INDEX IF NOT EXISTS idx_webfetches_risk_level ON webfetches(risk_level)"
-        )
-
-        cursor.execute("INSERT OR IGNORE INTO scan_stats (id) VALUES (1)")
-
-        # Migrate existing tables - add EDR/MITRE columns if missing
-        self._migrate_edr_columns(cursor)
-
-        conn.commit()
-        conn.close()
-        debug("Security database initialized")
-
-    def _migrate_edr_columns(self, cursor: sqlite3.Cursor):
-        """Add EDR/MITRE columns to existing tables if they don't exist"""
-        tables_columns = {
-            "commands": [
-                "mitre_techniques",
-                "edr_sequence_bonus",
-                "edr_correlation_bonus",
-            ],
-            "file_reads": [
-                "mitre_techniques",
-                "edr_sequence_bonus",
-                "edr_correlation_bonus",
-            ],
-            "file_writes": [
-                "mitre_techniques",
-                "edr_sequence_bonus",
-                "edr_correlation_bonus",
-            ],
-            "webfetches": [
-                "mitre_techniques",
-                "edr_sequence_bonus",
-                "edr_correlation_bonus",
-            ],
-        }
-
-        for table, columns in tables_columns.items():
-            # Validate table name against whitelist
-            if table not in _ALLOWED_TABLES:
-                continue
-
-            # Get existing columns - table validated above
-            cursor.execute(f"PRAGMA table_info({table})")  # nosec B608
-            existing_cols = {row[1] for row in cursor.fetchall()}
-
-            # Add missing columns - table and col are from hardcoded dict
-            for col in columns:
-                if col not in existing_cols:
-                    if col == "mitre_techniques":
-                        cursor.execute(
-                            f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT '[]'"  # nosec B608
-                        )
-                    else:
-                        cursor.execute(
-                            f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0"  # nosec B608
-                        )
-                    debug(f"Migrated: Added {col} to {table}")
-
-    # ===== Generic Query Methods =====
-
-    def _get_by_level(
-        self, config: TableConfig, levels: List[str], limit: int = 50
-    ) -> List[Any]:
-        """Generic method to get records by risk levels.
-
-        Args:
-            config: Table configuration with columns and model
-            levels: List of risk levels to filter by
-            limit: Maximum number of records to return
-
-        Returns:
-            List of model instances
-        """
-        # Validate table from config against whitelist
-        if config.table not in _ALLOWED_TABLES:
-            return []
-
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            # Placeholders are "?" markers, table/columns from validated TableConfig
-            placeholders = ",".join("?" * len(levels))
-            cursor.execute(
-                f"""
-                SELECT {config.columns}
-                FROM {config.table} WHERE risk_level IN ({placeholders})
-                ORDER BY risk_score DESC, {config.timestamp_col} DESC LIMIT ?
-            """,  # nosec B608
-                (*levels, limit),
-            )
-            return [config.model(*row) for row in cursor.fetchall()]
-        finally:
-            conn.close()
-
-    def _get_all(
-        self, config: TableConfig, limit: int = 100, offset: int = 0
-    ) -> List[Any]:
-        """Generic method to get all records with pagination.
-
-        Args:
-            config: Table configuration with columns and model
-            limit: Maximum number of records to return
-            offset: Number of records to skip
-
-        Returns:
-            List of model instances
-        """
-        # Validate table from config against whitelist
-        if config.table not in _ALLOWED_TABLES:
-            return []
-
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            # Table/columns from validated TableConfig constants
-            cursor.execute(
-                f"""
-                SELECT {config.columns}
-                FROM {config.table} ORDER BY {config.timestamp_col} DESC 
-                LIMIT ? OFFSET ?
-            """,  # nosec B608
-                (limit, offset),
-            )
-            return [config.model(*row) for row in cursor.fetchall()]
-        finally:
-            conn.close()
-
-    # ===== Insert Methods =====
-
-    def _execute_insert(
-        self, sql: str, data: Dict[str, Any], specific_values: tuple
-    ) -> bool:
-        """Execute an INSERT statement with common field handling.
-
-        Handles connection management, MITRE serialization, and common fields.
-
-        Args:
-            sql: The INSERT SQL statement
-            data: The data dict with common fields (file_id, content_hash, etc.)
-            specific_values: Table-specific values inserted between session_id and risk_score
-
-        Returns:
-            True if a row was inserted, False otherwise
-        """
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
-            values = (
-                data["file_id"],
-                data["content_hash"],
-                data["session_id"],
-                *specific_values,
-                data["risk_score"],
-                data["risk_level"],
-                data["risk_reason"],
-                data["timestamp"],
-                data["scanned_at"],
-                mitre_json,
-                data.get("edr_sequence_bonus", 0),
-                data.get("edr_correlation_bonus", 0),
-            )
-            cursor.execute(sql, values)
-            conn.commit()
-            return cursor.rowcount > 0
-        finally:
-            conn.close()
-
-    def insert_command(self, data: Dict[str, Any]) -> bool:
-        """Insert a command record"""
-        return self._execute_insert(
-            """
-            INSERT OR IGNORE INTO commands 
-            (file_id, content_hash, session_id, tool, command, 
-             risk_score, risk_level, risk_reason, command_timestamp, scanned_at,
-             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            data,
-            (data["tool"], data["command"]),
-        )
-
-    def insert_read(self, data: Dict[str, Any]) -> bool:
-        """Insert a file read record"""
-        return self._execute_insert(
-            """
-            INSERT OR IGNORE INTO file_reads 
-            (file_id, content_hash, session_id, file_path, 
-             risk_score, risk_level, risk_reason, read_timestamp, scanned_at,
-             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            data,
-            (data["file_path"],),
-        )
-
-    def insert_write(self, data: Dict[str, Any]) -> bool:
-        """Insert a file write/edit record"""
-        return self._execute_insert(
-            """
-            INSERT OR IGNORE INTO file_writes 
-            (file_id, content_hash, session_id, file_path, operation,
-             risk_score, risk_level, risk_reason, write_timestamp, scanned_at,
-             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            data,
-            (data["file_path"], data["operation"]),
-        )
-
-    def insert_webfetch(self, data: Dict[str, Any]) -> bool:
-        """Insert a webfetch record"""
-        return self._execute_insert(
-            """
-            INSERT OR IGNORE INTO webfetches 
-            (file_id, content_hash, session_id, url,
-             risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at,
-             mitre_techniques, edr_sequence_bonus, edr_correlation_bonus)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            data,
-            (data["url"],),
-        )
-
-    # ===== Query Methods =====
-
-    def get_all_scanned_ids(self) -> set[str]:
-        """Get all scanned file IDs from all tables"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            ids: set[str] = set()
-            for table in ["commands", "file_reads", "file_writes", "webfetches"]:
-                # Table names from hardcoded list, validated against _ALLOWED_TABLES
-                if table not in _ALLOWED_TABLES:
-                    continue
-                cursor.execute(f"SELECT file_id FROM {table}")  # nosec B608
-                ids.update(row[0] for row in cursor.fetchall())
-            return ids
-        finally:
-            conn.close()
-
-    def get_stats(self) -> Dict[str, int]:
-        """Get statistics from all tables"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            stats = {
-                "total_scanned": 0,
-                "total_commands": 0,
-                "total_reads": 0,
-                "total_writes": 0,
-                "total_webfetches": 0,
-                "critical": 0,
-                "high": 0,
-                "medium": 0,
-                "low": 0,
-                "reads_critical": 0,
-                "reads_high": 0,
-                "reads_medium": 0,
-                "reads_low": 0,
-                "writes_critical": 0,
-                "writes_high": 0,
-                "writes_medium": 0,
-                "writes_low": 0,
-                "webfetches_critical": 0,
-                "webfetches_high": 0,
-                "webfetches_medium": 0,
-                "webfetches_low": 0,
-            }
-
-            # Load scan stats
-            cursor.execute(
-                "SELECT total_files_scanned, total_commands FROM scan_stats WHERE id=1"
-            )
-            row = cursor.fetchone()
-            if row:
-                stats["total_scanned"] = row[0] or 0
-                stats["total_commands"] = row[1] or 0
-
-            # Count by risk level for each table
-            for table, prefix in [
-                ("commands", ""),
-                ("file_reads", "reads_"),
-                ("file_writes", "writes_"),
-                ("webfetches", "webfetches_"),
-            ]:
-                # Table names from hardcoded list, validated against _ALLOWED_TABLES
-                if table not in _ALLOWED_TABLES:
-                    continue
-                cursor.execute(
-                    f"SELECT risk_level, COUNT(*) FROM {table} GROUP BY risk_level"  # nosec B608
-                )
-                for level, count in cursor.fetchall():
-                    key = f"{prefix}{level}" if prefix else level
-                    if key in stats:
-                        stats[key] = count
-
-            # Count totals
-            cursor.execute("SELECT COUNT(*) FROM file_reads")
-            stats["total_reads"] = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM file_writes")
-            stats["total_writes"] = cursor.fetchone()[0]
-            cursor.execute("SELECT COUNT(*) FROM webfetches")
-            stats["total_webfetches"] = cursor.fetchone()[0]
-
-            # EDR stats - count records with sequence/correlation bonuses
-            stats["edr_sequences"] = 0
-            stats["edr_correlations"] = 0
-            stats["mitre_tagged"] = 0
-
-            for table in ["commands", "file_reads", "file_writes", "webfetches"]:
-                # Table names from hardcoded list, validated against _ALLOWED_TABLES
-                if table not in _ALLOWED_TABLES:
-                    continue
-                try:
-                    cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE edr_sequence_bonus > 0"  # nosec B608
-                    )
-                    stats["edr_sequences"] += cursor.fetchone()[0]
-
-                    cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE edr_correlation_bonus > 0"  # nosec B608
-                    )
-                    stats["edr_correlations"] += cursor.fetchone()[0]
-
-                    cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE mitre_techniques != '[]' AND mitre_techniques IS NOT NULL"  # nosec B608
-                    )
-                    stats["mitre_tagged"] += cursor.fetchone()[0]
-                except sqlite3.OperationalError:
-                    # Columns may not exist in older schemas
-                    pass
-
-            return stats
-        finally:
-            conn.close()
-
-    def update_scan_stats(
-        self, total_scanned: int, total_commands: int, last_scan: str
-    ):
-        """Update scan statistics"""
-        conn = self._get_connection()
-        cursor = conn.cursor()
-        try:
-            cursor.execute(
-                """
-                UPDATE scan_stats SET 
-                    total_files_scanned = ?, total_commands = ?, last_full_scan = ?
-                WHERE id = 1
-            """,
-                (total_scanned, total_commands, last_scan),
-            )
-            conn.commit()
-        finally:
-            conn.close()
-
-    # ===== Public Query Methods (using generics) =====
-
-    def get_commands_by_level(
-        self, levels: List[str], limit: int = 50
-    ) -> List[AuditedCommand]:
-        """Get commands by risk levels"""
-        return self._get_by_level(COMMANDS_CONFIG, levels, limit)
-
-    def get_all_commands(
-        self, limit: int = 100, offset: int = 0
-    ) -> List[AuditedCommand]:
-        """Get all commands with pagination"""
-        return self._get_all(COMMANDS_CONFIG, limit, offset)
-
-    def get_reads_by_level(
-        self, levels: List[str], limit: int = 50
-    ) -> List[AuditedFileRead]:
-        """Get file reads by risk levels"""
-        return self._get_by_level(READS_CONFIG, levels, limit)
-
-    def get_all_reads(self, limit: int = 10000) -> List[AuditedFileRead]:
-        """Get all file reads"""
-        return self._get_all(READS_CONFIG, limit, 0)
-
-    def get_writes_by_level(
-        self, levels: List[str], limit: int = 50
-    ) -> List[AuditedFileWrite]:
-        """Get file writes by risk levels"""
-        return self._get_by_level(WRITES_CONFIG, levels, limit)
-
-    def get_all_writes(self, limit: int = 10000) -> List[AuditedFileWrite]:
-        """Get all file writes"""
-        return self._get_all(WRITES_CONFIG, limit, 0)
-
-    def get_webfetches_by_level(
-        self, levels: List[str], limit: int = 50
-    ) -> List[AuditedWebFetch]:
-        """Get webfetches by risk levels"""
-        return self._get_by_level(WEBFETCHES_CONFIG, levels, limit)
-
-    def get_all_webfetches(self, limit: int = 10000) -> List[AuditedWebFetch]:
-        """Get all webfetches"""
-        return self._get_all(WEBFETCHES_CONFIG, limit, 0)
-
-
-class SecurityScannerDuckDB:
-    """DuckDB-based file scanner for security auditor.
-
-    Uses parts table to find unscanned files efficiently via SQL query
-    instead of expensive filesystem iteration (152k files → O(1) query).
-
-    Architecture:
-    - parts: populated by analytics loader, contains all part records
-    - security_scanned: tracks part_ids already processed by security auditor
-    - Query: LEFT JOIN to find parts not in security_scanned
+    All security data is stored in the unified analytics.duckdb database.
     """
 
     # Storage path for part files
@@ -642,7 +106,7 @@ class SecurityScannerDuckDB:
                 Pass a mock or in-memory DB for testing.
         """
         self._db: Optional["AnalyticsDB"] = db
-        self._owns_db = db is None  # Track if we should close the connection
+        self._owns_db = db is None
 
     def _get_db(self) -> "AnalyticsDB":
         """Get or create DuckDB connection (lazy initialization)."""
@@ -653,34 +117,351 @@ class SecurityScannerDuckDB:
             self._owns_db = True
         return self._db
 
+    def _get_connection(self):
+        """Get DuckDB connection."""
+        return self._get_db().connect()
+
+    def close(self) -> None:
+        """Close the DuckDB connection if we own it."""
+        if self._db is not None and self._owns_db:
+            self._db.close()
+            self._db = None
+
+    # ===== Generic Query Methods =====
+
+    def _get_by_level(
+        self, config: TableConfig, levels: List[str], limit: int = 50
+    ) -> List[Any]:
+        """Generic method to get records by risk levels."""
+        if config.table not in _ALLOWED_TABLES:
+            return []
+
+        conn = self._get_connection()
+        placeholders = ",".join(["?" for _ in levels])
+        # Table/columns from validated TableConfig
+        result = conn.execute(
+            f"""
+            SELECT {config.columns}
+            FROM {config.table} WHERE risk_level IN ({placeholders})
+            ORDER BY risk_score DESC, {config.timestamp_col} DESC LIMIT ?
+            """,  # nosec B608
+            [*levels, limit],
+        ).fetchall()
+        return [config.model(*row) for row in result]
+
+    def _get_all(
+        self, config: TableConfig, limit: int = 100, offset: int = 0
+    ) -> List[Any]:
+        """Generic method to get all records with pagination."""
+        if config.table not in _ALLOWED_TABLES:
+            return []
+
+        conn = self._get_connection()
+        result = conn.execute(
+            f"""
+            SELECT {config.columns}
+            FROM {config.table} ORDER BY {config.timestamp_col} DESC 
+            LIMIT ? OFFSET ?
+            """,  # nosec B608
+            [limit, offset],
+        ).fetchall()
+        return [config.model(*row) for row in result]
+
+    # ===== Insert Methods =====
+
+    def _generate_id(self) -> str:
+        """Generate a unique ID for a record."""
+        return f"sec_{uuid.uuid4().hex[:12]}"
+
+    def _execute_insert(
+        self, table: str, columns: str, placeholders: str, values: tuple
+    ) -> bool:
+        """Execute an INSERT statement."""
+        if table not in _ALLOWED_TABLES:
+            return False
+
+        conn = self._get_connection()
+        try:
+            conn.execute(
+                f"INSERT OR IGNORE INTO {table} ({columns}) VALUES ({placeholders})",  # nosec B608
+                values,
+            )
+            return True
+        except Exception as e:
+            debug(f"Insert error: {e}")
+            return False
+
+    def insert_command(self, data: Dict[str, Any]) -> bool:
+        """Insert a command record."""
+        mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
+        values = (
+            self._generate_id(),
+            data["file_id"],
+            data["content_hash"],
+            data["session_id"],
+            data["tool"],
+            data["command"],
+            data["risk_score"],
+            data["risk_level"],
+            data["risk_reason"],
+            data["timestamp"],
+            data["scanned_at"],
+            mitre_json,
+            data.get("edr_sequence_bonus", 0),
+            data.get("edr_correlation_bonus", 0),
+        )
+        return self._execute_insert(
+            "security_commands",
+            "id, file_id, content_hash, session_id, tool, command, risk_score, risk_level, risk_reason, command_timestamp, scanned_at, mitre_techniques, edr_sequence_bonus, edr_correlation_bonus",
+            "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
+            values,
+        )
+
+    def insert_read(self, data: Dict[str, Any]) -> bool:
+        """Insert a file read record."""
+        mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
+        values = (
+            self._generate_id(),
+            data["file_id"],
+            data["content_hash"],
+            data["session_id"],
+            data["file_path"],
+            data["risk_score"],
+            data["risk_level"],
+            data["risk_reason"],
+            data["timestamp"],
+            data["scanned_at"],
+            mitre_json,
+            data.get("edr_sequence_bonus", 0),
+            data.get("edr_correlation_bonus", 0),
+        )
+        return self._execute_insert(
+            "security_file_reads",
+            "id, file_id, content_hash, session_id, file_path, risk_score, risk_level, risk_reason, read_timestamp, scanned_at, mitre_techniques, edr_sequence_bonus, edr_correlation_bonus",
+            "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
+            values,
+        )
+
+    def insert_write(self, data: Dict[str, Any]) -> bool:
+        """Insert a file write/edit record."""
+        mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
+        values = (
+            self._generate_id(),
+            data["file_id"],
+            data["content_hash"],
+            data["session_id"],
+            data["file_path"],
+            data["operation"],
+            data["risk_score"],
+            data["risk_level"],
+            data["risk_reason"],
+            data["timestamp"],
+            data["scanned_at"],
+            mitre_json,
+            data.get("edr_sequence_bonus", 0),
+            data.get("edr_correlation_bonus", 0),
+        )
+        return self._execute_insert(
+            "security_file_writes",
+            "id, file_id, content_hash, session_id, file_path, operation, risk_score, risk_level, risk_reason, write_timestamp, scanned_at, mitre_techniques, edr_sequence_bonus, edr_correlation_bonus",
+            "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
+            values,
+        )
+
+    def insert_webfetch(self, data: Dict[str, Any]) -> bool:
+        """Insert a webfetch record."""
+        mitre_json = serialize_mitre_techniques(data.get("mitre_techniques", []))
+        values = (
+            self._generate_id(),
+            data["file_id"],
+            data["content_hash"],
+            data["session_id"],
+            data["url"],
+            data["risk_score"],
+            data["risk_level"],
+            data["risk_reason"],
+            data["timestamp"],
+            data["scanned_at"],
+            mitre_json,
+            data.get("edr_sequence_bonus", 0),
+            data.get("edr_correlation_bonus", 0),
+        )
+        return self._execute_insert(
+            "security_webfetches",
+            "id, file_id, content_hash, session_id, url, risk_score, risk_level, risk_reason, fetch_timestamp, scanned_at, mitre_techniques, edr_sequence_bonus, edr_correlation_bonus",
+            "?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?",
+            values,
+        )
+
+    # ===== Query Methods =====
+
+    def get_all_scanned_ids(self) -> set[str]:
+        """Get all scanned file IDs from all tables."""
+        conn = self._get_connection()
+        ids: set[str] = set()
+        for table in _ALLOWED_TABLES:
+            try:
+                result = conn.execute(f"SELECT file_id FROM {table}").fetchall()  # nosec B608
+                ids.update(row[0] for row in result)
+            except Exception:
+                pass
+        return ids
+
+    def get_stats(self) -> Dict[str, int]:
+        """Get statistics from all tables."""
+        conn = self._get_connection()
+        stats = {
+            "total_scanned": 0,
+            "total_commands": 0,
+            "total_reads": 0,
+            "total_writes": 0,
+            "total_webfetches": 0,
+            "critical": 0,
+            "high": 0,
+            "medium": 0,
+            "low": 0,
+            "reads_critical": 0,
+            "reads_high": 0,
+            "reads_medium": 0,
+            "reads_low": 0,
+            "writes_critical": 0,
+            "writes_high": 0,
+            "writes_medium": 0,
+            "writes_low": 0,
+            "webfetches_critical": 0,
+            "webfetches_high": 0,
+            "webfetches_medium": 0,
+            "webfetches_low": 0,
+        }
+
+        try:
+            # Load scan stats
+            result = conn.execute(
+                "SELECT total_files_scanned, total_commands FROM security_stats WHERE id=1"
+            ).fetchone()
+            if result:
+                stats["total_scanned"] = result[0] or 0
+                stats["total_commands"] = result[1] or 0
+
+            # Count by risk level for each table
+            table_prefixes = [
+                ("security_commands", ""),
+                ("security_file_reads", "reads_"),
+                ("security_file_writes", "writes_"),
+                ("security_webfetches", "webfetches_"),
+            ]
+            for table, prefix in table_prefixes:
+                result = conn.execute(
+                    f"SELECT risk_level, COUNT(*) FROM {table} GROUP BY risk_level"  # nosec B608
+                ).fetchall()
+                for level, count in result:
+                    key = f"{prefix}{level}" if prefix else level
+                    if key in stats:
+                        stats[key] = count
+
+            # Count totals
+            stats["total_reads"] = conn.execute(
+                "SELECT COUNT(*) FROM security_file_reads"
+            ).fetchone()[0]
+            stats["total_writes"] = conn.execute(
+                "SELECT COUNT(*) FROM security_file_writes"
+            ).fetchone()[0]
+            stats["total_webfetches"] = conn.execute(
+                "SELECT COUNT(*) FROM security_webfetches"
+            ).fetchone()[0]
+
+            # EDR stats
+            stats["edr_sequences"] = 0
+            stats["edr_correlations"] = 0
+            stats["mitre_tagged"] = 0
+
+            for table in _ALLOWED_TABLES:
+                try:
+                    stats["edr_sequences"] += conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE edr_sequence_bonus > 0"  # nosec B608
+                    ).fetchone()[0]
+                    stats["edr_correlations"] += conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE edr_correlation_bonus > 0"  # nosec B608
+                    ).fetchone()[0]
+                    stats["mitre_tagged"] += conn.execute(
+                        f"SELECT COUNT(*) FROM {table} WHERE mitre_techniques != '[]' AND mitre_techniques IS NOT NULL"  # nosec B608
+                    ).fetchone()[0]
+                except Exception:
+                    pass
+
+        except Exception as e:
+            debug(f"Error getting stats: {e}")
+
+        return stats
+
+    def update_scan_stats(
+        self, total_scanned: int, total_commands: int, last_scan: str
+    ) -> None:
+        """Update scan statistics."""
+        conn = self._get_connection()
+        conn.execute(
+            """
+            UPDATE security_stats SET 
+                total_files_scanned = ?, total_commands = ?, last_full_scan = ?
+            WHERE id = 1
+            """,
+            [total_scanned, total_commands, last_scan],
+        )
+
+    # ===== Public Query Methods (using generics) =====
+
+    def get_commands_by_level(
+        self, levels: List[str], limit: int = 50
+    ) -> List[AuditedCommand]:
+        """Get commands by risk levels."""
+        return self._get_by_level(COMMANDS_CONFIG, levels, limit)
+
+    def get_all_commands(
+        self, limit: int = 100, offset: int = 0
+    ) -> List[AuditedCommand]:
+        """Get all commands with pagination."""
+        return self._get_all(COMMANDS_CONFIG, limit, offset)
+
+    def get_reads_by_level(
+        self, levels: List[str], limit: int = 50
+    ) -> List[AuditedFileRead]:
+        """Get file reads by risk levels."""
+        return self._get_by_level(READS_CONFIG, levels, limit)
+
+    def get_all_reads(self, limit: int = 10000) -> List[AuditedFileRead]:
+        """Get all file reads."""
+        return self._get_all(READS_CONFIG, limit, 0)
+
+    def get_writes_by_level(
+        self, levels: List[str], limit: int = 50
+    ) -> List[AuditedFileWrite]:
+        """Get file writes by risk levels."""
+        return self._get_by_level(WRITES_CONFIG, levels, limit)
+
+    def get_all_writes(self, limit: int = 10000) -> List[AuditedFileWrite]:
+        """Get all file writes."""
+        return self._get_all(WRITES_CONFIG, limit, 0)
+
+    def get_webfetches_by_level(
+        self, levels: List[str], limit: int = 50
+    ) -> List[AuditedWebFetch]:
+        """Get webfetches by risk levels."""
+        return self._get_by_level(WEBFETCHES_CONFIG, levels, limit)
+
+    def get_all_webfetches(self, limit: int = 10000) -> List[AuditedWebFetch]:
+        """Get all webfetches."""
+        return self._get_all(WEBFETCHES_CONFIG, limit, 0)
+
+    # ===== Security Scanner Methods (merged from SecurityScannerDuckDB) =====
+
     @staticmethod
     def _extract_part_id(file_path: Path) -> str:
-        """Extract part_id from file path.
-
-        Args:
-            file_path: Path like .../part/{message_id}/{part_id}.json
-
-        Returns:
-            part_id (e.g., prt_abc123)
-        """
-        return file_path.stem  # Remove .json extension
+        """Extract part_id from file path."""
+        return file_path.stem
 
     def get_unscanned_files(self, limit: int = 1000) -> List[Path]:
-        """Get files from parts table that haven't been security scanned.
-
-        Uses efficient SQL query on parts table instead of filesystem iteration.
-
-        Args:
-            limit: Maximum number of files to return
-
-        Returns:
-            List of Path objects for unscanned files
-        """
-        db = self._get_db()
-        conn = db.connect()
-
-        # Query: find parts not yet scanned
-        # parts table has: id (part_id), message_id, session_id, ...
+        """Get files from parts table that haven't been security scanned."""
+        conn = self._get_connection()
         result = conn.execute(
             """
             SELECT p.id as part_id, p.message_id
@@ -693,24 +474,16 @@ class SecurityScannerDuckDB:
             [limit],
         ).fetchall()
 
-        # Construct file paths from part_id and message_id
-        # Path: ~/.local/share/opencode/storage/part/{message_id}/{part_id}.json
         paths = []
         for part_id, message_id in result:
-            if message_id:  # Ensure message_id exists
+            if message_id:
                 path = self.STORAGE_PATH / message_id / f"{part_id}.json"
                 paths.append(path)
-
         return paths
 
     def mark_scanned(self, file_path: Path) -> None:
-        """Mark a single file as scanned.
-
-        Args:
-            file_path: Path to the file that was scanned
-        """
-        db = self._get_db()
-        conn = db.connect()
+        """Mark a single file as scanned."""
+        conn = self._get_connection()
         part_id = self._extract_part_id(file_path)
         conn.execute(
             """
@@ -721,21 +494,11 @@ class SecurityScannerDuckDB:
         )
 
     def mark_scanned_batch(self, file_paths: List[Path]) -> int:
-        """Mark multiple files as scanned in a single batch.
-
-        Args:
-            file_paths: List of paths to mark as scanned
-
-        Returns:
-            Number of files marked
-        """
+        """Mark multiple files as scanned in a single batch."""
         if not file_paths:
             return 0
 
-        db = self._get_db()
-        conn = db.connect()
-
-        # Extract part_id from each path
+        conn = self._get_connection()
         records = [(self._extract_part_id(p),) for p in file_paths]
         conn.executemany(
             """
@@ -747,25 +510,17 @@ class SecurityScannerDuckDB:
         return len(records)
 
     def get_scanned_count(self) -> int:
-        """Get count of files already scanned.
-
-        Returns:
-            Number of files in security_scanned table
-        """
-        db = self._get_db()
-        conn = db.connect()
+        """Get count of files already scanned."""
+        conn = self._get_connection()
         result = conn.execute("SELECT COUNT(*) FROM security_scanned").fetchone()
         return result[0] if result else 0
 
     def clear_scanned(self) -> None:
         """Clear all scanned records (for testing/reset)."""
-        db = self._get_db()
-        conn = db.connect()
+        conn = self._get_connection()
         conn.execute("DELETE FROM security_scanned")
-        debug("[SecurityScannerDuckDB] Cleared security_scanned table")
+        debug("[SecurityDatabase] Cleared security_scanned table")
 
-    def close(self) -> None:
-        """Close the DuckDB connection if we own it."""
-        if self._db is not None and self._owns_db:
-            self._db.close()
-            self._db = None
+
+# Backwards compatibility alias
+SecurityScannerDuckDB = SecurityDatabase
