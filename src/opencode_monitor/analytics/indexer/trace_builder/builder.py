@@ -192,52 +192,60 @@ class TraceBuilder:
         This fixes traces that were created before their child session
         messages were indexed.
 
+        Uses 2 queries (count + update) for efficiency - O(1) vs O(N) queries.
+
         Returns:
             Number of traces updated
         """
         conn = self._db.connect()
 
         try:
-            # Find traces with child_session but no tokens
-            traces = conn.execute(
+            # Count traces that will be updated (DuckDB doesn't return rowcount)
+            count_result = conn.execute(
                 """
-                SELECT child_session_id
-                FROM agent_traces
-                WHERE child_session_id IS NOT NULL
-                  AND (tokens_in IS NULL OR tokens_in = 0)
-                  AND (tokens_out IS NULL OR tokens_out = 0)
+                SELECT COUNT(*) FROM agent_traces t
+                WHERE t.child_session_id IS NOT NULL
+                  AND (t.tokens_in IS NULL OR t.tokens_in = 0)
+                  AND (t.tokens_out IS NULL OR t.tokens_out = 0)
+                  AND EXISTS (
+                      SELECT 1 FROM messages m
+                      WHERE m.session_id = t.child_session_id
+                      GROUP BY m.session_id
+                      HAVING SUM(m.tokens_input) > 0 OR SUM(m.tokens_output) > 0
+                  )
                 """
-            ).fetchall()
+            ).fetchone()
+            will_update = count_result[0] if count_result else 0
 
-            updated = 0
-            for (child_session_id,) in traces:
-                # Get tokens from child session
-                result = conn.execute(
-                    """
+            if will_update == 0:
+                return 0
+
+            # Update traces with aggregated tokens from messages
+            conn.execute(
+                """
+                UPDATE agent_traces
+                SET tokens_in = agg.total_in,
+                    tokens_out = agg.total_out
+                FROM (
                     SELECT
-                        COALESCE(SUM(tokens_input), 0),
-                        COALESCE(SUM(tokens_output), 0)
+                        session_id,
+                        COALESCE(SUM(tokens_input), 0) as total_in,
+                        COALESCE(SUM(tokens_output), 0) as total_out
                     FROM messages
-                    WHERE session_id = ?
-                    """,
-                    [child_session_id],
-                ).fetchone()
+                    GROUP BY session_id
+                    HAVING SUM(tokens_input) > 0 OR SUM(tokens_output) > 0
+                ) agg
+                WHERE agent_traces.child_session_id = agg.session_id
+                  AND agent_traces.child_session_id IS NOT NULL
+                  AND (agent_traces.tokens_in IS NULL OR agent_traces.tokens_in = 0)
+                  AND (agent_traces.tokens_out IS NULL OR agent_traces.tokens_out = 0)
+                """
+            )
 
-                if result and (result[0] > 0 or result[1] > 0):
-                    conn.execute(
-                        """
-                        UPDATE agent_traces
-                        SET tokens_in = ?, tokens_out = ?
-                        WHERE child_session_id = ?
-                        """,
-                        [result[0], result[1], child_session_id],
-                    )
-                    updated += 1
+            if will_update > 0:
+                debug(f"[TraceBuilder] Backfilled tokens for {will_update} traces")
 
-            if updated > 0:
-                debug(f"[TraceBuilder] Backfilled tokens for {updated} traces")
-
-            return updated
+            return will_update
 
         except Exception as e:
             debug(f"[TraceBuilder] Failed to backfill tokens: {e}")
@@ -381,7 +389,8 @@ class TraceBuilder:
                 [session_id, trace_id],
             ).fetchone()
             return result[0] if result else None
-        except Exception:
+        except Exception as e:
+            debug(f"[TraceBuilder] Failed to resolve parent trace: {e}")
             return None
 
     def _resolve_parent_agent(self, message_id: Optional[str]) -> Optional[str]:
