@@ -7,7 +7,10 @@ Also provides DuckDB integration for efficient file scanning via file_index tabl
 import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Dict, Any, Type, Optional
+from typing import TYPE_CHECKING, List, Dict, Any, Type, Optional
+
+if TYPE_CHECKING:
+    from opencode_monitor.analytics.db import AnalyticsDB
 
 from ...utils.logger import debug
 from ..mitre_utils import serialize_mitre_techniques

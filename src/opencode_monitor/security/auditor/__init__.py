@@ -21,7 +21,6 @@ from .core import (
     get_auditor,
     start_auditor,
     stop_auditor,
-    _auditor,
 )
 
 # Constants (for patching in tests)
@@ -47,13 +46,14 @@ from ..correlator import EventCorrelator, Correlation
 # that access the module-level _auditor variable
 from . import core as _core
 
-# Also expose time for patching in tests
-import time
+# Expose time for patching in tests (re-exported so not unused)
+import time  # noqa: F401, E402
 
 
 __all__ = [
     # Core API
     "SecurityAuditor",
+    "time",  # Exposed for test patching
     "get_auditor",
     "start_auditor",
     "stop_auditor",

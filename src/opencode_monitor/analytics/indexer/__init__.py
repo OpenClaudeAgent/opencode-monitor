@@ -60,7 +60,7 @@ def get_indexer():
     return get_hybrid_indexer()
 
 
-from .parsers import (
+from .parsers import (  # noqa: E402
     FileParser,
     ParsedSession,
     ParsedMessage,
@@ -71,8 +71,8 @@ from .parsers import (
     ParsedProject,
     ParsedFileOperation,
 )
-from .trace_builder import TraceBuilder
-from .watcher import FileWatcher, ProcessingQueue
+from .trace_builder import TraceBuilder  # noqa: E402
+from .watcher import FileWatcher, ProcessingQueue  # noqa: E402
 
 
 __all__ = [

@@ -27,7 +27,7 @@ warnings.warn(
 )
 
 # Re-export everything from the new loaders package for backwards compatibility
-from .loaders import (
+from .loaders import (  # noqa: E402
     # Main entry point
     load_opencode_data,
     # Sessions
