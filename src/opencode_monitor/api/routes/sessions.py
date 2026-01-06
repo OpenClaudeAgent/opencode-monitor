@@ -162,3 +162,74 @@ def get_session_messages(session_id: str):
     except Exception as e:
         error(f"[API] Error getting session messages: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ===== Plan 34: Enriched Parts Endpoints =====
+
+
+@sessions_bp.route("/api/session/<session_id>/reasoning", methods=["GET"])
+def get_session_reasoning(session_id: str):
+    """Get session reasoning parts (agent thought process).
+
+    Returns the internal reasoning/thinking of the agent with
+    Anthropic cryptographic signatures when available.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_reasoning(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session reasoning: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/steps", methods=["GET"])
+def get_session_steps(session_id: str):
+    """Get session step events with precise token counts and costs.
+
+    Step events capture the beginning and end of each agent step,
+    with accurate token counts and costs from step-finish events.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_steps(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session steps: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/git-history", methods=["GET"])
+def get_session_git_history(session_id: str):
+    """Get session git patches history.
+
+    Returns all git commits made during the session with their
+    affected files. Useful for understanding code changes.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_git_history(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session git history: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/precise-cost", methods=["GET"])
+def get_session_precise_cost(session_id: str):
+    """Get session cost calculated from step-finish events.
+
+    This provides more accurate cost data than message-level estimates
+    by using the actual cost values from step-finish events.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_precise_cost(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session precise cost: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
