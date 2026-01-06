@@ -38,60 +38,64 @@ class MetricCard(QFrame):
         self._accent = accent
         self._accent_color = self.ACCENT_MAP.get(accent, COLORS["text_muted"])
 
-        # Card styling - no border, just shadow for elevation
+        # Card styling - IMPROVED BORDERS
         self.setStyleSheet(f"""
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
-                border: none;
+                border: 1px solid {COLORS["border_default"]};
                 border-radius: {RADIUS["md"]}px;
+            }}
+            QFrame:hover {{
+                border: 1px solid {COLORS["border_strong"]};
+                background-color: {COLORS["bg_elevated"]};
             }}
         """)
 
-        # Dimensions - generous sizing for large numbers
+        # Dimensions - MORE COMPACT
         self.setMinimumWidth(UI["card_min_width"])
         self.setMinimumHeight(UI["card_min_height"])
         self.setMaximumWidth(UI["card_max_width"])
 
-        # Shadow effect
+        # Shadow effect - MORE SUBTLE
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(16)
+        shadow.setBlurRadius(12)  # Reduced from 16
         shadow.setXOffset(0)
-        shadow.setYOffset(4)
-        shadow.setColor(QColor(0, 0, 0, 80))
+        shadow.setYOffset(2)  # Reduced from 4
+        shadow.setColor(QColor(0, 0, 0, 60))  # More subtle (was 80)
         self.setGraphicsEffect(shadow)
 
-        # Layout - truly centered with generous padding
+        # Layout
         layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["xl"], SPACING["lg"], SPACING["xl"], SPACING["lg"]
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["md"]
         )
-        layout.setSpacing(SPACING["sm"])
+        layout.setSpacing(SPACING["xs"])
         layout.setAlignment(Qt.AlignmentFlag.AlignCenter)
 
-        # Value (large, colored if accent) - NO border
+        # Value - BIGGER, BOLDER
         self._value_label = QLabel(value)
         self._value_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         value_color = (
             self._accent_color if accent != "muted" else COLORS["text_primary"]
         )
         self._value_label.setStyleSheet(f"""
-            font-size: {FONTS["size_2xl"]}px;
-            font-weight: {FONTS["weight_bold"]};
+            font-size: {FONTS["size_3xl"]}px;
+            font-weight: {FONTS["weight_extrabold"]};
             color: {value_color};
-            letter-spacing: -0.5px;
+            letter-spacing: {FONTS["tracking_tighter"]}px;
             border: none;
             background: transparent;
         """)
         layout.addWidget(self._value_label)
 
-        # Label (uppercase, muted) - NO border
+        # Label - IMPROVED LETTER SPACING
         self._label = QLabel(label.upper())
         self._label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._label.setStyleSheet(f"""
             font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_semibold"]};
+            font-weight: {FONTS["weight_bold"]};
             color: {COLORS["text_muted"]};
-            letter-spacing: 0.5px;
+            letter-spacing: {FONTS["tracking_wider"]}px;
             border: none;
             background: transparent;
         """)
