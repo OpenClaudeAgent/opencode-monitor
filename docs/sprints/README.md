@@ -1,31 +1,44 @@
-# Sprints - Historique
+# Sprints - OpenCode Monitor
 
-Historique des sprints de développement.
+Sprint records and current work tracking.
 
-## Sprints terminés
+## Current Sprint
 
-| Date | Sprint | Objectif | Status |
-|------|--------|----------|--------|
-| Jan 2026 | [UI Modernization](./2026-01-ui-modernization/) | Moderniser le dashboard | Terminé |
+**Code Quality Sprint** (Jan 2026) - See [backlog/code-quality-plan.md](../backlog/code-quality-plan.md)
 
-## Structure des sprints
+| Epic | Points | Status |
+|------|--------|--------|
+| Security Fixes (CVE + SQL) | 9 | Pending |
+| Type Safety (mypy) | 18 | Pending |
+| Code Hygiene (bandit) | 7 | Pending |
 
-Chaque sprint majeur a son propre dossier contenant :
-- `README.md` - Vue d'ensemble et user stories
-- Fichiers additionnels si nécessaire (mockups, specs techniques)
+## Completed Sprints
 
-## Convention des user stories
+| Sprint | Date | Points | Stories |
+|--------|------|--------|---------|
+| [UI Modernization](./2026-01-ui-modernization.md) | Jan 2026 | 8 | 5 |
+| [Complexity Refactoring](../archive/plans/refactoring-plan.md) | Jan 2026 | 8 | 3 |
+
+## Sprint Workflow
+
+1. Pick plan(s) from [backlog/](../backlog/)
+2. Create sprint file: `YYYY-MM-name.md`
+3. Break into user stories with acceptance criteria
+4. Execute and track progress
+5. Move completed plans to [archive/](../archive/)
+
+## User Story Convention
 
 ```markdown
-### US-XX: Titre court
+### US-XX: Short title
 
-**En tant qu'** [utilisateur],
-**Je veux** [action],
-**Afin de** [bénéfice].
+**As a** [role],
+**I want** [action],
+**So that** [benefit].
 
-**Critères d'acceptation**:
-- [ ] Critère 1
-- [ ] Critère 2
+**Acceptance Criteria**:
+- [ ] Criterion 1
+- [ ] Criterion 2
 
-**Fichiers concernés**: `path/to/file.py`
+**Files**: `path/to/file.py`
 ```
