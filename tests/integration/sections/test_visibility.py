@@ -47,8 +47,8 @@ class TestSectionVisibility:
         click_nav(dashboard_window, SECTION_MONITORING)
         assert dashboard_window._pages.currentIndex() == SECTION_MONITORING
 
-        metrics = dashboard_window._monitoring._metrics
-        assert metrics._cards["agents"]._value_label.text() == "3"
+        metric_cards = dashboard_window._monitoring._metric_cards
+        assert metric_cards["agents"]._value_label.text() == "3"
 
     def test_api_client_isolation(self, patched_api_client):
         """

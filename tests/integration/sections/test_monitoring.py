@@ -44,26 +44,26 @@ class TestMonitoringSectionMetrics:
         dashboard_window._signals.monitoring_updated.emit(data)
         qtbot.wait(SIGNAL_WAIT_MS)
 
-        metrics = dashboard_window._monitoring._metrics
+        metric_cards = dashboard_window._monitoring._metric_cards
 
         # Check each metric card displays the correct value
-        assert metrics._cards["instances"]._value_label.text() == "2", (
-            f"Expected instances=2, got {metrics._cards['instances']._value_label.text()}"
+        assert metric_cards["instances"]._value_label.text() == "2", (
+            f"Expected instances=2, got {metric_cards['instances']._value_label.text()}"
         )
-        assert metrics._cards["agents"]._value_label.text() == "3", (
-            f"Expected agents=3, got {metrics._cards['agents']._value_label.text()}"
+        assert metric_cards["agents"]._value_label.text() == "3", (
+            f"Expected agents=3, got {metric_cards['agents']._value_label.text()}"
         )
-        assert metrics._cards["busy"]._value_label.text() == "2", (
-            f"Expected busy=2, got {metrics._cards['busy']._value_label.text()}"
+        assert metric_cards["busy"]._value_label.text() == "2", (
+            f"Expected busy=2, got {metric_cards['busy']._value_label.text()}"
         )
-        assert metrics._cards["waiting"]._value_label.text() == "1", (
-            f"Expected waiting=1, got {metrics._cards['waiting']._value_label.text()}"
+        assert metric_cards["waiting"]._value_label.text() == "1", (
+            f"Expected waiting=1, got {metric_cards['waiting']._value_label.text()}"
         )
-        assert metrics._cards["idle"]._value_label.text() == "1", (
-            f"Expected idle=1, got {metrics._cards['idle']._value_label.text()}"
+        assert metric_cards["idle"]._value_label.text() == "1", (
+            f"Expected idle=1, got {metric_cards['idle']._value_label.text()}"
         )
-        assert metrics._cards["todos"]._value_label.text() == "7", (
-            f"Expected todos=7, got {metrics._cards['todos']._value_label.text()}"
+        assert metric_cards["todos"]._value_label.text() == "7", (
+            f"Expected todos=7, got {metric_cards['todos']._value_label.text()}"
         )
 
     def test_metrics_update_when_data_changes(self, dashboard_window, qtbot):
@@ -74,8 +74,8 @@ class TestMonitoringSectionMetrics:
         qtbot.wait(50)
 
         # Verify initial state
-        metrics = dashboard_window._monitoring._metrics
-        assert metrics._cards["agents"]._value_label.text() == "3"
+        metric_cards = dashboard_window._monitoring._metric_cards
+        assert metric_cards["agents"]._value_label.text() == "3"
 
         # Updated data with more agents
         data2 = MockAPIResponses.realistic_monitoring()
@@ -85,8 +85,8 @@ class TestMonitoringSectionMetrics:
         qtbot.wait(50)
 
         # Verify updated values
-        assert metrics._cards["agents"]._value_label.text() == "10"
-        assert metrics._cards["busy"]._value_label.text() == "8"
+        assert metric_cards["agents"]._value_label.text() == "10"
+        assert metric_cards["busy"]._value_label.text() == "8"
 
 
 class TestMonitoringAgentsTable:
@@ -162,19 +162,26 @@ class TestMonitoringToolsTable:
         # Should have 3 tools
         assert table.rowCount() == 3
 
-        # Check tool data - verify tool name is present
+        # Check tool data - verify tool name is present (as text or badge widget)
         tool_item = table.item(0, 0)
         tool_widget = table.cellWidget(0, 0)
 
-        if tool_item:
+        # Tool might be displayed as badge widget (text cleared) or as text item
+        if tool_widget is not None and hasattr(tool_widget, "text"):
+            # Badge widget case - text is on the widget
+            tool_text = tool_widget.text().lower()
+            assert "edit" in tool_text or "read" in tool_text, (
+                f"Expected tool name (edit/read) in badge, got: {tool_text}"
+            )
+        elif tool_item and tool_item.text():
+            # Text item case
             tool_text = tool_item.text().lower()
             assert "edit" in tool_text or "read" in tool_text, (
                 f"Expected tool name (edit/read), got: {tool_text}"
             )
         else:
-            # Tool might be displayed as widget instead of text item
-            assert tool_widget is not None, (
-                "Tool should have either text item or widget"
+            pytest.fail(
+                "Tool should have either badge widget or text item with content"
             )
 
         assert table.item(0, 1).text() == EXPECTED_MONITORING["first_agent_title"]

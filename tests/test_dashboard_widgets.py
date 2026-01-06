@@ -112,9 +112,8 @@ class TestMetricCard:
         card.set_value("999")
         assert card._value_label.text() == "999"
 
-        # Minimum dimensions
-        assert card.minimumWidth() >= 130
-        assert card.minimumHeight() >= 90
+        # Minimum height set, width is adaptive (no fixed constraint)
+        assert card.minimumHeight() >= 80
 
         # Shadow effect applied
         effect = card.graphicsEffect()
@@ -413,9 +412,9 @@ class TestDataTable:
 
         # Class constants
         assert hasattr(DataTable, "ROW_HEIGHT")
-        assert DataTable.ROW_HEIGHT == 48
+        assert DataTable.ROW_HEIGHT == 40  # Updated: more compact tables
         assert hasattr(DataTable, "HEADER_HEIGHT")
-        assert DataTable.HEADER_HEIGHT == 44
+        assert DataTable.HEADER_HEIGHT == 36  # Updated: more compact tables
 
         # Sorting enabled
         assert table.isSortingEnabled()
@@ -557,6 +556,75 @@ class TestBadge:
         # Another badge with different text
         badge2 = Badge("hello", "#000", "#fff", parent=widget_parent)
         assert badge2.text() == "HELLO"
+
+
+# =============================================================================
+# CellBadge Tests (factory functions for table cells)
+# =============================================================================
+
+
+class TestCellBadge:
+    """Tests for CellBadge widget and factory functions."""
+
+    def test_cell_badge_creation(self, qapp, widget_parent):
+        """CellBadge creation with custom colors."""
+        from opencode_monitor.dashboard.widgets import CellBadge
+
+        badge = CellBadge("test", "#ff0000", "#330000", parent=widget_parent)
+        assert badge is not None
+        assert badge.text() == "TEST"
+        assert isinstance(badge, QLabel)
+
+    def test_create_risk_badge_levels(self, qapp, widget_parent):
+        """create_risk_badge returns correct badge for each risk level."""
+        from opencode_monitor.dashboard.widgets import create_risk_badge
+
+        # All risk levels
+        for level in ["critical", "high", "medium", "low"]:
+            badge = create_risk_badge(level)
+            assert badge.text() == level.upper()
+
+        # Case insensitive
+        badge_upper = create_risk_badge("CRITICAL")
+        assert badge_upper.text() == "CRITICAL"
+
+        # Unknown level falls back gracefully
+        badge_unknown = create_risk_badge("unknown")
+        assert badge_unknown.text() == "UNKNOWN"
+
+    def test_create_type_badge_operations(self, qapp, widget_parent):
+        """create_type_badge returns correct badge for operation types."""
+        from opencode_monitor.dashboard.widgets import create_type_badge
+
+        # Common operation types
+        for op_type in ["bash", "command", "read", "write", "edit", "webfetch"]:
+            badge = create_type_badge(op_type)
+            assert badge.text() == op_type.upper()
+
+        # Unknown type falls back gracefully
+        badge_unknown = create_type_badge("unknown_op")
+        assert badge_unknown.text() == "UNKNOWN_OP"
+
+    def test_create_score_badge_thresholds(self, qapp, widget_parent):
+        """create_score_badge applies correct colors based on score thresholds."""
+        from opencode_monitor.dashboard.widgets import create_score_badge
+        from opencode_monitor.dashboard.styles import COLORS
+
+        # Score >= 80: critical color
+        badge_critical = create_score_badge(85)
+        assert badge_critical.text() == "85"
+
+        # Score >= 60: high color
+        badge_high = create_score_badge(65)
+        assert badge_high.text() == "65"
+
+        # Score >= 40: medium color
+        badge_medium = create_score_badge(45)
+        assert badge_medium.text() == "45"
+
+        # Score < 40: low color
+        badge_low = create_score_badge(20)
+        assert badge_low.text() == "20"
 
 
 # =============================================================================

@@ -107,8 +107,8 @@ class TestNavigationRobustness:
         assert marker is None, "Window has stale marker from previous test"
 
         # Verify initial metrics state is default (0, -, or empty)
-        metrics = dashboard_window._monitoring._metrics
-        initial_value = metrics._cards["agents"]._value_label.text()
+        metric_cards = dashboard_window._monitoring._metric_cards
+        initial_value = metric_cards["agents"]._value_label.text()
         assert initial_value in ("0", "-", ""), (
             f"Expected default value (0, -, empty), got: '{initial_value}'"
         )

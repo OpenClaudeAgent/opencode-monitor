@@ -51,10 +51,8 @@ class MetricCard(QFrame):
             }}
         """)
 
-        # Dimensions - MORE COMPACT
-        self.setMinimumWidth(UI["card_min_width"])
+        # Dimensions - adapt to content
         self.setMinimumHeight(UI["card_min_height"])
-        self.setMaximumWidth(UI["card_max_width"])
 
         # Shadow effect - MORE SUBTLE
         shadow = QGraphicsDropShadowEffect(self)
