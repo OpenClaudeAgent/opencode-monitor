@@ -269,17 +269,27 @@ class HybridIndexer:
     def _run_post_bulk_processing(self) -> None:
         """Run post-processing after bulk load completes.
 
-        This resolves parent traces and backfills tokens for delegation traces.
+        Order matters:
+        1. Update root trace agents (user -> actual agent)
+        2. Resolve parent traces (copies subagent_type to child's parent_agent)
+        3. Backfill tokens
         """
         if not self._trace_builder:
             return
 
-        # Resolve parent traces
+        # Step 1: Update root trace agents from messages
+        # Root traces are created with subagent_type='user', update to actual agent
+        updated_agents = self._trace_builder.update_root_trace_agents()
+        if updated_agents > 0:
+            info(f"[HybridIndexer] Updated {updated_agents} root trace agents")
+
+        # Step 2: Resolve parent traces (must run AFTER update_root_trace_agents)
+        # This sets parent_agent from parent's subagent_type
         resolved = self._trace_builder.resolve_parent_traces()
         if resolved > 0:
             info(f"[HybridIndexer] Resolved {resolved} parent traces")
 
-        # Backfill tokens for traces with child_session_id
+        # Step 3: Backfill tokens for traces with child_session_id
         backfilled = self._trace_builder.backfill_missing_tokens()
         if backfilled > 0:
             info(f"[HybridIndexer] Backfilled tokens for {backfilled} traces")
