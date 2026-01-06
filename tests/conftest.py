@@ -485,3 +485,50 @@ def temp_storage(tmp_path):
     for subdir in ["session", "message", "part", "todo", "project"]:
         (storage_path / subdir).mkdir(parents=True, exist_ok=True)
     return storage_path
+
+
+# =============================================================================
+# Builder-based Fixtures (from tests.builders)
+# =============================================================================
+
+
+@pytest.fixture
+def session_builder(analytics_db):
+    """Create a SessionBuilder with database connection.
+
+    Usage:
+        def test_example(session_builder):
+            session_id = session_builder.with_title("Test").insert()
+    """
+    from tests.builders import SessionBuilder
+
+    return SessionBuilder(db=analytics_db)
+
+
+@pytest.fixture
+def message_builder(analytics_db):
+    """Create a MessageBuilder with database connection.
+
+    Usage:
+        def test_example(message_builder, session_builder):
+            sess_id = session_builder.insert()
+            msg_id = message_builder.for_session(sess_id).insert()
+    """
+    from tests.builders import MessageBuilder
+
+    return MessageBuilder(db=analytics_db)
+
+
+@pytest.fixture
+def trace_builder(analytics_db):
+    """Create a TraceBuilder with database connection.
+
+    Usage:
+        def test_example(trace_builder):
+            trace_builder.with_root("sess-001", "Main")
+            trace_builder.add_delegation("trace-001", "executor")
+            trace_builder.insert()
+    """
+    from tests.builders import TraceBuilder
+
+    return TraceBuilder(db=analytics_db)
