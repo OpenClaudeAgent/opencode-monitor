@@ -99,6 +99,13 @@ class TraceBuilder:
         # Get prompt from delegation
         prompt_input = extract_prompt(part.arguments)
 
+        # Resolve parent trace immediately (don't wait for batch resolution)
+        parent_trace_id = None
+        if delegation.session_id:
+            parent_trace_id = self._resolve_parent_trace_id(
+                delegation.session_id, trace_id
+            )
+
         conn = self._db.connect()
 
         try:
@@ -113,7 +120,7 @@ class TraceBuilder:
                 [
                     trace_id,
                     delegation.session_id or "",
-                    None,  # parent_trace_id resolved later
+                    parent_trace_id,  # Resolved immediately
                     parent_agent,
                     delegation.child_agent,
                     prompt_input,
@@ -132,6 +139,11 @@ class TraceBuilder:
             debug(
                 f"[TraceBuilder] Created trace {trace_id} for {delegation.child_agent}"
             )
+
+            # Update tokens from child session messages (may already be indexed)
+            if delegation.child_session_id:
+                self.update_trace_tokens(delegation.child_session_id)
+
             return trace_id
 
         except Exception as e:
@@ -173,6 +185,71 @@ class TraceBuilder:
 
         except Exception as e:
             debug(f"[TraceBuilder] Failed to update tokens: {e}")
+
+    def backfill_missing_tokens(self) -> int:
+        """Backfill tokens for all traces with child_session_id but no tokens.
+
+        This fixes traces that were created before their child session
+        messages were indexed.
+
+        Uses 2 queries (count + update) for efficiency - O(1) vs O(N) queries.
+
+        Returns:
+            Number of traces updated
+        """
+        conn = self._db.connect()
+
+        try:
+            # Count traces that will be updated (DuckDB doesn't return rowcount)
+            count_result = conn.execute(
+                """
+                SELECT COUNT(*) FROM agent_traces t
+                WHERE t.child_session_id IS NOT NULL
+                  AND (t.tokens_in IS NULL OR t.tokens_in = 0)
+                  AND (t.tokens_out IS NULL OR t.tokens_out = 0)
+                  AND EXISTS (
+                      SELECT 1 FROM messages m
+                      WHERE m.session_id = t.child_session_id
+                      GROUP BY m.session_id
+                      HAVING SUM(m.tokens_input) > 0 OR SUM(m.tokens_output) > 0
+                  )
+                """
+            ).fetchone()
+            will_update = count_result[0] if count_result else 0
+
+            if will_update == 0:
+                return 0
+
+            # Update traces with aggregated tokens from messages
+            conn.execute(
+                """
+                UPDATE agent_traces
+                SET tokens_in = agg.total_in,
+                    tokens_out = agg.total_out
+                FROM (
+                    SELECT
+                        session_id,
+                        COALESCE(SUM(tokens_input), 0) as total_in,
+                        COALESCE(SUM(tokens_output), 0) as total_out
+                    FROM messages
+                    GROUP BY session_id
+                    HAVING SUM(tokens_input) > 0 OR SUM(tokens_output) > 0
+                ) agg
+                WHERE agent_traces.child_session_id = agg.session_id
+                  AND agent_traces.child_session_id IS NOT NULL
+                  AND (agent_traces.tokens_in IS NULL OR agent_traces.tokens_in = 0)
+                  AND (agent_traces.tokens_out IS NULL OR agent_traces.tokens_out = 0)
+                """
+            )
+
+            if will_update > 0:
+                debug(f"[TraceBuilder] Backfilled tokens for {will_update} traces")
+
+            return will_update
+
+        except Exception as e:
+            debug(f"[TraceBuilder] Failed to backfill tokens: {e}")
+            return 0
 
     def resolve_parent_traces(self) -> int:
         """Resolve parent_trace_id for traces based on session membership.
@@ -285,6 +362,36 @@ class TraceBuilder:
         except Exception as e:
             debug(f"[TraceBuilder] Failed to update root trace agents: {e}")
             return 0
+
+    def _resolve_parent_trace_id(self, session_id: str, trace_id: str) -> Optional[str]:
+        """Resolve parent trace ID for a delegation trace.
+
+        A delegation trace's parent is the trace whose child_session_id
+        matches the delegation's session_id.
+
+        Args:
+            session_id: Session ID of the delegation trace
+            trace_id: Trace ID to exclude from search
+
+        Returns:
+            Parent trace ID or None
+        """
+        conn = self._db.connect()
+        try:
+            result = conn.execute(
+                """
+                SELECT trace_id
+                FROM agent_traces
+                WHERE child_session_id = ?
+                  AND trace_id != ?
+                LIMIT 1
+                """,
+                [session_id, trace_id],
+            ).fetchone()
+            return result[0] if result else None
+        except Exception as e:
+            debug(f"[TraceBuilder] Failed to resolve parent trace: {e}")
+            return None
 
     def _resolve_parent_agent(self, message_id: Optional[str]) -> Optional[str]:
         """Resolve parent agent from message.

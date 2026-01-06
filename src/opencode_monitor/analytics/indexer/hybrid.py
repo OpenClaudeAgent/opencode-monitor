@@ -196,6 +196,8 @@ class HybridIndexer:
         # Skip if already in realtime mode (from previous run)
         if self._sync_state.is_realtime:
             info("[HybridIndexer] Already in realtime mode, skipping bulk")
+            # Run post-processing to fix any pending traces
+            self._run_post_bulk_processing()
             # Start realtime processor directly
             self._processor_thread = threading.Thread(
                 target=self._run_realtime_phase, daemon=True, name="hybrid-realtime"
@@ -216,6 +218,9 @@ class HybridIndexer:
 
             # Process the queue (files detected during bulk)
             self._run_queue_phase()
+
+            # Run post-processing to resolve traces and backfill tokens
+            self._run_post_bulk_processing()
 
             # Switch to realtime mode
             self._sync_state.set_phase(SyncPhase.REALTIME)
@@ -260,6 +265,24 @@ class HybridIndexer:
                 break
 
         info(f"[HybridIndexer] Queue processed: {processed} files")
+
+    def _run_post_bulk_processing(self) -> None:
+        """Run post-processing after bulk load completes.
+
+        This resolves parent traces and backfills tokens for delegation traces.
+        """
+        if not self._trace_builder:
+            return
+
+        # Resolve parent traces
+        resolved = self._trace_builder.resolve_parent_traces()
+        if resolved > 0:
+            info(f"[HybridIndexer] Resolved {resolved} parent traces")
+
+        # Backfill tokens for traces with child_session_id
+        backfilled = self._trace_builder.backfill_missing_tokens()
+        if backfilled > 0:
+            info(f"[HybridIndexer] Backfilled tokens for {backfilled} traces")
 
     def _run_realtime_phase(self) -> None:
         """Process files in realtime as they arrive."""
