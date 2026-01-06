@@ -32,6 +32,18 @@ class AgentSegment:
     tokens_out: int
 
 
+@dataclass
+class SessionData:
+    """Raw session data before trace creation."""
+
+    session_id: str
+    created_at: datetime
+    updated_at: Optional[datetime]
+    duration_ms: Optional[int]
+    data: dict
+    file_path: Path
+
+
 def get_agent_segments(message_dir: Path, session_id: str) -> list[AgentSegment]:
     """Get agent segments for a session (detect agent changes mid-conversation).
 
@@ -128,43 +140,20 @@ def get_agent_segments(message_dir: Path, session_id: str) -> list[AgentSegment]
     return segments
 
 
-def extract_root_sessions(
-    storage_path: Path,
-    max_days: int = 30,
-    throttle_ms: int = 10,
-    segment_analysis_days: int = 1,
-) -> list[AgentTrace]:
-    """Extract root sessions (direct conversations, not delegations).
+def _collect_root_sessions(session_dir: Path, cutoff: datetime) -> list[SessionData]:
+    """Collect all root sessions from disk (Phase 1).
 
-    Root sessions are sessions where parentID is null, meaning they were
-    started directly by the user rather than created via task delegation.
-
-    Sessions are processed from most recent to oldest with throttling to
-    avoid CPU spikes. Full segment analysis (detecting mid-session agent
-    switches) is only done for recent sessions.
+    Traverses the session directory structure and collects metadata for
+    all root sessions (those without a parent) within the time cutoff.
 
     Args:
-        storage_path: Path to OpenCode storage
-        max_days: Only extract sessions from the last N days
-        throttle_ms: Milliseconds to sleep between processing sessions
-        segment_analysis_days: Only do full segment analysis for sessions
-            within this many days (older sessions just get first agent)
+        session_dir: Path to session storage directory
+        cutoff: Only include sessions created after this time
 
     Returns:
-        List of AgentTrace objects representing root sessions
+        List of SessionData objects, unsorted
     """
-    session_dir = storage_path / "session"
-    message_dir = storage_path / "message"
-
-    if not session_dir.exists():
-        return []
-
-    cutoff = datetime.now() - timedelta(days=max_days)
-    segment_cutoff = datetime.now() - timedelta(days=segment_analysis_days)
-    traces: list[AgentTrace] = []
-
-    # Phase 1: Collect all root sessions with metadata (fast - no message reading)
-    sessions_to_process: list[tuple[datetime, Path, dict]] = []
+    sessions: list[SessionData] = []
 
     for project_dir in session_dir.iterdir():
         if not project_dir.is_dir():
@@ -186,130 +175,248 @@ def extract_root_sessions(
                 # Check time filter
                 time_data = data.get("time", {})
                 created_ts = time_data.get("created")
+                updated_ts = time_data.get("updated")
                 created_at = ms_to_datetime(created_ts)
 
                 if created_at and created_at < cutoff:
                     continue
 
-                # Store for processing (will sort by date)
-                sessions_to_process.append(
-                    (created_at or datetime.min, session_file, data)
+                # Calculate duration
+                duration_ms = None
+                if created_ts and updated_ts:
+                    duration_ms = updated_ts - created_ts
+
+                sessions.append(
+                    SessionData(
+                        session_id=session_id,
+                        created_at=created_at or datetime.min,
+                        updated_at=ms_to_datetime(updated_ts),
+                        duration_ms=duration_ms,
+                        data=data,
+                        file_path=session_file,
+                    )
                 )
 
             except (json.JSONDecodeError, OSError):
                 continue
 
+    return sessions
+
+
+def _create_single_trace(
+    session: SessionData,
+    segments: list[AgentSegment],
+    first_message: Optional[str],
+) -> AgentTrace:
+    """Create a single trace for a single-agent session.
+
+    Args:
+        session: Raw session data
+        segments: Agent segments (0 or 1 expected)
+        first_message: First user message as prompt
+
+    Returns:
+        AgentTrace for the session
+    """
+    session_agent = segments[0].agent if segments else None
+    tokens_in = segments[0].tokens_in if segments else None
+    tokens_out = segments[0].tokens_out if segments else None
+
+    return AgentTrace(
+        trace_id=f"{ROOT_TRACE_PREFIX}{session.session_id}",
+        session_id=session.session_id,
+        parent_trace_id=None,
+        parent_agent=ROOT_AGENT_TYPE,
+        subagent_type=session_agent or ROOT_AGENT_TYPE,
+        prompt_input=first_message or session.data.get("title", "(No prompt)"),
+        prompt_output=None,
+        started_at=session.created_at,
+        ended_at=session.updated_at,
+        duration_ms=session.duration_ms,
+        tokens_in=tokens_in,
+        tokens_out=tokens_out,
+        status="completed" if session.updated_at else "running",
+        tools_used=[],
+        child_session_id=session.session_id,
+    )
+
+
+def _create_segment_traces(
+    session: SessionData,
+    segments: list[AgentSegment],
+    first_message: Optional[str],
+) -> list[AgentTrace]:
+    """Create traces for a multi-agent session (one per segment).
+
+    For sessions where the user switched agents mid-conversation,
+    creates a trace for each contiguous agent segment, chained together.
+
+    Args:
+        session: Raw session data
+        segments: Agent segments (2+ expected)
+        first_message: First user message as prompt
+
+    Returns:
+        List of AgentTrace objects, one per segment
+    """
+    traces: list[AgentTrace] = []
+    parent_trace_id = None
+    previous_agent = ROOT_AGENT_TYPE
+
+    for i, segment in enumerate(segments):
+        segment_trace_id = f"{ROOT_TRACE_PREFIX}{session.session_id}_seg{i}"
+
+        # Calculate segment duration
+        segment_duration = None
+        if segment.start_time and segment.end_time:
+            delta = segment.end_time - segment.start_time
+            segment_duration = int(delta.total_seconds() * 1000)
+
+        prompt = (
+            (first_message or "(No prompt)")
+            if i == 0
+            else f"(switched to @{segment.agent})"
+        )
+
+        trace = AgentTrace(
+            trace_id=segment_trace_id,
+            session_id=session.session_id,
+            parent_trace_id=parent_trace_id,
+            parent_agent=previous_agent,
+            subagent_type=segment.agent,
+            prompt_input=prompt,
+            prompt_output=None,
+            started_at=segment.start_time,
+            ended_at=segment.end_time,
+            duration_ms=segment_duration,
+            tokens_in=segment.tokens_in,
+            tokens_out=segment.tokens_out,
+            status="completed",
+            tools_used=[],
+            child_session_id=session.session_id,
+        )
+        traces.append(trace)
+
+        # Chain for next segment
+        parent_trace_id = segment_trace_id
+        previous_agent = segment.agent
+
+    return traces
+
+
+def _get_session_segments(
+    session: SessionData,
+    message_dir: Path,
+    segment_cutoff: datetime,
+) -> list[AgentSegment]:
+    """Get agent segments for a session with cutoff optimization.
+
+    Full segment analysis is only done for recent sessions.
+    Older sessions just get a fast single-agent lookup.
+
+    Args:
+        session: Raw session data
+        message_dir: Path to message storage
+        segment_cutoff: Sessions before this time use fast path
+
+    Returns:
+        List of agent segments (may be empty)
+    """
+    if session.created_at >= segment_cutoff:
+        return get_agent_segments(message_dir, session.session_id)
+
+    # Fast path for older sessions
+    agent = get_session_agent(message_dir, session.session_id)
+    if not agent:
+        return []
+
+    return [
+        AgentSegment(
+            agent=agent,
+            start_time=session.created_at,
+            end_time=session.updated_at,
+            message_count=0,
+            tokens_in=0,
+            tokens_out=0,
+        )
+    ]
+
+
+def _process_session(
+    session: SessionData,
+    message_dir: Path,
+    segment_cutoff: datetime,
+) -> list[AgentTrace]:
+    """Process a single session into trace(s).
+
+    Orchestrates segment analysis and trace creation for one session.
+
+    Args:
+        session: Raw session data
+        message_dir: Path to message storage
+        segment_cutoff: Sessions before this time use fast segment lookup
+
+    Returns:
+        List of AgentTrace objects (1 for single-agent, N for multi-agent)
+    """
+    first_message = get_first_user_message(message_dir, session.session_id)
+    segments = _get_session_segments(session, message_dir, segment_cutoff)
+
+    if len(segments) <= 1:
+        return [_create_single_trace(session, segments, first_message)]
+
+    return _create_segment_traces(session, segments, first_message)
+
+
+def extract_root_sessions(
+    storage_path: Path,
+    max_days: int = 30,
+    throttle_ms: int = 10,
+    segment_analysis_days: int = 1,
+) -> list[AgentTrace]:
+    """Extract root sessions (direct conversations, not delegations).
+
+    Root sessions are sessions where parentID is null, meaning they were
+    started directly by the user rather than created via task delegation.
+
+    Uses a pipeline pattern:
+    1. Collect: Gather all root sessions from disk
+    2. Sort: Order by date (most recent first)
+    3. Process: Convert each session to trace(s) with throttling
+
+    Args:
+        storage_path: Path to OpenCode storage
+        max_days: Only extract sessions from the last N days
+        throttle_ms: Milliseconds to sleep between processing sessions
+        segment_analysis_days: Only do full segment analysis for sessions
+            within this many days (older sessions just get first agent)
+
+    Returns:
+        List of AgentTrace objects representing root sessions
+    """
+    session_dir = storage_path / "session"
+    message_dir = storage_path / "message"
+
+    if not session_dir.exists():
+        return []
+
+    cutoff = datetime.now() - timedelta(days=max_days)
+    segment_cutoff = datetime.now() - timedelta(days=segment_analysis_days)
+
+    # Phase 1: Collect all root sessions
+    sessions = _collect_root_sessions(session_dir, cutoff)
+
     # Phase 2: Sort by date descending (most recent first)
-    sessions_to_process.sort(key=lambda x: x[0], reverse=True)
-    debug(f"Processing {len(sessions_to_process)} root sessions (newest first)")
+    sessions.sort(key=lambda x: x.created_at, reverse=True)
+    debug(f"Processing {len(sessions)} root sessions (newest first)")
 
     # Phase 3: Process sessions with throttling
-    for created_at, session_file, data in sessions_to_process:
-        try:
-            session_id = data.get("id")
-            time_data = data.get("time", {})
-            created_ts = time_data.get("created")
-            updated_ts = time_data.get("updated")
-            updated_at = ms_to_datetime(updated_ts)
+    traces: list[AgentTrace] = []
+    for session in sessions:
+        traces.extend(_process_session(session, message_dir, segment_cutoff))
 
-            # Calculate duration if we have both timestamps
-            duration_ms = None
-            if created_ts and updated_ts:
-                duration_ms = updated_ts - created_ts
-
-            # Get the first user message as prompt
-            first_message = get_first_user_message(message_dir, session_id)
-
-            # Only do full segment analysis for recent sessions
-            # Older sessions just get the first agent (much faster)
-            if created_at and created_at >= segment_cutoff:
-                segments = get_agent_segments(message_dir, session_id)
-            else:
-                # Fast path: just get first agent
-                agent = get_session_agent(message_dir, session_id)
-                segments = (
-                    [
-                        AgentSegment(
-                            agent=agent or ROOT_AGENT_TYPE,
-                            start_time=created_at,
-                            end_time=updated_at,
-                            message_count=0,
-                            tokens_in=0,
-                            tokens_out=0,
-                        )
-                    ]
-                    if agent
-                    else []
-                )
-
-            if len(segments) <= 1:
-                # Single agent session - create one trace
-                session_agent = segments[0].agent if segments else None
-                trace = AgentTrace(
-                    trace_id=f"{ROOT_TRACE_PREFIX}{session_id}",
-                    session_id=session_id,
-                    parent_trace_id=None,  # ROOT - no parent
-                    parent_agent=ROOT_AGENT_TYPE,  # "user" - human initiated
-                    subagent_type=session_agent or ROOT_AGENT_TYPE,
-                    prompt_input=first_message or data.get("title", "(No prompt)"),
-                    prompt_output=None,
-                    started_at=created_at,
-                    ended_at=updated_at,
-                    duration_ms=duration_ms,
-                    tokens_in=segments[0].tokens_in if segments else None,
-                    tokens_out=segments[0].tokens_out if segments else None,
-                    status="completed" if updated_at else "running",
-                    tools_used=[],
-                    child_session_id=session_id,
-                )
-                traces.append(trace)
-            else:
-                # Multi-agent session - create a trace for each segment
-                # First segment: user → first_agent
-                # Subsequent: previous_agent → current_agent
-                parent_trace_id = None
-                previous_agent = ROOT_AGENT_TYPE
-
-                for i, segment in enumerate(segments):
-                    segment_trace_id = f"{ROOT_TRACE_PREFIX}{session_id}_seg{i}"
-
-                    # Calculate segment duration
-                    segment_duration = None
-                    if segment.start_time and segment.end_time:
-                        delta = segment.end_time - segment.start_time
-                        segment_duration = int(delta.total_seconds() * 1000)
-
-                        trace = AgentTrace(
-                            trace_id=segment_trace_id,
-                            session_id=session_id,
-                            parent_trace_id=parent_trace_id,
-                            parent_agent=previous_agent,
-                            subagent_type=segment.agent,
-                            prompt_input=(first_message or "(No prompt)")
-                            if i == 0
-                            else f"(switched to @{segment.agent})",
-                            prompt_output=None,
-                            started_at=segment.start_time,
-                            ended_at=segment.end_time,
-                            duration_ms=segment_duration,
-                            tokens_in=segment.tokens_in,
-                            tokens_out=segment.tokens_out,
-                            status="completed",
-                            tools_used=[],
-                            child_session_id=session_id,
-                        )
-                        traces.append(trace)
-
-                        # Chain for next segment
-                        parent_trace_id = segment_trace_id
-                        previous_agent = segment.agent
-
-            # Throttle to avoid CPU spikes
-            if throttle_ms > 0:
-                time.sleep(throttle_ms / 1000.0)
-
-        except (json.JSONDecodeError, OSError):
-            continue
+        if throttle_ms > 0:
+            time.sleep(throttle_ms / 1000.0)
 
     info(f"Extracted {len(traces)} root sessions")
     return traces
@@ -425,27 +532,15 @@ def extract_traces(storage_path: Path, max_days: int = 30) -> list[AgentTrace]:
     return traces
 
 
-def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
-    """Load agent traces into the database.
+def _ensure_traces_table(conn) -> None:
+    """Ensure agent_traces table exists (DDL).
 
-    Extracts traces from both:
-    1. Task tool invocations (delegation traces)
-    2. Root sessions (direct user conversations)
-
-    This creates a unified hierarchy where root sessions are at the top
-    and delegation traces are nested under them.
+    Creates the agent_traces table if it doesn't exist. Used for legacy
+    databases that were created before the traces feature was added.
 
     Args:
-        db: Analytics database instance
-        storage_path: Path to OpenCode storage
-        max_days: Only load traces from the last N days
-
-    Returns:
-        Number of traces loaded
+        conn: Database connection
     """
-    conn = db.connect()
-
-    # Ensure table exists (for legacy databases)
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS agent_traces (
@@ -470,21 +565,18 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
     except Exception:  # Intentional catch-all: table may already exist
         pass
 
-    # Extract delegation traces from task tool invocations
-    delegation_traces = extract_traces(storage_path, max_days)
 
-    # Extract root sessions (direct conversations)
-    root_traces = extract_root_sessions(storage_path, max_days)
+def _resolve_parent_traces(traces: list[AgentTrace]) -> None:
+    """Resolve parent_trace_id for each trace (in-place).
 
-    # Merge both types of traces
-    traces = root_traces + delegation_traces
+    Builds a mapping from child_session_id to parent trace, then uses it
+    to set parent_trace_id and parent_agent for traces that belong to
+    delegated sessions.
 
-    if not traces:
-        info("No traces found")
-        return 0
-
+    Args:
+        traces: List of traces to resolve (modified in-place)
+    """
     # Build child_session_id -> parent_trace mapping
-    # A trace with child_session_id = "ses_xyz" is the parent of traces in session "ses_xyz"
     parent_trace_by_child_session: dict[str, AgentTrace] = {}
     for trace in traces:
         if trace.child_session_id:
@@ -492,61 +584,97 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
 
     # Resolve parent_trace_id based on session membership
     for trace in traces:
-        # Skip segment traces - they already have correct parent_trace_id from extraction
+        # Skip segment traces - they already have correct parent_trace_id
         if "_seg" in trace.trace_id:
             continue
 
         if trace.session_id in parent_trace_by_child_session:
             parent = parent_trace_by_child_session[trace.session_id]
             # Skip self-references (root traces have child_session_id = session_id)
-            if parent.trace_id == trace.trace_id:
-                continue
-            trace.parent_trace_id = parent.trace_id
-            trace.parent_agent = parent.subagent_type
+            if parent.trace_id != trace.trace_id:
+                trace.parent_trace_id = parent.trace_id
+                trace.parent_agent = parent.subagent_type
 
-    # Batch resolve parent_agent from messages table for root traces
+
+def _enrich_parent_agents(conn, traces: list[AgentTrace]) -> None:
+    """Batch resolve parent_agent from messages table.
+
+    For traces that don't have a parent_agent set (typically root traces),
+    looks up the agent from the corresponding message in the database.
+
+    Args:
+        conn: Database connection
+        traces: List of traces to enrich (modified in-place)
+    """
     traces_needing_parent = [t for t in traces if not t.parent_agent]
-    if traces_needing_parent:
-        msg_ids = [t.session_id.replace("ses_", "msg_") for t in traces_needing_parent]
-        try:
-            placeholders = ",".join(["?" for _ in msg_ids])
-            results = conn.execute(
-                f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",
-                msg_ids,
-            ).fetchall()
-            agent_by_msg = {r[0]: r[1] for r in results if r[1]}
-            for trace in traces_needing_parent:
-                msg_id = trace.session_id.replace("ses_", "msg_")
-                if msg_id in agent_by_msg:
-                    trace.parent_agent = agent_by_msg[msg_id]
-        except Exception:
-            pass  # Batch lookup failed, continue without
+    if not traces_needing_parent:
+        return
 
-    # Batch resolve tokens from child session messages
+    msg_ids = [t.session_id.replace("ses_", "msg_") for t in traces_needing_parent]
+    try:
+        placeholders = ",".join(["?" for _ in msg_ids])
+        results = conn.execute(
+            f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",
+            msg_ids,
+        ).fetchall()
+        agent_by_msg = {r[0]: r[1] for r in results if r[1]}
+        for trace in traces_needing_parent:
+            msg_id = trace.session_id.replace("ses_", "msg_")
+            if msg_id in agent_by_msg:
+                trace.parent_agent = agent_by_msg[msg_id]
+    except Exception:
+        pass  # Batch lookup failed, continue without
+
+
+def _enrich_tokens(conn, traces: list[AgentTrace]) -> None:
+    """Batch resolve tokens from child session messages.
+
+    Aggregates token counts from all messages in each trace's child session
+    and updates the trace with the totals.
+
+    Args:
+        conn: Database connection
+        traces: List of traces to enrich (modified in-place)
+    """
     child_sessions = list({t.child_session_id for t in traces if t.child_session_id})
-    if child_sessions:
-        try:
-            placeholders = ",".join(["?" for _ in child_sessions])
-            results = conn.execute(
-                f"""SELECT session_id,
-                    COALESCE(SUM(tokens_input), 0) as total_in,
-                    COALESCE(SUM(tokens_output), 0) as total_out
-                FROM messages 
-                WHERE session_id IN ({placeholders})
-                GROUP BY session_id""",
-                child_sessions,
-            ).fetchall()
-            tokens_by_session = {r[0]: (r[1], r[2]) for r in results}
-            for trace in traces:
-                if trace.child_session_id in tokens_by_session:
-                    tokens = tokens_by_session[trace.child_session_id]
-                    if tokens[0] > 0 or tokens[1] > 0:
-                        trace.tokens_in = tokens[0]
-                        trace.tokens_out = tokens[1]
-        except Exception:
-            pass  # Batch lookup failed, continue without
+    if not child_sessions:
+        return
 
-    # Insert traces
+    try:
+        placeholders = ",".join(["?" for _ in child_sessions])
+        results = conn.execute(
+            f"""SELECT session_id,
+                COALESCE(SUM(tokens_input), 0) as total_in,
+                COALESCE(SUM(tokens_output), 0) as total_out
+            FROM messages 
+            WHERE session_id IN ({placeholders})
+            GROUP BY session_id""",
+            child_sessions,
+        ).fetchall()
+        tokens_by_session = {r[0]: (r[1], r[2]) for r in results}
+        for trace in traces:
+            if trace.child_session_id in tokens_by_session:
+                tokens = tokens_by_session[trace.child_session_id]
+                if tokens[0] > 0 or tokens[1] > 0:
+                    trace.tokens_in = tokens[0]
+                    trace.tokens_out = tokens[1]
+    except Exception:
+        pass  # Batch lookup failed, continue without
+
+
+def _insert_traces(conn, traces: list[AgentTrace]) -> int:
+    """Insert traces into database, return success count.
+
+    Inserts or replaces each trace in the database. Individual insert
+    failures are logged but don't block other traces from being inserted.
+
+    Args:
+        conn: Database connection
+        traces: List of traces to insert
+
+    Returns:
+        Total count of traces in the table after insertion
+    """
     for trace in traces:
         try:
             conn.execute(
@@ -573,10 +701,52 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
                     trace.child_session_id,
                 ],
             )
-        except Exception as e:  # Intentional catch-all: skip individual insert failures
+        except Exception as e:  # Intentional catch-all: skip individual failures
             debug(f"Trace insert failed for {trace.trace_id}: {e}")
             continue
 
-    count = conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()[0]
+    return conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()[0]
+
+
+def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
+    """Load agent traces into the database.
+
+    Orchestrates the trace loading pipeline:
+    1. Ensure schema exists
+    2. Extract traces from task tools and root sessions
+    3. Resolve parent hierarchy
+    4. Enrich with parent agents and tokens from DB
+    5. Insert into database
+
+    Args:
+        db: Analytics database instance
+        storage_path: Path to OpenCode storage
+        max_days: Only load traces from the last N days
+
+    Returns:
+        Number of traces loaded
+    """
+    conn = db.connect()
+
+    # 1. Ensure schema
+    _ensure_traces_table(conn)
+
+    # 2. Extract traces
+    traces = extract_root_sessions(storage_path, max_days)
+    traces.extend(extract_traces(storage_path, max_days))
+
+    if not traces:
+        info("No traces found")
+        return 0
+
+    # 3. Resolve hierarchy
+    _resolve_parent_traces(traces)
+
+    # 4. Enrich from DB
+    _enrich_parent_agents(conn, traces)
+    _enrich_tokens(conn, traces)
+
+    # 5. Insert
+    count = _insert_traces(conn, traces)
     info(f"Loaded {count} traces")
     return count

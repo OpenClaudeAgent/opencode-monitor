@@ -3,13 +3,26 @@ Menu Builder - Constructs rumps menu items for OpenCode Monitor
 """
 
 import json
+from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Callable, Any
+from typing import Optional, Callable, Any, List
 
 import rumps
 
 from ..core.models import State, SessionStatus, Usage, Agent
 from ..security.analyzer import analyze_command, RiskLevel, get_level_emoji
+
+
+@dataclass
+class CategoryConfig:
+    """Configuration for a security category in critical items menu."""
+
+    emoji: str
+    title: str
+    getter: Callable
+    path_attr: str  # "command", "file_path", "url"
+    truncate_start: bool = True  # True: "text..." / False: "...text"
+    show_operation: bool = False  # For file writes
 
 
 # Truncation limits for menu items
@@ -467,114 +480,122 @@ class MenuBuilder:
             pass
         return ""
 
+    def _truncate_display_text(self, text: str, truncate_start: bool = True) -> str:
+        """Truncate text for menu display (max 40 chars).
+
+        Args:
+            text: The text to truncate
+            truncate_start: If True, keep start ("text..."). If False, keep end ("...text")
+
+        Returns:
+            Truncated text with ellipsis if needed
+        """
+        if len(text) <= 40:
+            return text
+        if truncate_start:
+            return text[:40] + "..."
+        return "..." + text[-40:]
+
+    def _build_edr_info(self, item: Any) -> str:
+        """Build EDR sequence/correlation info for commands.
+
+        Args:
+            item: The security item (command) with potential EDR attributes
+
+        Returns:
+            Formatted EDR info string or empty string
+        """
+        try:
+            edr_seq = int(getattr(item, "edr_sequence_bonus", 0) or 0)
+            edr_corr = int(getattr(item, "edr_correlation_bonus", 0) or 0)
+            if edr_seq > 0 or edr_corr > 0:
+                return f"\n⛓️ Sequence: +{edr_seq} | 🔗 Correlation: +{edr_corr}"
+        except (TypeError, ValueError):
+            pass
+        return ""
+
+    def _build_item_tooltip(self, item: Any, config: CategoryConfig) -> str:
+        """Build tooltip for a security item.
+
+        Args:
+            item: The security item with risk_reason, risk_score, etc.
+            config: Category configuration
+
+        Returns:
+            Formatted tooltip string
+        """
+        full_path = getattr(item, config.path_attr, "")
+        tooltip = f"⚠️ {item.risk_reason}\nScore: {item.risk_score}/100"
+
+        # Add operation for file writes
+        if config.show_operation:
+            tooltip += f"\nOperation: {item.operation}"
+
+        # Add MITRE info if present
+        mitre_techniques = getattr(item, "mitre_techniques", "") or ""
+        mitre_info = self._format_mitre_techniques(mitre_techniques)
+        if mitre_info:
+            tooltip += f"\n🎯 {mitre_info}"
+
+        # Add EDR info for commands
+        if config.path_attr == "command":
+            tooltip += self._build_edr_info(item)
+
+        tooltip += f"\n\n{full_path}"
+        return tooltip
+
+    def _add_category_items(
+        self, menu: rumps.MenuItem, config: CategoryConfig, items: List[Any]
+    ) -> None:
+        """Add items for a single security category.
+
+        Args:
+            menu: The parent menu to add items to
+            config: Category configuration (emoji, title, path_attr, etc.)
+            items: List of security items to add
+        """
+        if not items:
+            return
+
+        menu.add(rumps.MenuItem(f"{config.emoji} ── {config.title} ──"))
+        for item in items:
+            emoji = "🔴" if item.risk_level == "critical" else "🟠"
+            full_path = getattr(item, config.path_attr, "")
+            display_text = self._truncate_display_text(full_path, config.truncate_start)
+
+            menu_item = rumps.MenuItem(f"{emoji} {display_text}")
+            menu_item._menuitem.setToolTip_(self._build_item_tooltip(item, config))
+            menu.add(menu_item)
+
     def _add_critical_items(self, menu: rumps.MenuItem, auditor) -> None:
-        """Add critical/high risk items to security menu."""
-        # Commands
-        critical_cmds = auditor.get_critical_commands(5)
-        if critical_cmds:
-            menu.add(rumps.MenuItem("💻 ── Commands ──"))
-            for cmd in critical_cmds:
-                emoji = "🔴" if cmd.risk_level == "critical" else "🟠"
-                cmd_short = (
-                    cmd.command[:40] + "..." if len(cmd.command) > 40 else cmd.command
-                )
-                item = rumps.MenuItem(f"{emoji} {cmd_short}")
+        """Add critical/high risk items to security menu.
 
-                # Build tooltip with MITRE info
-                mitre_techniques = getattr(cmd, "mitre_techniques", "") or ""
-                mitre_info = self._format_mitre_techniques(mitre_techniques)
-                edr_info = ""
-                try:
-                    edr_seq = int(getattr(cmd, "edr_sequence_bonus", 0) or 0)
-                    edr_corr = int(getattr(cmd, "edr_correlation_bonus", 0) or 0)
-                    if edr_seq > 0 or edr_corr > 0:
-                        edr_info = (
-                            f"\n⛓️ Sequence: +{edr_seq} | 🔗 Correlation: +{edr_corr}"
-                        )
-                except (TypeError, ValueError):
-                    pass
+        Uses CategoryConfig to avoid code duplication across 4 categories.
+        """
+        categories = [
+            CategoryConfig("💻", "Commands", auditor.get_critical_commands, "command"),
+            CategoryConfig(
+                "📖", "File Reads", auditor.get_sensitive_reads, "file_path", False
+            ),
+            CategoryConfig(
+                "✏️",
+                "File Writes",
+                auditor.get_sensitive_writes,
+                "file_path",
+                False,
+                True,
+            ),
+            CategoryConfig("🌐", "Web Fetches", auditor.get_risky_webfetches, "url"),
+        ]
 
-                tooltip = f"⚠️ {cmd.risk_reason}\nScore: {cmd.risk_score}/100"
-                if mitre_info:
-                    tooltip += f"\n🎯 {mitre_info}"
-                if edr_info:
-                    tooltip += edr_info
-                tooltip += f"\n\n{cmd.command}"
+        has_items = False
+        for config in categories:
+            items = config.getter(5)
+            if items:
+                has_items = True
+            self._add_category_items(menu, config, items)
 
-                item._menuitem.setToolTip_(tooltip)
-                menu.add(item)
-
-        # File reads
-        sensitive_reads = auditor.get_sensitive_reads(5)
-        if sensitive_reads:
-            menu.add(rumps.MenuItem("📖 ── File Reads ──"))
-            for read in sensitive_reads:
-                emoji = "🔴" if read.risk_level == "critical" else "🟠"
-                path_short = (
-                    "..." + read.file_path[-40:]
-                    if len(read.file_path) > 40
-                    else read.file_path
-                )
-                item = rumps.MenuItem(f"{emoji} {path_short}")
-
-                mitre_techniques = getattr(read, "mitre_techniques", "") or ""
-                mitre_info = self._format_mitre_techniques(mitre_techniques)
-                tooltip = f"⚠️ {read.risk_reason}\nScore: {read.risk_score}/100"
-                if mitre_info:
-                    tooltip += f"\n🎯 {mitre_info}"
-                tooltip += f"\n\n{read.file_path}"
-
-                item._menuitem.setToolTip_(tooltip)
-                menu.add(item)
-
-        # File writes
-        sensitive_writes = auditor.get_sensitive_writes(5)
-        if sensitive_writes:
-            menu.add(rumps.MenuItem("✏️ ── File Writes ──"))
-            for write in sensitive_writes:
-                emoji = "🔴" if write.risk_level == "critical" else "🟠"
-                path_short = (
-                    "..." + write.file_path[-40:]
-                    if len(write.file_path) > 40
-                    else write.file_path
-                )
-                item = rumps.MenuItem(f"{emoji} {path_short}")
-
-                mitre_techniques = getattr(write, "mitre_techniques", "") or ""
-                mitre_info = self._format_mitre_techniques(mitre_techniques)
-                tooltip = f"⚠️ {write.risk_reason}\nScore: {write.risk_score}/100\nOperation: {write.operation}"
-                if mitre_info:
-                    tooltip += f"\n🎯 {mitre_info}"
-                tooltip += f"\n\n{write.file_path}"
-
-                item._menuitem.setToolTip_(tooltip)
-                menu.add(item)
-
-        # Webfetches
-        risky_fetches = auditor.get_risky_webfetches(5)
-        if risky_fetches:
-            menu.add(rumps.MenuItem("🌐 ── Web Fetches ──"))
-            for fetch in risky_fetches:
-                emoji = "🔴" if fetch.risk_level == "critical" else "🟠"
-                url_short = fetch.url[:40] + "..." if len(fetch.url) > 40 else fetch.url
-                item = rumps.MenuItem(f"{emoji} {url_short}")
-
-                mitre_techniques = getattr(fetch, "mitre_techniques", "") or ""
-                mitre_info = self._format_mitre_techniques(mitre_techniques)
-                tooltip = f"⚠️ {fetch.risk_reason}\nScore: {fetch.risk_score}/100"
-                if mitre_info:
-                    tooltip += f"\n🎯 {mitre_info}"
-                tooltip += f"\n\n{fetch.url}"
-
-                item._menuitem.setToolTip_(tooltip)
-                menu.add(item)
-
-        if (
-            not critical_cmds
-            and not sensitive_reads
-            and not sensitive_writes
-            and not risky_fetches
-        ):
+        if not has_items:
             menu.add(rumps.MenuItem("✅ No critical items"))
 
     def build_analytics_menu(
