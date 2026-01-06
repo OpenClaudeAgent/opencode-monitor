@@ -99,11 +99,11 @@ def create_mock_auditor(
 def create_mock_scanner() -> MagicMock:
     """Create a mock SecurityScannerDuckDB.
 
+    DEPRECATED: SecurityScannerDuckDB is now an alias for SecurityDatabase.
+    Use create_mock_db() instead, which includes scanner methods.
+
     Returns:
-        MagicMock configured as SecurityScannerDuckDB
+        MagicMock configured with scanner methods (via create_mock_db)
     """
-    scanner = MagicMock()
-    scanner.get_unscanned_files.return_value = []
-    scanner.get_scanned_count.return_value = 0
-    scanner.mark_scanned_batch.return_value = 0
-    return scanner
+    # SecurityScannerDuckDB = SecurityDatabase, so just return a mock db
+    return create_mock_db()

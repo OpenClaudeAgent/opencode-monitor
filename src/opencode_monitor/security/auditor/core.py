@@ -2,7 +2,7 @@
 Security Auditor - Background scanner for OpenCode command history
 
 Scans OpenCode storage files, analyzes commands for security risks,
-and stores results in a local SQLite database for audit purposes.
+and stores results in the unified analytics DuckDB database for audit purposes.
 
 Enhanced with EDR-like heuristics:
 - Kill chain detection (sequence analysis)
@@ -60,14 +60,10 @@ class SecurityAuditor:
         pkg = _get_auditor_pkg()
 
         # Initialize components
+        # SecurityDatabase now includes scanner methods (merged from SecurityScannerDuckDB)
         self._db = pkg.SecurityDatabase()
         self._analyzer = pkg.get_risk_analyzer()
         self._reporter = pkg.SecurityReporter()
-
-        # DuckDB scanner for efficient file discovery (replaces filesystem scan)
-        from ..db import SecurityScannerDuckDB
-
-        self._scanner = SecurityScannerDuckDB()
 
         # EDR handler (encapsulates sequence analyzer and correlator)
         self._edr_handler = EDRHandler(
@@ -87,10 +83,10 @@ class SecurityAuditor:
         self._stats["correlations_detected"] = 0
 
         # Note: _scanned_ids kept for backwards compatibility but no longer used
-        # The DuckDB scanner now tracks scanned files in security_scanned table
+        # The DuckDB tracks scanned files in security_scanned table
         self._scanned_ids = set()
 
-        scanned_count = self._scanner.get_scanned_count()
+        scanned_count = self._db.get_scanned_count()
         info(f"Security scanner initialized ({scanned_count} files already scanned)")
 
     def start(self):
@@ -109,8 +105,8 @@ class SecurityAuditor:
         if self._thread:
             self._thread.join(timeout=5)
         # Close DuckDB connection
-        if hasattr(self, "_scanner"):
-            self._scanner.close()
+        if hasattr(self, "_db"):
+            self._db.close()
         info("Security auditor stopped")
 
     def _scan_loop(self):
@@ -138,8 +134,8 @@ class SecurityAuditor:
             # Get unscanned files from DuckDB (efficient SQL query)
             # This replaces the expensive filesystem iteration:
             # OLD: for msg_dir in STORAGE.iterdir(): for prt in msg_dir.glob("prt_*.json")
-            # NEW: SELECT file_path FROM file_index LEFT JOIN security_scanned ...
-            files_to_process = self._scanner.get_unscanned_files(limit=1000)
+            # NEW: SELECT part_id FROM parts LEFT JOIN security_scanned ...
+            files_to_process = self._db.get_unscanned_files(limit=1000)
 
             if not files_to_process:
                 return
@@ -188,7 +184,7 @@ class SecurityAuditor:
 
             # Mark all processed files as scanned in DuckDB (batch operation)
             if scanned_files:
-                self._scanner.mark_scanned_batch(scanned_files)
+                self._db.mark_scanned_batch(scanned_files)
 
             # Update totals
             self._stats["total_scanned"] += new_files

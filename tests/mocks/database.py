@@ -42,6 +42,8 @@ def create_mock_db(
 ) -> MagicMock:
     """Create a mock SecurityDatabase with default configuration.
 
+    SecurityDatabase now includes scanner methods (merged from SecurityScannerDuckDB).
+
     Args:
         stats: Custom stats dict (uses defaults if None)
         scanned_ids: Set of already scanned IDs
@@ -64,6 +66,12 @@ def create_mock_db(
     db.insert_read.return_value = True
     db.insert_write.return_value = True
     db.insert_webfetch.return_value = True
+    # Scanner methods (merged from SecurityScannerDuckDB)
+    db.get_unscanned_files.return_value = []
+    db.get_scanned_count.return_value = 0
+    db.mark_scanned_batch.return_value = 0
+    db.mark_scanned.return_value = None
+    db.clear_scanned.return_value = None
     return db
 
 

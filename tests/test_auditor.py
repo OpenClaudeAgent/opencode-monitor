@@ -63,7 +63,10 @@ def make_default_stats(
 
 @pytest.fixture
 def mock_db():
-    """Standard mock database with common stats."""
+    """Standard mock database with common stats.
+
+    SecurityDatabase now includes scanner methods (merged from SecurityScannerDuckDB).
+    """
     db = MagicMock()
     db.get_stats.return_value = make_default_stats()
     db.get_all_scanned_ids.return_value = set()
@@ -71,6 +74,10 @@ def mock_db():
     db.insert_read.return_value = True
     db.insert_write.return_value = True
     db.insert_webfetch.return_value = True
+    # Scanner methods (merged from SecurityScannerDuckDB)
+    db.get_unscanned_files.return_value = []
+    db.get_scanned_count.return_value = 0
+    db.mark_scanned_batch.return_value = 0
     return db
 
 
@@ -112,29 +119,21 @@ class AuditorTestContext:
 
 
 @pytest.fixture
-def mock_scanner():
-    """Create mock SecurityScannerDuckDB."""
-    scanner = MagicMock()
-    scanner.get_unscanned_files.return_value = []
-    scanner.get_scanned_count.return_value = 0
-    scanner.mark_scanned_batch.return_value = 0
-    return scanner
+def auditor_with_mocks(mock_db, mock_analyzer):
+    """Create auditor with all dependencies mocked. Returns AuditorTestContext.
 
-
-@pytest.fixture
-def auditor_with_mocks(mock_db, mock_analyzer, mock_scanner):
-    """Create auditor with all dependencies mocked. Returns AuditorTestContext."""
+    Note: SecurityScannerDuckDB is now an alias for SecurityDatabase,
+    so scanner methods are included in mock_db.
+    """
     with (
         patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
         patch(
             "opencode_monitor.security.auditor.get_risk_analyzer"
         ) as mock_analyzer_fn,
         patch("opencode_monitor.security.auditor.SecurityReporter"),
-        patch("opencode_monitor.security.db.SecurityScannerDuckDB") as mock_scanner_cls,
     ):
         mock_db_cls.return_value = mock_db
         mock_analyzer_fn.return_value = mock_analyzer
-        mock_scanner_cls.return_value = mock_scanner
         yield AuditorTestContext(SecurityAuditor(), mock_db, mock_analyzer)
 
 
@@ -185,10 +184,6 @@ class TestSecurityAuditorInitAndLifecycle:
         expected_running,
     ):
         """Test initialization loads stats and lifecycle works correctly."""
-        mock_scanner = MagicMock()
-        mock_scanner.get_scanned_count.return_value = 0
-        mock_scanner.get_unscanned_files.return_value = []
-
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
@@ -197,15 +192,14 @@ class TestSecurityAuditorInitAndLifecycle:
             patch(
                 "opencode_monitor.security.auditor.SecurityReporter"
             ) as mock_reporter_cls,
-            patch(
-                "opencode_monitor.security.db.SecurityScannerDuckDB"
-            ) as mock_scanner_cls,
         ):
             mock_db = MagicMock()
             mock_db.get_stats.return_value = cached_stats
             mock_db.get_all_scanned_ids.return_value = scanned_ids
+            # Scanner methods (now in SecurityDatabase)
+            mock_db.get_scanned_count.return_value = 0
+            mock_db.get_unscanned_files.return_value = []
             mock_db_cls.return_value = mock_db
-            mock_scanner_cls.return_value = mock_scanner
 
             auditor = SecurityAuditor()
 
@@ -368,25 +362,20 @@ class TestRunScan:
         expect_insert,
         setup_exception,
     ):
-        """Run scan handles all scenarios correctly using DuckDB scanner."""
-        mock_scanner = MagicMock()
-        mock_scanner.get_scanned_count.return_value = 0
-
+        """Run scan handles all scenarios correctly using SecurityDatabase."""
         with (
             patch("opencode_monitor.security.auditor.SecurityDatabase") as mock_db_cls,
             patch(
                 "opencode_monitor.security.auditor.get_risk_analyzer"
             ) as mock_analyzer_fn,
             patch("opencode_monitor.security.auditor.SecurityReporter"),
-            patch(
-                "opencode_monitor.security.db.SecurityScannerDuckDB"
-            ) as mock_scanner_cls,
         ):
             mock_db = MagicMock()
             mock_db.get_stats.return_value = make_default_stats()
             mock_db.get_all_scanned_ids.return_value = set()
+            # Scanner methods (now in SecurityDatabase)
+            mock_db.get_scanned_count.return_value = 0
             mock_db_cls.return_value = mock_db
-            mock_scanner_cls.return_value = mock_scanner
 
             mock_analyzer = MagicMock()
             mock_analyzer.analyze_file_path.return_value = RiskResult(
@@ -408,11 +397,11 @@ class TestRunScan:
                 )
                 file_paths.append(prt_file)
 
-            # Configure scanner to return these files (or raise exception)
+            # Configure db to return these files (or raise exception)
             if setup_exception:
-                mock_scanner.get_unscanned_files.side_effect = setup_exception
+                mock_db.get_unscanned_files.side_effect = setup_exception
             else:
-                mock_scanner.get_unscanned_files.return_value = file_paths
+                mock_db.get_unscanned_files.return_value = file_paths
 
             auditor = SecurityAuditor()
             auditor._running = running
@@ -424,7 +413,7 @@ class TestRunScan:
             if expect_insert:
                 mock_db.insert_command.assert_called_once()
                 assert auditor._stats["total_scanned"] == 1
-                mock_scanner.mark_scanned_batch.assert_called_once()
+                mock_db.mark_scanned_batch.assert_called_once()
             elif scenario == "no_files":
                 mock_db.insert_command.assert_not_called()
             elif scenario == "not_running":
@@ -458,8 +447,8 @@ class TestRunScan:
             json.dumps(create_tool_content("webfetch", url="https://example.com"))
         )
 
-        # Configure the mock scanner to return these files
-        auditor._scanner.get_unscanned_files.return_value = [
+        # Configure the mock db to return these files (scanner methods now in _db)
+        auditor._db.get_unscanned_files.return_value = [
             bash_file,
             read_file,
             write_file,
