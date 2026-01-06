@@ -80,8 +80,8 @@ class SecurityAuditor:
         # File processor
         self._file_processor = FileProcessor(self._analyzer)
 
-        # Load cached stats
-        self._stats = self._db.get_stats()
+        # Load cached stats (typed as Any to allow None/str values for last_scan)
+        self._stats: Dict[str, Any] = self._db.get_stats()
         self._stats["last_scan"] = None
         self._stats["sequences_detected"] = 0
         self._stats["correlations_detected"] = 0

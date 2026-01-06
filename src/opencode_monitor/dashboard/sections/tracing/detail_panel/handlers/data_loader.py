@@ -88,11 +88,13 @@ class DataLoaderMixin:
         if self._transcript_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        debug(
-            f"[TraceDetailPanel] Loading prompts for transcript {self._current_session_id}"
-        )
-        prompts_data = client.get_session_prompts(self._current_session_id)
+        debug(f"[TraceDetailPanel] Loading prompts for transcript {session_id}")
+        prompts_data = client.get_session_prompts(session_id)
         debug(f"[TraceDetailPanel] Prompts data: {prompts_data is not None}")
 
         if prompts_data:
@@ -115,8 +117,12 @@ class DataLoaderMixin:
         if self._tokens_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        data = client.get_session_tokens(self._current_session_id)
+        data = client.get_session_tokens(session_id)
         if data:
             self._tokens_tab.load_data(data)  # type: ignore
 
@@ -125,8 +131,12 @@ class DataLoaderMixin:
         if self._tools_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        data = client.get_session_tools(self._current_session_id)
+        data = client.get_session_tools(session_id)
         if data:
             self._tools_tab.load_data(data)  # type: ignore
 
@@ -135,8 +145,12 @@ class DataLoaderMixin:
         if self._files_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        data = client.get_session_files(self._current_session_id)
+        data = client.get_session_files(session_id)
         if data:
             self._files_tab.load_data(data)  # type: ignore
 
@@ -145,8 +159,12 @@ class DataLoaderMixin:
         if self._agents_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        agents = client.get_session_agents(self._current_session_id)
+        agents = client.get_session_agents(session_id)
         if agents:
             self._agents_tab.load_data(agents)  # type: ignore
 
@@ -155,7 +173,11 @@ class DataLoaderMixin:
         if self._timeline_tab.is_loaded():  # type: ignore
             return
 
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
         client = self._get_api_client()
-        events = client.get_session_timeline(self._current_session_id)
+        events = client.get_session_timeline(session_id)
         if events:
             self._timeline_tab.load_data(events)  # type: ignore

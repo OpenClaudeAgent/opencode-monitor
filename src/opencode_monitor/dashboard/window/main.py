@@ -322,12 +322,8 @@ class DashboardWindow(QMainWindow):
 
             self._signals.monitoring_updated.emit(data)
 
-            # Update sidebar status
-            if hasattr(self, "_sidebar"):
-                len(agents_data) > 0 or state.instance_count > 0
-                (f"{len(agents_data)} agents" if agents_data else "No agents")
-                # Note: This should be called via signal for thread safety
-                # but for simplicity we'll keep it here
+            # Note: Sidebar status update removed - was using signals improperly
+            # Could be re-implemented via self._signals if needed
 
         except (
             Exception

@@ -148,13 +148,13 @@ class MenuMixin:
             alert_callback=self._add_security_alert,
         )
 
-        # Rebuild complete menu
-        self.menu.clear()
+        # Rebuild complete menu (rumps.App.menu has .add()/.clear() but no type stubs)
+        self.menu.clear()  # type: ignore[attr-defined]
         for item in dynamic_items:
-            self.menu.add(item)
+            self.menu.add(item)  # type: ignore[attr-defined]
 
         # Security menu
-        self.menu.add(None)
+        self.menu.add(None)  # type: ignore[attr-defined]
         auditor = get_auditor()
         security_menu = self._menu_builder.build_security_menu(
             auditor,
@@ -167,20 +167,20 @@ class MenuMixin:
         critical_count = stats.get("critical", 0) + stats.get("high", 0)
         self._has_critical_alert = critical_count > 0
 
-        self.menu.add(security_menu)
+        self.menu.add(security_menu)  # type: ignore[attr-defined]
 
         # Analytics menu
         analytics_menu = self._menu_builder.build_analytics_menu(
             analytics_callback=self._show_analytics,
             refresh_callback=self._refresh_analytics,
         )
-        self.menu.add(analytics_menu)
+        self.menu.add(analytics_menu)  # type: ignore[attr-defined]
 
-        # Static items
-        self.menu.add(None)
-        self.menu.add(self._dashboard_item)
-        self.menu.add(self._refresh_item)
-        self.menu.add(None)
-        self.menu.add(self._prefs_menu)
-        self.menu.add(None)
-        self.menu.add(self._quit_item)
+        # Static items (rumps.App.menu has .add() method but no type stubs)
+        self.menu.add(None)  # type: ignore[attr-defined]
+        self.menu.add(self._dashboard_item)  # type: ignore[attr-defined]
+        self.menu.add(self._refresh_item)  # type: ignore[attr-defined]
+        self.menu.add(None)  # type: ignore[attr-defined]
+        self.menu.add(self._prefs_menu)  # type: ignore[attr-defined]
+        self.menu.add(None)  # type: ignore[attr-defined]
+        self.menu.add(self._quit_item)  # type: ignore[attr-defined]

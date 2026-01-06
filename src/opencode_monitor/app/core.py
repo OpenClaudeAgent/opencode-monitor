@@ -47,7 +47,7 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
         super().__init__(
             name="OpenCode Monitor",
             title="🤖",
-            quit_button=None,
+            quit_button=None,  # type: ignore[arg-type]  # rumps accepts None to disable quit button
         )
 
         # State tracking
