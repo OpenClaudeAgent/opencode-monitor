@@ -96,7 +96,7 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
             ).fetchall()
             parent_agents = {r[0]: r[1] for r in results if r[1]}
         except Exception:
-            pass  # Fall back to no parent agents
+            pass  # nosec B110 - parent_agents enrichment is optional
 
     # Batch insert delegations
     for d in delegations:

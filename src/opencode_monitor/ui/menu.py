@@ -354,8 +354,8 @@ class MenuBuilder:
                     session_reset = f" (reset {minutes // 60}h{minutes % 60:02d}m)"
                 elif minutes > 0:
                     session_reset = f" (reset {minutes}m)"
-            except Exception:  # Intentional catch-all: invalid date format is ignored
-                pass
+            except Exception:
+                pass  # nosec B110 - invalid date format is ignored
 
         # Weekly reset time
         weekly_reset = ""
@@ -367,15 +367,15 @@ class MenuBuilder:
                 days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
                 day_name = days[reset_time.weekday()]
                 weekly_reset = f" (reset {day_name} {reset_time.hour}h)"
-            except Exception:  # Intentional catch-all: invalid date format is ignored
-                pass
+            except Exception:
+                pass  # nosec B110 - invalid date format is ignored
 
         items.append(rumps.MenuItem(f"{icon} Session: {five_h}%{session_reset}"))
         items.append(rumps.MenuItem(f"📅 Weekly: {seven_d}%{weekly_reset}"))
         items.append(
             rumps.MenuItem(
                 "🌐 Open Claude Usage",
-                callback=lambda _: __import__("subprocess").run(
+                callback=lambda _: __import__("subprocess").run(  # nosec B404 B603 B607
                     ["open", "https://console.anthropic.com/settings/usage"]
                 ),
             )

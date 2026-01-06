@@ -116,7 +116,7 @@ class FileProcessor:
         """
         try:
             content = prt_file.read_bytes()
-            content_hash = hashlib.md5(content).hexdigest()
+            content_hash = hashlib.md5(content, usedforsecurity=False).hexdigest()
             data = json.loads(content)
 
             if data.get("type") != "tool":

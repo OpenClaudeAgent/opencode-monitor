@@ -77,7 +77,7 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                 WHERE sessions.id = src.id
             """)  # nosec B608
         except Exception:
-            pass  # Enriched columns not available in this data
+            pass  # nosec B110 - enriched columns may not exist in schema
 
         row = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
         count = row[0] if row else 0

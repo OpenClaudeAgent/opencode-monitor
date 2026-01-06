@@ -29,7 +29,7 @@ def _sync_get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
     """Synchronous HTTP GET request"""
     try:
         req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=timeout) as response:
+        with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
             return response.read().decode("utf-8")
     except urllib.error.URLError:
         return None

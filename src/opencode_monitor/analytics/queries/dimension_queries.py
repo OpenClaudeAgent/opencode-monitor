@@ -127,8 +127,8 @@ class DimensionQueries(BaseQueries):
                     else (title or "Untitled")
                 )
                 anomalies.append(f"Session '{short_title}' has {count} task calls")
-        except Exception:  # Intentional catch-all: anomaly detection is optional
-            pass
+        except Exception:
+            pass  # nosec B110 - anomaly detection is optional
 
         # Check for high tool failure rates (> 20%)
         try:
@@ -152,8 +152,8 @@ class DimensionQueries(BaseQueries):
                 anomalies.append(
                     f"Tool '{tool}' has {rate:.0f}% failure rate ({failures}/{total})"
                 )
-        except Exception:  # Intentional catch-all: anomaly detection is optional
-            pass
+        except Exception:
+            pass  # nosec B110 - anomaly detection is optional
 
         return anomalies
 

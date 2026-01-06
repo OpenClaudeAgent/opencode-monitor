@@ -61,7 +61,7 @@ class AnalyticsAPIClient:
             req = urllib.request.Request(url, method="GET")
             req.add_header("Accept", "application/json")
 
-            with urllib.request.urlopen(req, timeout=self._timeout) as response:
+            with urllib.request.urlopen(req, timeout=self._timeout) as response:  # nosec B310
                 data = json.loads(response.read().decode("utf-8"))
 
                 if data.get("success"):

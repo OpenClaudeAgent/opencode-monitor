@@ -562,8 +562,8 @@ def _ensure_traces_table(conn) -> None:
                 created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
-    except Exception:  # Intentional catch-all: table may already exist
-        pass
+    except Exception:
+        pass  # nosec B110 - table may already exist, ignore errors
 
 
 def _resolve_parent_traces(traces: list[AgentTrace]) -> None:
@@ -624,7 +624,7 @@ def _enrich_parent_agents(conn, traces: list[AgentTrace]) -> None:
             if msg_id in agent_by_msg:
                 trace.parent_agent = agent_by_msg[msg_id]
     except Exception:
-        pass  # Batch lookup failed, continue without
+        pass  # nosec B110 - batch lookup is optional enrichment
 
 
 def _enrich_tokens(conn, traces: list[AgentTrace]) -> None:
@@ -661,7 +661,7 @@ def _enrich_tokens(conn, traces: list[AgentTrace]) -> None:
                     trace.tokens_in = tokens[0]
                     trace.tokens_out = tokens[1]
     except Exception:
-        pass  # Batch lookup failed, continue without
+        pass  # nosec B110 - batch lookup is optional enrichment
 
 
 def _insert_traces(conn, traces: list[AgentTrace]) -> int:

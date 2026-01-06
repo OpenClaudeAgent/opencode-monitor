@@ -5,7 +5,7 @@ Functions to find OpenCode ports and associated TTY.
 """
 
 import asyncio
-import subprocess
+import subprocess  # nosec B404 - required for port/TTY detection
 
 from ..client import check_opencode_port
 
@@ -14,7 +14,7 @@ async def find_opencode_ports() -> list[int]:
     """Find all ports with OpenCode instances running"""
     # Get all listening ports on localhost
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 - trusted system command
             ["netstat", "-an"], capture_output=True, text=True, timeout=5
         )
         lines = result.stdout.split("\n")
@@ -45,7 +45,7 @@ async def find_opencode_ports() -> list[int]:
 def get_tty_for_port(port: int) -> str:
     """Get the TTY associated with an OpenCode instance"""
     try:
-        result = subprocess.run(
+        result = subprocess.run(  # nosec B603 B607 - trusted system command
             ["lsof", "-i", f":{port}"], capture_output=True, text=True, timeout=5
         )
         for line in result.stdout.split("\n"):
@@ -54,7 +54,7 @@ def get_tty_for_port(port: int) -> str:
                 if len(parts) >= 2:
                     pid = parts[1]
                     # Get TTY from ps
-                    ps_result = subprocess.run(
+                    ps_result = subprocess.run(  # nosec B603 B607 - trusted command
                         ["ps", "-o", "tty=", "-p", pid],
                         capture_output=True,
                         text=True,
@@ -63,6 +63,6 @@ def get_tty_for_port(port: int) -> str:
                     tty = ps_result.stdout.strip()
                     if tty and tty != "??":
                         return tty
-    except Exception:  # Intentional catch-all: TTY detection is best-effort
-        pass
+    except Exception:
+        pass  # nosec B110 - TTY detection is best-effort
     return ""

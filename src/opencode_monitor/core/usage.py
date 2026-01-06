@@ -37,7 +37,7 @@ def fetch_usage() -> Usage:
         req.add_header("anthropic-beta", "oauth-2025-04-20")
         req.add_header("Content-Type", "application/json")
 
-        with urllib.request.urlopen(req, timeout=10) as response:
+        with urllib.request.urlopen(req, timeout=10) as response:  # nosec B310
             data = json.loads(response.read().decode("utf-8"))
     except urllib.error.HTTPError as e:
         if e.code == 401:

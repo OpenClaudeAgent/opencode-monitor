@@ -70,7 +70,7 @@ class TraceBuilder:
                 )
             """)
         except Exception:
-            pass  # Table exists
+            pass  # nosec B110 - table may already exist, ignore errors
 
     def create_trace_from_delegation(
         self,

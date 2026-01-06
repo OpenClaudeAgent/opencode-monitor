@@ -700,8 +700,8 @@ class AnalyticsCollector:
             ).fetchone()
             if row:
                 parent_agent = row[0]
-        except Exception:  # Intentional catch-all: parent_agent is optional metadata
-            pass
+        except Exception:
+            pass  # nosec B110 - parent_agent is optional enrichment metadata
 
         conn.execute(
             """INSERT OR REPLACE INTO delegations

@@ -85,7 +85,7 @@ class SyncChecker:
                     elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
                         self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
         except Exception:
-            pass  # API may not be available
+            pass  # nosec B110 - API may not be available
 
     def stop(self) -> None:
         """Stop the sync checker."""

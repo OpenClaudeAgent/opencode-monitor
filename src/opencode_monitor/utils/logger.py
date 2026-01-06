@@ -6,7 +6,7 @@ import logging
 import os
 import sys
 
-LOG_FILE = "/tmp/opencode-monitor.log"
+LOG_FILE = "/tmp/opencode-monitor.log"  # nosec B108 - macOS-specific log location
 DEBUG_ENV = "OPENCODE_DEBUG"
 
 

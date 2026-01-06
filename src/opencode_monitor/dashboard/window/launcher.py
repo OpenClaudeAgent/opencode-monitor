@@ -5,7 +5,7 @@ Since rumps has its own event loop, we launch the PyQt dashboard
 as a subprocess to avoid conflicts between event loops.
 """
 
-import subprocess
+import subprocess  # nosec B404 - required for dashboard subprocess
 import sys
 
 # Global reference to dashboard subprocess
@@ -32,7 +32,7 @@ def show_dashboard() -> None:
         _dashboard_process = None
 
     # Launch dashboard as a separate process
-    _dashboard_process = subprocess.Popen(
+    _dashboard_process = subprocess.Popen(  # nosec B603 - trusted sys.executable
         [sys.executable, "-m", "opencode_monitor.dashboard"],
         start_new_session=True,
     )

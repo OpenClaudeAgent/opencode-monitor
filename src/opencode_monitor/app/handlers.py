@@ -10,7 +10,7 @@ This module provides the HandlersMixin class with:
 - AnalyticsSyncManager: DB sync manager (only writer to analytics DB)
 """
 
-import subprocess
+import subprocess  # nosec B404 - required for opening reports in OS
 import threading
 import time
 from typing import TYPE_CHECKING
@@ -167,7 +167,7 @@ class HandlersMixin:
         with open(report_path, "w") as f:
             f.write(report)
 
-        subprocess.run(["open", report_path])
+        subprocess.run(["open", report_path])  # nosec B603 B607 - trusted internal path
         info(f"Security report opened: {report_path}")
 
     def _export_all_commands(self, _):
@@ -192,7 +192,7 @@ class HandlersMixin:
         with open(export_path, "w") as f:
             f.write(content)
 
-        subprocess.run(["open", export_path])
+        subprocess.run(["open", export_path])  # nosec B603 B607 - trusted internal path
         info(f"Security audit exported: {export_path}")
 
     def _show_analytics(self, days: int):
@@ -223,7 +223,7 @@ class HandlersMixin:
                 with open(report_path, "w") as f:
                     f.write(report_html)
 
-                subprocess.run(["open", report_path])
+                subprocess.run(["open", report_path])  # nosec B603 B607 - trusted path
                 info("[Analytics] Done!")
             except Exception as e:
                 error(f"[Analytics] Error: {e}")

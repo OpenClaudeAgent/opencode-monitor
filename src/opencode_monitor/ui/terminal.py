@@ -2,7 +2,7 @@
 Terminal Focus - AppleScript to focus iTerm2 on a specific TTY
 """
 
-import subprocess
+import subprocess  # nosec B404 - required for AppleScript execution
 from ..utils.logger import error
 
 
@@ -43,7 +43,9 @@ def focus_iterm2(tty: str) -> bool:
     '''
 
     try:
-        subprocess.run(["osascript", "-e", script], capture_output=True, timeout=5)
+        subprocess.run(  # nosec B603 B607 - trusted AppleScript execution
+            ["osascript", "-e", script], capture_output=True, timeout=5
+        )
         return True
     except (
         Exception
