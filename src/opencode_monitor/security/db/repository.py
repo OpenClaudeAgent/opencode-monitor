@@ -443,12 +443,12 @@ class SecurityDatabase:
 
     # ===== Query Methods =====
 
-    def get_all_scanned_ids(self) -> set:
+    def get_all_scanned_ids(self) -> set[str]:
         """Get all scanned file IDs from all tables"""
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
-            ids = set()
+            ids: set[str] = set()
             for table in ["commands", "file_reads", "file_writes", "webfetches"]:
                 # Table names from hardcoded list, validated against _ALLOWED_TABLES
                 if table not in _ALLOWED_TABLES:

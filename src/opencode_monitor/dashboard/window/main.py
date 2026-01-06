@@ -509,7 +509,7 @@ class DashboardWindow(QMainWindow):
                 return
 
             # Get hierarchical tree directly from API - no client-side aggregation
-            session_hierarchy = client.get_tracing_tree(days=30) or []
+            session_hierarchy: list[dict] = client.get_tracing_tree(days=30) or []  # type: ignore[assignment]
 
             debug(
                 f"[Dashboard] Got tracing tree with {len(session_hierarchy)} root sessions"

@@ -79,7 +79,8 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
         except Exception:
             pass  # Enriched columns not available in this data
 
-        count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        row = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+        count = row[0] if row else 0
         info(f"Loaded {count} sessions")
         return count
     except Exception as e:  # Intentional catch-all: DuckDB can raise various errors

@@ -117,6 +117,7 @@ def load_file_operations(
             debug(f"File operation insert failed for {op.get('id', 'unknown')}: {e}")
             continue
 
-    count = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()[0]
+    row = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()
+    count = row[0] if row else 0
     info(f"Loaded {count} file operations")
     return count

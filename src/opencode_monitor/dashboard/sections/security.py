@@ -194,13 +194,13 @@ class SecuritySection(QWidget):
                     # Type badge (column 0)
                     type_badge = create_type_badge(item_type)
                     self._critical_table.setCellWidget(row, 0, type_badge)
-                    if item := self._critical_table.item(row, 0):
-                        item.setText("")
+                    if (table_item := self._critical_table.item(row, 0)) is not None:
+                        table_item.setText("")
                     # Risk badge (column 2)
                     risk_badge = create_risk_badge(risk)
                     self._critical_table.setCellWidget(row, 2, risk_badge)
-                    if item := self._critical_table.item(row, 2):
-                        item.setText("")
+                    if (table_item := self._critical_table.item(row, 2)) is not None:
+                        table_item.setText("")
             else:
                 self._critical_table.hide()
                 self._critical_empty.show()
@@ -231,14 +231,14 @@ class SecuritySection(QWidget):
             # Risk badge (column 1)
             risk_badge = create_risk_badge(risk)
             self._commands_table.setCellWidget(row, 1, risk_badge)
-            if item := self._commands_table.item(row, 1):
-                item.setText("")
+            if (table_item := self._commands_table.item(row, 1)) is not None:
+                table_item.setText("")
             # Score badge (column 2)
             score_val = cmd.get("score", 0)
             score_badge = create_score_badge(score_val)
             self._commands_table.setCellWidget(row, 2, score_badge)
-            if item := self._commands_table.item(row, 2):
-                item.setText("")
+            if (table_item := self._commands_table.item(row, 2)) is not None:
+                table_item.setText("")
 
         # Files
         self._files_table.clear_data()
@@ -271,16 +271,16 @@ class SecuritySection(QWidget):
             # Type badge (column 0)
             type_badge = create_type_badge(operation)
             self._files_table.setCellWidget(row, 0, type_badge)
-            if item := self._files_table.item(row, 0):
-                item.setText("")
+            if (table_item := self._files_table.item(row, 0)) is not None:
+                table_item.setText("")
             # Risk badge (column 2)
             risk_badge = create_risk_badge(risk)
             self._files_table.setCellWidget(row, 2, risk_badge)
-            if item := self._files_table.item(row, 2):
-                item.setText("")
+            if (table_item := self._files_table.item(row, 2)) is not None:
+                table_item.setText("")
             # Score badge (column 3)
             score_val = f.get("score", 0)
             score_badge = create_score_badge(score_val)
             self._files_table.setCellWidget(row, 3, score_badge)
-            if item := self._files_table.item(row, 3):
-                item.setText("")
+            if (table_item := self._files_table.item(row, 3)) is not None:
+                table_item.setText("")

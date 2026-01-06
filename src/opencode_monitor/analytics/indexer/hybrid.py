@@ -16,7 +16,7 @@ Performance:
 import threading
 import time
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 from queue import Queue, Empty
 
 from ..db import AnalyticsDB
@@ -193,6 +193,10 @@ class HybridIndexer:
 
     def _run_bulk_phase(self) -> None:
         """Run the bulk loading phase."""
+        # Guard: sync_state is always set in start() before this is called
+        if self._sync_state is None:
+            return
+
         # Skip if already in realtime mode (from previous run)
         if self._sync_state.is_realtime:
             info("[HybridIndexer] Already in realtime mode, skipping bulk")
@@ -207,6 +211,8 @@ class HybridIndexer:
 
         try:
             # Load all historical files
+            if self._bulk_loader is None:
+                return
             results = self._bulk_loader.load_all(self._t0)
 
             total_loaded = sum(r.files_loaded for r in results.values())
@@ -242,6 +248,8 @@ class HybridIndexer:
 
     def _run_queue_phase(self) -> None:
         """Process files that were queued during bulk loading."""
+        if self._sync_state is None:
+            return
         self._sync_state.set_phase(SyncPhase.PROCESSING_QUEUE)
 
         queue_size = self._event_queue.qsize()
@@ -300,7 +308,8 @@ class HybridIndexer:
             try:
                 file_type, path = self._event_queue.get(timeout=0.1)
                 self._process_file(file_type, path)
-                self._sync_state.set_queue_size(self._event_queue.qsize())
+                if self._sync_state is not None:
+                    self._sync_state.set_queue_size(self._event_queue.qsize())
             except Empty:
                 continue
 
@@ -374,7 +383,7 @@ class HybridIndexer:
 
     def get_stats(self) -> dict:
         """Get indexer statistics."""
-        stats = {
+        stats: dict[str, Any] = {
             "phase": self._sync_state.phase.value if self._sync_state else "init",
             "queue_size": self._event_queue.qsize(),
         }

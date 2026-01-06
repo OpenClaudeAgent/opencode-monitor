@@ -142,11 +142,11 @@ class AnalyticsAPIClient:
         """Get session file operations."""
         return self._request(f"/api/session/{session_id}/files")
 
-    def get_session_agents(self, session_id: str) -> Optional[list]:
+    def get_session_agents(self, session_id: str) -> Optional[dict]:
         """Get session agents."""
         return self._request(f"/api/session/{session_id}/agents")
 
-    def get_session_timeline(self, session_id: str) -> Optional[list]:
+    def get_session_timeline(self, session_id: str) -> Optional[dict]:
         """Get session timeline events."""
         return self._request(f"/api/session/{session_id}/timeline")
 
@@ -154,15 +154,15 @@ class AnalyticsAPIClient:
         """Get session prompts (first user prompt + last response)."""
         return self._request(f"/api/session/{session_id}/prompts")
 
-    def get_session_messages(self, session_id: str) -> Optional[list]:
+    def get_session_messages(self, session_id: str) -> Optional[dict]:
         """Get all messages with content for a session.
 
         Returns:
-            List of message dicts with role, content, timestamp, etc.
+            Dict with message data including role, content, timestamp, etc.
         """
         return self._request(f"/api/session/{session_id}/messages")
 
-    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
+    def get_tracing_tree(self, days: int = 30) -> Optional[dict]:
         """Get hierarchical tracing tree for dashboard display.
 
         Returns sessions with their child traces already structured
@@ -172,7 +172,7 @@ class AnalyticsAPIClient:
             days: Number of days to include
 
         Returns:
-            List of session nodes with children, or None
+            Dict with session nodes and children, or None
         """
         return self._request("/api/tracing/tree", {"days": days})
 

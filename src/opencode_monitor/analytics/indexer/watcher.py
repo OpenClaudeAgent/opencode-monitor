@@ -13,7 +13,7 @@ Performance:
 import threading
 import time
 from pathlib import Path
-from typing import Callable, Optional
+from typing import Any, Callable, Optional
 from queue import Queue, Empty
 
 from watchdog.observers import Observer
@@ -123,17 +123,27 @@ class DebouncedEventHandler(FileSystemEventHandler):
         with self._lock:
             self._pending[str(path)] = time.time()
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileCreatedEvent) -> None:  # type: ignore[override]
         """Handle file creation."""
         if event.is_directory:
             return
-        self._queue_file(Path(event.src_path))
+        src_path = (
+            event.src_path
+            if isinstance(event.src_path, str)
+            else event.src_path.decode()
+        )
+        self._queue_file(Path(src_path))
 
-    def on_modified(self, event: FileModifiedEvent) -> None:
+    def on_modified(self, event: FileModifiedEvent) -> None:  # type: ignore[override]
         """Handle file modification."""
         if event.is_directory:
             return
-        self._queue_file(Path(event.src_path))
+        src_path = (
+            event.src_path
+            if isinstance(event.src_path, str)
+            else event.src_path.decode()
+        )
+        self._queue_file(Path(src_path))
 
 
 class FileWatcher:
@@ -156,7 +166,7 @@ class FileWatcher:
         """
         self._storage_path = storage_path
         self._on_file_ready = on_file_ready
-        self._observer: Optional[Observer] = None
+        self._observer: Any = None  # watchdog.observers.Observer
         self._handler: Optional[DebouncedEventHandler] = None
         self._running = False
         self._stats = {

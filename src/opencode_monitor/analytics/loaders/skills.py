@@ -79,6 +79,7 @@ def load_skills(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
             debug(f"Skill insert failed for {s.get('skill_name', 'unknown')}: {e}")
             continue
 
-    count = conn.execute("SELECT COUNT(*) FROM skills").fetchone()[0]
+    row = conn.execute("SELECT COUNT(*) FROM skills").fetchone()
+    count = row[0] if row else 0
     info(f"Loaded {count} skills")
     return count

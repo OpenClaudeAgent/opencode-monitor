@@ -164,6 +164,31 @@ class MockAnalyticsAPIClient:
         conversations = self._responses.get("conversations", {})
         return conversations.get(session_id)
 
+    def get_sync_status(self) -> Optional[dict]:
+        """Return configured sync status."""
+        self._log_call("get_sync_status")
+        return self._responses.get("sync_status", {"status": "idle", "progress": 100})
+
+    def get_security_data(
+        self, row_limit: int = 100, top_limit: int = 5
+    ) -> Optional[dict]:
+        """Return configured security data."""
+        self._log_call("get_security_data", row_limit=row_limit, top_limit=top_limit)
+        return self._responses.get(
+            "security_data",
+            {
+                "stats": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
+                "top_commands": [],
+                "top_reads": [],
+                "top_writes": [],
+                "top_webfetches": [],
+                "commands": [],
+                "reads": [],
+                "writes": [],
+                "webfetches": [],
+            },
+        )
+
     def get_call_log(self) -> list[tuple[str, dict]]:
         """Return log of all API calls made during test."""
         return self._call_log.copy()

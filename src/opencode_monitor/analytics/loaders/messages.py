@@ -88,7 +88,8 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
         except Exception:
             pass  # Enriched columns not available in this data
 
-        count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+        row = conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+        count = row[0] if row else 0
         info(f"Loaded {count} messages")
         return count
     except Exception as e:  # Intentional catch-all: DuckDB can raise various errors

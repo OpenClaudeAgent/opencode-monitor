@@ -80,7 +80,7 @@ class CollapsibleTextEdit(QFrame):
         header_layout.addWidget(self._title)
         header_layout.addStretch()
 
-        header.mousePressEvent = lambda a0: self.toggle()
+        header.mousePressEvent = lambda a0: self.toggle()  # type: ignore[method-assign]
         layout.addWidget(header)
 
         # Text content

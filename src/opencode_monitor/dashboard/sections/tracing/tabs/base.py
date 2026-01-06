@@ -104,8 +104,10 @@ class BaseTab(QWidget):
         """
         while layout.count():
             child = layout.takeAt(0)
-            if child.widget():
-                child.widget().deleteLater()
+            if child is not None:
+                widget = child.widget()
+                if widget is not None:
+                    widget.deleteLater()
 
     def is_loaded(self) -> bool:
         """Check if data has been loaded.

@@ -3,10 +3,29 @@
 import json
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 from ..db import AnalyticsDB
 from ...utils.logger import info, debug, error
 from ...utils.datetime import ms_to_datetime
+
+# Type alias for part tuple (id, session_id, message_id, part_type, content, tool_name,
+# tool_status, created_at, arguments, call_id, ended_at, duration_ms, error_message)
+PartTuple = tuple[
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    Any,
+    datetime | None,
+    Any,
+    Any,
+    datetime | None,
+    Any,
+    Any,
+]
 
 
 def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
@@ -30,7 +49,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
 
     text_count = 0
     tool_count = 0
-    batch = []
+    batch: list[PartTuple] = []
     batch_size = 500
 
     try:

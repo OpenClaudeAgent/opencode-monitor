@@ -168,7 +168,7 @@ class SequenceAnalyzer:
 
     def _check_patterns(self, session_id: str) -> List[SequenceMatch]:
         """Check all patterns against the session buffer"""
-        matches = []
+        matches: List[SequenceMatch] = []
         buffer = self._session_buffers.get(session_id, deque())
 
         if len(buffer) < 2:
@@ -178,7 +178,11 @@ class SequenceAnalyzer:
         current_time = events_list[-1].timestamp
 
         for pattern in self._patterns:
-            window = pattern.get("max_window_seconds", self._default_window)
+            window_val = pattern.get("max_window_seconds")
+            if isinstance(window_val, (int, float)):
+                window = float(window_val)
+            else:
+                window = self._default_window
             match = self._match_pattern(events_list, pattern, current_time, window)
             if match:
                 matches.append(match)

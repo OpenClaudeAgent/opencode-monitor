@@ -9,7 +9,7 @@ import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Optional
+from typing import Any, Optional
 
 from ...db import AnalyticsDB
 from ..tracker import FileTracker
@@ -69,8 +69,8 @@ class UnifiedIndexer:
         self._running = False
         self._lock = threading.Lock()
 
-        # Statistics
-        self._stats = {
+        # Statistics (mixed types: int, str, dict, None)
+        self._stats: dict[str, Any] = {
             "files_processed": 0,
             "files_skipped": 0,
             "files_error": 0,

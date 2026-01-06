@@ -101,7 +101,8 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
     # Batch insert delegations
     for d in delegations:
         try:
-            parent_agent = parent_agents.get(d.get("message_id"))
+            msg_id = d.get("message_id")
+            parent_agent = parent_agents.get(msg_id) if msg_id else None
             conn.execute(
                 """INSERT OR REPLACE INTO delegations
                 (id, message_id, session_id, parent_agent, child_agent, child_session_id, created_at)
@@ -120,6 +121,7 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
             debug(f"Delegation insert failed for {d.get('id', 'unknown')}: {e}")
             continue
 
-    count = conn.execute("SELECT COUNT(*) FROM delegations").fetchone()[0]
+    row = conn.execute("SELECT COUNT(*) FROM delegations").fetchone()
+    count = row[0] if row else 0
     info(f"Loaded {count} delegations")
     return count

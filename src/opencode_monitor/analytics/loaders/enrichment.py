@@ -138,10 +138,11 @@ def enrich_sessions_metadata(db: AnalyticsDB) -> int:
         """)
 
         # Count enriched sessions
-        enriched = conn.execute("""
+        row = conn.execute("""
             SELECT COUNT(*) FROM sessions 
             WHERE project_name IS NOT NULL OR duration_ms IS NOT NULL
-        """).fetchone()[0]
+        """).fetchone()
+        enriched: int = row[0] if row else 0
 
         info(f"Enriched {enriched} sessions with metadata")
         return enriched

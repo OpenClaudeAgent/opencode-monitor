@@ -77,11 +77,11 @@ class StorageEventHandler(FileSystemEventHandler):
         elif "project" in parts:
             self._collector._queue_file("project", path, force_reload=force_reload)
 
-    def on_created(self, event: FileCreatedEvent) -> None:
+    def on_created(self, event: FileCreatedEvent) -> None:  # type: ignore[override]
         """Handle new file creation."""
         self._handle_file_event(event, force_reload=False)
 
-    def on_modified(self, event: FileModifiedEvent) -> None:
+    def on_modified(self, event: FileModifiedEvent) -> None:  # type: ignore[override]
         """Handle file modification - reload updated files."""
         self._handle_file_event(event, force_reload=True)
 
@@ -91,7 +91,7 @@ class AnalyticsCollector:
 
     def __init__(self):
         self._running = False
-        self._observer: Optional[Observer] = None
+        self._observer: Any = None  # watchdog.observers.Observer
         self._reconcile_thread: Optional[threading.Thread] = None
         self._process_thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
@@ -203,9 +203,9 @@ class AnalyticsCollector:
         """Stop the collector."""
         self._running = False
 
-        if self._observer:
-            self._observer.stop()
-            self._observer.join(timeout=5)
+        if self._observer is not None:
+            self._observer.stop()  # type: ignore[attr-defined]
+            self._observer.join(timeout=5)  # type: ignore[attr-defined]
 
         if self._process_thread:
             self._process_thread.join(timeout=5)

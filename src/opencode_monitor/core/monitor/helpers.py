@@ -15,7 +15,7 @@ def extract_tools_from_messages(messages: Optional[list]) -> list[Tool]:
 
     Also calculates elapsed_ms for permission detection heuristic.
     """
-    tools = []
+    tools: list[Tool] = []
 
     if not messages or not isinstance(messages, list) or len(messages) == 0:
         return tools

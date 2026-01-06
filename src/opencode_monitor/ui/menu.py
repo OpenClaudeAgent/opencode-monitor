@@ -111,9 +111,9 @@ class MenuBuilder:
 
             # Separate main agents from sub-agents
             main_agents = [a for a in instance.agents if not a.is_subagent]
-            sub_agents_map = {}
+            sub_agents_map: dict[str, list[Agent]] = {}
             for a in instance.agents:
-                if a.is_subagent:
+                if a.is_subagent and a.parent_id is not None:
                     if a.parent_id not in sub_agents_map:
                         sub_agents_map[a.parent_id] = []
                     sub_agents_map[a.parent_id].append(a)

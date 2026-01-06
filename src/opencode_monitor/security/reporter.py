@@ -126,20 +126,20 @@ class SecurityReporter:
         # Collect all MITRE techniques
         techniques: Counter = Counter()
 
-        for items in [commands, reads, writes, fetches]:
-            for item in items:
-                mitre_json = getattr(item, "mitre_techniques", None)
-                if mitre_json:
-                    try:
-                        mitre_list = (
-                            json.loads(mitre_json)
-                            if isinstance(mitre_json, str)
-                            else mitre_json
-                        )
-                        for tech in mitre_list:
-                            techniques[tech] += 1
-                    except (json.JSONDecodeError, TypeError):
-                        pass
+        all_items: list = [*commands, *reads, *writes, *fetches]
+        for item in all_items:
+            mitre_json = getattr(item, "mitre_techniques", None)
+            if mitre_json:
+                try:
+                    mitre_list = (
+                        json.loads(mitre_json)
+                        if isinstance(mitre_json, str)
+                        else mitre_json
+                    )
+                    for tech in mitre_list:
+                        techniques[tech] += 1
+                except (json.JSONDecodeError, TypeError):
+                    pass
 
         if not techniques:
             return []

@@ -165,6 +165,9 @@ class HelpersMixin:
                 [session_id],
             ).fetchone()
 
+            if result is None:
+                raise ValueError("No result from tokens query")
+
             input_tokens = result[1] or 0
             output_tokens = result[2] or 0
             cache_read = result[4] or 0
@@ -230,6 +233,9 @@ class HelpersMixin:
                 """,
                 [session_id],
             ).fetchone()
+
+            if result is None:
+                raise ValueError("No result from tools query")
 
             total = result[0] or 0
             success = result[2] or 0
@@ -300,10 +306,10 @@ class HelpersMixin:
 
             # If no data, estimate from parts table
             if (
-                not result
+                result is None
                 or (result[0] or 0) + (result[1] or 0) + (result[2] or 0) == 0
             ):
-                result = self._conn.execute(
+                fallback = self._conn.execute(
                     """
                     SELECT
                         SUM(CASE WHEN tool_name = 'read' THEN 1 ELSE 0 END) as reads,
@@ -316,6 +322,18 @@ class HelpersMixin:
                     """,
                     [session_id],
                 ).fetchone()
+                # Use fallback values, defaulting to 0 if None
+                reads = (fallback[0] if fallback else 0) or 0
+                writes = (fallback[1] if fallback else 0) or 0
+                edits = (fallback[2] if fallback else 0) or 0
+                high_risk = 0
+                unique_files = 0
+            else:
+                reads = result[0] or 0
+                writes = result[1] or 0
+                edits = result[2] or 0
+                high_risk = result[3] or 0
+                unique_files = result[4] or 0
 
             # Get file extension breakdown
             ext_results = self._conn.execute(
@@ -336,11 +354,11 @@ class HelpersMixin:
             ).fetchall()
 
             return {
-                "total_reads": result[0] or 0,
-                "total_writes": result[1] or 0,
-                "total_edits": result[2] or 0,
-                "high_risk_count": result[3] or 0,
-                "unique_files": result[4] or 0,
+                "total_reads": reads,
+                "total_writes": writes,
+                "total_edits": edits,
+                "high_risk_count": high_risk,
+                "unique_files": unique_files,
                 "by_operation": [
                     {"operation": row[0], "count": row[1]} for row in ext_results
                 ],

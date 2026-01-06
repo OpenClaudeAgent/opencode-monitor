@@ -519,22 +519,25 @@ class TraceBuilder:
         conn = self._db.connect()
 
         try:
-            total = conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()[0]
+            total_result = conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()
+            total = total_result[0] if total_result else 0
 
             by_status = conn.execute("""
                 SELECT status, COUNT(*) FROM agent_traces
                 GROUP BY status
             """).fetchall()
 
-            root_count = conn.execute("""
+            root_result = conn.execute("""
                 SELECT COUNT(*) FROM agent_traces
                 WHERE trace_id LIKE 'root_%'
-            """).fetchone()[0]
+            """).fetchone()
+            root_count = root_result[0] if root_result else 0
 
-            delegation_count = conn.execute("""
+            delegation_result = conn.execute("""
                 SELECT COUNT(*) FROM agent_traces
                 WHERE trace_id NOT LIKE 'root_%'
-            """).fetchone()[0]
+            """).fetchone()
+            delegation_count = delegation_result[0] if delegation_result else 0
 
             return {
                 "total": total,

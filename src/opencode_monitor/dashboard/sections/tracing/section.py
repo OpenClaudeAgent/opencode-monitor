@@ -40,6 +40,7 @@ class TracingSection(QWidget):
         self._session_hierarchy: list[dict] = []
         self._max_duration_ms: int = 1  # Avoid division by zero
         self._view_mode: str = "sessions"  # Always sessions view
+        self._last_session_ids: set[str | None] = set()  # Track for change detection
         self._setup_ui()
         self._connect_signals()
 

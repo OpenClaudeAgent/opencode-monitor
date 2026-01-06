@@ -164,7 +164,7 @@ class EventCorrelator:
 
     def _check_correlations(self, new_event: SecurityEvent) -> List[Correlation]:
         """Check for correlations with the new event"""
-        correlations = []
+        correlations: List[Correlation] = []
         session_id = new_event.session_id
         buffer = self._session_buffers.get(session_id, deque())
 

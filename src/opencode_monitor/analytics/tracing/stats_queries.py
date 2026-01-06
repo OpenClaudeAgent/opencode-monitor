@@ -55,7 +55,7 @@ class StatsQueriesMixin:
 
         try:
             # Sessions stats
-            session_stats = self._conn.execute(
+            session_stats_row = self._conn.execute(
                 """
                 SELECT
                     COUNT(*) as total_sessions,
@@ -65,9 +65,10 @@ class StatsQueriesMixin:
                 """,
                 [start, end],
             ).fetchone()
+            session_stats = session_stats_row if session_stats_row else (0, 0)
 
             # Message/token stats
-            token_stats = self._conn.execute(
+            token_stats_row = self._conn.execute(
                 """
                 SELECT
                     COUNT(*) as total_messages,
@@ -79,12 +80,13 @@ class StatsQueriesMixin:
                 """,
                 [start, end],
             ).fetchone()
+            token_stats = token_stats_row if token_stats_row else (0, 0, 0, 0)
 
             # Trace stats
             trace_stats = self._trace_q.get_trace_stats(start, end)
 
             # Tool stats
-            tool_stats = self._conn.execute(
+            tool_stats_row = self._conn.execute(
                 """
                 SELECT
                     COUNT(*) as total_calls,
@@ -95,6 +97,7 @@ class StatsQueriesMixin:
                 """,
                 [start, end],
             ).fetchone()
+            tool_stats = tool_stats_row if tool_stats_row else (0, 0)
 
             total_tokens = (token_stats[1] or 0) + (token_stats[2] or 0)
             cost = self._calculate_cost(

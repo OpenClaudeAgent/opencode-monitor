@@ -169,7 +169,8 @@ class BulkLoader:
             conn.execute(query)
 
             # Count loaded (DuckDB doesn't have changes(), count directly)
-            count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+            result = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
+            count = result[0] if result else 0
             self._sessions_loaded = count
 
             elapsed = time.time() - start
@@ -206,7 +207,8 @@ class BulkLoader:
             conn.execute(query)
 
             # Count loaded
-            count = conn.execute("SELECT COUNT(*) FROM messages").fetchone()[0]
+            result = conn.execute("SELECT COUNT(*) FROM messages").fetchone()
+            count = result[0] if result else 0
             self._messages_loaded = count
 
             elapsed = time.time() - start
@@ -245,7 +247,8 @@ class BulkLoader:
             conn.execute(query)
 
             # Count loaded
-            count = conn.execute("SELECT COUNT(*) FROM parts").fetchone()[0]
+            result = conn.execute("SELECT COUNT(*) FROM parts").fetchone()
+            count = result[0] if result else 0
             self._parts_loaded = count
 
             elapsed = time.time() - start

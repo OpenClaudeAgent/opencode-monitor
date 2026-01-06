@@ -8,7 +8,7 @@ This architecture solves DuckDB's multi-process concurrency limitations.
 """
 
 import threading
-from typing import Optional
+from typing import Any, Optional
 
 from flask import Flask
 from werkzeug.serving import make_server
@@ -47,7 +47,7 @@ class AnalyticsAPIServer:
         self._host = host
         self._port = port
         self._app = Flask(__name__)
-        self._server: Optional[make_server] = None  # type: ignore[valid-type]
+        self._server: Any = None  # wsgiref.simple_server.WSGIServer
         self._thread: Optional[threading.Thread] = None
         self._service: Optional[TracingDataService] = None
         self._db_lock = threading.Lock()

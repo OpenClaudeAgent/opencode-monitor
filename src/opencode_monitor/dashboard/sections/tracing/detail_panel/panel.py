@@ -368,7 +368,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
             "user_content": prompt_input,
             "assistant_content": prompt_output,
         }
-        self._transcript_tab.load_data(self._current_data)
+        self._transcript_tab.load_data(self._current_data)  # type: ignore[attr-defined]
         self._tabs.setCurrentIndex(0)
 
     def show_turn(
@@ -639,17 +639,17 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
             "user_content": user_content,
             "assistant_content": assistant_content,
         }
-        self._transcript_tab.load_data(self._current_data)
+        self._transcript_tab.load_data(self._current_data)  # type: ignore[attr-defined]
         self._tabs.setCurrentIndex(0)
 
     def _clear_tabs(self) -> None:
         """Clear all tab data."""
-        self._transcript_tab.clear()
-        self._tokens_tab.clear()
-        self._tools_tab.clear()
-        self._files_tab.clear()
-        self._agents_tab.clear()
-        self._timeline_tab.clear()
+        self._transcript_tab.clear()  # type: ignore[attr-defined]
+        self._tokens_tab.clear()  # type: ignore[attr-defined]
+        self._tools_tab.clear()  # type: ignore[attr-defined]
+        self._files_tab.clear()  # type: ignore[attr-defined]
+        self._agents_tab.clear()  # type: ignore[attr-defined]
+        self._timeline_tab.clear()  # type: ignore[attr-defined]
 
     def clear(self) -> None:
         """Clear all trace details."""
