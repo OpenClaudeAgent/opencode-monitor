@@ -32,7 +32,8 @@ class ToolsTab(BaseTab):
         self._table.setAlternatingRowColors(True)
         self._table.setShowGrid(False)
         self._table.setSelectionBehavior(QTableWidget.SelectionBehavior.SelectRows)
-        self._table.verticalHeader().setVisible(False)
+        if header := self._table.verticalHeader():
+            header.setVisible(False)
 
         # Style
         palette = self._table.palette()
