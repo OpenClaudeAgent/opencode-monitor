@@ -172,6 +172,7 @@ class TracingTreeBuilder:
             return {}
 
         # Fetch tools for these sessions
+        # Placeholders are just "?" markers for parameterized query - safe
         placeholders = ",".join(["?" for _ in all_session_ids])
         tool_rows = self._conn.execute(
             f"""
@@ -184,7 +185,7 @@ class TracingTreeBuilder:
               AND tool_name IS NOT NULL
               AND tool_name != 'task'
             ORDER BY created_at ASC
-            """,
+            """,  # nosec B608
             list(all_session_ids),
         ).fetchall()
 

@@ -143,6 +143,7 @@ def fetch_messages_for_exchanges(conn: Any, root_session_ids: set) -> list:
     if not root_session_ids:
         return []
 
+    # Placeholders are just "?" markers for parameterized query - safe
     placeholders = ",".join(["?" for _ in root_session_ids])
     return conn.execute(
         f"""
@@ -161,7 +162,7 @@ def fetch_messages_for_exchanges(conn: Any, root_session_ids: set) -> list:
         FROM messages m
         WHERE m.session_id IN ({placeholders})
         ORDER BY m.session_id, m.created_at ASC
-        """,
+        """,  # nosec B608
         list(root_session_ids),
     ).fetchall()
 
@@ -193,6 +194,7 @@ def fetch_subagent_tokens(conn: Any, start_date: Any) -> tuple[dict, list]:
     subagent_tokens: dict = {}
     if subagent_sessions:
         subagent_ids = [s[0] for s in subagent_sessions]
+        # Placeholders are just "?" markers for parameterized query - safe
         sa_placeholders = ",".join(["?" for _ in subagent_ids])
         token_rows = conn.execute(
             f"""
@@ -204,7 +206,7 @@ def fetch_subagent_tokens(conn: Any, start_date: Any) -> tuple[dict, list]:
             FROM messages
             WHERE session_id IN ({sa_placeholders})
             GROUP BY session_id
-            """,
+            """,  # nosec B608
             subagent_ids,
         ).fetchall()
         for trow in token_rows:
@@ -246,6 +248,7 @@ def fetch_tokens_by_session(conn: Any, root_session_ids: set) -> dict:
     if not root_session_ids:
         return {}
 
+    # Placeholders are just "?" markers for parameterized query - safe
     placeholders = ",".join(["?" for _ in root_session_ids])
     token_rows = conn.execute(
         f"""
@@ -257,7 +260,7 @@ def fetch_tokens_by_session(conn: Any, root_session_ids: set) -> dict:
         FROM messages
         WHERE session_id IN ({placeholders})
         GROUP BY session_id
-        """,
+        """,  # nosec B608
         list(root_session_ids),
     ).fetchall()
 
@@ -285,6 +288,7 @@ def get_initial_agents(conn: Any, root_session_ids: set) -> dict:
     if not root_session_ids:
         return {}
 
+    # Placeholders are just "?" markers for parameterized query - safe
     placeholders = ",".join(["?" for _ in root_session_ids])
     root_agent_rows = conn.execute(
         f"""
@@ -293,7 +297,7 @@ def get_initial_agents(conn: Any, root_session_ids: set) -> dict:
         WHERE session_id IN ({placeholders})
           AND trace_id LIKE 'root_%'
           AND trace_id NOT LIKE '%_seg%'
-        """,
+        """,  # nosec B608
         list(root_session_ids),
     ).fetchall()
 

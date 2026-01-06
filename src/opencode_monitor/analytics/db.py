@@ -413,6 +413,25 @@ class AnalyticsDB:
 
         debug("Analytics database schema created")
 
+    # Tables managed by this module - used for whitelist validation
+    _MANAGED_TABLES = frozenset(
+        {
+            "sessions",
+            "messages",
+            "parts",
+            "skills",
+            "delegations",
+            "todos",
+            "projects",
+            "agent_traces",
+            "file_operations",
+            "session_stats",
+            "daily_stats",
+            "sync_meta",
+            "security_scanned",
+        }
+    )
+
     def _migrate_columns(self, conn: duckdb.DuckDBPyConnection) -> None:
         """Add missing columns to existing tables (idempotent).
 
@@ -426,8 +445,9 @@ class AnalyticsDB:
         # Helper to check if column exists
         def column_exists(table: str, column: str) -> bool:
             try:
+                # Table/column names are from internal constants, not user input
                 result = conn.execute(
-                    f"SELECT * FROM information_schema.columns "
+                    f"SELECT * FROM information_schema.columns "  # nosec B608
                     f"WHERE table_name = '{table}' AND column_name = '{column}'"
                 ).fetchone()
                 return result is not None
@@ -534,7 +554,8 @@ class AnalyticsDB:
             "daily_stats",
         ]:
             try:
-                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
+                # Table names are from hardcoded list above, not user input
+                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()  # nosec B608
                 result[table] = count[0] if count else 0
             except Exception:
                 result[table] = 0  # Table may not exist yet

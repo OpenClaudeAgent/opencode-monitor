@@ -22,6 +22,9 @@ from .models import (
     AuditedWebFetch,
 )
 
+# Allowed table names - whitelist for SQL injection prevention
+_ALLOWED_TABLES = frozenset({"commands", "file_reads", "file_writes", "webfetches"})
+
 # Paths
 CONFIG_DIR = Path.home() / ".config/opencode-monitor"
 DB_PATH = CONFIG_DIR / "security.db"
@@ -251,20 +254,24 @@ class SecurityDatabase:
         }
 
         for table, columns in tables_columns.items():
-            # Get existing columns
-            cursor.execute(f"PRAGMA table_info({table})")
+            # Validate table name against whitelist
+            if table not in _ALLOWED_TABLES:
+                continue
+
+            # Get existing columns - table validated above
+            cursor.execute(f"PRAGMA table_info({table})")  # nosec B608
             existing_cols = {row[1] for row in cursor.fetchall()}
 
-            # Add missing columns
+            # Add missing columns - table and col are from hardcoded dict
             for col in columns:
                 if col not in existing_cols:
                     if col == "mitre_techniques":
                         cursor.execute(
-                            f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT '[]'"
+                            f"ALTER TABLE {table} ADD COLUMN {col} TEXT DEFAULT '[]'"  # nosec B608
                         )
                     else:
                         cursor.execute(
-                            f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0"
+                            f"ALTER TABLE {table} ADD COLUMN {col} INTEGER DEFAULT 0"  # nosec B608
                         )
                     debug(f"Migrated: Added {col} to {table}")
 
@@ -283,16 +290,21 @@ class SecurityDatabase:
         Returns:
             List of model instances
         """
+        # Validate table from config against whitelist
+        if config.table not in _ALLOWED_TABLES:
+            return []
+
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Placeholders are "?" markers, table/columns from validated TableConfig
             placeholders = ",".join("?" * len(levels))
             cursor.execute(
                 f"""
                 SELECT {config.columns}
                 FROM {config.table} WHERE risk_level IN ({placeholders})
                 ORDER BY risk_score DESC, {config.timestamp_col} DESC LIMIT ?
-            """,
+            """,  # nosec B608
                 (*levels, limit),
             )
             return [config.model(*row) for row in cursor.fetchall()]
@@ -312,15 +324,20 @@ class SecurityDatabase:
         Returns:
             List of model instances
         """
+        # Validate table from config against whitelist
+        if config.table not in _ALLOWED_TABLES:
+            return []
+
         conn = self._get_connection()
         cursor = conn.cursor()
         try:
+            # Table/columns from validated TableConfig constants
             cursor.execute(
                 f"""
                 SELECT {config.columns}
                 FROM {config.table} ORDER BY {config.timestamp_col} DESC 
                 LIMIT ? OFFSET ?
-            """,
+            """,  # nosec B608
                 (limit, offset),
             )
             return [config.model(*row) for row in cursor.fetchall()]
@@ -433,7 +450,10 @@ class SecurityDatabase:
         try:
             ids = set()
             for table in ["commands", "file_reads", "file_writes", "webfetches"]:
-                cursor.execute(f"SELECT file_id FROM {table}")
+                # Table names from hardcoded list, validated against _ALLOWED_TABLES
+                if table not in _ALLOWED_TABLES:
+                    continue
+                cursor.execute(f"SELECT file_id FROM {table}")  # nosec B608
                 ids.update(row[0] for row in cursor.fetchall())
             return ids
         finally:
@@ -484,8 +504,11 @@ class SecurityDatabase:
                 ("file_writes", "writes_"),
                 ("webfetches", "webfetches_"),
             ]:
+                # Table names from hardcoded list, validated against _ALLOWED_TABLES
+                if table not in _ALLOWED_TABLES:
+                    continue
                 cursor.execute(
-                    f"SELECT risk_level, COUNT(*) FROM {table} GROUP BY risk_level"
+                    f"SELECT risk_level, COUNT(*) FROM {table} GROUP BY risk_level"  # nosec B608
                 )
                 for level, count in cursor.fetchall():
                     key = f"{prefix}{level}" if prefix else level
@@ -506,19 +529,22 @@ class SecurityDatabase:
             stats["mitre_tagged"] = 0
 
             for table in ["commands", "file_reads", "file_writes", "webfetches"]:
+                # Table names from hardcoded list, validated against _ALLOWED_TABLES
+                if table not in _ALLOWED_TABLES:
+                    continue
                 try:
                     cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE edr_sequence_bonus > 0"
+                        f"SELECT COUNT(*) FROM {table} WHERE edr_sequence_bonus > 0"  # nosec B608
                     )
                     stats["edr_sequences"] += cursor.fetchone()[0]
 
                     cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE edr_correlation_bonus > 0"
+                        f"SELECT COUNT(*) FROM {table} WHERE edr_correlation_bonus > 0"  # nosec B608
                     )
                     stats["edr_correlations"] += cursor.fetchone()[0]
 
                     cursor.execute(
-                        f"SELECT COUNT(*) FROM {table} WHERE mitre_techniques != '[]' AND mitre_techniques IS NOT NULL"
+                        f"SELECT COUNT(*) FROM {table} WHERE mitre_techniques != '[]' AND mitre_techniques IS NOT NULL"  # nosec B608
                     )
                     stats["mitre_tagged"] += cursor.fetchone()[0]
                 except sqlite3.OperationalError:

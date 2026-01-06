@@ -35,6 +35,7 @@ def build_tools_by_session(
     if not include_tools or not all_session_ids:
         return tools_by_session
 
+    # Placeholders are just "?" markers for parameterized query - safe
     placeholders = ",".join(["?" for _ in all_session_ids])
     tool_rows = conn.execute(
         f"""
@@ -47,7 +48,7 @@ def build_tools_by_session(
           AND tool_name IS NOT NULL
           AND tool_name != 'task'
         ORDER BY created_at ASC
-        """,
+        """,  # nosec B608
         list(all_session_ids),
     ).fetchall()
 
@@ -91,6 +92,7 @@ def build_tools_by_message(
     if not include_tools or not root_session_ids:
         return tools_by_message
 
+    # Placeholders are just "?" markers for parameterized query - safe
     placeholders = ",".join(["?" for _ in root_session_ids])
     tool_rows = conn.execute(
         f"""
@@ -103,7 +105,7 @@ def build_tools_by_message(
           AND tool_name IS NOT NULL
           AND tool_name != 'task'
         ORDER BY created_at ASC
-        """,
+        """,  # nosec B608
         list(root_session_ids),
     ).fetchall()
 

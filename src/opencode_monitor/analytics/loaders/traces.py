@@ -612,9 +612,10 @@ def _enrich_parent_agents(conn, traces: list[AgentTrace]) -> None:
 
     msg_ids = [t.session_id.replace("ses_", "msg_") for t in traces_needing_parent]
     try:
+        # Placeholders are just "?" markers for parameterized query - safe
         placeholders = ",".join(["?" for _ in msg_ids])
         results = conn.execute(
-            f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",
+            f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",  # nosec B608
             msg_ids,
         ).fetchall()
         agent_by_msg = {r[0]: r[1] for r in results if r[1]}
@@ -641,6 +642,7 @@ def _enrich_tokens(conn, traces: list[AgentTrace]) -> None:
         return
 
     try:
+        # Placeholders are just "?" markers for parameterized query - safe
         placeholders = ",".join(["?" for _ in child_sessions])
         results = conn.execute(
             f"""SELECT session_id,
@@ -648,7 +650,7 @@ def _enrich_tokens(conn, traces: list[AgentTrace]) -> None:
                 COALESCE(SUM(tokens_output), 0) as total_out
             FROM messages 
             WHERE session_id IN ({placeholders})
-            GROUP BY session_id""",
+            GROUP BY session_id""",  # nosec B608
             child_sessions,
         ).fetchall()
         tokens_by_session = {r[0]: (r[1], r[2]) for r in results}

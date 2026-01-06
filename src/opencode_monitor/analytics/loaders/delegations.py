@@ -88,10 +88,10 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
     parent_agents: dict[str, str] = {}
     if message_ids:
         try:
-            # Use a single query to get all agents
+            # Placeholders are just "?" markers for parameterized query - safe
             placeholders = ",".join(["?" for _ in message_ids])
             results = conn.execute(
-                f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",
+                f"SELECT id, agent FROM messages WHERE id IN ({placeholders})",  # nosec B608
                 message_ids,
             ).fetchall()
             parent_agents = {r[0]: r[1] for r in results if r[1]}

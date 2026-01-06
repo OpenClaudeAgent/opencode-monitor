@@ -26,6 +26,7 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
     try:
         # Use temp table for deduplication, then insert only new records
         conn.execute("DROP TABLE IF EXISTS _tmp_sessions")
+        # json_pattern is derived from trusted storage_path, cutoff_ts is computed int
         conn.execute(f"""
             CREATE TEMP TABLE _tmp_sessions AS
             SELECT id, project_id, directory, title, created_at, updated_at
@@ -38,14 +39,14 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                     epoch_ms(time.created) as created_at,
                     epoch_ms(time.updated) as updated_at,
                     ROW_NUMBER() OVER (PARTITION BY id ORDER BY time.updated DESC) as rn
-                FROM read_json_auto('{json_pattern}', 
+                FROM read_json_auto('{json_pattern}',
                                     maximum_object_size=50000000,
                                     ignore_errors=true)
                 WHERE id IS NOT NULL
                   AND time.created >= {cutoff_ts}
             ) deduped
             WHERE rn = 1
-        """)
+        """)  # nosec B608
 
         # Insert only new records, skip existing (incremental load)
         conn.execute("""
@@ -57,6 +58,7 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
 
         # Update enriched columns if available in JSON (newer OpenCode versions)
         try:
+            # json_pattern is derived from trusted storage_path
             conn.execute(f"""
                 UPDATE sessions SET
                     parent_id = src.parentID,
@@ -73,7 +75,7 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                     WHERE parentID IS NOT NULL OR version IS NOT NULL OR summary IS NOT NULL
                 ) src
                 WHERE sessions.id = src.id
-            """)
+            """)  # nosec B608
         except Exception:
             pass  # Enriched columns not available in this data
 

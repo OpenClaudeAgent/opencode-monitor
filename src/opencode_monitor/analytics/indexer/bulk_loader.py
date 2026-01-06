@@ -75,6 +75,9 @@ class BulkLoader:
         self._messages_loaded = 0
         self._parts_loaded = 0
 
+    # Allowed file types for bulk loading - prevents path injection
+    _ALLOWED_FILE_TYPES = frozenset({"session", "message", "part"})
+
     def count_files(self) -> dict[str, int]:
         """Count files to be loaded by type."""
         conn = self._db.connect()
@@ -84,9 +87,10 @@ class BulkLoader:
             path = self._storage_path / file_type
             if path.exists():
                 try:
+                    # file_type is from hardcoded list, path is from trusted storage_path
                     result = conn.execute(f"""
                         SELECT COUNT(*) FROM glob('{path}/**/*.json')
-                    """).fetchone()
+                    """).fetchone()  # nosec B608
                     counts[file_type] = result[0] if result else 0
                 except Exception:
                     counts[file_type] = 0

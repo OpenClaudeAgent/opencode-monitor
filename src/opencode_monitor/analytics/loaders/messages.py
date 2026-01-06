@@ -21,6 +21,7 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
     try:
         # Use temp table for deduplication, then insert only new records
         conn.execute("DROP TABLE IF EXISTS _tmp_messages")
+        # json_pattern is derived from trusted storage_path, cutoff_ts is computed int
         conn.execute(f"""
             CREATE TEMP TABLE _tmp_messages AS
             SELECT id, session_id, parent_id, role, agent, model_id, provider_id,
@@ -43,14 +44,14 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                     epoch_ms(time.created) as created_at,
                     epoch_ms(time.completed) as completed_at,
                     ROW_NUMBER() OVER (PARTITION BY id ORDER BY time.created DESC) as rn
-                FROM read_json_auto('{json_pattern}', 
+                FROM read_json_auto('{json_pattern}',
                                     maximum_object_size=50000000,
                                     ignore_errors=true)
                 WHERE id IS NOT NULL
                   AND time.created >= {cutoff_ts}
             ) deduped
             WHERE rn = 1
-        """)
+        """)  # nosec B608
 
         # Insert only new records, skip existing (incremental load)
         conn.execute("""
@@ -67,6 +68,7 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
 
         # Update enriched columns if available (newer OpenCode versions)
         try:
+            # json_pattern is derived from trusted storage_path
             conn.execute(f"""
                 UPDATE messages SET
                     mode = src.mode,
@@ -82,7 +84,7 @@ def load_messages_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
                     WHERE mode IS NOT NULL OR cost IS NOT NULL OR finish IS NOT NULL OR path IS NOT NULL
                 ) src
                 WHERE messages.id = src.id
-            """)
+            """)  # nosec B608
         except Exception:
             pass  # Enriched columns not available in this data
 
