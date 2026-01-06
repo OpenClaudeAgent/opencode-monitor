@@ -507,3 +507,337 @@ class SessionQueriesMixin:
         except Exception as e:
             debug(f"get_session_tool_operations failed: {e}")
             return []
+
+    # ===== Plan 34: Enriched Parts Methods =====
+
+    def get_session_reasoning(self, session_id: str) -> dict:
+        """Get reasoning parts (agent thought process) for a session.
+
+        Returns the internal reasoning/thinking of the agent with
+        Anthropic cryptographic signatures when available.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta, summary, and list of reasoning entries
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    id,
+                    reasoning_text,
+                    anthropic_signature,
+                    created_at
+                FROM parts
+                WHERE session_id = ?
+                  AND part_type = 'reasoning'
+                  AND reasoning_text IS NOT NULL
+                ORDER BY created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            entries = []
+            for row in results:
+                entries.append(
+                    {
+                        "id": row[0],
+                        "text": row[1],
+                        "signature": row[2],
+                        "timestamp": row[3].isoformat() if row[3] else None,
+                        "has_signature": row[2] is not None,
+                    }
+                )
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "count": len(entries),
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "summary": {
+                    "total_entries": len(entries),
+                    "signed_entries": sum(1 for e in entries if e["has_signature"]),
+                    "total_chars": sum(len(e["text"] or "") for e in entries),
+                },
+                "details": entries,
+            }
+
+        except Exception as e:
+            debug(f"get_session_reasoning failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "count": 0, "error": str(e)},
+                "summary": {"total_entries": 0, "signed_entries": 0, "total_chars": 0},
+                "details": [],
+            }
+
+    def get_session_steps(self, session_id: str) -> dict:
+        """Get step events timeline with precise token counts and costs.
+
+        Step events capture the beginning and end of each agent step,
+        with accurate token counts and costs from step-finish events.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta, summary (totals), and list of step events
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    id,
+                    event_type,
+                    reason,
+                    snapshot_hash,
+                    cost,
+                    tokens_input,
+                    tokens_output,
+                    tokens_reasoning,
+                    tokens_cache_read,
+                    tokens_cache_write,
+                    created_at
+                FROM step_events
+                WHERE session_id = ?
+                ORDER BY created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            events = []
+            total_cost = 0.0
+            total_tokens_in = 0
+            total_tokens_out = 0
+            total_tokens_reasoning = 0
+
+            for row in results:
+                event_type = row[1]
+                cost = float(row[4] or 0)
+
+                if event_type == "finish":
+                    total_cost += cost
+                    total_tokens_in += row[5] or 0
+                    total_tokens_out += row[6] or 0
+                    total_tokens_reasoning += row[7] or 0
+
+                events.append(
+                    {
+                        "id": row[0],
+                        "event_type": event_type,
+                        "reason": row[2],
+                        "snapshot_hash": row[3],
+                        "cost": cost,
+                        "tokens": {
+                            "input": row[5] or 0,
+                            "output": row[6] or 0,
+                            "reasoning": row[7] or 0,
+                            "cache_read": row[8] or 0,
+                            "cache_write": row[9] or 0,
+                        },
+                        "timestamp": row[10].isoformat() if row[10] else None,
+                    }
+                )
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "count": len(events),
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "summary": {
+                    "total_steps": len(
+                        [e for e in events if e["event_type"] == "finish"]
+                    ),
+                    "total_cost": round(total_cost, 6),
+                    "total_tokens_input": total_tokens_in,
+                    "total_tokens_output": total_tokens_out,
+                    "total_tokens_reasoning": total_tokens_reasoning,
+                    "total_tokens": total_tokens_in
+                    + total_tokens_out
+                    + total_tokens_reasoning,
+                },
+                "details": events,
+            }
+
+        except Exception as e:
+            debug(f"get_session_steps failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "count": 0, "error": str(e)},
+                "summary": {
+                    "total_steps": 0,
+                    "total_cost": 0,
+                    "total_tokens_input": 0,
+                    "total_tokens_output": 0,
+                    "total_tokens_reasoning": 0,
+                    "total_tokens": 0,
+                },
+                "details": [],
+            }
+
+    def get_session_git_history(self, session_id: str) -> dict:
+        """Get git patches history for a session.
+
+        Returns all git commits made during the session with their
+        affected files. Useful for understanding code changes.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta, summary, and list of patches
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    id,
+                    git_hash,
+                    files,
+                    created_at
+                FROM patches
+                WHERE session_id = ?
+                ORDER BY created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            patches = []
+            all_files = set()
+
+            for row in results:
+                files = row[2] or []
+                # DuckDB returns list for VARCHAR[]
+                if isinstance(files, list):
+                    all_files.update(files)
+                    file_list = files
+                else:
+                    file_list = []
+
+                patches.append(
+                    {
+                        "id": row[0],
+                        "hash": row[1],
+                        "files": file_list,
+                        "file_count": len(file_list),
+                        "timestamp": row[3].isoformat() if row[3] else None,
+                    }
+                )
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "commits": len(patches),
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "summary": {
+                    "total_commits": len(patches),
+                    "unique_files": len(all_files),
+                    "files_list": sorted(all_files)[:50],  # Limit for response size
+                },
+                "details": patches,
+            }
+
+        except Exception as e:
+            debug(f"get_session_git_history failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "commits": 0, "error": str(e)},
+                "summary": {"total_commits": 0, "unique_files": 0, "files_list": []},
+                "details": [],
+            }
+
+    def get_session_precise_cost(self, session_id: str) -> dict:
+        """Get precise cost calculated from step-finish events.
+
+        This provides more accurate cost data than message-level estimates
+        by using the actual cost values from step-finish events.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta, cost breakdown, and comparison with estimates
+        """
+        try:
+            # Get precise cost from step_events
+            step_result = self._conn.execute(
+                """
+                SELECT 
+                    SUM(cost) as total_cost,
+                    SUM(tokens_input) as tokens_in,
+                    SUM(tokens_output) as tokens_out,
+                    SUM(tokens_reasoning) as tokens_reasoning,
+                    SUM(tokens_cache_read) as cache_read,
+                    SUM(tokens_cache_write) as cache_write,
+                    COUNT(*) as step_count
+                FROM step_events
+                WHERE session_id = ? AND event_type = 'finish'
+                """,
+                [session_id],
+            ).fetchone()
+
+            # Get estimated cost from messages (for comparison)
+            msg_result = self._conn.execute(
+                """
+                SELECT 
+                    SUM(cost) as estimated_cost,
+                    SUM(tokens_input) as tokens_in,
+                    SUM(tokens_output) as tokens_out
+                FROM messages
+                WHERE session_id = ?
+                """,
+                [session_id],
+            ).fetchone()
+
+            precise_cost = float(step_result[0] or 0) if step_result else 0
+            estimated_cost = float(msg_result[0] or 0) if msg_result else 0
+
+            # Calculate difference
+            cost_diff = precise_cost - estimated_cost
+            cost_diff_pct = (
+                (cost_diff / estimated_cost * 100) if estimated_cost > 0 else 0
+            )
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                    "source": "step_events"
+                    if step_result and step_result[6]
+                    else "messages",
+                },
+                "precise": {
+                    "cost_usd": round(precise_cost, 6),
+                    "tokens_input": step_result[1] or 0 if step_result else 0,
+                    "tokens_output": step_result[2] or 0 if step_result else 0,
+                    "tokens_reasoning": step_result[3] or 0 if step_result else 0,
+                    "tokens_cache_read": step_result[4] or 0 if step_result else 0,
+                    "tokens_cache_write": step_result[5] or 0 if step_result else 0,
+                    "step_count": step_result[6] or 0 if step_result else 0,
+                },
+                "estimated": {
+                    "cost_usd": round(estimated_cost, 6),
+                    "tokens_input": msg_result[1] or 0 if msg_result else 0,
+                    "tokens_output": msg_result[2] or 0 if msg_result else 0,
+                },
+                "comparison": {
+                    "difference_usd": round(cost_diff, 6),
+                    "difference_pct": round(cost_diff_pct, 2),
+                    "has_precise_data": bool(step_result and step_result[6]),
+                },
+            }
+
+        except Exception as e:
+            debug(f"get_session_precise_cost failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "error": str(e)},
+                "precise": {"cost_usd": 0, "tokens_input": 0, "tokens_output": 0},
+                "estimated": {"cost_usd": 0, "tokens_input": 0, "tokens_output": 0},
+                "comparison": {
+                    "difference_usd": 0,
+                    "difference_pct": 0,
+                    "has_precise_data": False,
+                },
+            }
