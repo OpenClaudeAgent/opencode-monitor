@@ -395,6 +395,55 @@ class AnalyticsDB:
             ON file_operations(operation)
         """)
 
+        # Step events table (step-start, step-finish from parts)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS step_events (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                message_id VARCHAR NOT NULL,
+                event_type VARCHAR NOT NULL,
+                reason VARCHAR,
+                snapshot_hash VARCHAR,
+                cost DECIMAL(10,6) DEFAULT 0,
+                tokens_input INTEGER DEFAULT 0,
+                tokens_output INTEGER DEFAULT 0,
+                tokens_reasoning INTEGER DEFAULT 0,
+                tokens_cache_read INTEGER DEFAULT 0,
+                tokens_cache_write INTEGER DEFAULT 0,
+                created_at TIMESTAMP
+            )
+        """)
+
+        # Patches table (git commits from patch parts)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS patches (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                message_id VARCHAR NOT NULL,
+                git_hash VARCHAR NOT NULL,
+                files VARCHAR[],
+                created_at TIMESTAMP
+            )
+        """)
+
+        # Indexes for step_events and patches
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_step_events_session
+            ON step_events(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_step_events_message
+            ON step_events(message_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_patches_session
+            ON patches(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_patches_hash
+            ON patches(git_hash)
+        """)
+
         # Security scanned parts table - tracks parts already processed by security auditor
         # Uses parts table to find unscanned files via LEFT JOIN instead of filesystem scan
         # Note: Stores part_id (e.g., prt_xxx) instead of file_path for efficient joins
@@ -429,6 +478,8 @@ class AnalyticsDB:
             "daily_stats",
             "sync_meta",
             "security_scanned",
+            "step_events",
+            "patches",
         }
     )
 
@@ -494,6 +545,13 @@ class AnalyticsDB:
         add_column("parts", "error_message", "TEXT")
         add_column("parts", "child_session_id", "VARCHAR")  # For task delegations
 
+        # Parts - enriched columns for reasoning, compaction, file parts
+        add_column("parts", "reasoning_text", "TEXT")  # Reasoning content
+        add_column("parts", "anthropic_signature", "TEXT")  # Crypto signature
+        add_column("parts", "compaction_auto", "BOOLEAN")  # Auto vs manual compaction
+        add_column("parts", "file_mime", "VARCHAR")  # MIME type for file parts
+        add_column("parts", "file_name", "VARCHAR")  # Filename for file parts
+
         # Sessions - additional columns for stats
         add_column("sessions", "ended_at", "TIMESTAMP")
         add_column("sessions", "duration_ms", "INTEGER")
@@ -533,6 +591,8 @@ class AnalyticsDB:
         conn.execute("DELETE FROM file_operations")
         conn.execute("DELETE FROM session_stats")
         conn.execute("DELETE FROM daily_stats")
+        conn.execute("DELETE FROM step_events")
+        conn.execute("DELETE FROM patches")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -552,6 +612,8 @@ class AnalyticsDB:
             "file_operations",
             "session_stats",
             "daily_stats",
+            "step_events",
+            "patches",
         ]:
             try:
                 # Table names are from hardcoded list above, not user input
