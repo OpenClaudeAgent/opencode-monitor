@@ -168,7 +168,10 @@ def pytest_runtest_setup(item):
 
 
 def create_default_auditor_stats() -> dict:
-    """Create default stats dict for auditor mocking."""
+    """Create default stats dict for auditor mocking.
+
+    Note: This is also available from tests.mocks.create_default_auditor_stats
+    """
     return {
         "total_scanned": 0,
         "total_commands": 0,

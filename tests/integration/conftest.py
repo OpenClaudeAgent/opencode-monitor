@@ -14,7 +14,7 @@ to provide controlled responses without network calls.
 
 import sys
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -22,6 +22,9 @@ import pytest
 # Add src directory to path for imports
 src_path = Path(__file__).parent.parent.parent / "src"
 sys.path.insert(0, str(src_path))
+
+# Import centralized mock client
+from tests.mocks import MockAnalyticsAPIClient
 
 # Import from reorganized fixtures
 from .fixtures import (
@@ -38,164 +41,6 @@ from .fixtures import (
 from .helpers.assertions import assert_table_content, assert_widget_content
 from .helpers.navigation import click_nav, click_tab, select_first_session
 from .helpers.signals import wait_for_signal
-
-
-# =============================================================================
-# Mock API Client
-# =============================================================================
-
-
-class MockAnalyticsAPIClient:
-    """Mock API client that returns pre-configured responses.
-
-    Replaces the real AnalyticsAPIClient to avoid HTTP calls during tests.
-    All responses are configured via the `responses` parameter.
-    """
-
-    def __init__(self, responses: dict[str, Any] | None = None):
-        """Initialize with optional pre-configured responses.
-
-        Args:
-            responses: Dict of API responses, keyed by method/endpoint
-        """
-        self._responses = responses or MockAPIResponses.basic()
-        self._available = True
-        self._call_log: list[tuple[str, dict]] = []
-
-    def _log_call(self, method: str, **kwargs: Any) -> None:
-        """Log API call for verification in tests."""
-        self._call_log.append((method, kwargs))
-
-    @property
-    def is_available(self) -> bool:
-        """Return configured availability."""
-        return self._available
-
-    def set_available(self, available: bool) -> None:
-        """Set API availability for testing offline scenarios."""
-        self._available = available
-
-    def health_check(self) -> bool:
-        """Return configured health status."""
-        self._log_call("health_check")
-        return self._responses.get("health", True)
-
-    def get_stats(self) -> Optional[dict]:
-        """Return configured stats."""
-        self._log_call("get_stats")
-        return self._responses.get("stats")
-
-    def get_global_stats(self, days: int = 30) -> Optional[dict]:
-        """Return configured global stats."""
-        self._log_call("get_global_stats", days=days)
-        return self._responses.get("global_stats")
-
-    def get_sessions(self, days: int = 30, limit: int = 100) -> Optional[list]:
-        """Return configured sessions list."""
-        self._log_call("get_sessions", days=days, limit=limit)
-        return self._responses.get("sessions", [])
-
-    def get_delegations(self, days: int = 30, limit: int = 1000) -> Optional[list]:
-        """Return configured delegations list."""
-        self._log_call("get_delegations", days=days, limit=limit)
-        return self._responses.get("delegations", [])
-
-    def get_session_summary(self, session_id: str) -> Optional[dict]:
-        """Return configured session summary."""
-        self._log_call("get_session_summary", session_id=session_id)
-        summaries = self._responses.get("session_summaries", {})
-        return summaries.get(session_id)
-
-    def get_session_messages(self, session_id: str) -> Optional[list]:
-        """Return configured session messages."""
-        self._log_call("get_session_messages", session_id=session_id)
-        messages = self._responses.get("session_messages", {})
-        return messages.get(session_id, [])
-
-    def get_session_tokens(self, session_id: str) -> Optional[dict]:
-        """Return configured session tokens."""
-        self._log_call("get_session_tokens", session_id=session_id)
-        tokens = self._responses.get("session_tokens", {})
-        return tokens.get(session_id)
-
-    def get_session_tools(self, session_id: str) -> Optional[list]:
-        """Return configured session tools."""
-        self._log_call("get_session_tools", session_id=session_id)
-        tools = self._responses.get("session_tools", {})
-        return tools.get(session_id)
-
-    def get_session_files(self, session_id: str) -> Optional[list]:
-        """Return configured session files."""
-        self._log_call("get_session_files", session_id=session_id)
-        files = self._responses.get("session_files", {})
-        return files.get(session_id)
-
-    def get_session_agents(self, session_id: str) -> Optional[list]:
-        """Return configured session agents."""
-        self._log_call("get_session_agents", session_id=session_id)
-        agents = self._responses.get("session_agents", {})
-        return agents.get(session_id)
-
-    def get_session_timeline(self, session_id: str) -> Optional[list]:
-        """Return configured session timeline."""
-        self._log_call("get_session_timeline", session_id=session_id)
-        timeline = self._responses.get("session_timeline", {})
-        return timeline.get(session_id)
-
-    def get_session_prompts(self, session_id: str) -> Optional[dict]:
-        """Return configured session prompts."""
-        self._log_call("get_session_prompts", session_id=session_id)
-        return None
-
-    def get_session_operations(self, session_id: str) -> Optional[list]:
-        """Return configured session operations."""
-        self._log_call("get_session_operations", session_id=session_id)
-        operations = self._responses.get("session_operations", {})
-        return operations.get(session_id, [])
-
-    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
-        """Return configured tracing tree (session hierarchy)."""
-        self._log_call("get_tracing_tree", days=days)
-        return self._responses.get("session_hierarchy", [])
-
-    def get_conversation(self, session_id: str) -> Optional[dict]:
-        """Return configured conversation for a session."""
-        self._log_call("get_conversation", session_id=session_id)
-        conversations = self._responses.get("conversations", {})
-        return conversations.get(session_id)
-
-    def get_sync_status(self) -> Optional[dict]:
-        """Return configured sync status."""
-        self._log_call("get_sync_status")
-        return self._responses.get("sync_status", {"status": "idle", "progress": 100})
-
-    def get_security_data(
-        self, row_limit: int = 100, top_limit: int = 5
-    ) -> Optional[dict]:
-        """Return configured security data."""
-        self._log_call("get_security_data", row_limit=row_limit, top_limit=top_limit)
-        return self._responses.get(
-            "security_data",
-            {
-                "stats": {"total": 0, "critical": 0, "high": 0, "medium": 0, "low": 0},
-                "top_commands": [],
-                "top_reads": [],
-                "top_writes": [],
-                "top_webfetches": [],
-                "commands": [],
-                "reads": [],
-                "writes": [],
-                "webfetches": [],
-            },
-        )
-
-    def get_call_log(self) -> list[tuple[str, dict]]:
-        """Return log of all API calls made during test."""
-        return self._call_log.copy()
-
-    def clear_call_log(self) -> None:
-        """Clear the API call log."""
-        self._call_log.clear()
 
 
 # =============================================================================
