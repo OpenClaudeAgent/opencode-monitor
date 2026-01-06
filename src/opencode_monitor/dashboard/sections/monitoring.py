@@ -82,35 +82,33 @@ class MonitoringSection(QWidget):
         content_layout.setSpacing(24)  # 24px gap between sections
 
         # ═══════════════════════════════════════════════════════════════════
-        # Metrics Grid 2×3 (aéré avec 20px gap)
+        # Metrics Grid - Single row with 6 cards
         # ═══════════════════════════════════════════════════════════════════
         metrics_container = QWidget()
         metrics_grid = QGridLayout(metrics_container)
         metrics_grid.setContentsMargins(0, SPACING["sm"], 0, SPACING["sm"])
-        metrics_grid.setHorizontalSpacing(20)  # 20px horizontal gap
-        metrics_grid.setVerticalSpacing(20)  # 20px vertical gap
+        metrics_grid.setHorizontalSpacing(16)  # 16px horizontal gap
 
         # Store metric cards for updates
         self._metric_cards: dict[str, MetricCard] = {}
 
-        # Row 1: Instances, Agents, Busy
+        # Single row: Instances, Agents, Busy, Waiting, Idle, Todos
         self._metric_cards["instances"] = MetricCard("0", "Instances", "primary")
         self._metric_cards["agents"] = MetricCard("0", "Agents", "primary")
         self._metric_cards["busy"] = MetricCard("0", "Busy", "success")
-        metrics_grid.addWidget(self._metric_cards["instances"], 0, 0)
-        metrics_grid.addWidget(self._metric_cards["agents"], 0, 1)
-        metrics_grid.addWidget(self._metric_cards["busy"], 0, 2)
-
-        # Row 2: Waiting, Idle, Todos
         self._metric_cards["waiting"] = MetricCard("0", "Waiting", "warning")
         self._metric_cards["idle"] = MetricCard("0", "Idle", "muted")
         self._metric_cards["todos"] = MetricCard("0", "Todos", "warning")
-        metrics_grid.addWidget(self._metric_cards["waiting"], 1, 0)
-        metrics_grid.addWidget(self._metric_cards["idle"], 1, 1)
-        metrics_grid.addWidget(self._metric_cards["todos"], 1, 2)
+
+        metrics_grid.addWidget(self._metric_cards["instances"], 0, 0)
+        metrics_grid.addWidget(self._metric_cards["agents"], 0, 1)
+        metrics_grid.addWidget(self._metric_cards["busy"], 0, 2)
+        metrics_grid.addWidget(self._metric_cards["waiting"], 0, 3)
+        metrics_grid.addWidget(self._metric_cards["idle"], 0, 4)
+        metrics_grid.addWidget(self._metric_cards["todos"], 0, 5)
 
         # Add stretch to prevent cards from expanding too much
-        metrics_grid.setColumnStretch(3, 1)
+        metrics_grid.setColumnStretch(6, 1)
 
         content_layout.addWidget(metrics_container)
 
@@ -243,6 +241,8 @@ class MonitoringSection(QWidget):
                     "success" if status == "busy" else "neutral",
                 )
                 self._agents_table.setCellWidget(row, 2, status_badge)
+                if item := self._agents_table.item(row, 2):
+                    item.setText("")
 
                 # Store agent_id for double-click handling
                 first_item = self._agents_table.item(row, 0)
@@ -282,10 +282,12 @@ class MonitoringSection(QWidget):
                     ],
                 )
 
-                # Add type badge for tool name (column 0)
+                # Add type badge for tool name (column 0) - clear text to avoid overlap
                 row = self._tools_table.rowCount() - 1
                 type_badge = create_type_badge(tool_name)
                 self._tools_table.setCellWidget(row, 0, type_badge)
+                if item := self._tools_table.item(row, 0):
+                    item.setText("")
         else:
             self._tools_table.hide()
             self._tools_empty.show()

@@ -52,33 +52,31 @@ class SecuritySection(QWidget):
         content_layout.setSpacing(24)  # 24px gap between sections
 
         # ═══════════════════════════════════════════════════════════════════
-        # Metrics Grid 2×3 (5 metrics: 3 + 2)
+        # Metrics Grid - Single row with 5 cards
         # ═══════════════════════════════════════════════════════════════════
         metrics_container = QWidget()
         metrics_grid = QGridLayout(metrics_container)
         metrics_grid.setContentsMargins(0, SPACING["sm"], 0, SPACING["sm"])
-        metrics_grid.setHorizontalSpacing(20)  # 20px horizontal gap
-        metrics_grid.setVerticalSpacing(20)  # 20px vertical gap
+        metrics_grid.setHorizontalSpacing(16)  # 16px horizontal gap
 
         # Store metric cards for updates
         self._metric_cards: dict[str, MetricCard] = {}
 
-        # Row 0: Analyzed, Critical, High
+        # Single row: Analyzed, Critical, High, Medium, Low
         self._metric_cards["total"] = MetricCard("0", "Analyzed", "primary")
         self._metric_cards["critical"] = MetricCard("0", "Critical", "error")
         self._metric_cards["high"] = MetricCard("0", "High", "warning")
+        self._metric_cards["medium"] = MetricCard("0", "Medium", "warning")
+        self._metric_cards["low"] = MetricCard("0", "Low", "success")
+
         metrics_grid.addWidget(self._metric_cards["total"], 0, 0)
         metrics_grid.addWidget(self._metric_cards["critical"], 0, 1)
         metrics_grid.addWidget(self._metric_cards["high"], 0, 2)
-
-        # Row 1: Medium, Low
-        self._metric_cards["medium"] = MetricCard("0", "Medium", "warning")
-        self._metric_cards["low"] = MetricCard("0", "Low", "success")
-        metrics_grid.addWidget(self._metric_cards["medium"], 1, 0)
-        metrics_grid.addWidget(self._metric_cards["low"], 1, 1)
+        metrics_grid.addWidget(self._metric_cards["medium"], 0, 3)
+        metrics_grid.addWidget(self._metric_cards["low"], 0, 4)
 
         # Add stretch to prevent cards from expanding too much
-        metrics_grid.setColumnStretch(3, 1)
+        metrics_grid.setColumnStretch(5, 1)
 
         content_layout.addWidget(metrics_container)
 
@@ -191,14 +189,18 @@ class SecuritySection(QWidget):
                         ],
                     )
 
-                    # Add badges for critical alerts
+                    # Add badges for critical alerts (clear text first to avoid overlap)
                     row = self._critical_table.rowCount() - 1
                     # Type badge (column 0)
                     type_badge = create_type_badge(item_type)
                     self._critical_table.setCellWidget(row, 0, type_badge)
+                    if item := self._critical_table.item(row, 0):
+                        item.setText("")
                     # Risk badge (column 2)
                     risk_badge = create_risk_badge(risk)
                     self._critical_table.setCellWidget(row, 2, risk_badge)
+                    if item := self._critical_table.item(row, 2):
+                        item.setText("")
             else:
                 self._critical_table.hide()
                 self._critical_empty.show()
@@ -224,15 +226,19 @@ class SecuritySection(QWidget):
                 full_values=[command, risk.upper(), str(cmd.get("score", 0)), reason],
             )
 
-            # Add badges for commands
+            # Add badges for commands (clear text first to avoid overlap)
             row = self._commands_table.rowCount() - 1
             # Risk badge (column 1)
             risk_badge = create_risk_badge(risk)
             self._commands_table.setCellWidget(row, 1, risk_badge)
+            if item := self._commands_table.item(row, 1):
+                item.setText("")
             # Score badge (column 2)
             score_val = cmd.get("score", 0)
             score_badge = create_score_badge(score_val)
             self._commands_table.setCellWidget(row, 2, score_badge)
+            if item := self._commands_table.item(row, 2):
+                item.setText("")
 
         # Files
         self._files_table.clear_data()
@@ -260,15 +266,21 @@ class SecuritySection(QWidget):
                 ],
             )
 
-            # Add badges for files
+            # Add badges for files (clear text first to avoid overlap)
             row = self._files_table.rowCount() - 1
             # Type badge (column 0)
             type_badge = create_type_badge(operation)
             self._files_table.setCellWidget(row, 0, type_badge)
+            if item := self._files_table.item(row, 0):
+                item.setText("")
             # Risk badge (column 2)
             risk_badge = create_risk_badge(risk)
             self._files_table.setCellWidget(row, 2, risk_badge)
+            if item := self._files_table.item(row, 2):
+                item.setText("")
             # Score badge (column 3)
             score_val = f.get("score", 0)
             score_badge = create_score_badge(score_val)
             self._files_table.setCellWidget(row, 3, score_badge)
+            if item := self._files_table.item(row, 3):
+                item.setText("")
