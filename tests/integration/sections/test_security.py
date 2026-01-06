@@ -140,10 +140,10 @@ class TestSecuritySection:
                 files_checked = True
 
         # Check metrics cards if available
-        if hasattr(security, "_metrics"):
-            metrics = security._metrics
-            if hasattr(metrics, "_cards") and "critical" in metrics._cards:
-                critical_text = metrics._cards["critical"]._value_label.text()
+        if hasattr(security, "_metric_cards"):
+            metric_cards = security._metric_cards
+            if "critical" in metric_cards:
+                critical_text = metric_cards["critical"]._value_label.text()
                 assert critical_text == str(EXPECTED_SECURITY["critical"]), (
                     f"Expected critical count {EXPECTED_SECURITY['critical']}, "
                     f"got {critical_text}"

@@ -96,8 +96,8 @@ class TestMonitoringStateVariants:
         monitoring = dashboard_window._monitoring
 
         # Metrics should show 0 busy, 4 idle
-        assert monitoring._metrics._cards["busy"]._value_label.text() == "0"
-        assert monitoring._metrics._cards["idle"]._value_label.text() == "4"
+        assert monitoring._metric_cards["busy"]._value_label.text() == "0"
+        assert monitoring._metric_cards["idle"]._value_label.text() == "4"
 
         # All agents in table should have IDLE status
         table = monitoring._agents_table
@@ -115,7 +115,7 @@ class TestMonitoringStateVariants:
         monitoring = dashboard_window._monitoring
 
         # Metrics should show 3 waiting
-        assert monitoring._metrics._cards["waiting"]._value_label.text() == "3"
+        assert monitoring._metric_cards["waiting"]._value_label.text() == "3"
 
         # Waiting table should have 3 rows
         waiting_table = monitoring._waiting_table
@@ -133,8 +133,8 @@ class TestMonitoringStateVariants:
         assert dashboard_window.isVisible(), "Window should remain visible"
 
         # Verify metrics display correctly (1 busy, 1 idle from mock data)
-        assert monitoring._metrics._cards["busy"]._value_label.text() == "1"
-        assert monitoring._metrics._cards["idle"]._value_label.text() == "1"
+        assert monitoring._metric_cards["busy"]._value_label.text() == "1"
+        assert monitoring._metric_cards["idle"]._value_label.text() == "1"
 
         # Table should display all 4 agents from mock data
         table = monitoring._agents_table

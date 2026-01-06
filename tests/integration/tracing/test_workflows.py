@@ -111,8 +111,8 @@ class TestUserWorkflows:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         # Verify monitoring data is there
-        metrics = dashboard_window._monitoring._metrics
-        initial_agents = metrics._cards["agents"]._value_label.text()
+        metric_cards = dashboard_window._monitoring._metric_cards
+        initial_agents = metric_cards["agents"]._value_label.text()
         assert initial_agents == "3", (
             f"Expected 3 agents initially, got {initial_agents}"
         )
@@ -124,7 +124,7 @@ class TestUserWorkflows:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         # Monitoring data should persist
-        final_agents = metrics._cards["agents"]._value_label.text()
+        final_agents = metric_cards["agents"]._value_label.text()
         assert final_agents == "3", (
             f"Monitoring data should persist: expected '3', got {final_agents}"
         )

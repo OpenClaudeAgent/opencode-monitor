@@ -101,9 +101,9 @@ class TestDataRobustness:
         qtbot.wait(SIGNAL_WAIT_MS)
 
         # Metrics should display formatted values (999999 or "999K" or similar)
-        metrics = monitoring._metrics
-        agents_text = metrics._cards["agents"]._value_label.text()
-        todos_text = metrics._cards["todos"]._value_label.text()
+        metric_cards = monitoring._metric_cards
+        agents_text = metric_cards["agents"]._value_label.text()
+        todos_text = metric_cards["todos"]._value_label.text()
         assert "999" in agents_text, (
             f"Agents metric should show 999K/999999, got: {agents_text}"
         )
