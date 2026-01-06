@@ -6,16 +6,16 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QScrollArea,
+    QGridLayout,
 )
 from PyQt6.QtCore import Qt
 
 from ..widgets import (
-    MetricsRow,
+    MetricCard,
     DataTable,
-    SectionHeader,
-    Separator,
     PageHeader,
     EmptyState,
+    SectionCard,
 )
 from ..styles import SPACING, COL_WIDTH, UI
 from .colors import get_operation_variant
@@ -46,30 +46,51 @@ class SecuritySection(QWidget):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
-        content_layout.setSpacing(SPACING["xl"])
+        content_layout.setSpacing(24)  # 24px gap between sections
 
-        # Security Metrics (5 cards with risk colors)
-        self._metrics = MetricsRow()
-        self._metrics.add_metric("total", "0", "Analyzed", "primary")
-        self._metrics.add_metric("critical", "0", "Critical", "error")
-        self._metrics.add_metric("high", "0", "High", "warning")
-        self._metrics.add_metric("medium", "0", "Medium", "warning")
-        self._metrics.add_metric("low", "0", "Low", "success")
-        self._metrics.add_stretch()
-        content_layout.addWidget(self._metrics)
+        # ═══════════════════════════════════════════════════════════════════
+        # Metrics Grid 2×3 (5 metrics: 3 + 2)
+        # ═══════════════════════════════════════════════════════════════════
+        metrics_container = QWidget()
+        metrics_grid = QGridLayout(metrics_container)
+        metrics_grid.setContentsMargins(0, SPACING["sm"], 0, SPACING["sm"])
+        metrics_grid.setHorizontalSpacing(20)  # 20px horizontal gap
+        metrics_grid.setVerticalSpacing(20)  # 20px vertical gap
 
-        content_layout.addWidget(Separator())
+        # Store metric cards for updates
+        self._metric_cards: dict[str, MetricCard] = {}
 
-        # Critical Alerts Section
-        content_layout.addWidget(
-            SectionHeader("Critical Alerts", "High-risk operations requiring attention")
+        # Row 0: Analyzed, Critical, High
+        self._metric_cards["total"] = MetricCard("0", "Analyzed", "primary")
+        self._metric_cards["critical"] = MetricCard("0", "Critical", "error")
+        self._metric_cards["high"] = MetricCard("0", "High", "warning")
+        metrics_grid.addWidget(self._metric_cards["total"], 0, 0)
+        metrics_grid.addWidget(self._metric_cards["critical"], 0, 1)
+        metrics_grid.addWidget(self._metric_cards["high"], 0, 2)
+
+        # Row 1: Medium, Low
+        self._metric_cards["medium"] = MetricCard("0", "Medium", "warning")
+        self._metric_cards["low"] = MetricCard("0", "Low", "success")
+        metrics_grid.addWidget(self._metric_cards["medium"], 1, 0)
+        metrics_grid.addWidget(self._metric_cards["low"], 1, 1)
+
+        # Add stretch to prevent cards from expanding too much
+        metrics_grid.setColumnStretch(3, 1)
+
+        content_layout.addWidget(metrics_container)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # Critical Alerts Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        self._critical_card = SectionCard(
+            "Critical Alerts", "High-risk operations requiring attention"
         )
 
         self._critical_table = DataTable(["Type", "Details", "Risk", "Reason"])
         self._critical_table.setColumnWidth(0, COL_WIDTH["type"])  # Operation type
         self._critical_table.setColumnWidth(1, COL_WIDTH["path"])  # Details/path
         self._critical_table.setColumnWidth(2, COL_WIDTH["risk"])  # Risk level
-        content_layout.addWidget(self._critical_table)
+        self._critical_card.add_widget(self._critical_table)
 
         self._critical_empty = EmptyState(
             icon="✓",
@@ -77,27 +98,30 @@ class SecuritySection(QWidget):
             subtitle="All operations within normal risk levels",
         )
         self._critical_empty.hide()
-        content_layout.addWidget(self._critical_empty)
+        self._critical_card.add_widget(self._critical_empty)
 
-        content_layout.addWidget(Separator())
+        content_layout.addWidget(self._critical_card)
 
-        # Recent Commands Section
-        content_layout.addWidget(
-            SectionHeader("Recent Commands", "Last analyzed shell commands")
+        # ═══════════════════════════════════════════════════════════════════
+        # Recent Commands Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        self._commands_card = SectionCard(
+            "Recent Commands", "Last analyzed shell commands"
         )
 
         self._commands_table = DataTable(["Command", "Risk", "Score", "Reason"])
         self._commands_table.setColumnWidth(0, COL_WIDTH["path"])  # Command (long text)
         self._commands_table.setColumnWidth(1, COL_WIDTH["risk"])  # Risk level
-        self._commands_table.setColumnWidth(2, COL_WIDTH["number_tiny"])  # Score
-        self._commands_table.setColumnWidth(2, 80)
-        content_layout.addWidget(self._commands_table)
+        self._commands_table.setColumnWidth(2, 80)  # Score
+        self._commands_card.add_widget(self._commands_table)
 
-        content_layout.addWidget(Separator())
+        content_layout.addWidget(self._commands_card)
 
-        # File Operations Section
-        content_layout.addWidget(
-            SectionHeader("File Operations", "Recent file reads and writes")
+        # ═══════════════════════════════════════════════════════════════════
+        # File Operations Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        self._files_card = SectionCard(
+            "File Operations", "Recent file reads and writes"
         )
 
         self._files_table = DataTable(["Operation", "Path", "Risk", "Score"])
@@ -105,7 +129,9 @@ class SecuritySection(QWidget):
         self._files_table.setColumnWidth(1, COL_WIDTH["path"])  # File path
         self._files_table.setColumnWidth(2, COL_WIDTH["risk"])  # Risk level
         self._files_table.setColumnWidth(3, COL_WIDTH["number_tiny"])  # Score
-        content_layout.addWidget(self._files_table)
+        self._files_card.add_widget(self._files_table)
+
+        content_layout.addWidget(self._files_card)
 
         content_layout.addStretch()
         scroll.setWidget(content)
@@ -119,11 +145,11 @@ class SecuritySection(QWidget):
         critical_items: list[dict] | None = None,
     ) -> None:
         """Update security data."""
-        self._metrics.update_metric("total", str(stats.get("total", 0)))
-        self._metrics.update_metric("critical", str(stats.get("critical", 0)))
-        self._metrics.update_metric("high", str(stats.get("high", 0)))
-        self._metrics.update_metric("medium", str(stats.get("medium", 0)))
-        self._metrics.update_metric("low", str(stats.get("low", 0)))
+        self._metric_cards["total"].set_value(str(stats.get("total", 0)))
+        self._metric_cards["critical"].set_value(str(stats.get("critical", 0)))
+        self._metric_cards["high"].set_value(str(stats.get("high", 0)))
+        self._metric_cards["medium"].set_value(str(stats.get("medium", 0)))
+        self._metric_cards["low"].set_value(str(stats.get("low", 0)))
 
         # Critical alerts
         self._critical_table.clear_data()
