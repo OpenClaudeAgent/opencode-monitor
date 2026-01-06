@@ -6,17 +6,17 @@ from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
     QScrollArea,
+    QGridLayout,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
 from ..widgets import (
-    MetricsRow,
+    MetricCard,
     DataTable,
-    SectionHeader,
-    Separator,
     PageHeader,
     EmptyState,
     StatusBadge,
+    SectionCard,
 )
 from ..styles import SPACING, COL_WIDTH, format_duration_ms
 from .colors import get_operation_variant
@@ -78,25 +78,45 @@ class MonitoringSection(QWidget):
         content = QWidget()
         content_layout = QVBoxLayout(content)
         content_layout.setContentsMargins(0, 0, SPACING["md"], 0)
-        content_layout.setSpacing(SPACING["xl"])
+        content_layout.setSpacing(24)  # 24px gap between sections
 
-        # Metrics Row (6 cards)
-        self._metrics = MetricsRow()
-        self._metrics.add_metric("instances", "0", "Instances", "primary")
-        self._metrics.add_metric("agents", "0", "Agents", "primary")
-        self._metrics.add_metric("busy", "0", "Busy", "success")
-        self._metrics.add_metric("waiting", "0", "Waiting", "warning")
-        self._metrics.add_metric("idle", "0", "Idle", "muted")
-        self._metrics.add_metric("todos", "0", "Todos", "warning")
-        self._metrics.add_stretch()
-        content_layout.addWidget(self._metrics)
+        # ═══════════════════════════════════════════════════════════════════
+        # Metrics Grid 2×3 (aéré avec 20px gap)
+        # ═══════════════════════════════════════════════════════════════════
+        metrics_container = QWidget()
+        metrics_grid = QGridLayout(metrics_container)
+        metrics_grid.setContentsMargins(0, SPACING["sm"], 0, SPACING["sm"])
+        metrics_grid.setHorizontalSpacing(20)  # 20px horizontal gap
+        metrics_grid.setVerticalSpacing(20)  # 20px vertical gap
 
-        content_layout.addWidget(Separator())
+        # Store metric cards for updates
+        self._metric_cards: dict[str, MetricCard] = {}
 
-        # Active Agents Section
-        content_layout.addWidget(
-            SectionHeader("Active Agents", "Currently running sessions")
-        )
+        # Row 1: Instances, Agents, Busy
+        self._metric_cards["instances"] = MetricCard("0", "Instances", "primary")
+        self._metric_cards["agents"] = MetricCard("0", "Agents", "primary")
+        self._metric_cards["busy"] = MetricCard("0", "Busy", "success")
+        metrics_grid.addWidget(self._metric_cards["instances"], 0, 0)
+        metrics_grid.addWidget(self._metric_cards["agents"], 0, 1)
+        metrics_grid.addWidget(self._metric_cards["busy"], 0, 2)
+
+        # Row 2: Waiting, Idle, Todos
+        self._metric_cards["waiting"] = MetricCard("0", "Waiting", "warning")
+        self._metric_cards["idle"] = MetricCard("0", "Idle", "muted")
+        self._metric_cards["todos"] = MetricCard("0", "Todos", "warning")
+        metrics_grid.addWidget(self._metric_cards["waiting"], 1, 0)
+        metrics_grid.addWidget(self._metric_cards["idle"], 1, 1)
+        metrics_grid.addWidget(self._metric_cards["todos"], 1, 2)
+
+        # Add stretch to prevent cards from expanding too much
+        metrics_grid.setColumnStretch(3, 1)
+
+        content_layout.addWidget(metrics_container)
+
+        # ═══════════════════════════════════════════════════════════════════
+        # Active Agents Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        agents_card = SectionCard("Active Agents", "Currently running sessions")
 
         self._agents_table = DataTable(
             ["Agent", "Directory", "Status", "Tools", "Todos"]
@@ -105,7 +125,7 @@ class MonitoringSection(QWidget):
         self._agents_table.setColumnWidth(1, COL_WIDTH["path"])  # Directory
         self._agents_table.setColumnWidth(2, COL_WIDTH["status"])  # Status (BUSY/IDLE)
         self._agents_table.setColumnWidth(3, COL_WIDTH["number_tiny"])  # Tools count
-        content_layout.addWidget(self._agents_table)
+        agents_card.add_widget(self._agents_table)
 
         self._agents_empty = EmptyState(
             icon="○",
@@ -113,20 +133,20 @@ class MonitoringSection(QWidget):
             subtitle="Start a Claude session to see it here",
         )
         self._agents_empty.hide()
-        content_layout.addWidget(self._agents_empty)
+        agents_card.add_widget(self._agents_empty)
 
-        content_layout.addWidget(Separator())
+        content_layout.addWidget(agents_card)
 
-        # Running Tools Section
-        content_layout.addWidget(
-            SectionHeader("Running Tools", "Tools currently executing")
-        )
+        # ═══════════════════════════════════════════════════════════════════
+        # Running Tools Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        tools_card = SectionCard("Running Tools", "Tools currently executing")
 
         self._tools_table = DataTable(["Tool", "Agent", "Arguments", "Duration"])
         self._tools_table.setColumnWidth(0, COL_WIDTH["type"])  # Tool type
         self._tools_table.setColumnWidth(1, COL_WIDTH["name_short"])  # Agent name
         self._tools_table.setColumnWidth(2, COL_WIDTH["path"])  # Arguments
-        content_layout.addWidget(self._tools_table)
+        tools_card.add_widget(self._tools_table)
 
         self._tools_empty = EmptyState(
             icon="○",
@@ -134,13 +154,15 @@ class MonitoringSection(QWidget):
             subtitle="Tools will appear here when executing",
         )
         self._tools_empty.hide()
-        content_layout.addWidget(self._tools_empty)
+        tools_card.add_widget(self._tools_empty)
 
-        content_layout.addWidget(Separator())
+        content_layout.addWidget(tools_card)
 
-        # Waiting for Response Section
-        content_layout.addWidget(
-            SectionHeader("Waiting for Response", "Agents waiting for user input")
+        # ═══════════════════════════════════════════════════════════════════
+        # Waiting for Response Section (in SectionCard)
+        # ═══════════════════════════════════════════════════════════════════
+        waiting_card = SectionCard(
+            "Waiting for Response", "Agents waiting for user input"
         )
 
         self._waiting_table = DataTable(["Title", "Question", "Options", "Context"])
@@ -150,7 +172,7 @@ class MonitoringSection(QWidget):
         self._waiting_table.setColumnWidth(
             3, COL_WIDTH["name_short"]
         )  # Context (repo @ branch)
-        content_layout.addWidget(self._waiting_table)
+        waiting_card.add_widget(self._waiting_table)
 
         self._waiting_empty = EmptyState(
             icon="✓",
@@ -158,7 +180,9 @@ class MonitoringSection(QWidget):
             subtitle="Agents will appear here when asking for user input",
         )
         self._waiting_empty.hide()
-        content_layout.addWidget(self._waiting_empty)
+        waiting_card.add_widget(self._waiting_empty)
+
+        content_layout.addWidget(waiting_card)
 
         content_layout.addStretch()
         scroll.setWidget(content)
@@ -177,12 +201,12 @@ class MonitoringSection(QWidget):
         waiting_data: list[dict] | None = None,
     ) -> None:
         """Update monitoring data."""
-        self._metrics.update_metric("instances", str(instances))
-        self._metrics.update_metric("agents", str(agents))
-        self._metrics.update_metric("busy", str(busy))
-        self._metrics.update_metric("waiting", str(waiting))
-        self._metrics.update_metric("idle", str(idle))
-        self._metrics.update_metric("todos", str(todos))
+        self._metric_cards["instances"].set_value(str(instances))
+        self._metric_cards["agents"].set_value(str(agents))
+        self._metric_cards["busy"].set_value(str(busy))
+        self._metric_cards["waiting"].set_value(str(waiting))
+        self._metric_cards["idle"].set_value(str(idle))
+        self._metric_cards["todos"].set_value(str(todos))
 
         # Agents table
         self._agents_table.clear_data()
