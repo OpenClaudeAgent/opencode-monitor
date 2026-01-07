@@ -306,6 +306,12 @@ class AnalyticsDB:
             ON parts(tool_name, security_enriched_at)
         """)
 
+        # Index for scope-aware security (Plan 44)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_scope
+            ON parts(scope_verdict)
+        """)
+
         # Indexes for agent_traces table
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_traces_session
@@ -562,6 +568,10 @@ class AnalyticsDB:
         add_column("parts", "risk_reason", "VARCHAR")
         add_column("parts", "mitre_techniques", "VARCHAR")  # JSON array as string
         add_column("parts", "security_enriched_at", "TIMESTAMP")
+
+        # Parts - scope-aware security columns (Plan 44)
+        add_column("parts", "scope_verdict", "VARCHAR")
+        add_column("parts", "scope_resolved_path", "VARCHAR")
 
         # NOTE: security_scanned table migration removed in Plan 42
         # Security tracking now uses parts.security_enriched_at column

@@ -50,7 +50,20 @@ def enrichment_db(analytics_db):
             risk_level VARCHAR,
             risk_reason VARCHAR,
             mitre_techniques VARCHAR,
-            security_enriched_at TIMESTAMP
+            security_enriched_at TIMESTAMP,
+            -- Scope-aware security columns (Plan 44)
+            scope_verdict VARCHAR,
+            scope_resolved_path VARCHAR
+        )
+    """)
+
+    # Create sessions table for scope analysis (JOIN in worker)
+    conn.execute("DROP TABLE IF EXISTS sessions")
+    conn.execute("""
+        CREATE TABLE sessions (
+            id VARCHAR PRIMARY KEY,
+            directory VARCHAR,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )
     """)
 

@@ -17,9 +17,11 @@ import json
 import threading
 import time
 from datetime import datetime
+from pathlib import Path
 from typing import Any, Optional, Protocol
 
 from ...utils.logger import debug, info
+from ..scope import ScopeDetector
 
 
 # Protocol for the database interface (allows mocking in tests)
@@ -74,6 +76,22 @@ class SecurityEnrichmentWorker:
         self._running = False
         self._thread: Optional[threading.Thread] = None
         self._lock = threading.Lock()
+        self._scope_cache: dict[str, ScopeDetector] = {}
+
+    def _get_scope_detector(self, project_root: str | None) -> ScopeDetector | None:
+        """Get or create a ScopeDetector for the given project root.
+
+        Args:
+            project_root: Project root directory path
+
+        Returns:
+            ScopeDetector instance or None if project_root is None
+        """
+        if not project_root:
+            return None
+        if project_root not in self._scope_cache:
+            self._scope_cache[project_root] = ScopeDetector(Path(project_root))
+        return self._scope_cache[project_root]
 
     def _get_analyzer(self) -> AnalyzerProtocol:
         """Get the analyzer, creating default if needed."""
@@ -167,15 +185,16 @@ class SecurityEnrichmentWorker:
 
         # Query unenriched parts - data already in DB from indexer
         # The 'arguments' column contains the JSON with command/filePath/url
-        # Using json_extract_string for DuckDB JSON access
+        # Join with sessions to get project_root for scope analysis
         try:
             parts = conn.execute(
                 """
-                SELECT id, tool_name, arguments
-                FROM parts 
-                WHERE security_enriched_at IS NULL
-                  AND tool_name IN ('bash', 'read', 'write', 'edit', 'webfetch')
-                ORDER BY created_at DESC
+                SELECT p.id, p.tool_name, p.arguments, s.directory as project_root
+                FROM parts p
+                LEFT JOIN sessions s ON p.session_id = s.id
+                WHERE p.security_enriched_at IS NULL
+                  AND p.tool_name IN ('bash', 'read', 'write', 'edit', 'webfetch')
+                ORDER BY p.created_at DESC
                 LIMIT ?
             """,
                 [limit],
@@ -191,7 +210,7 @@ class SecurityEnrichmentWorker:
         updates = []
         now = datetime.now()
 
-        for part_id, tool_name, arguments_json in parts:
+        for part_id, tool_name, arguments_json, project_root in parts:
             try:
                 # Parse arguments JSON
                 if arguments_json:
@@ -200,16 +219,29 @@ class SecurityEnrichmentWorker:
                     args = {}
             except (json.JSONDecodeError, TypeError):
                 # Invalid JSON - mark as enriched with no risk
-                updates.append((0, "low", "Invalid arguments JSON", "[]", now, part_id))
+                updates.append(
+                    (0, "low", "Invalid arguments JSON", "[]", now, None, None, part_id)
+                )
                 continue
 
-            # Analyze based on tool type
-            result = self._analyze_part(analyzer, tool_name, args)
+            # Analyze based on tool type (includes scope analysis)
+            result, scope_verdict, scope_resolved = self._analyze_part(
+                analyzer, tool_name, args, project_root
+            )
 
             # Collect update data
             mitre_json = json.dumps(getattr(result, "mitre_techniques", []))
             updates.append(
-                (result.score, result.level, result.reason, mitre_json, now, part_id)
+                (
+                    result.score,
+                    result.level,
+                    result.reason,
+                    mitre_json,
+                    now,
+                    scope_verdict,
+                    scope_resolved,
+                    part_id,
+                )
             )
 
         # Batch UPDATE - no INSERT, just enriching existing rows
@@ -221,7 +253,9 @@ class SecurityEnrichmentWorker:
                     risk_level = ?, 
                     risk_reason = ?,
                     mitre_techniques = ?, 
-                    security_enriched_at = ?
+                    security_enriched_at = ?,
+                    scope_verdict = ?,
+                    scope_resolved_path = ?
                 WHERE id = ?
             """,
                 updates,
@@ -230,17 +264,22 @@ class SecurityEnrichmentWorker:
         return len(updates)
 
     def _analyze_part(
-        self, analyzer: AnalyzerProtocol, tool_name: str, args: dict
-    ) -> Any:
-        """Analyze a part and return risk result.
+        self,
+        analyzer: AnalyzerProtocol,
+        tool_name: str,
+        args: dict,
+        project_root: str | None = None,
+    ) -> tuple[Any, str | None, str | None]:
+        """Analyze a part and return risk result with scope analysis.
 
         Args:
             analyzer: The risk analyzer
             tool_name: Name of the tool (bash, read, write, edit, webfetch)
             args: Parsed arguments from the parts.arguments column
+            project_root: Project root directory for scope analysis
 
         Returns:
-            RiskResult-like object with score, level, reason, mitre_techniques
+            Tuple of (RiskResult, scope_verdict, scope_resolved_path)
         """
         # Default result for parts we can't analyze
         default_result = type(
@@ -254,31 +293,91 @@ class SecurityEnrichmentWorker:
             },
         )()
 
+        scope_verdict: str | None = None
+        scope_resolved: str | None = None
+
         if tool_name == "bash":
             command = args.get("command", "")
             if command:
-                return analyzer.analyze_command(command)
-            return default_result
+                return analyzer.analyze_command(command), scope_verdict, scope_resolved
+            return default_result, scope_verdict, scope_resolved
 
         elif tool_name == "read":
             file_path = args.get("filePath", "")
             if file_path:
-                return analyzer.analyze_file_path(file_path, write_mode=False)
-            return default_result
+                result = analyzer.analyze_file_path(file_path, write_mode=False)
+                # Add scope analysis
+                scope_verdict, scope_resolved, result = self._apply_scope_analysis(
+                    result, file_path, "read", project_root
+                )
+                return result, scope_verdict, scope_resolved
+            return default_result, scope_verdict, scope_resolved
 
         elif tool_name in ("write", "edit"):
             file_path = args.get("filePath", "")
             if file_path:
-                return analyzer.analyze_file_path(file_path, write_mode=True)
-            return default_result
+                result = analyzer.analyze_file_path(file_path, write_mode=True)
+                # Add scope analysis
+                scope_verdict, scope_resolved, result = self._apply_scope_analysis(
+                    result, file_path, "write", project_root
+                )
+                return result, scope_verdict, scope_resolved
+            return default_result, scope_verdict, scope_resolved
 
         elif tool_name == "webfetch":
             url = args.get("url", "")
             if url:
-                return analyzer.analyze_url(url)
-            return default_result
+                return analyzer.analyze_url(url), scope_verdict, scope_resolved
+            return default_result, scope_verdict, scope_resolved
 
-        return default_result
+        return default_result, scope_verdict, scope_resolved
+
+    def _apply_scope_analysis(
+        self,
+        result: Any,
+        file_path: str,
+        operation: str,
+        project_root: str | None,
+    ) -> tuple[str | None, str | None, Any]:
+        """Apply scope analysis and modify result if needed.
+
+        Args:
+            result: The base risk analysis result
+            file_path: File path being analyzed
+            operation: 'read' or 'write'
+            project_root: Project root directory
+
+        Returns:
+            Tuple of (scope_verdict, scope_resolved_path, modified_result)
+        """
+        if not project_root:
+            return None, None, result
+
+        detector = self._get_scope_detector(project_root)
+        if not detector:
+            return None, None, result
+
+        scope_result = detector.detect(file_path, operation)
+        scope_verdict = scope_result.verdict.value
+        scope_resolved = scope_result.resolved_path
+
+        # Combine scores if out of scope
+        if scope_result.score_modifier > 0:
+            new_score = min(100, result.score + scope_result.score_modifier)
+            new_reason = f"{result.reason}; {scope_result.reason}"
+            # Create new result with combined score
+            result = type(
+                "RiskResult",
+                (),
+                {
+                    "score": new_score,
+                    "level": result.level,
+                    "reason": new_reason,
+                    "mitre_techniques": getattr(result, "mitre_techniques", []),
+                },
+            )()
+
+        return scope_verdict, scope_resolved, result
 
     def get_progress(self) -> dict:
         """Get enrichment progress stats.
