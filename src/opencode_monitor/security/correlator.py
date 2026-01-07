@@ -84,6 +84,65 @@ CORRELATION_PATTERNS = [
         "mitre_technique": "T1592",
         "max_window_seconds": 300,
     },
+    # =========================================================================
+    # Phase 3 - New Correlation Patterns (Plan 43)
+    # =========================================================================
+    {
+        "name": "config_poisoning",
+        "description": "Shell config modification followed by shell execution",
+        "source_type": EventType.WRITE,
+        "source_pattern": r"\.bashrc|\.zshrc|\.profile",
+        "target_type": EventType.BASH,
+        "target_pattern": r".*",  # Any bash command after config write
+        "score_modifier": 25,
+        "mitre_technique": "T1546",
+        "max_window_seconds": 60,
+    },
+    {
+        "name": "dependency_confusion",
+        "description": "External package fetch followed by package file modification",
+        "source_type": EventType.WEBFETCH,
+        "source_pattern": r"npmjs\.org|pypi\.org|rubygems\.org",
+        "target_type": EventType.WRITE,
+        "target_pattern": r"package\.json|setup\.py|Gemfile",
+        "score_modifier": 30,
+        "mitre_technique": "T1195",
+        "max_window_seconds": 300,
+    },
+    {
+        "name": "secret_logging",
+        "description": "Sensitive file read followed by log write",
+        "source_type": EventType.READ,
+        "source_pattern": r"\.env|credentials|secrets|\.pem|\.key",
+        "target_type": EventType.WRITE,
+        "target_pattern": r"\.log$|/var/log/|logs/",
+        "score_modifier": 35,
+        "mitre_technique": "T1074",
+        "max_window_seconds": 120,
+    },
+    {
+        "name": "tunnel_establishment",
+        "description": "SSH tunnel followed by external network access",
+        "source_type": EventType.BASH,
+        "source_pattern": r"\bssh\s+.*-[RL]\s+",
+        "target_type": EventType.WEBFETCH,
+        "target_pattern": r"https?://(?!localhost|127\.0\.0\.1)",
+        "score_modifier": 30,
+        "mitre_technique": "T1572",
+        "max_window_seconds": 600,
+    },
+    {
+        "name": "cleanup_after_attack",
+        "description": "Destructive command followed by history clearing",
+        "source_type": EventType.BASH,
+        "source_pattern": r"\brm\s+-rf|\bshred\s+",
+        "target_type": EventType.BASH,
+        "target_pattern": r"\bhistory\s+-c|\brm\s+.*history|unset\s+HISTFILE",
+        "score_modifier": 40,
+        "mitre_technique": "T1070",
+        "max_window_seconds": 180,
+        "allow_same_type": True,  # Allow BASH→BASH correlation
+    },
 ]
 
 
@@ -209,8 +268,9 @@ class EventCorrelator:
             if (current_time - event.timestamp) > window:
                 continue
 
-            # Skip same event type for source/target matching
-            if event.event_type == new_event.event_type:
+            # Skip same event type unless explicitly allowed
+            allow_same_type = pattern.get("allow_same_type", False)
+            if event.event_type == new_event.event_type and not allow_same_type:
                 continue
 
             # Check if event matches the counterpart pattern
