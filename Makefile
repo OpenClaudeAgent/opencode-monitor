@@ -71,6 +71,7 @@ coverage-html:
 
 # === Mutation Testing (mutmut v2.5.1) ===
 # Note: v2 uses CLI options, not pyproject.toml config
+# Output redirected to temp files to avoid verbose terminal output
 
 # Paths to exclude from mutation (UI, dashboard, async-heavy code)
 MUTMUT_EXCLUDE := src/opencode_monitor/dashboard,src/opencode_monitor/ui,src/opencode_monitor/db,src/opencode_monitor/monitor.py,src/opencode_monitor/app.py
@@ -81,20 +82,25 @@ SECURITY_PATHS := src/opencode_monitor/security/
 # Test runner command
 MUTMUT_RUNNER := uv run pytest tests/ --ignore=tests/integration -x -q
 
+# Temp file for mutation output
+MUTMUT_LOG := /tmp/mutmut-output.log
+
 mutation:
 	@echo "Running full mutation testing (this takes a while)..."
 	@echo "Excluding: $(MUTMUT_EXCLUDE)"
+	@echo "Output: $(MUTMUT_LOG)"
 	@uv run mutmut run \
 		--paths-to-mutate src/opencode_monitor/ \
 		--paths-to-exclude "$(MUTMUT_EXCLUDE)" \
-		--runner "$(MUTMUT_RUNNER)"
+		--runner "$(MUTMUT_RUNNER)" > $(MUTMUT_LOG) 2>&1 || true
+	@uv run mutmut results
 
 mutation-mini:
 	@echo "Running quick mutation test on utils module (~2min)..."
 	@rm -f .mutmut-cache
 	@uv run mutmut run \
 		--paths-to-mutate src/opencode_monitor/utils.py \
-		--runner "uv run pytest tests/test_utils.py -x -q"
+		--runner "uv run pytest tests/test_utils.py -x -q" > $(MUTMUT_LOG) 2>&1 || true
 	@uv run mutmut results
 
 mutation-security:
@@ -102,7 +108,7 @@ mutation-security:
 	@rm -f .mutmut-cache
 	@uv run mutmut run \
 		--paths-to-mutate $(SECURITY_PATHS) \
-		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_utils.py tests/test_correlator.py tests/test_sequences.py -x -q"
+		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_utils.py tests/test_correlator.py tests/test_sequences.py -x -q" > $(MUTMUT_LOG) 2>&1 || true
 	@uv run mutmut results
 
 mutation-risk:
@@ -110,7 +116,7 @@ mutation-risk:
 	@rm -f .mutmut-cache
 	@uv run mutmut run \
 		--paths-to-mutate src/opencode_monitor/security/analyzer/risk.py \
-		--runner "uv run pytest tests/test_risk_analyzer.py -x -q"
+		--runner "uv run pytest tests/test_risk_analyzer.py -x -q" > $(MUTMUT_LOG) 2>&1 || true
 	@uv run mutmut results
 
 mutation-browse:
