@@ -19,7 +19,8 @@ help:
 	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
 	@echo "Mutation Testing:"
-	@echo "  make mutation               Run mutation testing"
+	@echo "  make mutation               Run mutation testing (verbose)"
+	@echo "  make mutation-report        Run mutation + generate JSON/TXT report"
 	@echo "  make mutation-quick MODULE=x  Run on specific module"
 	@echo "  make mutation-browse        Interactive mutation results browser"
 	@echo "  make mutation-results       Show mutation test results"
@@ -42,25 +43,25 @@ run:
 # === Testing ===
 
 test:
-	@uv run python -m pytest tests/ -v -n 8 --ignore=tests/integration
+	@uv run pytest tests/ -v -n 8 --ignore=tests/integration
 
 test-unit:
-	@uv run python -m pytest tests/ -v -n 8 --ignore=tests/integration -m "not integration"
+	@uv run pytest tests/ -v -n 8 --ignore=tests/integration -m "not integration"
 
 test-integration:
-	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/integration/ -v -n 8 -m integration
+	@QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/ -v -n 8 -m integration
 
 test-integration-visible:
-	@uv run python -m pytest tests/integration/ -v -n 8 -m integration
+	@uv run pytest tests/integration/ -v -n 8 -m integration
 
 test-all:
-	@QT_QPA_PLATFORM=offscreen uv run python -m pytest tests/ -v -n 8
+	@QT_QPA_PLATFORM=offscreen uv run pytest tests/ -v -n 8
 
 coverage:
-	@uv run python -m pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=term-missing
+	@uv run pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=term-missing
 
 coverage-html:
-	@uv run python -m pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=html
+	@uv run pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=html
 	@open htmlcov/index.html
 
 # === Mutation Testing ===
@@ -86,6 +87,9 @@ mutation-clean:
 
 mutation-show:
 	@uv run mutmut show $(MUTANT)
+
+mutation-report:
+	@./scripts/mutation-report.sh
 
 # === Test Quality Audit ===
 
