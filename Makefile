@@ -19,9 +19,11 @@ help:
 	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
 	@echo "Mutation Testing:"
-	@echo "  make mutation               Run mutation testing (verbose)"
-	@echo "  make mutation-report        Run mutation + generate JSON/TXT report"
-	@echo "  make mutation-quick MODULE=x  Run on specific module"
+	@echo "  make mutation               Run full mutation testing"
+	@echo "  make mutation-mini          Quick test on utils module (~2min)"
+	@echo "  make mutation-security      Test security/risk_analyzer (~5min)"
+	@echo "  make mutation-debug         Test setup with single mutant"
+	@echo "  make mutation-report        Run mutation + generate report"
 	@echo "  make mutation-browse        Interactive mutation results browser"
 	@echo "  make mutation-results       Show mutation test results"
 	@echo "  make mutation-clean         Clean mutation cache"
@@ -65,15 +67,23 @@ coverage-html:
 	@open htmlcov/index.html
 
 # === Mutation Testing ===
-# Note: --max-children=1 required on macOS due to fork() issues with PyQt6
+# Note: Uses pyproject.toml [tool.mutmut] config
 
 mutation:
-	@echo "Running mutation testing..."
-	@uv run mutmut run --max-children=1
+	@echo "Running full mutation testing (this takes a while)..."
+	@uv run mutmut run
 
-mutation-quick:
-	@echo "Running mutation testing on specific module..."
-	@uv run mutmut run --max-children=1 "$(MODULE)*"
+mutation-mini:
+	@echo "Running quick mutation test on utils module..."
+	@rm -f .mutmut-cache
+	@uv run mutmut run "src/opencode_monitor/utils.py*"
+	@uv run mutmut results
+
+mutation-security:
+	@echo "Running mutation test on security modules..."
+	@rm -f .mutmut-cache
+	@uv run mutmut run "src/opencode_monitor/security/risk_analyzer.py*"
+	@uv run mutmut results
 
 mutation-browse:
 	@uv run mutmut browse
@@ -90,6 +100,12 @@ mutation-show:
 
 mutation-report:
 	@./scripts/mutation-report.sh
+
+mutation-debug:
+	@echo "Testing mutation setup with single mutant..."
+	@rm -f .mutmut-cache
+	@uv run mutmut run "src/opencode_monitor/utils.py:1"
+	@uv run mutmut results
 
 # === Test Quality Audit ===
 
