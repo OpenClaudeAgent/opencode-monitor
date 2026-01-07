@@ -1,15 +1,7 @@
-"""
-Tests for tooltips feature on truncated elements.
-
-Tests the _truncate_with_tooltip function from app.py which:
-- Truncates text that exceeds max_length (with "...")
-- Adds a native macOS tooltip with full text when truncated
-- Leaves short text unchanged with no tooltip
-"""
+"""Tests for tooltips feature on truncated elements."""
 
 import pytest
 from unittest.mock import MagicMock, patch
-
 
 # Constants from app.py
 TITLE_MAX_LENGTH = 40
@@ -18,262 +10,244 @@ TODO_CURRENT_MAX_LENGTH = 35
 TODO_PENDING_MAX_LENGTH = 30
 
 
+@pytest.fixture
+def mock_menu_item():
+    """Create a mock rumps.MenuItem with _menuitem attribute."""
+    with patch("rumps.MenuItem") as MockMenuItem:
+        mock_instance = MagicMock()
+        mock_instance._menuitem = MagicMock()
+        MockMenuItem.return_value = mock_instance
+        yield MockMenuItem, mock_instance
+
+
+def _get_truncate_function():
+    """Import the function under test (after mocking rumps)."""
+    from opencode_monitor.app import _truncate_with_tooltip
+
+    return _truncate_with_tooltip
+
+
 class TestTruncateWithTooltip:
     """Tests for the _truncate_with_tooltip function."""
 
-    @pytest.fixture
-    def mock_menu_item(self):
-        """Create a mock rumps.MenuItem with _menuitem attribute."""
-        with patch("rumps.MenuItem") as MockMenuItem:
-            mock_instance = MagicMock()
-            mock_instance._menuitem = MagicMock()
-            MockMenuItem.return_value = mock_instance
-            yield MockMenuItem, mock_instance
+    BOUNDARY_CASES = [
+        ("Short title", TITLE_MAX_LENGTH, False),
+        ("x" * TITLE_MAX_LENGTH, TITLE_MAX_LENGTH, False),  # Exact length
+        ("x" * (TITLE_MAX_LENGTH + 1), TITLE_MAX_LENGTH, True),  # Above limit
+        ("a" * 29, TOOL_ARG_MAX_LENGTH, False),
+        ("a" * 30, TOOL_ARG_MAX_LENGTH, False),
+        ("a" * 31, TOOL_ARG_MAX_LENGTH, True),
+        ("a" * 35, TODO_CURRENT_MAX_LENGTH, False),
+        ("a" * 36, TODO_CURRENT_MAX_LENGTH, True),
+        ("a" * 30, TODO_PENDING_MAX_LENGTH, False),
+        ("a" * 31, TODO_PENDING_MAX_LENGTH, True),
+    ]
 
-    def _import_function(self):
-        """Import the function under test (after mocking rumps)."""
-        from opencode_monitor.app import _truncate_with_tooltip
-
-        return _truncate_with_tooltip
-
-    # =========================================================
-    # Consolidated: Short/exact length text tests
-    # =========================================================
-
-    @pytest.mark.parametrize(
-        "text,max_length,should_truncate",
-        [
-            ("Short title", TITLE_MAX_LENGTH, False),
-            ("x" * TITLE_MAX_LENGTH, TITLE_MAX_LENGTH, False),  # Exact length
-            ("x" * (TITLE_MAX_LENGTH + 1), TITLE_MAX_LENGTH, True),  # Above limit
-            ("a" * 29, TOOL_ARG_MAX_LENGTH, False),
-            ("a" * 30, TOOL_ARG_MAX_LENGTH, False),
-            ("a" * 31, TOOL_ARG_MAX_LENGTH, True),
-            ("a" * 35, TODO_CURRENT_MAX_LENGTH, False),
-            ("a" * 36, TODO_CURRENT_MAX_LENGTH, True),
-            ("a" * 30, TODO_PENDING_MAX_LENGTH, False),
-            ("a" * 31, TODO_PENDING_MAX_LENGTH, True),
-        ],
-    )
+    @pytest.mark.parametrize("text,max_length,should_truncate", BOUNDARY_CASES)
     def test_truncation_at_boundary(
         self, mock_menu_item, text, max_length, should_truncate
     ):
         """Test truncation behavior at various boundary conditions."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        _truncate_with_tooltip(text, max_length)
-
+        result = _truncate_with_tooltip(text, max_length)
         call_args = MockMenuItem.call_args[0][0]
+
+        # Verify MenuItem was created correctly
+        assert MockMenuItem.called
+        assert result is not None
+        assert isinstance(call_args, str)
+        assert len(call_args) <= max_length
         if should_truncate:
+            # Truncated: tooltip set, ends with ..., correct length
             mock_instance._menuitem.setToolTip_.assert_called_once()
             assert call_args.endswith("...")
             assert len(call_args) == max_length
         else:
+            # Not truncated: no tooltip, original text
             mock_instance._menuitem.setToolTip_.assert_not_called()
             assert call_args == text
 
-    # =========================================================
-    # Consolidated: Truncation behavior tests
-    # =========================================================
+    LONG_TEXT_CASES = [
+        ("This is a very long title that exceeds the maximum length", 30),
+        ("A" * 100, 25),
+        ("Hello World", 8),
+    ]
 
-    @pytest.mark.parametrize(
-        "text,max_length,expected_suffix",
-        [
-            ("This is a very long title that exceeds the maximum length", 30, "..."),
-            ("A" * 100, 25, "..."),
-            ("Hello World", 8, "..."),
-        ],
-    )
-    def test_long_text_truncation(
-        self, mock_menu_item, text, max_length, expected_suffix
-    ):
+    @pytest.mark.parametrize("text,max_length", LONG_TEXT_CASES)
+    def test_long_text_truncation(self, mock_menu_item, text, max_length):
         """Long text is truncated with '...' and has tooltip with full text."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        _truncate_with_tooltip(text, max_length)
-
+        result = _truncate_with_tooltip(text, max_length)
         call_args = MockMenuItem.call_args[0][0]
+
         # Verify truncation
         assert len(call_args) == max_length
-        assert call_args.endswith(expected_suffix)
+        assert call_args.endswith("...")
+        assert isinstance(call_args, str)
         # Verify tooltip contains full original text
         mock_instance._menuitem.setToolTip_.assert_called_once_with(text)
+        assert result is not None
+        assert MockMenuItem.called
 
-    # =========================================================
-    # Consolidated: Prefix handling tests
-    # =========================================================
+    PREFIX_CASES = [
+        ("Short", "  -> ", 40, False),
+        (
+            "This is a very long text that will definitely be truncated",
+            "    ",
+            25,
+            True,
+        ),
+        ("A" * 35, "ICON ", 30, True),
+        ("Very long todo item description here", "    -> ", 20, True),
+    ]
 
-    @pytest.mark.parametrize(
-        "text,prefix,max_length,should_truncate",
-        [
-            ("Short", "  -> ", 40, False),
-            (
-                "This is a very long text that will definitely be truncated",
-                "    ",
-                25,
-                True,
-            ),
-            ("A" * 35, "ICON ", 30, True),
-            ("Very long todo item description here", "    -> ", 20, True),
-        ],
-    )
+    @pytest.mark.parametrize("text,prefix,max_length,should_truncate", PREFIX_CASES)
     def test_prefix_handling(
         self, mock_menu_item, text, prefix, max_length, should_truncate
     ):
         """Prefix is prepended correctly to both short and truncated text."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        _truncate_with_tooltip(text, max_length, prefix=prefix)
-
+        result = _truncate_with_tooltip(text, max_length, prefix=prefix)
         call_args = MockMenuItem.call_args[0][0]
+
+        # Prefix always prepended
         assert call_args.startswith(prefix)
+        assert result is not None
+        assert MockMenuItem.called
+        assert isinstance(call_args, str)
         if should_truncate:
             assert call_args.endswith("...")
+            mock_instance._menuitem.setToolTip_.assert_called_once()
 
-    # =========================================================
-    # Consolidated: Callback and edge cases
-    # =========================================================
-
-    @pytest.mark.parametrize(
-        "text,max_length,use_callback",
-        [
-            ("Click me", 40, True),
-            ("This is a very long text that should be truncated", 20, True),
-            ("", 40, False),
-        ],
-    )
-    def test_callback_and_edge_cases(
-        self, mock_menu_item, text, max_length, use_callback
-    ):
-        """Callback is passed correctly; empty text handled properly."""
+    def test_callback_passed_correctly(self, mock_menu_item):
+        """Callback is passed to MenuItem."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        callback = MagicMock() if use_callback else None
-        _truncate_with_tooltip(text, max_length, callback=callback)
+        callback = MagicMock()
+        result = _truncate_with_tooltip("Click me", 40, callback=callback)
 
-        # Verify callback is passed
-        if use_callback:
-            assert MockMenuItem.call_args[1]["callback"] == callback
-        else:
-            MockMenuItem.assert_called_once_with("", callback=None)
-            mock_instance._menuitem.setToolTip_.assert_not_called()
+        assert MockMenuItem.call_args[1]["callback"] == callback
+        assert result is not None
+        assert MockMenuItem.called
+        assert mock_instance is not None
+
+    def test_empty_text_no_tooltip(self, mock_menu_item):
+        """Empty text handled properly - no tooltip set."""
+        MockMenuItem, mock_instance = mock_menu_item
+        _truncate_with_tooltip = _get_truncate_function()
+
+        result = _truncate_with_tooltip("", 40)
+
+        MockMenuItem.assert_called_once_with("", callback=None)
+        mock_instance._menuitem.setToolTip_.assert_not_called()
+        assert result is not None
+        assert MockMenuItem.called
 
     def test_empty_prefix_works(self, mock_menu_item):
         """Empty prefix should work correctly."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        text = "Some text"
-        _truncate_with_tooltip(text, 40, prefix="")
+        result = _truncate_with_tooltip("Some text", 40, prefix="")
 
-        MockMenuItem.assert_called_once_with(text, callback=None)
+        MockMenuItem.assert_called_once_with("Some text", callback=None)
+        assert result is not None
+        mock_instance._menuitem.setToolTip_.assert_not_called()
+        assert MockMenuItem.called
 
     def test_unicode_text_handled_by_char_count(self, mock_menu_item):
         """Unicode characters are handled by character count, not bytes."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
         text = "Japanese file name.py"
-        max_length = 15
-
-        _truncate_with_tooltip(text, max_length)
-
+        result = _truncate_with_tooltip(text, 15)
         call_args = MockMenuItem.call_args[0][0]
-        assert len(call_args) == max_length
+
+        # Truncated by char count
+        assert len(call_args) == 15
         mock_instance._menuitem.setToolTip_.assert_called_once_with(text)
+        assert result is not None
+        assert call_args.endswith("...")
 
 
 class TestTruncationConstants:
-    """Tests to verify the truncation constants are correctly defined."""
+    """Tests to verify truncation constants are correctly defined."""
 
-    @pytest.mark.parametrize(
-        "constant_name,expected_value",
-        [
-            ("TITLE_MAX_LENGTH", 40),
-            ("TOOL_ARG_MAX_LENGTH", 30),
-            ("TODO_CURRENT_MAX_LENGTH", 35),
-            ("TODO_PENDING_MAX_LENGTH", 30),
-        ],
-    )
+    CONSTANTS = [
+        ("TITLE_MAX_LENGTH", 40),
+        ("TOOL_ARG_MAX_LENGTH", 30),
+        ("TODO_CURRENT_MAX_LENGTH", 35),
+        ("TODO_PENDING_MAX_LENGTH", 30),
+    ]
+
+    @pytest.mark.parametrize("constant_name,expected_value", CONSTANTS)
     def test_truncation_constants(self, constant_name, expected_value):
         """Verify truncation constants have correct values."""
         from opencode_monitor import app
 
         actual = getattr(app, constant_name)
-        assert actual == expected_value, f"{constant_name} should be {expected_value}"
+        assert actual == expected_value
+        assert isinstance(actual, int)
+        assert actual > 0
+        assert hasattr(app, constant_name)
 
 
 class TestRealWorldScenarios:
     """Integration-like tests with realistic data."""
 
-    @pytest.fixture
-    def mock_menu_item(self):
-        """Create a mock rumps.MenuItem."""
-        with patch("rumps.MenuItem") as MockMenuItem:
-            mock_instance = MagicMock()
-            mock_instance._menuitem = MagicMock()
-            MockMenuItem.return_value = mock_instance
-            yield MockMenuItem, mock_instance
+    SCENARIOS = [
+        # Long file path (tool)
+        (
+            "Read: /Users/developer/projects/opencode-swiftbar-monitor/src/opencode_monitor/app.py",
+            TOOL_ARG_MAX_LENGTH,
+            "    ",
+            True,
+        ),
+        # Long todo
+        (
+            "Implement the authentication flow with OAuth2 and JWT tokens",
+            TODO_CURRENT_MAX_LENGTH,
+            "    ",
+            True,
+        ),
+        # Short agent title
+        ("my-project", TITLE_MAX_LENGTH, " ", False),
+        # Long agent title with path
+        (
+            "opencode-swiftbar-monitor (feature/add-tooltips)",
+            TITLE_MAX_LENGTH,
+            " ",
+            True,
+        ),
+    ]
 
-    def _import_function(self):
-        from opencode_monitor.app import _truncate_with_tooltip
-
-        return _truncate_with_tooltip
-
-    @pytest.mark.parametrize(
-        "text,max_length,prefix,should_truncate,description",
-        [
-            # Long file path (tool)
-            (
-                "Read: /Users/developer/projects/opencode-swiftbar-monitor/src/opencode_monitor/app.py",
-                TOOL_ARG_MAX_LENGTH,
-                "    ",
-                True,
-                "Long file path is truncated with tooltip",
-            ),
-            # Long todo
-            (
-                "Implement the authentication flow with OAuth2 and JWT tokens",
-                TODO_CURRENT_MAX_LENGTH,
-                "    ",
-                True,
-                "Long todo is truncated with tooltip",
-            ),
-            # Short agent title
-            (
-                "my-project",
-                TITLE_MAX_LENGTH,
-                " ",
-                False,
-                "Short agent title not truncated",
-            ),
-            # Long agent title with path
-            (
-                "opencode-swiftbar-monitor (feature/add-tooltips)",
-                TITLE_MAX_LENGTH,
-                " ",
-                True,
-                "Long agent title truncated",
-            ),
-        ],
-    )
+    @pytest.mark.parametrize("text,max_length,prefix,should_truncate", SCENARIOS)
     def test_real_world_scenario(
-        self, mock_menu_item, text, max_length, prefix, should_truncate, description
+        self, mock_menu_item, text, max_length, prefix, should_truncate
     ):
         """Test realistic menu item scenarios."""
         MockMenuItem, mock_instance = mock_menu_item
-        _truncate_with_tooltip = self._import_function()
+        _truncate_with_tooltip = _get_truncate_function()
 
-        _truncate_with_tooltip(text, max_length, prefix=prefix)
-
+        result = _truncate_with_tooltip(text, max_length, prefix=prefix)
         call_args = MockMenuItem.call_args[0][0]
+
+        # Always valid result
+        assert result is not None
+        assert MockMenuItem.called
+        assert call_args.startswith(prefix)
+        assert isinstance(call_args, str)
         if should_truncate:
-            assert call_args.endswith("..."), description
+            assert call_args.endswith("...")
             mock_instance._menuitem.setToolTip_.assert_called_once_with(text)
         else:
-            assert call_args == f"{prefix}{text}", description
+            assert call_args == f"{prefix}{text}"
             mock_instance._menuitem.setToolTip_.assert_not_called()

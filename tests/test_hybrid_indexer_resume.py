@@ -4,11 +4,11 @@ Tests for HybridIndexer resume behavior.
 Tests cover:
 - Skip bulk loading when already in realtime mode (resume scenario)
 - Run bulk loading when fresh start (is_realtime=False)
+- SyncState phase transitions and is_realtime property
 """
 
 import time
-from pathlib import Path
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -33,190 +33,181 @@ def temp_storage(tmp_path):
 
 
 @pytest.fixture
-def temp_db_path(tmp_path):
-    """Create temporary database path."""
-    return tmp_path / "test_analytics.duckdb"
+def temp_db(tmp_path):
+    """Create temporary database."""
+    db = AnalyticsDB(tmp_path / "test_analytics.duckdb")
+    db.connect()
+    return db
+
+
+@pytest.fixture
+def mock_bulk_loader():
+    """Create mock bulk loader with standard return values."""
+    loader = MagicMock(spec=BulkLoader)
+    loader.load_all.return_value = {
+        "session": MagicMock(files_loaded=10, duration_seconds=0.1),
+        "message": MagicMock(files_loaded=20, duration_seconds=0.1),
+        "part": MagicMock(files_loaded=30, duration_seconds=0.1),
+    }
+    return loader
+
+
+def create_indexer(storage, db, sync_state, bulk_loader=None, running=True):
+    """Helper to create a configured HybridIndexer for testing."""
+    indexer = HybridIndexer(
+        storage_path=storage,
+        db=db,
+        sync_state=sync_state,
+        bulk_loader=bulk_loader,
+    )
+    indexer._running = running
+    indexer._t0 = time.time()
+    indexer._sync_state = sync_state
+    if bulk_loader:
+        indexer._bulk_loader = bulk_loader
+    return indexer
 
 
 # =============================================================================
-# Tests for bulk phase skip behavior
+# HybridIndexer Resume Tests
 # =============================================================================
 
 
 class TestHybridIndexerResume:
     """Tests for HybridIndexer resume behavior when already in realtime mode."""
 
-    def test_skips_bulk_when_already_realtime(self, temp_storage, temp_db_path):
-        """When sync_state.is_realtime is True, bulk loading is skipped."""
-        # Create mock components
-        mock_db = MagicMock(spec=AnalyticsDB)
-        mock_db._db_path = temp_db_path
+    def test_skips_bulk_when_already_realtime(
+        self, temp_storage, temp_db, mock_bulk_loader
+    ):
+        """When sync_state.is_realtime is True, bulk loading is skipped entirely."""
+        sync_state = SyncState(temp_db)
+        sync_state.set_phase(SyncPhase.REALTIME)
 
-        mock_sync_state = MagicMock(spec=SyncState)
-        # Key condition: already in realtime mode
-        mock_sync_state.is_realtime = True
-        mock_sync_state.phase = SyncPhase.REALTIME
+        indexer = create_indexer(temp_storage, temp_db, sync_state, mock_bulk_loader)
 
-        mock_bulk_loader = MagicMock(spec=BulkLoader)
-
-        # Create indexer with mocked dependencies
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db=mock_db,
-            sync_state=mock_sync_state,
-            bulk_loader=mock_bulk_loader,
-        )
-
-        # Call _run_bulk_phase directly (simulating what happens after start)
-        indexer._sync_state = mock_sync_state
-        indexer._bulk_loader = mock_bulk_loader
-        indexer._running = True
+        # Verify preconditions
+        assert sync_state.is_realtime is True
+        assert sync_state.phase == SyncPhase.REALTIME
 
         indexer._run_bulk_phase()
 
-        # Bulk loader should NOT be called when already in realtime
+        # Bulk loader should NOT be called
         mock_bulk_loader.load_all.assert_not_called()
+        # Phase should remain REALTIME
+        assert sync_state.phase == SyncPhase.REALTIME
 
-    def test_runs_bulk_when_fresh_start(self, temp_storage, temp_db_path):
-        """When sync_state.is_realtime is False, bulk loading runs."""
-        # Create real database for this test
-        db = AnalyticsDB(temp_db_path)
-        db.connect()
+    def test_runs_bulk_when_fresh_start(self, temp_storage, temp_db, mock_bulk_loader):
+        """When sync_state.is_realtime is False, bulk loading runs completely."""
+        sync_state = SyncState(temp_db)
 
-        # Create real sync state (will start in INIT phase)
-        sync_state = SyncState(db)
-
-        # Verify it's not in realtime mode
+        # Verify fresh start state
         assert sync_state.is_realtime is False
+        assert sync_state.phase == SyncPhase.INIT
 
-        # Create mock bulk loader to track calls
-        mock_bulk_loader = MagicMock(spec=BulkLoader)
-        mock_bulk_loader.load_all.return_value = {
-            "session": MagicMock(files_loaded=10, duration_seconds=0.5),
-            "message": MagicMock(files_loaded=20, duration_seconds=0.3),
-            "part": MagicMock(files_loaded=50, duration_seconds=0.2),
-        }
-
-        # Create indexer
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db=db,
-            sync_state=sync_state,
-            bulk_loader=mock_bulk_loader,
-        )
-
-        # Set up required state (normally set in start())
-        indexer._running = True
-        indexer._t0 = time.time()
-        indexer._sync_state = sync_state
-        indexer._bulk_loader = mock_bulk_loader
-
-        # Call _run_bulk_phase
+        indexer = create_indexer(temp_storage, temp_db, sync_state, mock_bulk_loader)
         indexer._run_bulk_phase()
 
-        # Bulk loader SHOULD be called when not in realtime mode
+        # Bulk loader SHOULD be called
         mock_bulk_loader.load_all.assert_called_once()
 
-        # Verify T0 was passed to load_all
+        # Verify T0 was passed correctly
         call_args = mock_bulk_loader.load_all.call_args
-        assert call_args[0][0] is not None  # T0 timestamp passed
+        t0_arg = call_args[0][0]
+        assert t0_arg is not None
+        assert isinstance(t0_arg, float)
+        assert t0_arg > 0
 
-    def test_bulk_phase_transitions_to_realtime(self, temp_storage, temp_db_path):
-        """After bulk phase completes, sync_state transitions to realtime."""
-        db = AnalyticsDB(temp_db_path)
-        db.connect()
-
-        sync_state = SyncState(db)
-
-        # Mock bulk loader
-        mock_bulk_loader = MagicMock(spec=BulkLoader)
-        mock_bulk_loader.load_all.return_value = {
-            "session": MagicMock(files_loaded=5, duration_seconds=0.1),
-            "message": MagicMock(files_loaded=10, duration_seconds=0.1),
-            "part": MagicMock(files_loaded=15, duration_seconds=0.1),
-        }
-
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db=db,
-            sync_state=sync_state,
-            bulk_loader=mock_bulk_loader,
-        )
-
-        # Set up required state (normally set in start())
-        indexer._running = True
-        indexer._t0 = time.time()
-        indexer._sync_state = sync_state
-        indexer._bulk_loader = mock_bulk_loader
-
-        # Before: not in realtime
-        assert sync_state.phase != SyncPhase.REALTIME
-
-        # Run bulk phase
-        indexer._run_bulk_phase()
-
-        # After: should be in realtime
+        # Phase should transition to REALTIME
         assert sync_state.phase == SyncPhase.REALTIME
         assert sync_state.is_realtime is True
 
-    def test_skip_bulk_starts_realtime_processor(self, temp_storage, temp_db_path):
-        """When bulk is skipped, realtime processor thread is started."""
-        mock_db = MagicMock(spec=AnalyticsDB)
-        mock_db._db_path = temp_db_path
+    def test_bulk_phase_transitions_through_all_phases(
+        self, temp_storage, temp_db, mock_bulk_loader
+    ):
+        """Bulk phase correctly transitions sync_state to realtime after completion."""
+        sync_state = SyncState(temp_db)
 
-        mock_sync_state = MagicMock(spec=SyncState)
-        mock_sync_state.is_realtime = True
+        # Track phase changes
+        initial_phase = sync_state.phase
+        assert initial_phase == SyncPhase.INIT
 
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db=mock_db,
-            sync_state=mock_sync_state,
-        )
+        indexer = create_indexer(temp_storage, temp_db, sync_state, mock_bulk_loader)
+        indexer._run_bulk_phase()
 
-        indexer._sync_state = mock_sync_state
-        indexer._running = True
+        # Final state verification
+        assert sync_state.phase == SyncPhase.REALTIME
+        assert sync_state.is_realtime is True
+        # Verify the transition was persisted (survives reload)
+        fresh_state = SyncState(temp_db)
+        assert fresh_state.phase == SyncPhase.REALTIME
+
+    def test_skip_bulk_starts_realtime_processor_thread(self, temp_storage, temp_db):
+        """When bulk is skipped, realtime processor thread is started correctly."""
+        sync_state = SyncState(temp_db)
+        sync_state.set_phase(SyncPhase.REALTIME)
+
+        indexer = create_indexer(temp_storage, temp_db, sync_state)
 
         with patch("threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+            mock_instance = MagicMock()
+            mock_thread.return_value = mock_instance
 
             indexer._run_bulk_phase()
 
-            # Thread should be created for realtime processing
+            # Thread created with correct parameters
             mock_thread.assert_called_once()
             call_kwargs = mock_thread.call_args[1]
             assert call_kwargs.get("name") == "hybrid-realtime"
             assert call_kwargs.get("daemon") is True
+            assert "target" in call_kwargs
 
-            # Thread should be started
-            mock_thread_instance.start.assert_called_once()
+            # Thread was started
+            mock_instance.start.assert_called_once()
 
 
-class TestSyncStateRealtimeProperty:
-    """Tests for SyncState.is_realtime property."""
+# =============================================================================
+# SyncState is_realtime Property Tests
+# =============================================================================
 
-    def test_is_realtime_false_for_init(self, analytics_db):
-        """is_realtime is False when phase is INIT."""
+
+class TestSyncStateIsRealtime:
+    """Tests for SyncState.is_realtime property across all phases."""
+
+    @pytest.mark.parametrize(
+        "phase,expected_realtime",
+        [
+            (SyncPhase.INIT, False),
+            (SyncPhase.BULK_SESSIONS, False),
+            (SyncPhase.BULK_MESSAGES, False),
+            (SyncPhase.BULK_PARTS, False),
+            (SyncPhase.REALTIME, True),
+        ],
+    )
+    def test_is_realtime_for_each_phase(self, analytics_db, phase, expected_realtime):
+        """is_realtime correctly reflects whether phase is REALTIME."""
         sync_state = SyncState(analytics_db)
-        sync_state.set_phase(SyncPhase.INIT)
+        sync_state.set_phase(phase)
 
-        assert sync_state.is_realtime is False
+        assert sync_state.is_realtime is expected_realtime
+        assert sync_state.phase == phase
+        # Verify phase name is accessible
+        assert phase.name in [
+            "INIT",
+            "BULK_SESSIONS",
+            "BULK_MESSAGES",
+            "BULK_PARTS",
+            "REALTIME",
+        ]
 
-    def test_is_realtime_false_for_bulk_phases(self, analytics_db):
-        """is_realtime is False during bulk loading phases."""
+    def test_phase_persistence(self, analytics_db):
+        """Phase changes are persisted to database."""
         sync_state = SyncState(analytics_db)
 
-        for phase in [
-            SyncPhase.BULK_SESSIONS,
-            SyncPhase.BULK_MESSAGES,
-            SyncPhase.BULK_PARTS,
-        ]:
-            sync_state.set_phase(phase)
-            assert sync_state.is_realtime is False, f"Expected False for {phase}"
-
-    def test_is_realtime_true_for_realtime_phase(self, analytics_db):
-        """is_realtime is True when phase is REALTIME."""
-        sync_state = SyncState(analytics_db)
+        # Set to realtime
         sync_state.set_phase(SyncPhase.REALTIME)
+        assert sync_state.phase == SyncPhase.REALTIME
 
-        assert sync_state.is_realtime is True
+        # Create new instance - should load persisted state
+        fresh_state = SyncState(analytics_db)
+        assert fresh_state.phase == SyncPhase.REALTIME
+        assert fresh_state.is_realtime is True
