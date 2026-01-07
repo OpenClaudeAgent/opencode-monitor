@@ -2,7 +2,7 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-browse clean roadmap
+.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-browse mutation-clean test-audit clean roadmap
 
 # Default target
 help:
@@ -19,9 +19,16 @@ help:
 	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
 	@echo "Mutation Testing:"
-	@echo "  make mutation               Run mutation testing (utils/ module)"
+	@echo "  make mutation               Run mutation testing"
+	@echo "  make mutation-quick MODULE=x  Run on specific module"
 	@echo "  make mutation-browse        Interactive mutation results browser"
 	@echo "  make mutation-results       Show mutation test results"
+	@echo "  make mutation-clean         Clean mutation cache"
+	@echo ""
+	@echo "Test Quality:"
+	@echo "  make test-audit             Audit all test files"
+	@echo "  make test-audit-file FILE=x Audit specific file"
+	@echo "  make test-audit-priority    Audit priority files"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          Remove temp/build files"
@@ -60,15 +67,37 @@ coverage-html:
 # Note: --max-children=1 required on macOS due to fork() issues with PyQt6
 
 mutation:
-	@echo "Running mutation testing on utils/ module..."
-	@rm -rf mutants/ .mutmut-cache 2>/dev/null || true
+	@echo "Running mutation testing..."
 	@uv run mutmut run --max-children=1
+
+mutation-quick:
+	@echo "Running mutation testing on specific module..."
+	@uv run mutmut run --max-children=1 "$(MODULE)*"
 
 mutation-browse:
 	@uv run mutmut browse
 
 mutation-results:
 	@uv run mutmut results
+
+mutation-clean:
+	@rm -rf mutants/ .mutmut-cache
+	@echo "Mutation cache cleaned"
+
+mutation-show:
+	@uv run mutmut show $(MUTANT)
+
+# === Test Quality Audit ===
+
+test-audit:
+	@./scripts/test-audit.sh
+
+test-audit-file:
+	@./scripts/test-audit.sh $(FILE)
+
+test-audit-priority:
+	@echo "=== Priority Files (Low Assertion Ratio) ==="
+	@./scripts/test-audit.sh "tests/test_hybrid_indexer_resume.py tests/test_unified_indexer.py tests/test_dashboard_sync.py tests/test_mitre_tags.py tests/test_tooltips.py tests/test_correlator.py"
 
 # === Maintenance ===
 

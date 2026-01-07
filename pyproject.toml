@@ -48,8 +48,15 @@ markers = [
 # =============================================================================
 
 [tool.mutmut]
-paths_to_mutate = ["src/opencode_monitor/utils/"]
-pytest_add_cli_args_test_selection = ["tests/test_utils_datetime.py", "tests/test_utils_threading.py", "tests/test_utils_db.py", "tests/test_settings.py", "tests/test_logger.py"]
+paths_to_mutate = ["src/opencode_monitor/"]
+pytest_add_cli_args_test_selection = ["tests/"]
+
+# Exclusions - modules en cours de refactoring ailleurs
+do_not_mutate = [
+    "**/logger.py",
+    "**/migrations/*",
+    "**/__version__.py",
+]
 
 [dependency-groups]
 dev = [
