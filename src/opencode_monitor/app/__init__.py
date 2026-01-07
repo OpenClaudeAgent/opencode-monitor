@@ -28,7 +28,6 @@ from ..ui.menu import (
     TODO_PENDING_MAX_LENGTH,
 )
 from ..analytics import AnalyticsDB, load_opencode_data, generate_report
-from ..analytics.collector import start_collector, get_collector
 from ..dashboard import show_dashboard
 
 # Now import the main class (after dependencies are set up)
@@ -68,7 +67,5 @@ __all__ = [
     "AnalyticsDB",
     "load_opencode_data",
     "generate_report",
-    "start_collector",
-    "get_collector",
     "show_dashboard",
 ]

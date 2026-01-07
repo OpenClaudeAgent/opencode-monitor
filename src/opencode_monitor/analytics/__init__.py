@@ -6,7 +6,7 @@ Provides analytics and reporting for OpenCode session data.
 Structure:
 - models.py: Data models (dataclasses)
 - db.py: DuckDB database management
-- collector.py: Background incremental data collection
+- indexer/: Background incremental data collection
 - loader.py: Bulk data loading (legacy)
 - queries.py: SQL queries
 - tracing/: Centralized tracing data service package
@@ -14,7 +14,6 @@ Structure:
 """
 
 from .db import AnalyticsDB, get_analytics_db
-from .collector import get_collector, start_collector, stop_collector
 from .loader import load_opencode_data
 from .models import PeriodStats, TokenStats
 from .queries import AnalyticsQueries
@@ -25,10 +24,6 @@ __all__ = [
     # Database
     "AnalyticsDB",
     "get_analytics_db",
-    # Collector (incremental background loading)
-    "get_collector",
-    "start_collector",
-    "stop_collector",
     # Data loading (legacy bulk)
     "load_opencode_data",
     # Models
