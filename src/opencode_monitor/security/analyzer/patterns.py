@@ -329,6 +329,116 @@ DANGEROUS_PATTERNS = [
         [],
         ["T1611"],
     ),
+    # === PHASE 4: REMAINING MITRE TECHNIQUE PATTERNS ===
+    # T1550 - Use Alternate Authentication Material
+    (r"\boauth_token\b|oauth2_token", 55, "OAuth token reference", [], ["T1550.001"]),
+    (r"\bjwt[_\s]*token", 50, "JWT token reference", [], ["T1550.001"]),
+    # Bearer token: case-insensitive, matches JWT format (xxx.yyy.zzz or just xxx.yyy)
+    (
+        r"(?i)\bbearer\s+[A-Za-z0-9\-_=]+",
+        60,
+        "Bearer token pattern",
+        [],
+        ["T1550.001"],
+    ),
+    (r"\brefresh[_\s]*token", 55, "Refresh token reference", [], ["T1550.001"]),
+    (r"\baccess[_\s]*token\s*=", 50, "Access token assignment", [], ["T1550.001"]),
+    # T1556 - Modify Authentication Process
+    (r"/etc/pam\.d/", 75, "PAM configuration access", [], ["T1556.003"]),
+    (r"/etc/sudoers", 80, "Sudoers file access", [], ["T1556", "T1548.003"]),
+    (r"\bvisudo\b", 70, "Editing sudoers", [], ["T1556"]),
+    # PAM module patterns - matches within quotes or directly
+    (r"pam_unix\.so|pam_permit\.so", 80, "PAM module manipulation", [], ["T1556.003"]),
+    (
+        r"auth\s+sufficient\s+pam_permit",
+        90,
+        "PAM bypass configuration",
+        [],
+        ["T1556.003"],
+    ),
+    # T1564 - Hide Artifacts (additional patterns)
+    # setfattr with user.hidden extended attribute (note: proper escape of dot)
+    (
+        r"\bsetfattr\b.*user\.hidden",
+        55,
+        "Extended attribute hiding",
+        [],
+        ["T1564.001"],
+    ),
+    (r"\bxattr\b.*hidden", 50, "macOS extended attribute", [], ["T1564.001"]),
+    (r"attrib\s+\+[hs]", 55, "Windows hidden/system attribute", [], ["T1564.001"]),
+    # T1571 - Non-Standard Port
+    (r"curl\s+.*:\d{5,}", 45, "Curl to high port number", [], ["T1571"]),
+    (r"wget\s+.*:\d{5,}", 45, "Wget to high port number", [], ["T1571"]),
+    (r"nc\s+.*\s+[3-6]\d{4}\b", 55, "Netcat to non-standard port", [], ["T1571"]),
+    (r"ssh\s+.*-p\s*[3-6]\d{4}", 50, "SSH to non-standard port", [], ["T1571"]),
+    # T1573 - Encrypted Channel
+    (r"\bopenssl\s+s_client", 55, "OpenSSL client connection", [], ["T1573.002"]),
+    (r"\bopenssl\s+s_server", 65, "OpenSSL server (potential C2)", [], ["T1573.002"]),
+    (r"stunnel\s+", 60, "SSL tunnel", [], ["T1573.002"]),
+    # socat SSL - matches ssl: anywhere in command (case-insensitive)
+    (r"(?i)\bsocat\b.*\bssl:", 65, "Socat SSL connection", [], ["T1573.002"]),
+    # T1578 - Modify Cloud Compute Infrastructure
+    (
+        r"\baws\s+ec2\s+(?:run-instances|terminate|modify)",
+        65,
+        "AWS EC2 modification",
+        [],
+        ["T1578.002"],
+    ),
+    (
+        r"\bgcloud\s+compute\s+instances\s+(?:create|delete)",
+        65,
+        "GCP compute modification",
+        [],
+        ["T1578.002"],
+    ),
+    # Azure VM - matches az vm create/delete with flexible spacing
+    (
+        r"\baz\s+vm\s+(?:create|delete)\b",
+        65,
+        "Azure VM modification",
+        [],
+        ["T1578.002"],
+    ),
+    (
+        r"\baws\s+lambda\s+(?:create|update|delete)-function",
+        60,
+        "AWS Lambda modification",
+        [],
+        ["T1578"],
+    ),
+    # T1583 - Acquire Infrastructure
+    (
+        r"\baws\s+route53\s+(?:create|change)",
+        55,
+        "AWS Route53 modification",
+        [],
+        ["T1583.001"],
+    ),
+    (
+        r"\bgcloud\s+dns\s+(?:record-sets|managed-zones)",
+        55,
+        "GCP DNS modification",
+        [],
+        ["T1583.001"],
+    ),
+    (r"\baz\s+network\s+dns", 55, "Azure DNS modification", [], ["T1583.001"]),
+    (r"\bwhois\s+", 25, "Domain lookup", [], ["T1583.001"]),
+    # T1619 - Cloud Storage Object Discovery
+    (r"\baws\s+s3\s+ls\b", 40, "S3 bucket listing", [], ["T1619"]),
+    (r"\baws\s+s3api\s+list-objects", 45, "S3 object listing API", [], ["T1619"]),
+    (r"\bgsutil\s+ls\b", 40, "GCS bucket listing", [], ["T1619"]),
+    (r"\baz\s+storage\s+blob\s+list", 40, "Azure blob listing", [], ["T1619"]),
+    (r"\baws\s+s3\s+cp\s+s3://", 35, "S3 download", [], ["T1619", "T1530"]),
+    # T1530 - Data from Cloud Storage Object
+    (r"\baws\s+s3\s+sync\s+s3://", 45, "S3 sync from cloud", [], ["T1530"]),
+    (r"\bgsutil\s+cp\s+gs://", 40, "GCS download", [], ["T1530"]),
+    (r"\brclone\s+.*:", 45, "Rclone cloud transfer", [], ["T1530"]),
+    # T1018 - Remote System Discovery (additional)
+    (r"\barp\s+-a", 30, "ARP table enumeration", [], ["T1018"]),
+    (r"\bnbtscan\b", 45, "NetBIOS scan", [], ["T1018"]),
+    (r"\bsmbclient\s+-L", 45, "SMB share enumeration", [], ["T1018"]),
 ]
 
 SAFE_PATTERNS = [
