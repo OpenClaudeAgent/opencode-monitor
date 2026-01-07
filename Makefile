@@ -99,7 +99,22 @@ mutation-show:
 	@uv run mutmut show $(MUTANT)
 
 mutation-report:
-	@./scripts/mutation-report.sh
+	@mkdir -p reports
+	@LOGFILE="reports/mutation-$$(date +%Y%m%d_%H%M%S).log"; \
+	echo "Starting mutation testing..."; \
+	echo "Output: $$LOGFILE"; \
+	echo "This may take 30+ minutes. Check progress with: tail -f $$LOGFILE"; \
+	uv run mutmut run 2>&1 | tee "$$LOGFILE"; \
+	uv run mutmut results 2>&1 | tee -a "$$LOGFILE"
+
+mutation-report-bg:
+	@mkdir -p reports
+	@LOGFILE="reports/mutation-$$(date +%Y%m%d_%H%M%S).log"; \
+	echo "Starting mutation testing in background..."; \
+	echo "Output: $$LOGFILE"; \
+	nohup sh -c "uv run mutmut run 2>&1; uv run mutmut results 2>&1" > "$$LOGFILE" 2>&1 & \
+	echo "PID: $$!"; \
+	echo "Check progress: tail -f $$LOGFILE"
 
 mutation-debug:
 	@echo "Testing mutation setup with single mutant..."
