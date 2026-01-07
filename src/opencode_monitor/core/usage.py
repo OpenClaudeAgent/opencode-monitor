@@ -48,16 +48,24 @@ def fetch_usage() -> Usage:
 
     # Parse usage data
     try:
+        if not isinstance(data, dict):
+            return Usage(error="API unavailable")
+
+        five_hour_data = data.get("five_hour")
+        seven_day_data = data.get("seven_day")
+
+        # API returns null values when unavailable
+        if five_hour_data is None and seven_day_data is None:
+            return Usage(error="API unavailable")
+
         five_hour = UsagePeriod(
-            utilization=int(data.get("five_hour", {}).get("utilization", 0)),
-            resets_at=data.get("five_hour", {}).get("resets_at"),
+            utilization=int((five_hour_data or {}).get("utilization", 0)),
+            resets_at=(five_hour_data or {}).get("resets_at"),
         )
         seven_day = UsagePeriod(
-            utilization=int(data.get("seven_day", {}).get("utilization", 0)),
-            resets_at=data.get("seven_day", {}).get("resets_at"),
+            utilization=int((seven_day_data or {}).get("utilization", 0)),
+            resets_at=(seven_day_data or {}).get("resets_at"),
         )
         return Usage(five_hour=five_hour, seven_day=seven_day)
-    except (
-        Exception
-    ) as e:  # Intentional catch-all: malformed API response returns error state
-        return Usage(error=f"Parse error: {e}")
+    except Exception:  # Intentional catch-all: malformed API response
+        return Usage(error="API unavailable")

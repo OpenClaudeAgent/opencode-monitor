@@ -190,14 +190,14 @@ class TestFetchUsage:
                     "seven_day_resets": "2025-01-07T00:00:00Z",
                 },
             ),
-            # Empty response uses defaults
+            # Partial response with only seven_day
             (
-                {},
+                {"seven_day": {"utilization": 30}},
                 {
                     "error": None,
                     "five_hour_util": 0,
                     "five_hour_resets": None,
-                    "seven_day_util": 0,
+                    "seven_day_util": 30,
                     "seven_day_resets": None,
                 },
             ),
@@ -213,7 +213,7 @@ class TestFetchUsage:
                 },
             ),
         ],
-        ids=["full_response", "empty_defaults", "partial_response"],
+        ids=["full_response", "seven_day_only", "five_hour_only"],
     )
     def test_returns_usage_on_successful_response(self, api_response, expected):
         """Successful API response should return parsed Usage."""
@@ -226,17 +226,31 @@ class TestFetchUsage:
         assert result.seven_day.utilization == expected["seven_day_util"]
         assert result.seven_day.resets_at == expected["seven_day_resets"]
 
-    def test_returns_parse_error_on_invalid_data_format(self):
-        """Invalid data format should return parse error."""
-        api_response = {"five_hour": {"utilization": "not-a-number"}}
-
+    @pytest.mark.parametrize(
+        "api_response",
+        [
+            {"five_hour": {"utilization": "not-a-number"}},  # Invalid utilization
+            {"five_hour": None, "seven_day": None},  # Both null
+            {},  # Empty response
+            None,  # Null response
+            [],  # Array response
+            "string",  # String response
+        ],
+        ids=[
+            "invalid_utilization",
+            "both_null",
+            "empty_response",
+            "null_response",
+            "array_response",
+            "string_response",
+        ],
+    )
+    def test_returns_api_unavailable_on_invalid_response(self, api_response):
+        """Invalid or unavailable API responses should return 'API unavailable'."""
         with mock_usage_api(api_response):
             result = fetch_usage()
 
-        assert (
-            result.error
-            == "Parse error: invalid literal for int() with base 10: 'not-a-number'"
-        )
+        assert result.error == "API unavailable"
 
     def test_request_headers_are_correctly_set(self):
         """Verify that the request headers are correctly set."""
