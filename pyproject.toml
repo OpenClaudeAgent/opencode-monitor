@@ -38,6 +38,7 @@ asyncio_mode = "auto"
 asyncio_default_fixture_loop_scope = "function"
 qt_api = "pyqt6"
 testpaths = ["tests"]
+pythonpath = ["src"]
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
@@ -47,55 +48,16 @@ markers = [
 # Mutation Testing Configuration
 # =============================================================================
 
-[tool.mutmut]
-# Mutate all source code by default
-paths_to_mutate = ["src/opencode_monitor/"]
-
-# Exclude modules whose tests are excluded (must stay aligned)
-# Rule: if test_X.py is excluded, exclude the corresponding module
-do_not_mutate = [
-    # PyQt6/UI - trampoline incompatible
-    "**/dashboard/**",
-    "**/ui/**",
-    # Async/threading issues
-    "**/core/monitor/**",
-    # Port conflicts / real servers
-    "**/api/server.py",
-    "**/api/client.py",
-    "**/core/client.py",
-    # Excluded tests without matching source in tests/
-    "**/security/auditor.py",
-    # App entry points
-    "**/app.py",
-    # Infrastructure
-    "**/logger.py",
-    "**/migrations/*",
-    "**/__version__.py",
-]
-
-# Exclude tests that use Qt, real servers, or have async/threading issues with mutmut
-pytest_add_cli_args_test_selection = [
-    "tests/",
-    "--ignore=tests/integration",
-    "--ignore=tests/test_app.py",
-    "--ignore=tests/test_client.py",
-    "--ignore=tests/test_api.py",
-    "--ignore=tests/test_menu.py",
-    "--ignore=tests/test_monitor.py",
-    "--ignore=tests/test_auditor.py",
-    "--ignore=tests/test_dashboard_polling.py",
-    "--ignore=tests/test_dashboard_sync.py",
-    "--ignore=tests/test_dashboard_widgets.py",
-    "--ignore=tests/test_dashboard_window_coverage.py",
-    "--ignore=tests/test_pycode.py",
-    "-x",
-]
+# [tool.mutmut] - commented out to use CLI options for mutmut v2
+# paths_to_mutate = ["src/opencode_monitor/security/analyzer/risk.py"]
+# do_not_mutate = []
+# pytest_add_cli_args_test_selection = ["tests/test_risk_analyzer.py", "-x"]
 
 [dependency-groups]
 dev = [
     "bandit>=1.9.2",
     "jedi>=0.19.0",
-    "mutmut>=3.4.0",
+    "mutmut==2.5.1",
     "mypy>=1.19.1",
     "pip-audit>=2.10.0",
     "pyinstrument>=5.1.1",
