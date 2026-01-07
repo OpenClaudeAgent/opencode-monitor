@@ -48,14 +48,34 @@ markers = [
 # =============================================================================
 
 [tool.mutmut]
+# Mutate all source code by default
 paths_to_mutate = ["src/opencode_monitor/"]
-pytest_add_cli_args_test_selection = ["tests/"]
 
-# Exclusions - modules en cours de refactoring ailleurs
+# Exclude modules that have mutmut/PyQt6 compatibility issues
 do_not_mutate = [
+    "**/dashboard/**",      # PyQt6 widgets - mutmut trampoline incompatible
+    "**/ui/**",             # PyQt6 UI components
+    "**/api/server.py",     # Real server - port conflicts
+    "**/app.py",            # rumps/PyQt6 app
     "**/logger.py",
     "**/migrations/*",
     "**/__version__.py",
+]
+
+# Exclude tests that use Qt or real servers
+pytest_add_cli_args_test_selection = [
+    "tests/",
+    "--ignore=tests/integration",
+    "--ignore=tests/test_app.py",
+    "--ignore=tests/test_client.py",
+    "--ignore=tests/test_api.py",
+    "--ignore=tests/test_menu.py",
+    "--ignore=tests/test_dashboard_polling.py",
+    "--ignore=tests/test_dashboard_sync.py",
+    "--ignore=tests/test_dashboard_widgets.py",
+    "--ignore=tests/test_dashboard_window_coverage.py",
+    "--ignore=tests/test_pycode.py",
+    "-x",
 ]
 
 [dependency-groups]
