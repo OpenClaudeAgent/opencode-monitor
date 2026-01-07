@@ -459,3 +459,300 @@ class TestConfidenceScore:
         assert len(exfil) == 1
         # Lower confidence for distant, low-risk events
         assert 0.5 <= exfil[0].confidence <= 0.7
+
+
+# =====================================================
+# Phase 3 - New Correlation Pattern Tests (Plan 43)
+# =====================================================
+
+
+class TestConfigPoisoningCorrelation:
+    """Tests for config_poisoning correlation pattern."""
+
+    @pytest.mark.parametrize(
+        "config_file,bash_cmd,expected_match",
+        [
+            (".bashrc", "ls -la", True),
+            ("~/.zshrc", "echo hello", True),
+            ("/home/user/.profile", "pwd", True),
+            ("/tmp/random.txt", "ls", False),  # Not a config file
+        ],
+        ids=["bashrc-ls", "zshrc-echo", "profile-pwd", "no-config"],
+    )
+    def test_config_poisoning_detection(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        config_file: str,
+        bash_cmd: str,
+        expected_match: bool,
+    ):
+        """write(shell_config) -> bash(any) triggers config poisoning."""
+        e1 = create_event(EventType.WRITE, config_file, timestamp=base_time)
+        e2 = create_event(EventType.BASH, bash_cmd, timestamp=base_time + 10)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        poisoning = [
+            c for c in correlations if c.correlation_type == "config_poisoning"
+        ]
+
+        if expected_match:
+            assert len(poisoning) == 1
+            assert poisoning[0].score_modifier == 25
+            assert poisoning[0].mitre_technique == "T1546"
+        else:
+            assert len(poisoning) == 0
+
+    def test_config_poisoning_outside_window(
+        self, correlator: EventCorrelator, base_time: float
+    ):
+        """Config poisoning outside 60s window doesn't trigger."""
+        e1 = create_event(EventType.WRITE, ".bashrc", timestamp=base_time)
+        e2 = create_event(
+            EventType.BASH,
+            "ls",
+            timestamp=base_time + 120,  # 2 minutes later
+        )
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        poisoning = [
+            c for c in correlations if c.correlation_type == "config_poisoning"
+        ]
+        assert len(poisoning) == 0
+
+
+class TestDependencyConfusionCorrelation:
+    """Tests for dependency_confusion correlation pattern."""
+
+    @pytest.mark.parametrize(
+        "fetch_url,package_file,expected_match",
+        [
+            ("https://registry.npmjs.org/malicious", "package.json", True),
+            ("https://pypi.org/simple/evil-pkg", "setup.py", True),
+            ("https://rubygems.org/gems/backdoor", "Gemfile", True),
+            (
+                "https://example.com/data.json",
+                "config.json",
+                False,
+            ),  # Not package registry
+        ],
+        ids=["npm-package", "pypi-setup", "rubygems-gemfile", "no-registry"],
+    )
+    def test_dependency_confusion_detection(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        fetch_url: str,
+        package_file: str,
+        expected_match: bool,
+    ):
+        """webfetch(registry) -> write(package_file) triggers dependency confusion."""
+        e1 = create_event(EventType.WEBFETCH, fetch_url, timestamp=base_time)
+        e2 = create_event(EventType.WRITE, package_file, timestamp=base_time + 30)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        confusion = [
+            c for c in correlations if c.correlation_type == "dependency_confusion"
+        ]
+
+        if expected_match:
+            assert len(confusion) == 1
+            assert confusion[0].score_modifier == 30
+            assert confusion[0].mitre_technique == "T1195"
+        else:
+            assert len(confusion) == 0
+
+
+class TestSecretLoggingCorrelation:
+    """Tests for secret_logging correlation pattern."""
+
+    @pytest.mark.parametrize(
+        "secret_file,log_file,expected_match",
+        [
+            ("/app/.env", "/var/log/app.log", True),
+            ("/secrets/credentials.json", "output.log", True),
+            ("~/.ssh/id_rsa.pem", "logs/debug.log", True),
+            ("/app/config.yml", "/var/log/app.log", False),  # Not a secrets file
+        ],
+        ids=["env-varlog", "creds-outputlog", "pem-debuglog", "no-secrets"],
+    )
+    def test_secret_logging_detection(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        secret_file: str,
+        log_file: str,
+        expected_match: bool,
+    ):
+        """read(secrets) -> write(log) triggers secret logging."""
+        e1 = create_event(EventType.READ, secret_file, timestamp=base_time)
+        e2 = create_event(EventType.WRITE, log_file, timestamp=base_time + 30)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        logging_corr = [
+            c for c in correlations if c.correlation_type == "secret_logging"
+        ]
+
+        if expected_match:
+            assert len(logging_corr) == 1
+            assert logging_corr[0].score_modifier == 35
+            assert logging_corr[0].mitre_technique == "T1074"
+        else:
+            assert len(logging_corr) == 0
+
+
+class TestTunnelEstablishmentCorrelation:
+    """Tests for tunnel_establishment correlation pattern."""
+
+    @pytest.mark.parametrize(
+        "ssh_cmd,webfetch_url,expected_match",
+        [
+            ("ssh -L 8080:remote:80 user@host", "https://evil.com/data", True),
+            ("ssh -R 9000:localhost:22 attacker@box", "https://external.io/api", True),
+            ("ssh user@server", "https://example.com", False),  # No tunnel flags
+            (
+                "ssh -L 8080:remote:80 user@host",
+                "http://localhost:3000",
+                False,
+            ),  # localhost
+        ],
+        ids=["local-tunnel", "remote-tunnel", "no-tunnel", "localhost-excluded"],
+    )
+    def test_tunnel_establishment_detection(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        ssh_cmd: str,
+        webfetch_url: str,
+        expected_match: bool,
+    ):
+        """bash(ssh -L/-R) -> webfetch(external) triggers tunnel establishment."""
+        e1 = create_event(EventType.BASH, ssh_cmd, timestamp=base_time)
+        e2 = create_event(EventType.WEBFETCH, webfetch_url, timestamp=base_time + 60)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        tunnel = [
+            c for c in correlations if c.correlation_type == "tunnel_establishment"
+        ]
+
+        if expected_match:
+            assert len(tunnel) == 1
+            assert tunnel[0].score_modifier == 30
+            assert tunnel[0].mitre_technique == "T1572"
+        else:
+            assert len(tunnel) == 0
+
+
+class TestCleanupAfterAttackCorrelation:
+    """Tests for cleanup_after_attack correlation pattern."""
+
+    @pytest.mark.parametrize(
+        "destructive_cmd,cleanup_cmd,expected_match",
+        [
+            ("rm -rf /tmp/evidence", "history -c", True),
+            ("shred -u /var/log/auth.log", "rm ~/.bash_history", True),
+            ("rm -rf /data/traces", "unset HISTFILE", True),
+            ("ls -la", "history -c", False),  # Not destructive
+        ],
+        ids=["rm-history-c", "shred-rm-history", "rm-unset-histfile", "no-destructive"],
+    )
+    def test_cleanup_after_attack_detection(
+        self,
+        correlator: EventCorrelator,
+        base_time: float,
+        destructive_cmd: str,
+        cleanup_cmd: str,
+        expected_match: bool,
+    ):
+        """bash(rm -rf/shred) -> bash(history clear) triggers cleanup detection."""
+        e1 = create_event(EventType.BASH, destructive_cmd, timestamp=base_time)
+        e2 = create_event(EventType.BASH, cleanup_cmd, timestamp=base_time + 30)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        cleanup = [
+            c for c in correlations if c.correlation_type == "cleanup_after_attack"
+        ]
+
+        if expected_match:
+            assert len(cleanup) == 1
+            assert cleanup[0].score_modifier == 40
+            assert cleanup[0].mitre_technique == "T1070"
+        else:
+            assert len(cleanup) == 0
+
+    def test_cleanup_outside_window(
+        self, correlator: EventCorrelator, base_time: float
+    ):
+        """Cleanup correlation outside 3min window doesn't trigger."""
+        e1 = create_event(EventType.BASH, "rm -rf /tmp/data", timestamp=base_time)
+        e2 = create_event(
+            EventType.BASH,
+            "history -c",
+            timestamp=base_time + 300,  # 5 minutes later
+        )
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        cleanup = [
+            c for c in correlations if c.correlation_type == "cleanup_after_attack"
+        ]
+        assert len(cleanup) == 0
+
+
+class TestNewCorrelationMetadata:
+    """Tests for metadata correctness on new correlations."""
+
+    def test_config_poisoning_context_includes_time_delta(
+        self, correlator: EventCorrelator, base_time: float
+    ):
+        """Config poisoning correlation context includes accurate time_delta."""
+        e1 = create_event(EventType.WRITE, ".bashrc", timestamp=base_time)
+        e2 = create_event(EventType.BASH, "ls", timestamp=base_time + 15)
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        poisoning = [
+            c for c in correlations if c.correlation_type == "config_poisoning"
+        ]
+        assert len(poisoning) == 1
+        assert poisoning[0].context["time_delta_seconds"] == 15
+
+    def test_cleanup_correlation_preserves_session_id(
+        self, correlator: EventCorrelator, base_time: float
+    ):
+        """Cleanup correlation preserves session_id from events."""
+        e1 = create_event(
+            EventType.BASH,
+            "rm -rf /tmp/data",
+            session_id="attack-session",
+            timestamp=base_time,
+        )
+        e2 = create_event(
+            EventType.BASH,
+            "history -c",
+            session_id="attack-session",
+            timestamp=base_time + 10,
+        )
+
+        correlator.add_event(e1)
+        correlations = correlator.add_event(e2)
+
+        cleanup = [
+            c for c in correlations if c.correlation_type == "cleanup_after_attack"
+        ]
+        assert len(cleanup) == 1
+        assert cleanup[0].session_id == "attack-session"

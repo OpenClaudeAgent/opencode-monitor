@@ -116,6 +116,89 @@ KILL_CHAIN_PATTERNS = [
         ],
         "max_window_seconds": 300,  # 5 minutes
     },
+    # =========================================================================
+    # Phase 3 - New Kill Chain Patterns (Plan 43)
+    # =========================================================================
+    {
+        "name": "credential_harvest",
+        "description": "Credential file access followed by network exfiltration",
+        "score_bonus": 35,
+        "mitre_technique": "T1552",
+        "steps": [
+            {"type": EventType.READ, "pattern": r"\.ssh/|\.aws/|\.netrc|\.pgpass"},
+            {"type": EventType.BASH, "pattern": r"\bcurl\s+.*-d\s+|\bwget\s+.*--post"},
+        ],
+        "max_window_seconds": 600,  # 10 minutes
+    },
+    {
+        "name": "persistence_install",
+        "description": "Service creation or startup modification for persistence",
+        "score_bonus": 40,
+        "mitre_technique": "T1547",
+        "steps": [
+            {
+                "type": EventType.WRITE,
+                "pattern": r"\.bashrc|\.bash_profile|\.zshrc|crontab|LaunchAgent",
+            },
+            {"type": EventType.BASH, "pattern": r"\bchmod\s+\+x|\bsource\s+"},
+        ],
+        "max_window_seconds": 300,  # 5 minutes
+    },
+    {
+        "name": "data_staging",
+        "description": "Data collection and staging for exfiltration",
+        "score_bonus": 40,
+        "mitre_technique": "T1560",
+        "steps": [
+            {"type": EventType.BASH, "pattern": r"\bfind\s+.*-type\s+f"},
+            {"type": EventType.BASH, "pattern": r"\btar\s+.*-[a-z]*c|\bzip\s+-r"},
+            {
+                "type": EventType.WEBFETCH,
+                "pattern": r"s3://|gs://|https?://(?!localhost)",
+            },
+        ],
+        "max_window_seconds": 900,  # 15 minutes
+    },
+    {
+        "name": "privilege_escalation",
+        "description": "SUID binary creation or sudo rule modification",
+        "score_bonus": 45,
+        "mitre_technique": "T1548",
+        "steps": [
+            # Match: chmod u+s, chmod g+s, chmod 4xxx (SUID), chmod 2xxx (SGID)
+            {
+                "type": EventType.BASH,
+                "pattern": r"\bchmod\s+[ug]\+s|\bchmod\s+[42][0-7]{3}",
+            },
+            {"type": EventType.BASH, "pattern": r"\bsudo\s+"},
+        ],
+        "max_window_seconds": 300,  # 5 minutes
+    },
+    {
+        "name": "cloud_credential_abuse",
+        "description": "Cloud credential theft and abuse",
+        "score_bonus": 45,
+        "mitre_technique": "T1567",
+        "steps": [
+            {"type": EventType.READ, "pattern": r"\.aws/credentials|\.boto|gcloud"},
+            {"type": EventType.BASH, "pattern": r"\baws\s+|\bgcloud\s+|\baz\s+"},
+        ],
+        "max_window_seconds": 600,  # 10 minutes
+    },
+    {
+        "name": "container_escape",
+        "description": "Attempt to escape container to host",
+        "score_bonus": 50,
+        "mitre_technique": "T1611",
+        "steps": [
+            {"type": EventType.READ, "pattern": r"/proc/1/|/proc/self/"},
+            {
+                "type": EventType.BASH,
+                "pattern": r"\bdocker\s+|\bnsenter\s+|\bchroot\s+",
+            },
+        ],
+        "max_window_seconds": 300,  # 5 minutes
+    },
 ]
 
 

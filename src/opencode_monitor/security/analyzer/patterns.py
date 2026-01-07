@@ -111,7 +111,28 @@ DANGEROUS_PATTERNS = [
     ),
     (r"\becho\s+.*>\s*/etc/", 50, "Write to /etc/", [], ["T1222"]),
     (r"\brm\s+-rf\s+\*", 45, "Recursive delete with wildcard", [], ["T1070"]),
-    (r"\brm\s+-rf\s+node_modules", 25, "Delete node_modules", [], []),
+    # rm -rf with context-aware scoring: safe contexts reduce score significantly
+    (
+        r"\brm\s+-rf\s+(?!.*(?:/\s*$|/\*\s*$))\S+",
+        70,
+        "Recursive force delete",
+        [
+            # Safe context adjustments - development artifacts
+            # Why safe: temp directories are designed for ephemeral data
+            (r"/tmp/|/var/tmp/|\.cache/", -40),
+            # Why safe: node_modules is frequently cleaned in JS development
+            (r"node_modules", -50),
+            # Why safe: Python cache directories are auto-generated
+            (r"__pycache__|\.pytest_cache", -45),
+            # Why safe: test data and fixtures are disposable
+            (r"test.*data|fixtures|snapshots", -35),
+            # Why safe: build output directories are regenerated (with or without trailing slash)
+            (r"(?:^|/)(?:build|dist|target|out)(?:/|$)", -40),
+            # Why safe: coverage output is regenerated
+            (r"\.coverage|htmlcov/|\.nyc_output", -35),
+        ],
+        ["T1485", "T1070.004"],
+    ),
     (r"\brm\s+-rf\s+\.git", 60, "Delete git directory", [], ["T1070"]),
     (r"\brm\s+-rf\s+(dist|build|target|out)\b", 20, "Delete build directory", [], []),
     (r"\bnc\s+-l", 40, "Netcat listener", [], ["T1059"]),
@@ -209,6 +230,215 @@ DANGEROUS_PATTERNS = [
     # T1497 - Sandbox/VM Detection (potential evasion)
     (r"\bdmesg\s+\|.*grep.*(vmware|virtual|vbox)", 35, "VM detection", [], ["T1497"]),
     (r"\bsystemd-detect-virt", 30, "Virtualization detection", [], ["T1497"]),
+    # === AI-SPECIFIC PATTERNS ===
+    # Prompt Injection Indicators
+    (
+        r"#\s*Base64:\s*[A-Za-z0-9+/=]{10,}",
+        85,
+        "Encoded instruction in comment",
+        [],
+        ["T1027"],
+    ),
+    (
+        r'["\'].*(?:curl|wget|rm|sudo|chmod).*\|.*sh["\']',
+        70,
+        "Shell command in string literal",
+        [],
+        ["T1059.004"],
+    ),
+    (
+        r"\\x[0-9a-fA-F]{2}(?:\\x[0-9a-fA-F]{2}){4,}",
+        60,
+        "Hex-encoded payload",
+        [],
+        ["T1027"],
+    ),
+    (
+        r"(?i)ignore.*previous.*instruction",
+        90,
+        "Prompt injection - ignore instructions",
+        [],
+        ["T1059"],
+    ),
+    (
+        r"(?i)system.*prompt",
+        85,
+        "Prompt injection - system prompt reference",
+        [],
+        ["T1059"],
+    ),
+    (r"(?i)do.*not.*follow.*safety", 95, "Safety bypass attempt", [], ["T1059"]),
+    # === EVASION DETECTION PATTERNS ===
+    # Base64/Encoding Evasion
+    (r"\bbase64\s+-d\s+<<<", 75, "Base64 decode execution", [], ["T1027", "T1140"]),
+    (r"\bbase64\s+-d\s*\|", 80, "Base64 pipe to execution", [], ["T1027", "T1140"]),
+    (
+        r"\becho\s+[A-Za-z0-9+/=]{20,}\s*\|\s*base64\s+-d",
+        85,
+        "Encoded command decode",
+        [],
+        ["T1027"],
+    ),
+    (r"\bprintf\s+['\"]\\\\x[0-9a-fA-F]", 70, "Printf hex decode", [], ["T1027"]),
+    # Variable/Command Substitution Evasion
+    (r"\$\([^)]+\)\s+-rf\s+/", 85, "Subshell command to rm -rf", [], ["T1059.004"]),
+    (r"\$\{[^}]+\}\s+-rf\s+/", 85, "Variable expansion to rm -rf", [], ["T1059.004"]),
+    (
+        r"eval\s+[\"'].*(?:rm|curl|wget|chmod)",
+        90,
+        "Eval with dangerous command",
+        [],
+        ["T1059.004"],
+    ),
+    # === NEW MITRE TECHNIQUE PATTERNS ===
+    # T1136 - Create Account
+    (r"\buseradd\s+", 70, "User account creation", [], ["T1136.001"]),
+    (r"\badduser\s+", 70, "User account creation", [], ["T1136.001"]),
+    (r"\bdscl\s+.*create.*Users", 75, "macOS user creation", [], ["T1136.001"]),
+    # T1543 - Create or Modify System Process
+    (r"\bsystemctl\s+enable\s+", 65, "Enable system service", [], ["T1543.002"]),
+    (r"\blaunchctl\s+load\s+", 70, "Load macOS launch daemon", [], ["T1543.001"]),
+    (r"/Library/LaunchDaemons/", 70, "macOS system daemon", [], ["T1543.001"]),
+    # T1547 - Boot or Logon Autostart Execution
+    (
+        r"\.bashrc|\.bash_profile|\.zshrc|\.profile",
+        50,
+        "Shell startup file",
+        [],
+        ["T1547.004"],
+    ),
+    (r"/etc/rc\.local", 75, "rc.local persistence", [], ["T1547.004"]),
+    (r"HKEY_.*\\\\Run", 80, "Windows registry run key", [], ["T1547.001"]),
+    # T1567 - Exfiltration Over Web Service
+    (
+        r"\baws\s+s3\s+cp\s+.*--acl\s+public",
+        85,
+        "S3 upload with public ACL",
+        [],
+        ["T1567.002"],
+    ),
+    (r"\bgcloud\s+.*storage\s+.*cp\s+", 60, "GCS upload", [], ["T1567.002"]),
+    (r"\brclone\s+(?:copy|sync)\s+", 65, "Rclone cloud sync", [], ["T1567.002"]),
+    # T1611 - Escape to Host (Container Escape)
+    (r"docker\s+run\s+.*--privileged", 85, "Privileged container run", [], ["T1611"]),
+    (r"docker\s+.*-v\s+/:/", 90, "Docker mount root filesystem", [], ["T1611"]),
+    (
+        r"kubectl\s+exec\s+.*--\s+.*chroot",
+        95,
+        "Kubernetes container escape",
+        [],
+        ["T1611"],
+    ),
+    # === PHASE 4: REMAINING MITRE TECHNIQUE PATTERNS ===
+    # T1550 - Use Alternate Authentication Material
+    (r"\boauth_token\b|oauth2_token", 55, "OAuth token reference", [], ["T1550.001"]),
+    (r"\bjwt[_\s]*token", 50, "JWT token reference", [], ["T1550.001"]),
+    # Bearer token: case-insensitive, matches JWT format (xxx.yyy.zzz or just xxx.yyy)
+    (
+        r"(?i)\bbearer\s+[A-Za-z0-9\-_=]+",
+        60,
+        "Bearer token pattern",
+        [],
+        ["T1550.001"],
+    ),
+    (r"\brefresh[_\s]*token", 55, "Refresh token reference", [], ["T1550.001"]),
+    (r"\baccess[_\s]*token\s*=", 50, "Access token assignment", [], ["T1550.001"]),
+    # T1556 - Modify Authentication Process
+    (r"/etc/pam\.d/", 75, "PAM configuration access", [], ["T1556.003"]),
+    (r"/etc/sudoers", 80, "Sudoers file access", [], ["T1556", "T1548.003"]),
+    (r"\bvisudo\b", 70, "Editing sudoers", [], ["T1556"]),
+    # PAM module patterns - matches within quotes or directly
+    (r"pam_unix\.so|pam_permit\.so", 80, "PAM module manipulation", [], ["T1556.003"]),
+    (
+        r"auth\s+sufficient\s+pam_permit",
+        90,
+        "PAM bypass configuration",
+        [],
+        ["T1556.003"],
+    ),
+    # T1564 - Hide Artifacts (additional patterns)
+    # setfattr with user.hidden extended attribute (note: proper escape of dot)
+    (
+        r"\bsetfattr\b.*user\.hidden",
+        55,
+        "Extended attribute hiding",
+        [],
+        ["T1564.001"],
+    ),
+    (r"\bxattr\b.*hidden", 50, "macOS extended attribute", [], ["T1564.001"]),
+    (r"attrib\s+\+[hs]", 55, "Windows hidden/system attribute", [], ["T1564.001"]),
+    # T1571 - Non-Standard Port
+    (r"curl\s+.*:\d{5,}", 45, "Curl to high port number", [], ["T1571"]),
+    (r"wget\s+.*:\d{5,}", 45, "Wget to high port number", [], ["T1571"]),
+    (r"nc\s+.*\s+[3-6]\d{4}\b", 55, "Netcat to non-standard port", [], ["T1571"]),
+    (r"ssh\s+.*-p\s*[3-6]\d{4}", 50, "SSH to non-standard port", [], ["T1571"]),
+    # T1573 - Encrypted Channel
+    (r"\bopenssl\s+s_client", 55, "OpenSSL client connection", [], ["T1573.002"]),
+    (r"\bopenssl\s+s_server", 65, "OpenSSL server (potential C2)", [], ["T1573.002"]),
+    (r"stunnel\s+", 60, "SSL tunnel", [], ["T1573.002"]),
+    # socat SSL - matches ssl: anywhere in command (case-insensitive)
+    (r"(?i)\bsocat\b.*\bssl:", 65, "Socat SSL connection", [], ["T1573.002"]),
+    # T1578 - Modify Cloud Compute Infrastructure
+    (
+        r"\baws\s+ec2\s+(?:run-instances|terminate|modify)",
+        65,
+        "AWS EC2 modification",
+        [],
+        ["T1578.002"],
+    ),
+    (
+        r"\bgcloud\s+compute\s+instances\s+(?:create|delete)",
+        65,
+        "GCP compute modification",
+        [],
+        ["T1578.002"],
+    ),
+    # Azure VM - matches az vm create/delete with flexible spacing
+    (
+        r"\baz\s+vm\s+(?:create|delete)\b",
+        65,
+        "Azure VM modification",
+        [],
+        ["T1578.002"],
+    ),
+    (
+        r"\baws\s+lambda\s+(?:create|update|delete)-function",
+        60,
+        "AWS Lambda modification",
+        [],
+        ["T1578"],
+    ),
+    # T1583 - Acquire Infrastructure
+    (
+        r"\baws\s+route53\s+(?:create|change)",
+        55,
+        "AWS Route53 modification",
+        [],
+        ["T1583.001"],
+    ),
+    (
+        r"\bgcloud\s+dns\s+(?:record-sets|managed-zones)",
+        55,
+        "GCP DNS modification",
+        [],
+        ["T1583.001"],
+    ),
+    (r"\baz\s+network\s+dns", 55, "Azure DNS modification", [], ["T1583.001"]),
+    (r"\bwhois\s+", 25, "Domain lookup", [], ["T1583.001"]),
+    # T1619 - Cloud Storage Object Discovery
+    (r"\baws\s+s3\s+ls\b", 40, "S3 bucket listing", [], ["T1619"]),
+    (r"\baws\s+s3api\s+list-objects", 45, "S3 object listing API", [], ["T1619"]),
+    (r"\bgsutil\s+ls\b", 40, "GCS bucket listing", [], ["T1619"]),
+    (r"\baz\s+storage\s+blob\s+list", 40, "Azure blob listing", [], ["T1619"]),
+    (r"\baws\s+s3\s+cp\s+s3://", 35, "S3 download", [], ["T1619", "T1530"]),
+    # T1530 - Data from Cloud Storage Object
+    (r"\baws\s+s3\s+sync\s+s3://", 45, "S3 sync from cloud", [], ["T1530"]),
+    (r"\bgsutil\s+cp\s+gs://", 40, "GCS download", [], ["T1530"]),
+    (r"\brclone\s+.*:", 45, "Rclone cloud transfer", [], ["T1530"]),
+    # T1018 - Remote System Discovery (additional)
+    (r"\barp\s+-a", 30, "ARP table enumeration", [], ["T1018"]),
+    (r"\bnbtscan\b", 45, "NetBIOS scan", [], ["T1018"]),
+    (r"\bsmbclient\s+-L", 45, "SMB share enumeration", [], ["T1018"]),
 ]
 
 SAFE_PATTERNS = [
@@ -228,6 +458,79 @@ SAFE_PATTERNS = [
     (r"localhost[:/]", -50, "Localhost operation"),
     (r"127\.0\.0\.1[:/]", -50, "Localhost operation"),
     (r"0\.0\.0\.0[:/]", -40, "Local bind"),
+    # === DEVELOPER WORKFLOW SAFE PATTERNS ===
+    # Package managers
+    (r"\b(?:npm|yarn|pnpm)\s+install\s+", -20, "Package manager install"),
+    (r"\bpip\s+install\s+", -15, "Python pip install"),
+    (r"\bbrew\s+install\s+", -15, "Homebrew install"),
+    # Build tools
+    (r"\bcargo\s+build\s+", -15, "Rust cargo build"),
+    (r"\bgo\s+build\s+", -15, "Go build"),
+    (r"\bmake\s+(?:clean|all|test)\s*$", -20, "Standard make targets"),
+    # Version control (exclude --force operations)
+    (r"\bgit\s+(?:pull|fetch|clone)\s+", -25, "Git operations"),
+    (r"\bgit\s+push\s+(?!.*--force)", -25, "Git push without force"),
+    # Testing frameworks
+    (r"\bpytest\s+", -20, "Running tests"),
+    (r"\bjest\s+", -20, "Running tests"),
+    # === PHASE 2: FALSE POSITIVE REDUCTION PATTERNS ===
+    # Development environment patterns
+    # Why safe: virtualenv/venv creation is standard Python dev workflow
+    (r"\bvirtualenv\s+|venv\s+", -15, "Python virtualenv creation"),
+    # Why safe: sourcing activate scripts is required to use virtual environments
+    (r"\bsource\s+.*(?:venv|\.env|activate)", -20, "Activating virtual environment"),
+    # Why safe: docker-compose operations are standard container orchestration
+    (r"\bdocker-compose\s+(?:up|down|build)\b", -15, "Docker compose operations"),
+    # Why safe: kubectl read operations don't modify cluster state
+    (r"\bkubectl\s+(?:get|describe|logs)\b", -20, "Kubectl read operations"),
+    # Test and CI/CD patterns
+    # Why safe: running pytest is a standard testing operation
+    (r"\bpython\s+-m\s+pytest\b", -20, "Running pytest"),
+    # Why safe: npm test is standard JavaScript testing
+    (r"\bnpm\s+(?:run\s+)?test\b", -20, "Running npm test"),
+    # Why safe: CI/CD workflow files are configuration, not execution
+    (r"\b(?:ci|cd|actions?|workflow)\b.*\byaml\b", -15, "CI/CD workflow file"),
+    # Why safe: GitHub Actions directory is standard CI/CD location
+    (r"\.github/workflows/", -20, "GitHub Actions path"),
+    # Documentation and help
+    # Why safe: man pages are read-only documentation lookups
+    (r"\bman\s+\w+\b", -25, "Man page lookup"),
+    # Why safe: help/version flags are informational only
+    (r"\b--help\b|--version\b|-h\b", -30, "Help/version flags"),
+    # Why safe: which/type commands only locate executables
+    (r"\bwhich\s+\w+\b", -20, "Which command lookup"),
+    (r"\btype\s+-a\s+\w+\b", -20, "Type command lookup"),
+    # Safe file operations
+    # Why safe: reading standard documentation files
+    (r"\bcat\s+(?:README|LICENSE|CHANGELOG)", -25, "Reading documentation"),
+    # Why safe: file pagers are read-only viewing tools
+    (r"\bless\s+|more\s+", -15, "File paging"),
+    # Why safe: head with line count is a standard file inspection
+    (r"\bhead\s+-n\s*\d+\b", -15, "Head with line count"),
+    # Why safe: following log files is standard debugging
+    (r"\btail\s+-f\s+.*\.log\b", -20, "Following log files"),
+    # Safe network operations
+    # Why safe: localhost curl is internal communication only
+    (r"\bcurl\s+.*localhost:", -25, "Localhost curl"),
+    # Why safe: loopback wget is internal communication only
+    (r"\bwget\s+.*127\.0\.0\.1", -25, "Localhost wget"),
+    # Why safe: ping with count limit is bounded network check
+    (r"\bping\s+-c\s*\d+\s+", -20, "Ping with count limit"),
+    # Why safe: DNS lookup is informational network query
+    (r"\bnslookup\s+|dig\s+", -15, "DNS lookup"),
+    # Path-specific safe patterns for file operations
+    # Why safe: node_modules is frequently cleaned/rebuilt in JS projects
+    (r"node_modules/", -30, "Node modules directory"),
+    # Why safe: Python virtual environments are isolated and disposable
+    (r"\.venv/|venv/|virtualenv/", -30, "Python virtual environment"),
+    # Why safe: Python cache files are auto-generated and disposable
+    (r"__pycache__/|\.pyc$", -25, "Python cache files"),
+    # Why safe: Git internal objects are managed by git itself
+    (r"\.git/objects/", -25, "Git internal objects"),
+    # Why safe: cache directories are designed to be temporary
+    (r"\.cache/|cache/", -20, "Cache directories"),
+    # Why safe: temporary directories are designed to be ephemeral
+    (r"tmp/|temp/|\.tmp/", -20, "Temporary directories"),
 ]
 
 
