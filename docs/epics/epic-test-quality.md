@@ -1,11 +1,44 @@
 # Epic: Test Quality Improvement
 
 **Epic ID**: TQI-001  
-**Status**: Draft  
+**Status**: In Progress  
 **Priority**: P1 - High  
 **Owner**: QA/Dev Team  
 **Created**: 2026-01-07  
 **Target Completion**: Sprint 4
+
+## POC Results (Story 1 - COMPLETED)
+
+**Date**: 2026-01-07  
+**Module testé**: `utils/` (250 lignes)
+
+### Résultats
+
+| Métrique | Valeur |
+|----------|--------|
+| Mutants générés | 62 |
+| Mutants tués | 27 (44%) |
+| Mutants survivants | 35 (56%) |
+| Vitesse | 18.5 mutations/sec |
+
+### Mutants survivants identifiés
+
+Principalement dans `logger.py` - la fonction `setup_logger` n'est pas testée :
+- Valeur par défaut du paramètre `name`
+- Configuration du handler
+- Format du logger
+
+### Configuration validée
+
+```bash
+# macOS nécessite --max-children=1 (problème fork/PyQt6)
+make mutation
+```
+
+### Prochaines étapes
+
+1. Écrire tests pour `setup_logger` → tuer 35 mutants
+2. Étendre mutation testing à d'autres modules
 
 ---
 

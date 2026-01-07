@@ -35,3 +35,7 @@ htmlcov/
 vendor/
 node_modules/
 package-lock.json
+
+# Mutation testing
+mutants/
+.mutmut-cache/

@@ -2,7 +2,7 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html clean roadmap
+.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-browse clean roadmap
 
 # Default target
 help:
@@ -17,6 +17,11 @@ help:
 	@echo "  make test-all               Run all tests (unit + integration)"
 	@echo "  make coverage               Run tests with coverage report"
 	@echo "  make coverage-html          Run tests with HTML coverage report"
+	@echo ""
+	@echo "Mutation Testing:"
+	@echo "  make mutation               Run mutation testing (utils/ module)"
+	@echo "  make mutation-browse        Interactive mutation results browser"
+	@echo "  make mutation-results       Show mutation test results"
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          Remove temp/build files"
@@ -51,10 +56,25 @@ coverage-html:
 	@uv run python -m pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=html
 	@open htmlcov/index.html
 
+# === Mutation Testing ===
+# Note: --max-children=1 required on macOS due to fork() issues with PyQt6
+
+mutation:
+	@echo "Running mutation testing on utils/ module..."
+	@rm -rf mutants/ .mutmut-cache 2>/dev/null || true
+	@uv run mutmut run --max-children=1
+
+mutation-browse:
+	@uv run mutmut browse
+
+mutation-results:
+	@uv run mutmut results
+
 # === Maintenance ===
 
 clean:
 	@rm -rf .coverage htmlcov/
+	@rm -rf mutants/ .mutmut-cache
 	@rm -rf src/*.egg-info
 	@rm -rf __pycache__ src/__pycache__ tests/__pycache__
 	@rm -rf src/opencode_monitor/__pycache__
