@@ -102,7 +102,7 @@ mutation-security:
 	@rm -f .mutmut-cache
 	@uv run mutmut run \
 		--paths-to-mutate $(SECURITY_PATHS) \
-		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_techniques.py tests/test_correlator.py tests/test_sequences.py -x -q"
+		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_utils.py tests/test_correlator.py tests/test_sequences.py -x -q"
 	@uv run mutmut results
 
 mutation-risk:
@@ -134,7 +134,7 @@ mutation-report:
 	echo "This may take 10+ minutes. Check progress with: tail -f $$LOGFILE"; \
 	uv run mutmut run \
 		--paths-to-mutate $(SECURITY_PATHS) \
-		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_techniques.py tests/test_correlator.py tests/test_sequences.py -x -q" \
+		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_utils.py tests/test_correlator.py tests/test_sequences.py -x -q" \
 		2>&1 | tee "$$LOGFILE"; \
 	uv run mutmut results 2>&1 | tee -a "$$LOGFILE"
 
@@ -145,7 +145,7 @@ mutation-report-bg:
 	echo "Output: $$LOGFILE"; \
 	nohup sh -c 'uv run mutmut run \
 		--paths-to-mutate $(SECURITY_PATHS) \
-		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_techniques.py tests/test_correlator.py tests/test_sequences.py -x -q" \
+		--runner "uv run pytest tests/test_risk_analyzer.py tests/test_mitre_tags.py tests/test_mitre_utils.py tests/test_correlator.py tests/test_sequences.py -x -q" \
 		2>&1; uv run mutmut results 2>&1' > "$$LOGFILE" 2>&1 & \
 	echo "PID: $$!"; \
 	echo "Check progress: tail -f $$LOGFILE"
