@@ -37,6 +37,7 @@ from ..sections import (
 )
 from .signals import DataSignals
 from .sync import SyncChecker
+from ...utils.logger import debug, error
 
 
 class DashboardWindow(QMainWindow):
@@ -173,8 +174,6 @@ class DashboardWindow(QMainWindow):
     def _on_open_terminal_session(self, session_id: str) -> None:
         """Handle request to open terminal for a session (from tracing)."""
         # For now, just log - could be extended to find session's terminal
-        from ...utils.logger import debug
-
         debug(f"Open terminal requested for session: {session_id}")
 
     def _on_analytics_period_changed(self, days: int) -> None:
@@ -328,8 +327,6 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ...utils.logger import error
-
             error(f"[Dashboard] Monitoring fetch error: {e}")
 
     def _fetch_security_data(self) -> None:
@@ -346,8 +343,6 @@ class DashboardWindow(QMainWindow):
 
             # Check if API is available
             if not client.is_available:
-                from ...utils.logger import debug
-
                 debug("[Dashboard] API not available for security data")
                 return
 
@@ -365,8 +360,6 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ...utils.logger import error
-
             error(f"[Dashboard] Security fetch error: {e}")
 
     def _fetch_analytics_data(self) -> None:
@@ -378,8 +371,6 @@ class DashboardWindow(QMainWindow):
 
             # Check if API is available
             if not client.is_available:
-                from ...utils.logger import debug
-
                 debug("[Dashboard] API not available for analytics")
                 return
 
@@ -429,8 +420,6 @@ class DashboardWindow(QMainWindow):
         except (
             Exception
         ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
-            from ...utils.logger import error
-
             error(f"[Dashboard] Analytics fetch error: {e}")
 
     def _on_monitoring_data(self, data: dict) -> None:
@@ -486,8 +475,6 @@ class DashboardWindow(QMainWindow):
         Performance optimization: Skips fetching during backfill to avoid
         heavy queries while indexing is in progress.
         """
-        from ...utils.logger import debug, error
-
         try:
             from ...api import get_api_client
 

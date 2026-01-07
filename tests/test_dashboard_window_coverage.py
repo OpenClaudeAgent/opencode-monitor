@@ -319,7 +319,7 @@ class TestDashboardSignalHandlers:
         """_on_open_terminal_session logs the request."""
         window, sections = dashboard_window_minimal
 
-        with patch("opencode_monitor.utils.logger.debug") as mock_debug:
+        with patch("opencode_monitor.dashboard.window.main.debug") as mock_debug:
             window._on_open_terminal_session("session-abc")
             mock_debug.assert_called_once()
             assert "session-abc" in mock_debug.call_args[0][0]
@@ -524,7 +524,7 @@ class TestFetchExceptionHandling:
         window = dashboard_window_simple
 
         with patch(patch_target, side_effect=RuntimeError("Test error")):
-            with patch("opencode_monitor.utils.logger.error") as mock_error:
+            with patch("opencode_monitor.dashboard.window.main.error") as mock_error:
                 # Call the method - should not raise
                 getattr(window, method_name)()
                 mock_error.assert_called_once()
@@ -748,7 +748,9 @@ class TestDashboardFetchMethods:
             with patch.object(DashboardWindow, "_start_refresh"):
                 window = DashboardWindow()
                 try:
-                    with patch("opencode_monitor.utils.logger.error") as mock_error:
+                    with patch(
+                        "opencode_monitor.dashboard.window.main.error"
+                    ) as mock_error:
                         window._fetch_tracing_data()
                         # Called twice: once for message, once for traceback
                         assert mock_error.call_count == 2
