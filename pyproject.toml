@@ -15,6 +15,7 @@ dependencies = [
     "PyQt6>=6.6.0",
     "watchdog>=4.0.0",
     "flask>=3.1.2",
+    "loguru>=0.7.3",
 ]
 
 [project.scripts]
