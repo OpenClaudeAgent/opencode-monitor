@@ -40,6 +40,8 @@ class AuditedFileRead:
     mitre_techniques: str = ""  # JSON array of MITRE technique IDs
     edr_sequence_bonus: int = 0
     edr_correlation_bonus: int = 0
+    scope_verdict: str = ""  # in_scope, out_of_scope_allowed, etc.
+    scope_resolved_path: str = ""  # Resolved absolute path
 
 
 @dataclass
@@ -59,6 +61,8 @@ class AuditedFileWrite:
     mitre_techniques: str = ""  # JSON array of MITRE technique IDs
     edr_sequence_bonus: int = 0
     edr_correlation_bonus: int = 0
+    scope_verdict: str = ""  # in_scope, out_of_scope_allowed, etc.
+    scope_resolved_path: str = ""  # Resolved absolute path
 
 
 @dataclass

@@ -67,6 +67,7 @@ def get_security_data():
                     "risk": r.risk_level,
                     "reason": r.risk_reason,
                     "score": r.risk_score,
+                    "scope_verdict": r.scope_verdict,
                 }
             )
         for w in sensitive_writes:
@@ -77,6 +78,7 @@ def get_security_data():
                     "risk": w.risk_level,
                     "reason": w.risk_reason,
                     "score": w.risk_score,
+                    "scope_verdict": w.scope_verdict,
                 }
             )
         for f in risky_fetches:
@@ -100,6 +102,8 @@ def get_security_data():
                     "risk": r.risk_level,
                     "score": r.risk_score,
                     "reason": r.risk_reason,
+                    "scope_verdict": r.scope_verdict,
+                    "scope_resolved_path": r.scope_resolved_path,
                 }
             )
         for w in writes:
@@ -110,6 +114,8 @@ def get_security_data():
                     "risk": w.risk_level,
                     "reason": w.risk_reason,
                     "score": w.risk_score,
+                    "scope_verdict": w.scope_verdict,
+                    "scope_resolved_path": w.scope_resolved_path,
                 }
             )
 

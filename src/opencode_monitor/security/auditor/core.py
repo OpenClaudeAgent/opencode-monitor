@@ -75,7 +75,12 @@ class SecurityAuditor:
                     COUNT(*) FILTER (WHERE risk_level = 'high') as high,
                     COUNT(*) FILTER (WHERE risk_level = 'medium') as medium,
                     COUNT(*) FILTER (WHERE risk_level = 'low') as low,
-                    MAX(security_enriched_at) as last_scan
+                    MAX(security_enriched_at) as last_scan,
+                    COUNT(*) FILTER (WHERE scope_verdict = 'in_scope') as scope_in_scope,
+                    COUNT(*) FILTER (WHERE scope_verdict = 'out_of_scope_allowed') as scope_allowed,
+                    COUNT(*) FILTER (WHERE scope_verdict = 'out_of_scope_neutral') as scope_neutral,
+                    COUNT(*) FILTER (WHERE scope_verdict = 'out_of_scope_suspicious') as scope_suspicious,
+                    COUNT(*) FILTER (WHERE scope_verdict = 'out_of_scope_sensitive') as scope_sensitive
                 FROM parts
             """).fetchone()
 
@@ -92,6 +97,11 @@ class SecurityAuditor:
                 "last_scan": result[9].isoformat() if result[9] else None,
                 "sequences_detected": 0,
                 "correlations_detected": 0,
+                "scope_in_scope": result[10] or 0,
+                "scope_allowed": result[11] or 0,
+                "scope_neutral": result[12] or 0,
+                "scope_suspicious": result[13] or 0,
+                "scope_sensitive": result[14] or 0,
             }
         except Exception as e:
             debug(f"Error loading stats: {e}")
@@ -247,7 +257,9 @@ class SecurityAuditor:
                 risk_score, risk_level, risk_reason,
                 EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
                 security_enriched_at::VARCHAR as scanned_at,
-                COALESCE(mitre_techniques, '[]') as mitre_techniques
+                COALESCE(mitre_techniques, '[]') as mitre_techniques,
+                scope_verdict,
+                scope_resolved_path
             FROM parts
             WHERE tool_name = 'read'
               AND risk_level IN ({placeholders})
@@ -270,6 +282,8 @@ class SecurityAuditor:
                 timestamp=row[7] or 0,
                 scanned_at=row[8] or "",
                 mitre_techniques=row[9] or "[]",
+                scope_verdict=row[10] or "",
+                scope_resolved_path=row[11] or "",
             )
             for i, row in enumerate(rows)
         ]
@@ -297,7 +311,9 @@ class SecurityAuditor:
                 risk_score, risk_level, risk_reason,
                 EXTRACT(EPOCH FROM created_at)::BIGINT as timestamp,
                 security_enriched_at::VARCHAR as scanned_at,
-                COALESCE(mitre_techniques, '[]') as mitre_techniques
+                COALESCE(mitre_techniques, '[]') as mitre_techniques,
+                scope_verdict,
+                scope_resolved_path
             FROM parts
             WHERE tool_name IN ('write', 'edit')
               AND risk_level IN ({placeholders})
@@ -321,6 +337,8 @@ class SecurityAuditor:
                 timestamp=row[8] or 0,
                 scanned_at=row[9] or "",
                 mitre_techniques=row[10] or "[]",
+                scope_verdict=row[11] or "",
+                scope_resolved_path=row[12] or "",
             )
             for i, row in enumerate(rows)
         ]
