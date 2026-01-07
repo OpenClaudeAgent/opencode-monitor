@@ -111,7 +111,28 @@ DANGEROUS_PATTERNS = [
     ),
     (r"\becho\s+.*>\s*/etc/", 50, "Write to /etc/", [], ["T1222"]),
     (r"\brm\s+-rf\s+\*", 45, "Recursive delete with wildcard", [], ["T1070"]),
-    (r"\brm\s+-rf\s+node_modules", 25, "Delete node_modules", [], []),
+    # rm -rf with context-aware scoring: safe contexts reduce score significantly
+    (
+        r"\brm\s+-rf\s+(?!.*(?:/\s*$|/\*\s*$))\S+",
+        70,
+        "Recursive force delete",
+        [
+            # Safe context adjustments - development artifacts
+            # Why safe: temp directories are designed for ephemeral data
+            (r"/tmp/|/var/tmp/|\.cache/", -40),
+            # Why safe: node_modules is frequently cleaned in JS development
+            (r"node_modules", -50),
+            # Why safe: Python cache directories are auto-generated
+            (r"__pycache__|\.pytest_cache", -45),
+            # Why safe: test data and fixtures are disposable
+            (r"test.*data|fixtures|snapshots", -35),
+            # Why safe: build output directories are regenerated (with or without trailing slash)
+            (r"(?:^|/)(?:build|dist|target|out)(?:/|$)", -40),
+            # Why safe: coverage output is regenerated
+            (r"\.coverage|htmlcov/|\.nyc_output", -35),
+        ],
+        ["T1485", "T1070.004"],
+    ),
     (r"\brm\s+-rf\s+\.git", 60, "Delete git directory", [], ["T1070"]),
     (r"\brm\s+-rf\s+(dist|build|target|out)\b", 20, "Delete build directory", [], []),
     (r"\bnc\s+-l", 40, "Netcat listener", [], ["T1059"]),
@@ -342,6 +363,64 @@ SAFE_PATTERNS = [
     # Testing frameworks
     (r"\bpytest\s+", -20, "Running tests"),
     (r"\bjest\s+", -20, "Running tests"),
+    # === PHASE 2: FALSE POSITIVE REDUCTION PATTERNS ===
+    # Development environment patterns
+    # Why safe: virtualenv/venv creation is standard Python dev workflow
+    (r"\bvirtualenv\s+|venv\s+", -15, "Python virtualenv creation"),
+    # Why safe: sourcing activate scripts is required to use virtual environments
+    (r"\bsource\s+.*(?:venv|\.env|activate)", -20, "Activating virtual environment"),
+    # Why safe: docker-compose operations are standard container orchestration
+    (r"\bdocker-compose\s+(?:up|down|build)\b", -15, "Docker compose operations"),
+    # Why safe: kubectl read operations don't modify cluster state
+    (r"\bkubectl\s+(?:get|describe|logs)\b", -20, "Kubectl read operations"),
+    # Test and CI/CD patterns
+    # Why safe: running pytest is a standard testing operation
+    (r"\bpython\s+-m\s+pytest\b", -20, "Running pytest"),
+    # Why safe: npm test is standard JavaScript testing
+    (r"\bnpm\s+(?:run\s+)?test\b", -20, "Running npm test"),
+    # Why safe: CI/CD workflow files are configuration, not execution
+    (r"\b(?:ci|cd|actions?|workflow)\b.*\byaml\b", -15, "CI/CD workflow file"),
+    # Why safe: GitHub Actions directory is standard CI/CD location
+    (r"\.github/workflows/", -20, "GitHub Actions path"),
+    # Documentation and help
+    # Why safe: man pages are read-only documentation lookups
+    (r"\bman\s+\w+\b", -25, "Man page lookup"),
+    # Why safe: help/version flags are informational only
+    (r"\b--help\b|--version\b|-h\b", -30, "Help/version flags"),
+    # Why safe: which/type commands only locate executables
+    (r"\bwhich\s+\w+\b", -20, "Which command lookup"),
+    (r"\btype\s+-a\s+\w+\b", -20, "Type command lookup"),
+    # Safe file operations
+    # Why safe: reading standard documentation files
+    (r"\bcat\s+(?:README|LICENSE|CHANGELOG)", -25, "Reading documentation"),
+    # Why safe: file pagers are read-only viewing tools
+    (r"\bless\s+|more\s+", -15, "File paging"),
+    # Why safe: head with line count is a standard file inspection
+    (r"\bhead\s+-n\s*\d+\b", -15, "Head with line count"),
+    # Why safe: following log files is standard debugging
+    (r"\btail\s+-f\s+.*\.log\b", -20, "Following log files"),
+    # Safe network operations
+    # Why safe: localhost curl is internal communication only
+    (r"\bcurl\s+.*localhost:", -25, "Localhost curl"),
+    # Why safe: loopback wget is internal communication only
+    (r"\bwget\s+.*127\.0\.0\.1", -25, "Localhost wget"),
+    # Why safe: ping with count limit is bounded network check
+    (r"\bping\s+-c\s*\d+\s+", -20, "Ping with count limit"),
+    # Why safe: DNS lookup is informational network query
+    (r"\bnslookup\s+|dig\s+", -15, "DNS lookup"),
+    # Path-specific safe patterns for file operations
+    # Why safe: node_modules is frequently cleaned/rebuilt in JS projects
+    (r"node_modules/", -30, "Node modules directory"),
+    # Why safe: Python virtual environments are isolated and disposable
+    (r"\.venv/|venv/|virtualenv/", -30, "Python virtual environment"),
+    # Why safe: Python cache files are auto-generated and disposable
+    (r"__pycache__/|\.pyc$", -25, "Python cache files"),
+    # Why safe: Git internal objects are managed by git itself
+    (r"\.git/objects/", -25, "Git internal objects"),
+    # Why safe: cache directories are designed to be temporary
+    (r"\.cache/|cache/", -20, "Cache directories"),
+    # Why safe: temporary directories are designed to be ephemeral
+    (r"tmp/|temp/|\.tmp/", -20, "Temporary directories"),
 ]
 
 
