@@ -21,9 +21,11 @@ from ..ui.menu import MenuBuilder
 from ..utils.settings import get_settings
 from ..utils.logger import info, error, debug
 from ..security.auditor import start_auditor
+from ..security.enrichment import SecurityEnrichmentWorker
 
 # Use new unified indexer instead of deprecated collector
 from ..analytics.indexer import start_indexer
+from ..analytics.db import get_analytics_db
 
 from .handlers import HandlersMixin, AnalyticsSyncManager
 from .menu import MenuMixin
@@ -80,6 +82,11 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
         # Start unified indexer (replaces collector + handles real-time + backfill)
         start_indexer()
         info("[OpenCodeApp] Unified indexer started")
+
+        # Start security enrichment worker (scores parts with risk analysis)
+        self._enrichment_worker = SecurityEnrichmentWorker(db=get_analytics_db())
+        self._enrichment_worker.start()
+        info("[OpenCodeApp] Security enrichment worker started")
 
         # Note: AnalyticsSyncManager is no longer needed as indexer handles backfill
         # Keeping for compatibility but may be removed later

@@ -391,6 +391,9 @@ def prt_file_factory(mock_storage):
 def analytics_db(tmp_path: Path):
     """Create a fresh AnalyticsDB (DuckDB) for each test.
 
+    IMPORTANT: This fixture creates an ISOLATED database in tmp_path.
+    Tests NEVER connect to ~/.config/opencode-monitor/analytics.duckdb.
+
     This fixture is shared across all tests needing AnalyticsDB.
     Uses a unique path per test to ensure isolation.
     """
@@ -399,7 +402,9 @@ def analytics_db(tmp_path: Path):
     db_path = tmp_path / "test_analytics.duckdb"
     db = AnalyticsDB(db_path)
     db.connect()
-    return db
+    yield db
+    # Ensure connection is closed after test
+    db.close()
 
 
 # Alias for backward compatibility - tests can use either name
@@ -407,6 +412,80 @@ def analytics_db(tmp_path: Path):
 def db(analytics_db):
     """Alias for analytics_db - backward compatible fixture name."""
     return analytics_db
+
+
+@pytest.fixture
+def populated_analytics_db(tmp_path: Path):
+    """Create an analytics DB pre-populated with sample test data.
+
+    This fixture provides:
+    - 2 sample sessions
+    - Parts with different tool types: bash, read, write, edit, webfetch
+    - Parts with different risk levels: critical, high, medium, low
+    - Both enriched and unenriched parts
+
+    IMPORTANT: Completely isolated from production database.
+
+    Returns:
+        Tuple of (AnalyticsDB, session_ids, part_ids)
+    """
+    from tests.mocks.duckdb import create_populated_test_db
+
+    db, session_ids, part_ids = create_populated_test_db(tmp_path)
+    yield db, session_ids, part_ids
+    db.close()
+
+
+@pytest.fixture
+def enrichment_db(analytics_db):
+    """Create database with parts table optimized for security enrichment tests.
+
+    This fixture recreates the parts table with all security enrichment columns
+    explicitly defined, making it suitable for testing the SecurityEnrichmentWorker.
+
+    IMPORTANT: Uses the isolated analytics_db fixture - never connects to
+    the production database.
+    """
+    conn = analytics_db.connect()
+
+    # Drop and recreate parts table with all security columns
+    conn.execute("DROP TABLE IF EXISTS parts")
+    conn.execute("""
+        CREATE TABLE parts (
+            id VARCHAR PRIMARY KEY,
+            session_id VARCHAR,
+            message_id VARCHAR,
+            part_type VARCHAR,
+            tool_name VARCHAR,
+            tool_status VARCHAR,
+            arguments VARCHAR,
+            content TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            -- Security enrichment columns
+            risk_score INTEGER,
+            risk_level VARCHAR,
+            risk_reason VARCHAR,
+            mitre_techniques VARCHAR,
+            security_enriched_at TIMESTAMP
+        )
+    """)
+
+    return analytics_db
+
+
+@pytest.fixture
+def sample_data_generator():
+    """Provide a SampleDataGenerator for creating test data.
+
+    Usage:
+        def test_example(sample_data_generator):
+            gen = sample_data_generator
+            session = gen.create_session()
+            part = gen.create_bash_part("ses-001", "msg-001", "ls -la")
+    """
+    from tests.mocks.duckdb import SampleDataGenerator
+
+    return SampleDataGenerator()
 
 
 # =============================================================================

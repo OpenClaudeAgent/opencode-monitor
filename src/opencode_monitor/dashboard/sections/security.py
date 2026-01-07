@@ -146,7 +146,7 @@ class SecuritySection(QWidget):
         critical_items: list[dict] | None = None,
     ) -> None:
         """Update security data."""
-        self._metric_cards["total"].set_value(str(stats.get("total", 0)))
+        self._metric_cards["total"].set_value(str(stats.get("total_scanned", 0)))
         self._metric_cards["critical"].set_value(str(stats.get("critical", 0)))
         self._metric_cards["high"].set_value(str(stats.get("high", 0)))
         self._metric_cards["medium"].set_value(str(stats.get("medium", 0)))
