@@ -233,3 +233,73 @@ def get_session_precise_cost(session_id: str):
     except Exception as e:
         error(f"[API] Error getting session precise cost: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+# ===== Plan 45: Timeline & Aggregation Endpoints =====
+
+
+@sessions_bp.route("/api/session/<session_id>/timeline/full", methods=["GET"])
+def get_session_timeline_full(session_id: str):
+    """Get complete chronological timeline for a session.
+
+    Returns all events (prompts, reasoning, tool calls, responses) in order,
+    with full content (no truncation).
+
+    Query params:
+        include_children: Whether to include child session timelines (default: false)
+        depth: Maximum depth for child session recursion (default: 1)
+    """
+    try:
+        include_children = (
+            request.args.get("include_children", "false").lower() == "true"
+        )
+        depth = request.args.get("depth", 1, type=int)
+
+        with get_db_lock():
+            service = get_service()
+            result = service.get_session_timeline_full(
+                session_id,
+                include_children=include_children,
+                depth=depth,
+            )
+
+        if result.get("success"):
+            return jsonify(result)
+        else:
+            return jsonify(result), 404
+
+    except Exception as e:
+        error(f"[API] Error getting session timeline: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/exchanges", methods=["GET"])
+def get_session_exchanges(session_id: str):
+    """Get conversation turns (user->assistant pairs) for a session.
+
+    Returns all exchanges with full prompt_input and prompt_output content.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_exchanges(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session exchanges: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/delegations", methods=["GET"])
+def get_session_delegations(session_id: str):
+    """Get recursive delegation tree structure for a session.
+
+    Returns the full tree of agent delegations starting from this session.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_delegation_tree(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session delegations: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

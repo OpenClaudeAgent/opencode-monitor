@@ -3,6 +3,7 @@
 Contains all methods related to querying individual session data.
 """
 
+import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -841,3 +842,692 @@ class SessionQueriesMixin:
                     "has_precise_data": False,
                 },
             }
+
+    # ===== Plan 45: Timeline & Aggregation Methods =====
+
+    def get_session_timeline_full(
+        self, session_id: str, include_children: bool = False, depth: int = 1
+    ) -> dict:
+        """Get complete chronological timeline for a session.
+
+        Returns all events (prompts, reasoning, tool calls, responses) in order,
+        with full content (no truncation).
+
+        Args:
+            session_id: The session ID to query
+            include_children: Whether to include child session timelines recursively
+            depth: Maximum depth for child session recursion (default 1)
+
+        Returns:
+            Dict with meta, session info, timeline events, and summary
+        """
+        try:
+            # Get session info
+            session = self._get_session_info(session_id)
+            if not session:
+                return {
+                    "success": False,
+                    "error": f"Session {session_id} not found",
+                    "data": None,
+                }
+
+            # Get exchanges for this session
+            exchanges_result = self._conn.execute(
+                """
+                SELECT 
+                    id, exchange_number, user_message_id, assistant_message_id,
+                    prompt_input, prompt_output,
+                    started_at, ended_at, duration_ms,
+                    tokens_in, tokens_out, tokens_reasoning, cost,
+                    tool_count, reasoning_count, agent, model_id
+                FROM exchanges
+                WHERE session_id = ?
+                ORDER BY exchange_number ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            timeline = []
+            total_tokens = 0
+            total_cost = 0.0
+            total_tool_calls = 0
+            total_reasoning = 0
+
+            for ex_row in exchanges_result:
+                exchange_num = ex_row[1]
+                user_msg_id = ex_row[2]
+                assistant_msg_id = ex_row[3]
+                tokens_in = ex_row[9] or 0
+                tokens_out = ex_row[10] or 0
+                tokens_reasoning = ex_row[11] or 0
+                cost = float(ex_row[12] or 0)
+                tool_count = ex_row[13] or 0
+                reasoning_count = ex_row[14] or 0
+
+                total_tokens += tokens_in + tokens_out + tokens_reasoning
+                total_cost += cost
+                total_tool_calls += tool_count
+                total_reasoning += reasoning_count
+
+                # Add user prompt event
+                if ex_row[4]:  # prompt_input
+                    timeline.append(
+                        {
+                            "type": "user_prompt",
+                            "exchange_number": exchange_num,
+                            "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
+                            "content": ex_row[4],
+                            "message_id": user_msg_id,
+                        }
+                    )
+
+                # Get exchange trace events (reasoning, tools, etc.)
+                trace_events = self._conn.execute(
+                    """
+                    SELECT event_type, event_order, event_data, timestamp,
+                           duration_ms, tokens_in, tokens_out
+                    FROM exchange_traces
+                    WHERE exchange_id = ?
+                    ORDER BY event_order ASC
+                    """,
+                    [ex_row[0]],
+                ).fetchall()
+
+                for evt in trace_events:
+                    evt_type = evt[0]
+                    # Parse event_data JSON string
+                    raw_data = evt[2]
+                    if isinstance(raw_data, str):
+                        try:
+                            evt_data = json.loads(raw_data)
+                        except (json.JSONDecodeError, TypeError):
+                            evt_data = {}
+                    elif isinstance(raw_data, dict):
+                        evt_data = raw_data
+                    else:
+                        evt_data = {}
+
+                    if evt_type == "reasoning":
+                        timeline.append(
+                            {
+                                "type": "reasoning",
+                                "exchange_number": exchange_num,
+                                "timestamp": evt[3].isoformat() if evt[3] else None,
+                                "entries": [
+                                    {
+                                        "text": evt_data.get("text", ""),
+                                        "has_signature": evt_data.get(
+                                            "has_signature", False
+                                        ),
+                                        "signature": evt_data.get("signature"),
+                                    }
+                                ],
+                            }
+                        )
+                    elif evt_type == "tool_call":
+                        timeline.append(
+                            {
+                                "type": "tool_call",
+                                "exchange_number": exchange_num,
+                                "timestamp": evt[3].isoformat() if evt[3] else None,
+                                "tool_name": evt_data.get("tool_name", ""),
+                                "status": evt_data.get("status", "completed"),
+                                "arguments": evt_data.get("arguments"),
+                                "result_summary": evt_data.get("result_summary", ""),
+                                "duration_ms": evt[4] or 0,
+                                "child_session_id": evt_data.get("child_session_id"),
+                            }
+                        )
+                    elif evt_type == "step_finish":
+                        timeline.append(
+                            {
+                                "type": "step_finish",
+                                "exchange_number": exchange_num,
+                                "timestamp": evt[3].isoformat() if evt[3] else None,
+                                "reason": evt_data.get("reason", ""),
+                                "tokens": {
+                                    "input": evt[5] or 0,
+                                    "output": evt[6] or 0,
+                                    "reasoning": evt_data.get("tokens_reasoning", 0),
+                                    "cache_read": evt_data.get("tokens_cache_read", 0),
+                                    "cache_write": evt_data.get(
+                                        "tokens_cache_write", 0
+                                    ),
+                                },
+                                "cost": evt_data.get("cost", 0),
+                            }
+                        )
+                    elif evt_type == "patch":
+                        timeline.append(
+                            {
+                                "type": "patch",
+                                "exchange_number": exchange_num,
+                                "timestamp": evt[3].isoformat() if evt[3] else None,
+                                "git_hash": evt_data.get("git_hash", ""),
+                                "files": evt_data.get("files", []),
+                            }
+                        )
+
+                # Add assistant response event
+                if ex_row[5]:  # prompt_output
+                    timeline.append(
+                        {
+                            "type": "assistant_response",
+                            "exchange_number": exchange_num,
+                            "timestamp": ex_row[7].isoformat() if ex_row[7] else None,
+                            "content": ex_row[5],
+                            "tokens_out": tokens_out,
+                        }
+                    )
+
+            # If no exchanges, fall back to direct parts query
+            if not exchanges_result:
+                timeline = self._build_timeline_from_parts(session_id)
+                # Recalculate totals from parts
+                stats = self._calculate_timeline_stats(session_id)
+                total_tokens = stats["total_tokens"]
+                total_cost = stats["total_cost"]
+                total_tool_calls = stats["total_tool_calls"]
+                total_reasoning = stats["total_reasoning"]
+
+            # Include child session timelines if requested
+            delegations = []
+            if include_children and depth > 0:
+                child_sessions = self._conn.execute(
+                    """
+                    SELECT DISTINCT child_session_id
+                    FROM delegations
+                    WHERE session_id = ? AND child_session_id IS NOT NULL
+                    """,
+                    [session_id],
+                ).fetchall()
+
+                for child_row in child_sessions:
+                    child_id = child_row[0]
+                    child_timeline = self.get_session_timeline_full(
+                        child_id, include_children=True, depth=depth - 1
+                    )
+                    if child_timeline.get("success", True):
+                        delegations.append(
+                            {
+                                "child_session_id": child_id,
+                                "timeline": child_timeline.get("data", {}).get(
+                                    "timeline", []
+                                ),
+                            }
+                        )
+
+            return {
+                "success": True,
+                "data": {
+                    "meta": {
+                        "session_id": session_id,
+                        "generated_at": datetime.now().isoformat(),
+                        "title": session.get("title", ""),
+                        "directory": session.get("directory", ""),
+                    },
+                    "session": {
+                        "id": session_id,
+                        "title": session.get("title", ""),
+                        "directory": session.get("directory", ""),
+                        "agent": session.get("agent"),
+                        "model": session.get("model_id"),
+                        "started_at": session.get("created_at"),
+                        "ended_at": session.get("updated_at"),
+                        "duration_ms": session.get("duration_ms", 0),
+                        "parent_session_id": session.get("parent_id"),
+                        "depth": 0,
+                    },
+                    "timeline": timeline,
+                    "delegations": delegations,
+                    "summary": {
+                        "total_exchanges": len(exchanges_result),
+                        "total_tokens": total_tokens,
+                        "total_cost_usd": round(total_cost, 6),
+                        "total_tool_calls": total_tool_calls,
+                        "total_reasoning_entries": total_reasoning,
+                        "delegations": len(delegations),
+                    },
+                },
+            }
+
+        except Exception as e:
+            debug(f"get_session_timeline_full failed: {e}")
+            return {
+                "success": False,
+                "error": str(e),
+                "data": None,
+            }
+
+    def _build_timeline_from_parts(self, session_id: str) -> list[dict]:
+        """Build timeline directly from parts table when exchanges not available."""
+        timeline = []
+
+        # Get all parts for this session
+        parts = self._conn.execute(
+            """
+            SELECT 
+                p.id, p.part_type, p.content, p.tool_name, p.tool_status,
+                p.arguments, p.result_summary, p.reasoning_text,
+                p.anthropic_signature, p.duration_ms, p.created_at,
+                m.role
+            FROM parts p
+            LEFT JOIN messages m ON p.message_id = m.id
+            WHERE p.session_id = ?
+            ORDER BY p.created_at ASC
+            """,
+            [session_id],
+        ).fetchall()
+
+        exchange_num = 0
+        last_role = None
+
+        for part in parts:
+            part_type = part[1]
+            role = part[11]
+
+            # Increment exchange number on user prompts
+            if part_type == "text" and role == "user":
+                exchange_num += 1
+                timeline.append(
+                    {
+                        "type": "user_prompt",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[10].isoformat() if part[10] else None,
+                        "content": part[2] or "",
+                        "message_id": None,
+                    }
+                )
+            elif part_type == "reasoning":
+                timeline.append(
+                    {
+                        "type": "reasoning",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[10].isoformat() if part[10] else None,
+                        "entries": [
+                            {
+                                "text": part[7] or "",
+                                "has_signature": part[8] is not None,
+                                "signature": part[8],
+                            }
+                        ],
+                    }
+                )
+            elif part_type == "tool":
+                timeline.append(
+                    {
+                        "type": "tool_call",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[10].isoformat() if part[10] else None,
+                        "tool_name": part[3] or "",
+                        "status": part[4] or "completed",
+                        "arguments": part[5],
+                        "result_summary": part[6] or "",
+                        "duration_ms": part[9] or 0,
+                    }
+                )
+            elif part_type == "text" and role == "assistant":
+                timeline.append(
+                    {
+                        "type": "assistant_response",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[10].isoformat() if part[10] else None,
+                        "content": part[2] or "",
+                        "tokens_out": 0,
+                    }
+                )
+
+            last_role = role
+
+        return timeline
+
+    def _calculate_timeline_stats(self, session_id: str) -> dict:
+        """Calculate timeline stats from raw tables."""
+        # Tokens
+        tokens_result = self._conn.execute(
+            """
+            SELECT 
+                COALESCE(SUM(tokens_input), 0) + 
+                COALESCE(SUM(tokens_output), 0) + 
+                COALESCE(SUM(tokens_reasoning), 0) as total_tokens
+            FROM messages WHERE session_id = ?
+            """,
+            [session_id],
+        ).fetchone()
+
+        # Cost
+        cost_result = self._conn.execute(
+            """
+            SELECT COALESCE(SUM(cost), 0) as total_cost
+            FROM step_events WHERE session_id = ? AND event_type = 'finish'
+            """,
+            [session_id],
+        ).fetchone()
+
+        # Tool calls
+        tools_result = self._conn.execute(
+            """
+            SELECT COUNT(*) FROM parts
+            WHERE session_id = ? AND part_type = 'tool'
+            """,
+            [session_id],
+        ).fetchone()
+
+        # Reasoning
+        reasoning_result = self._conn.execute(
+            """
+            SELECT COUNT(*) FROM parts
+            WHERE session_id = ? AND part_type = 'reasoning'
+            """,
+            [session_id],
+        ).fetchone()
+
+        return {
+            "total_tokens": tokens_result[0] if tokens_result else 0,
+            "total_cost": float(cost_result[0]) if cost_result else 0.0,
+            "total_tool_calls": tools_result[0] if tools_result else 0,
+            "total_reasoning": reasoning_result[0] if reasoning_result else 0,
+        }
+
+    def get_session_exchanges(self, session_id: str) -> dict:
+        """Get conversation turns (user->assistant pairs) for a session.
+
+        Returns all exchanges with full prompt_input and prompt_output content.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta and list of exchanges
+        """
+        try:
+            # First try exchanges table
+            exchanges = self._conn.execute(
+                """
+                SELECT 
+                    id, exchange_number, user_message_id, assistant_message_id,
+                    prompt_input, prompt_output,
+                    started_at, ended_at, duration_ms,
+                    tokens_in, tokens_out, tokens_reasoning, cost,
+                    tool_count, reasoning_count, agent, model_id
+                FROM exchanges
+                WHERE session_id = ?
+                ORDER BY exchange_number ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            if exchanges:
+                exchange_list = []
+                for row in exchanges:
+                    exchange_list.append(
+                        {
+                            "number": row[1],
+                            "user_message_id": row[2],
+                            "assistant_message_id": row[3],
+                            "user_prompt": row[4] or "",
+                            "assistant_response": row[5] or "",
+                            "started_at": row[6].isoformat() if row[6] else None,
+                            "ended_at": row[7].isoformat() if row[7] else None,
+                            "duration_ms": row[8] or 0,
+                            "tokens": {
+                                "input": row[9] or 0,
+                                "output": row[10] or 0,
+                                "reasoning": row[11] or 0,
+                            },
+                            "cost": float(row[12] or 0),
+                            "tool_count": row[13] or 0,
+                            "reasoning_count": row[14] or 0,
+                            "agent": row[15],
+                            "model_id": row[16],
+                        }
+                    )
+
+                return {
+                    "meta": {
+                        "session_id": session_id,
+                        "generated_at": datetime.now().isoformat(),
+                        "count": len(exchange_list),
+                    },
+                    "exchanges": exchange_list,
+                }
+
+            # Fallback: build exchanges from messages/parts
+            exchange_list = self._build_exchanges_from_messages(session_id)
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                    "count": len(exchange_list),
+                    "source": "messages_fallback",
+                },
+                "exchanges": exchange_list,
+            }
+
+        except Exception as e:
+            debug(f"get_session_exchanges failed: {e}")
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "count": 0,
+                    "error": str(e),
+                },
+                "exchanges": [],
+            }
+
+    def _build_exchanges_from_messages(self, session_id: str) -> list[dict]:
+        """Build exchange list from messages when exchanges table empty."""
+        # Get user messages
+        user_msgs = self._conn.execute(
+            """
+            SELECT m.id, m.created_at, p.content
+            FROM messages m
+            LEFT JOIN parts p ON p.message_id = m.id AND p.part_type = 'text'
+            WHERE m.session_id = ? AND m.role = 'user'
+            ORDER BY m.created_at ASC
+            """,
+            [session_id],
+        ).fetchall()
+
+        # Get assistant messages
+        assistant_msgs = self._conn.execute(
+            """
+            SELECT m.id, m.created_at, m.agent, m.model_id,
+                   m.tokens_input, m.tokens_output, m.tokens_reasoning,
+                   p.content
+            FROM messages m
+            LEFT JOIN parts p ON p.message_id = m.id AND p.part_type = 'text'
+            WHERE m.session_id = ? AND m.role = 'assistant'
+            ORDER BY m.created_at ASC
+            """,
+            [session_id],
+        ).fetchall()
+
+        exchanges = []
+        for i, user_row in enumerate(user_msgs):
+            exchange = {
+                "number": i + 1,
+                "user_message_id": user_row[0],
+                "user_prompt": user_row[2] or "",
+                "started_at": user_row[1].isoformat() if user_row[1] else None,
+                "assistant_message_id": None,
+                "assistant_response": "",
+                "ended_at": None,
+                "duration_ms": 0,
+                "tokens": {"input": 0, "output": 0, "reasoning": 0},
+                "cost": 0,
+                "tool_count": 0,
+                "reasoning_count": 0,
+                "agent": None,
+                "model_id": None,
+            }
+
+            # Match with assistant message
+            if i < len(assistant_msgs):
+                asst = assistant_msgs[i]
+                exchange["assistant_message_id"] = asst[0]
+                exchange["ended_at"] = asst[1].isoformat() if asst[1] else None
+                exchange["agent"] = asst[2]
+                exchange["model_id"] = asst[3]
+                exchange["tokens"]["input"] = asst[4] or 0
+                exchange["tokens"]["output"] = asst[5] or 0
+                exchange["tokens"]["reasoning"] = asst[6] or 0
+                exchange["assistant_response"] = asst[7] or ""
+
+                # Calculate duration
+                if user_row[1] and asst[1]:
+                    delta = asst[1] - user_row[1]
+                    exchange["duration_ms"] = int(delta.total_seconds() * 1000)
+
+            exchanges.append(exchange)
+
+        return exchanges
+
+    def get_delegation_tree(self, session_id: str) -> dict:
+        """Get recursive delegation tree structure for a session.
+
+        Returns the full tree of agent delegations starting from this session.
+
+        Args:
+            session_id: The root session ID
+
+        Returns:
+            Dict with summary and nested tree structure
+        """
+        try:
+            session = self._get_session_info(session_id)
+            if not session:
+                return {
+                    "meta": {
+                        "session_id": session_id,
+                        "error": "Session not found",
+                    },
+                    "summary": {
+                        "total_delegations": 0,
+                        "max_depth": 0,
+                        "agents_involved": [],
+                    },
+                    "tree": None,
+                }
+
+            # Build tree recursively
+            tree, stats = self._build_delegation_tree_node(session_id, depth=0)
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "summary": {
+                    "total_delegations": stats["total_delegations"],
+                    "max_depth": stats["max_depth"],
+                    "agents_involved": list(stats["agents"]),
+                },
+                "tree": tree,
+            }
+
+        except Exception as e:
+            debug(f"get_delegation_tree failed: {e}")
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "error": str(e),
+                },
+                "summary": {
+                    "total_delegations": 0,
+                    "max_depth": 0,
+                    "agents_involved": [],
+                },
+                "tree": None,
+            }
+
+    def _build_delegation_tree_node(
+        self, session_id: str, depth: int = 0
+    ) -> tuple[dict, dict]:
+        """Build a single node of the delegation tree.
+
+        Returns:
+            Tuple of (node_dict, stats_dict)
+        """
+        # Get session info
+        session = self._get_session_info(session_id)
+
+        # Get agent from first assistant message
+        agent_result = self._conn.execute(
+            """
+            SELECT agent FROM messages
+            WHERE session_id = ? AND role = 'assistant' AND agent IS NOT NULL
+            LIMIT 1
+            """,
+            [session_id],
+        ).fetchone()
+        agent = agent_result[0] if agent_result else "unknown"
+
+        # Get duration
+        duration_result = self._conn.execute(
+            """
+            SELECT 
+                MIN(created_at) as start,
+                MAX(COALESCE(completed_at, created_at)) as end
+            FROM messages
+            WHERE session_id = ?
+            """,
+            [session_id],
+        ).fetchone()
+
+        duration_ms = 0
+        if duration_result and duration_result[0] and duration_result[1]:
+            delta = duration_result[1] - duration_result[0]
+            duration_ms = int(delta.total_seconds() * 1000)
+
+        # Get child delegations
+        children_result = self._conn.execute(
+            """
+            SELECT id, child_agent, child_session_id, created_at
+            FROM delegations
+            WHERE session_id = ? AND child_session_id IS NOT NULL
+            ORDER BY created_at ASC
+            """,
+            [session_id],
+        ).fetchall()
+
+        # Initialize stats
+        stats = {
+            "total_delegations": len(children_result),
+            "max_depth": depth,
+            "agents": {agent},
+        }
+
+        # Build children recursively
+        children = []
+        for child_row in children_result:
+            child_session_id = child_row[2]
+            child_agent = child_row[1]
+
+            if child_session_id:
+                child_node, child_stats = self._build_delegation_tree_node(
+                    child_session_id, depth + 1
+                )
+                children.append(child_node)
+
+                # Merge stats
+                stats["total_delegations"] += child_stats["total_delegations"]
+                stats["max_depth"] = max(stats["max_depth"], child_stats["max_depth"])
+                stats["agents"].update(child_stats["agents"])
+
+        node = {
+            "session_id": session_id,
+            "agent": agent,
+            "title": session.get("title", "") if session else "",
+            "delegated_at": (
+                children_result[0][3].isoformat()
+                if children_result and children_result[0][3]
+                else None
+            ),
+            "duration_ms": duration_ms,
+            "status": "completed",
+            "children": children,
+        }
+
+        return node, stats

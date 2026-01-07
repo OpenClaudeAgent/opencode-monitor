@@ -100,8 +100,9 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                 """INSERT OR REPLACE INTO parts 
                    (id, session_id, message_id, part_type, content, tool_name, tool_status, 
                     created_at, arguments, call_id, ended_at, duration_ms, error_message,
-                    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name,
+                    result_summary)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 parts_batch,
             )
             parts_batch = []
@@ -307,6 +308,7 @@ def _process_text_part(
             None,  # compaction_auto
             None,  # file_mime
             None,  # file_name
+            None,  # result_summary
         )
     )
     stats.text += 1
@@ -342,6 +344,10 @@ def _process_tool_part(
     # Error message
     error_message = state.get("error") if isinstance(state, dict) else None
 
+    # Result summary - FULL output, NO TRUNCATION (Plan 45)
+    tool_output = state.get("output") if isinstance(state, dict) else None
+    result_summary = json.dumps(tool_output) if tool_output else None
+
     batch.append(
         (
             part_id,
@@ -362,6 +368,7 @@ def _process_tool_part(
             None,  # compaction_auto
             None,  # file_mime
             None,  # file_name
+            result_summary,  # FULL tool output
         )
     )
     stats.tool += 1
@@ -404,6 +411,7 @@ def _process_reasoning_part(
             None,  # compaction_auto
             None,  # file_mime
             None,  # file_name
+            None,  # result_summary
         )
     )
     stats.reasoning += 1
@@ -542,6 +550,7 @@ def _process_compaction_part(
             compaction_auto,
             None,  # file_mime
             None,  # file_name
+            None,  # result_summary
         )
     )
     stats.compaction += 1
@@ -584,6 +593,7 @@ def _process_file_part(
             None,  # compaction_auto
             file_mime,
             file_name,
+            None,  # result_summary
         )
     )
     stats.file += 1

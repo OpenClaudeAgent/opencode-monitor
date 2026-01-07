@@ -460,6 +460,108 @@ class AnalyticsDB:
             ON patches(git_hash)
         """)
 
+        # =================================================================
+        # Plan 45: Complete Tracing Architecture Tables
+        # =================================================================
+
+        # Exchanges table: User->Assistant conversation turns
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exchanges (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                exchange_number INTEGER NOT NULL,
+                user_message_id VARCHAR,
+                assistant_message_id VARCHAR,
+                prompt_input TEXT,
+                prompt_output TEXT,
+                started_at TIMESTAMP,
+                ended_at TIMESTAMP,
+                duration_ms INTEGER,
+                tokens_in INTEGER DEFAULT 0,
+                tokens_out INTEGER DEFAULT 0,
+                tokens_reasoning INTEGER DEFAULT 0,
+                cost DECIMAL(10,6) DEFAULT 0,
+                tool_count INTEGER DEFAULT 0,
+                reasoning_count INTEGER DEFAULT 0,
+                agent VARCHAR,
+                model_id VARCHAR
+            )
+        """)
+
+        # Session traces table: High-level session timeline view
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS session_traces (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                title VARCHAR,
+                directory VARCHAR,
+                parent_session_id VARCHAR,
+                parent_trace_id VARCHAR,
+                depth INTEGER DEFAULT 0,
+                total_exchanges INTEGER DEFAULT 0,
+                total_tool_calls INTEGER DEFAULT 0,
+                total_file_reads INTEGER DEFAULT 0,
+                total_file_writes INTEGER DEFAULT 0,
+                total_tokens INTEGER DEFAULT 0,
+                total_cost DECIMAL(10,6) DEFAULT 0,
+                total_delegations INTEGER DEFAULT 0,
+                started_at TIMESTAMP,
+                ended_at TIMESTAMP,
+                duration_ms INTEGER,
+                status VARCHAR DEFAULT 'completed'
+            )
+        """)
+
+        # Exchange traces table: Detailed per-exchange timeline events
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS exchange_traces (
+                id VARCHAR PRIMARY KEY,
+                session_id VARCHAR NOT NULL,
+                exchange_id VARCHAR NOT NULL,
+                event_type VARCHAR NOT NULL,
+                event_order INTEGER NOT NULL,
+                event_data JSON,
+                timestamp TIMESTAMP,
+                duration_ms INTEGER,
+                tokens_in INTEGER,
+                tokens_out INTEGER
+            )
+        """)
+
+        # Indexes for exchanges table
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchanges_session
+            ON exchanges(session_id, exchange_number)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchanges_timing
+            ON exchanges(started_at)
+        """)
+
+        # Indexes for session_traces table
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_session_traces_parent
+            ON session_traces(parent_session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_session_traces_date
+            ON session_traces(started_at)
+        """)
+
+        # Indexes for exchange_traces table
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchange_traces_session
+            ON exchange_traces(session_id)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchange_traces_exchange
+            ON exchange_traces(exchange_id, event_order)
+        """)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_exchange_traces_type
+            ON exchange_traces(event_type)
+        """)
+
         # NOTE: Old security_* tables removed in Plan 42
         # Security data is now stored in the unified `parts` table
         # with risk_score, risk_level, risk_reason, mitre_techniques columns
@@ -483,6 +585,10 @@ class AnalyticsDB:
             "sync_meta",
             "step_events",
             "patches",
+            # Plan 45: Complete Tracing Architecture
+            "exchanges",
+            "session_traces",
+            "exchange_traces",
         }
     )
 
@@ -592,6 +698,10 @@ class AnalyticsDB:
         conn.execute("DELETE FROM daily_stats")
         conn.execute("DELETE FROM step_events")
         conn.execute("DELETE FROM patches")
+        # Plan 45: Complete Tracing Architecture
+        conn.execute("DELETE FROM exchanges")
+        conn.execute("DELETE FROM session_traces")
+        conn.execute("DELETE FROM exchange_traces")
         info("Analytics database cleared")
 
     def get_stats(self) -> dict:
@@ -613,6 +723,10 @@ class AnalyticsDB:
             "daily_stats",
             "step_events",
             "patches",
+            # Plan 45: Complete Tracing Architecture
+            "exchanges",
+            "session_traces",
+            "exchange_traces",
         ]:
             try:
                 # Table names are from hardcoded list above, not user input
