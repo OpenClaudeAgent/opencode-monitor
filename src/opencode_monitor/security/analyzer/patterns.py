@@ -209,6 +209,105 @@ DANGEROUS_PATTERNS = [
     # T1497 - Sandbox/VM Detection (potential evasion)
     (r"\bdmesg\s+\|.*grep.*(vmware|virtual|vbox)", 35, "VM detection", [], ["T1497"]),
     (r"\bsystemd-detect-virt", 30, "Virtualization detection", [], ["T1497"]),
+    # === AI-SPECIFIC PATTERNS ===
+    # Prompt Injection Indicators
+    (
+        r"#\s*Base64:\s*[A-Za-z0-9+/=]{10,}",
+        85,
+        "Encoded instruction in comment",
+        [],
+        ["T1027"],
+    ),
+    (
+        r'["\'].*(?:curl|wget|rm|sudo|chmod).*\|.*sh["\']',
+        70,
+        "Shell command in string literal",
+        [],
+        ["T1059.004"],
+    ),
+    (
+        r"\\x[0-9a-fA-F]{2}(?:\\x[0-9a-fA-F]{2}){4,}",
+        60,
+        "Hex-encoded payload",
+        [],
+        ["T1027"],
+    ),
+    (
+        r"(?i)ignore.*previous.*instruction",
+        90,
+        "Prompt injection - ignore instructions",
+        [],
+        ["T1059"],
+    ),
+    (
+        r"(?i)system.*prompt",
+        85,
+        "Prompt injection - system prompt reference",
+        [],
+        ["T1059"],
+    ),
+    (r"(?i)do.*not.*follow.*safety", 95, "Safety bypass attempt", [], ["T1059"]),
+    # === EVASION DETECTION PATTERNS ===
+    # Base64/Encoding Evasion
+    (r"\bbase64\s+-d\s+<<<", 75, "Base64 decode execution", [], ["T1027", "T1140"]),
+    (r"\bbase64\s+-d\s*\|", 80, "Base64 pipe to execution", [], ["T1027", "T1140"]),
+    (
+        r"\becho\s+[A-Za-z0-9+/=]{20,}\s*\|\s*base64\s+-d",
+        85,
+        "Encoded command decode",
+        [],
+        ["T1027"],
+    ),
+    (r"\bprintf\s+['\"]\\\\x[0-9a-fA-F]", 70, "Printf hex decode", [], ["T1027"]),
+    # Variable/Command Substitution Evasion
+    (r"\$\([^)]+\)\s+-rf\s+/", 85, "Subshell command to rm -rf", [], ["T1059.004"]),
+    (r"\$\{[^}]+\}\s+-rf\s+/", 85, "Variable expansion to rm -rf", [], ["T1059.004"]),
+    (
+        r"eval\s+[\"'].*(?:rm|curl|wget|chmod)",
+        90,
+        "Eval with dangerous command",
+        [],
+        ["T1059.004"],
+    ),
+    # === NEW MITRE TECHNIQUE PATTERNS ===
+    # T1136 - Create Account
+    (r"\buseradd\s+", 70, "User account creation", [], ["T1136.001"]),
+    (r"\badduser\s+", 70, "User account creation", [], ["T1136.001"]),
+    (r"\bdscl\s+.*create.*Users", 75, "macOS user creation", [], ["T1136.001"]),
+    # T1543 - Create or Modify System Process
+    (r"\bsystemctl\s+enable\s+", 65, "Enable system service", [], ["T1543.002"]),
+    (r"\blaunchctl\s+load\s+", 70, "Load macOS launch daemon", [], ["T1543.001"]),
+    (r"/Library/LaunchDaemons/", 70, "macOS system daemon", [], ["T1543.001"]),
+    # T1547 - Boot or Logon Autostart Execution
+    (
+        r"\.bashrc|\.bash_profile|\.zshrc|\.profile",
+        50,
+        "Shell startup file",
+        [],
+        ["T1547.004"],
+    ),
+    (r"/etc/rc\.local", 75, "rc.local persistence", [], ["T1547.004"]),
+    (r"HKEY_.*\\\\Run", 80, "Windows registry run key", [], ["T1547.001"]),
+    # T1567 - Exfiltration Over Web Service
+    (
+        r"\baws\s+s3\s+cp\s+.*--acl\s+public",
+        85,
+        "S3 upload with public ACL",
+        [],
+        ["T1567.002"],
+    ),
+    (r"\bgcloud\s+.*storage\s+.*cp\s+", 60, "GCS upload", [], ["T1567.002"]),
+    (r"\brclone\s+(?:copy|sync)\s+", 65, "Rclone cloud sync", [], ["T1567.002"]),
+    # T1611 - Escape to Host (Container Escape)
+    (r"docker\s+run\s+.*--privileged", 85, "Privileged container run", [], ["T1611"]),
+    (r"docker\s+.*-v\s+/:/", 90, "Docker mount root filesystem", [], ["T1611"]),
+    (
+        r"kubectl\s+exec\s+.*--\s+.*chroot",
+        95,
+        "Kubernetes container escape",
+        [],
+        ["T1611"],
+    ),
 ]
 
 SAFE_PATTERNS = [
@@ -228,6 +327,21 @@ SAFE_PATTERNS = [
     (r"localhost[:/]", -50, "Localhost operation"),
     (r"127\.0\.0\.1[:/]", -50, "Localhost operation"),
     (r"0\.0\.0\.0[:/]", -40, "Local bind"),
+    # === DEVELOPER WORKFLOW SAFE PATTERNS ===
+    # Package managers
+    (r"\b(?:npm|yarn|pnpm)\s+install\s+", -20, "Package manager install"),
+    (r"\bpip\s+install\s+", -15, "Python pip install"),
+    (r"\bbrew\s+install\s+", -15, "Homebrew install"),
+    # Build tools
+    (r"\bcargo\s+build\s+", -15, "Rust cargo build"),
+    (r"\bgo\s+build\s+", -15, "Go build"),
+    (r"\bmake\s+(?:clean|all|test)\s*$", -20, "Standard make targets"),
+    # Version control (exclude --force operations)
+    (r"\bgit\s+(?:pull|fetch|clone)\s+", -25, "Git operations"),
+    (r"\bgit\s+push\s+(?!.*--force)", -25, "Git push without force"),
+    # Testing frameworks
+    (r"\bpytest\s+", -20, "Running tests"),
+    (r"\bjest\s+", -20, "Running tests"),
 ]
 
 
