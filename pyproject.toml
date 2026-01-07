@@ -51,13 +51,23 @@ markers = [
 # Mutate all source code by default
 paths_to_mutate = ["src/opencode_monitor/"]
 
-# Exclude modules that have mutmut compatibility issues
+# Exclude modules whose tests are excluded (must stay aligned)
+# Rule: if test_X.py is excluded, exclude the corresponding module
 do_not_mutate = [
-    "**/dashboard/**",      # PyQt6 widgets - mutmut trampoline incompatible
-    "**/ui/**",             # PyQt6 UI components
-    "**/api/server.py",     # Real server - port conflicts
-    "**/app.py",            # rumps/PyQt6 app
-    "**/core/monitor/**",   # Async code - mutmut await issues
+    # PyQt6/UI - trampoline incompatible
+    "**/dashboard/**",
+    "**/ui/**",
+    # Async/threading issues
+    "**/core/monitor/**",
+    # Port conflicts / real servers
+    "**/api/server.py",
+    "**/api/client.py",
+    "**/core/client.py",
+    # Excluded tests without matching source in tests/
+    "**/security/auditor.py",
+    # App entry points
+    "**/app.py",
+    # Infrastructure
     "**/logger.py",
     "**/migrations/*",
     "**/__version__.py",
