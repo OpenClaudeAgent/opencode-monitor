@@ -34,12 +34,16 @@ FROM read_json_auto('{path}/**/*.json',
 """
 
 # Template for loading messages from JSON files
+# IMPORTANT: Uses explicit columns schema to ensure 'summary' struct exists even if
+# some JSON files don't have it. Without this, DuckDB fails with "column not found" error.
+# Plan 45+: Added summary_title (the "hook" - auto-generated title for each message)
 LOAD_MESSAGES_SQL = """
 INSERT OR REPLACE INTO messages (
     id, session_id, parent_id, role, agent, model_id, provider_id,
     mode, cost, finish_reason, working_dir,
     tokens_input, tokens_output, tokens_reasoning,
-    tokens_cache_read, tokens_cache_write, created_at, completed_at
+    tokens_cache_read, tokens_cache_write, created_at, completed_at,
+    summary_title
 )
 SELECT 
     id,
@@ -52,17 +56,37 @@ SELECT
     mode,
     cost,
     finish as finish_reason,
-    path.cwd as working_dir,
+    TRY(path.cwd) as working_dir,
     COALESCE(tokens."input", 0) as tokens_input,
     COALESCE(tokens.output, 0) as tokens_output,
     COALESCE(tokens.reasoning, 0) as tokens_reasoning,
     COALESCE(tokens."cache".read, 0) as tokens_cache_read,
     COALESCE(tokens."cache".write, 0) as tokens_cache_write,
     to_timestamp(time.created / 1000.0) as created_at,
-    to_timestamp(time.completed / 1000.0) as completed_at
+    to_timestamp(time.completed / 1000.0) as completed_at,
+    -- Plan 45+: summary_title is the "hook" - auto-generated title for each prompt
+    TRY(summary.title) as summary_title
 FROM read_json_auto('{path}/**/*.json',
     maximum_object_size=10485760,
-    ignore_errors=true
+    ignore_errors=true,
+    union_by_name=true,
+    columns={{
+        'id': 'VARCHAR',
+        'sessionID': 'VARCHAR',
+        'parentID': 'VARCHAR',
+        'role': 'VARCHAR',
+        'agent': 'VARCHAR',
+        'modelID': 'VARCHAR',
+        'providerID': 'VARCHAR',
+        'model': 'STRUCT(modelID VARCHAR, providerID VARCHAR)',
+        'mode': 'VARCHAR',
+        'cost': 'DOUBLE',
+        'finish': 'VARCHAR',
+        'path': 'STRUCT(cwd VARCHAR)',
+        'tokens': 'STRUCT("input" BIGINT, output BIGINT, reasoning BIGINT, "cache" STRUCT(read BIGINT, write BIGINT))',
+        'time': 'STRUCT(created BIGINT, completed BIGINT)',
+        'summary': 'STRUCT(title VARCHAR)'
+    }}
 )
 {time_filter}
 """
@@ -77,7 +101,8 @@ LOAD_PARTS_SQL = """
 INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
     call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id,
-    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name
+    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name,
+    result_summary
 )
 SELECT 
     id,
@@ -119,7 +144,9 @@ SELECT
     -- file_mime: extract mime when type='file'
     CASE WHEN type = 'file' THEN TRY(mime) ELSE NULL END as file_mime,
     -- file_name: extract filename when type='file'
-    CASE WHEN type = 'file' THEN TRY(filename) ELSE NULL END as file_name
+    CASE WHEN type = 'file' THEN TRY(filename) ELSE NULL END as file_name,
+    -- Plan 45: result_summary - FULL tool output, NO TRUNCATION
+    to_json(TRY(state.output)) as result_summary
 FROM read_json_auto('{path}/**/*.json',
     maximum_object_size=10485760,
     ignore_errors=true,
@@ -132,7 +159,7 @@ FROM read_json_auto('{path}/**/*.json',
         'text': 'VARCHAR',
         'tool': 'VARCHAR',
         'callID': 'VARCHAR',
-        'state': 'STRUCT(status VARCHAR, "input" JSON, "time" STRUCT("start" BIGINT, "end" BIGINT), metadata STRUCT(sessionId VARCHAR))',
+        'state': 'STRUCT(status VARCHAR, "input" JSON, output JSON, "time" STRUCT("start" BIGINT, "end" BIGINT), metadata STRUCT(sessionId VARCHAR))',
         'time': 'STRUCT("start" BIGINT, "end" BIGINT)',
         'metadata': 'STRUCT(anthropic STRUCT(signature VARCHAR))',
         'auto': 'BOOLEAN',

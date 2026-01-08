@@ -642,6 +642,8 @@ class AnalyticsDB:
         add_column("messages", "cost", "DECIMAL(10,6)", "0")
         add_column("messages", "finish_reason", "VARCHAR")
         add_column("messages", "working_dir", "VARCHAR")
+        # Plan 45+: summary_title is the "hook" - auto-generated title for each prompt
+        add_column("messages", "summary_title", "VARCHAR")
 
         # Parts - new columns
         add_column("parts", "session_id", "VARCHAR")
