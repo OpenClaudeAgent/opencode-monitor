@@ -663,6 +663,20 @@ class AnalyticsDB:
         add_column("parts", "file_mime", "VARCHAR")  # MIME type for file parts
         add_column("parts", "file_name", "VARCHAR")  # Filename for file parts
 
+        # Parts - additional data completeness columns (Plan 45+)
+        add_column("parts", "cost", "DECIMAL(10,6)")  # Cost per part
+        add_column("parts", "tokens_input", "INTEGER")  # Input tokens per part
+        add_column("parts", "tokens_output", "INTEGER")  # Output tokens per part
+        add_column("parts", "tokens_reasoning", "INTEGER")  # Reasoning tokens per part
+        add_column("parts", "tokens_cache_read", "INTEGER")  # Cache read tokens
+        add_column("parts", "tokens_cache_write", "INTEGER")  # Cache write tokens
+        add_column("parts", "tool_title", "VARCHAR")  # Tool title from state.title
+
+        # Messages - additional data completeness columns (Plan 45+)
+        add_column("messages", "error_name", "VARCHAR")  # Error name if failed
+        add_column("messages", "error_data", "TEXT")  # Error details (JSON)
+        add_column("messages", "root_path", "VARCHAR")  # Project root path
+
         # Sessions - additional columns for stats
         add_column("sessions", "ended_at", "TIMESTAMP")
         add_column("sessions", "duration_ms", "INTEGER")

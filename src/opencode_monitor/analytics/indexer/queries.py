@@ -37,13 +37,14 @@ FROM read_json_auto('{path}/**/*.json',
 # IMPORTANT: Uses explicit columns schema to ensure 'summary' struct exists even if
 # some JSON files don't have it. Without this, DuckDB fails with "column not found" error.
 # Plan 45+: Added summary_title (the "hook" - auto-generated title for each message)
+# Plan 45+: Added error_name, error_data, root_path for complete data loading
 LOAD_MESSAGES_SQL = """
 INSERT OR REPLACE INTO messages (
     id, session_id, parent_id, role, agent, model_id, provider_id,
     mode, cost, finish_reason, working_dir,
     tokens_input, tokens_output, tokens_reasoning,
     tokens_cache_read, tokens_cache_write, created_at, completed_at,
-    summary_title
+    summary_title, error_name, error_data, root_path
 )
 SELECT 
     id,
@@ -65,7 +66,12 @@ SELECT
     to_timestamp(time.created / 1000.0) as created_at,
     to_timestamp(time.completed / 1000.0) as completed_at,
     -- Plan 45+: summary_title is the "hook" - auto-generated title for each prompt
-    TRY(summary.title) as summary_title
+    TRY(summary.title) as summary_title,
+    -- Plan 45+: Error information
+    TRY(error.name) as error_name,
+    TRY(CAST(error.data AS VARCHAR)) as error_data,
+    -- Plan 45+: Project root path
+    TRY(path.root) as root_path
 FROM read_json_auto('{path}/**/*.json',
     maximum_object_size=10485760,
     ignore_errors=true,
@@ -82,10 +88,11 @@ FROM read_json_auto('{path}/**/*.json',
         'mode': 'VARCHAR',
         'cost': 'DOUBLE',
         'finish': 'VARCHAR',
-        'path': 'STRUCT(cwd VARCHAR)',
+        'path': 'STRUCT(cwd VARCHAR, root VARCHAR)',
         'tokens': 'STRUCT("input" BIGINT, output BIGINT, reasoning BIGINT, "cache" STRUCT(read BIGINT, write BIGINT))',
         'time': 'STRUCT(created BIGINT, completed BIGINT)',
-        'summary': 'STRUCT(title VARCHAR)'
+        'summary': 'STRUCT(title VARCHAR)',
+        'error': 'STRUCT(name VARCHAR, data JSON)'
     }}
 )
 {time_filter}
@@ -103,7 +110,8 @@ INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
     call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id,
     reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name,
-    result_summary
+    result_summary, cost, tokens_input, tokens_output, tokens_reasoning, 
+    tokens_cache_read, tokens_cache_write, tool_title
 )
 SELECT 
     json_extract_string(j, '$.id') as id,
@@ -150,7 +158,15 @@ SELECT
     CASE WHEN json_extract_string(j, '$.type') = 'file' 
          THEN json_extract_string(j, '$.filename') ELSE NULL END as file_name,
     -- Plan 45: result_summary - FULL tool output, NO TRUNCATION
-    CAST(json_extract(j, '$.state.output') AS VARCHAR) as result_summary
+    CAST(json_extract(j, '$.state.output') AS VARCHAR) as result_summary,
+    -- Plan 45+: Additional data completeness fields
+    CAST(json_extract(j, '$.cost') AS DOUBLE) as cost,
+    CAST(json_extract(j, '$.tokens.input') AS INTEGER) as tokens_input,
+    CAST(json_extract(j, '$.tokens.output') AS INTEGER) as tokens_output,
+    CAST(json_extract(j, '$.tokens.reasoning') AS INTEGER) as tokens_reasoning,
+    CAST(json_extract(j, '$.tokens.cache.read') AS INTEGER) as tokens_cache_read,
+    CAST(json_extract(j, '$.tokens.cache.write') AS INTEGER) as tokens_cache_write,
+    json_extract_string(j, '$.state.title') as tool_title
 FROM (
     SELECT TRY(content::JSON) as j
     FROM read_text('{path}/**/*.json')

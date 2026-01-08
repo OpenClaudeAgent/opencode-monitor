@@ -1242,17 +1242,20 @@ class SessionQueriesMixin:
         """
         try:
             # First try exchanges table
+            # Join with messages to get summary_title (the "hook" - auto-generated title)
             exchanges = self._conn.execute(
                 """
                 SELECT 
-                    id, exchange_number, user_message_id, assistant_message_id,
-                    prompt_input, prompt_output,
-                    started_at, ended_at, duration_ms,
-                    tokens_in, tokens_out, tokens_reasoning, cost,
-                    tool_count, reasoning_count, agent, model_id
-                FROM exchanges
-                WHERE session_id = ?
-                ORDER BY exchange_number ASC
+                    e.id, e.exchange_number, e.user_message_id, e.assistant_message_id,
+                    e.prompt_input, e.prompt_output,
+                    e.started_at, e.ended_at, e.duration_ms,
+                    e.tokens_in, e.tokens_out, e.tokens_reasoning, e.cost,
+                    e.tool_count, e.reasoning_count, e.agent, e.model_id,
+                    m.summary_title
+                FROM exchanges e
+                LEFT JOIN messages m ON e.user_message_id = m.id
+                WHERE e.session_id = ?
+                ORDER BY e.exchange_number ASC
                 """,
                 [session_id],
             ).fetchall()
@@ -1267,6 +1270,9 @@ class SessionQueriesMixin:
                             "assistant_message_id": row[3],
                             "user_prompt": row[4] or "",
                             "assistant_response": row[5] or "",
+                            "summary_title": row[
+                                17
+                            ],  # The "hook" - auto-generated title
                             "started_at": row[6].isoformat() if row[6] else None,
                             "ended_at": row[7].isoformat() if row[7] else None,
                             "duration_ms": row[8] or 0,
@@ -1318,10 +1324,10 @@ class SessionQueriesMixin:
 
     def _build_exchanges_from_messages(self, session_id: str) -> list[dict]:
         """Build exchange list from messages when exchanges table empty."""
-        # Get user messages
+        # Get user messages with summary_title (the "hook")
         user_msgs = self._conn.execute(
             """
-            SELECT m.id, m.created_at, p.content
+            SELECT m.id, m.created_at, p.content, m.summary_title
             FROM messages m
             LEFT JOIN parts p ON p.message_id = m.id AND p.part_type = 'text'
             WHERE m.session_id = ? AND m.role = 'user'
@@ -1350,6 +1356,7 @@ class SessionQueriesMixin:
                 "number": i + 1,
                 "user_message_id": user_row[0],
                 "user_prompt": user_row[2] or "",
+                "summary_title": user_row[3],  # The "hook" - auto-generated title
                 "started_at": user_row[1].isoformat() if user_row[1] else None,
                 "assistant_message_id": None,
                 "assistant_response": "",
