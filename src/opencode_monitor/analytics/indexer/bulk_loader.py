@@ -245,14 +245,11 @@ class BulkLoader:
         conn = self._db.connect()
 
         try:
-            # Note: For bulk loading, we don't filter by time since we want ALL historical files.
-            # The cutoff_time is handled by the HybridIndexer via file mtime, not JSON content.
-            # Parts have inconsistent timestamp locations (time.start vs state.time.start),
-            # so filtering here would miss many files.
-            #
-            # IMPORTANT: We use explicit columns schema to ensure both 'time' and 'state.time'
-            # columns exist even if some JSON files don't have them. Without this, DuckDB fails
-            # with "column not found" error when referencing missing struct keys.
+            # Optimize DuckDB for bulk loading large number of JSON files
+            # - memory_limit: read_text loads all files, needs more RAM
+            # - preserve_insertion_order=false: reduces memory usage, order not needed for analytics
+            conn.execute("SET memory_limit='4GB'")
+            conn.execute("SET preserve_insertion_order=false")
 
             # Load and transform in one query using SQL template
             query = LOAD_PARTS_SQL.format(path=path)
@@ -288,6 +285,10 @@ class BulkLoader:
         conn = self._db.connect()
 
         try:
+            # Optimize DuckDB for bulk loading
+            conn.execute("SET memory_limit='4GB'")
+            conn.execute("SET preserve_insertion_order=false")
+
             # Load step events from part files (they share the same storage)
             query = LOAD_STEP_EVENTS_SQL.format(path=path)
             conn.execute(query)
@@ -321,6 +322,10 @@ class BulkLoader:
         conn = self._db.connect()
 
         try:
+            # Optimize DuckDB for bulk loading
+            conn.execute("SET memory_limit='4GB'")
+            conn.execute("SET preserve_insertion_order=false")
+
             # Load patches from part files (they share the same storage)
             query = LOAD_PATCHES_SQL.format(path=path)
             conn.execute(query)
