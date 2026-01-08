@@ -4,7 +4,16 @@ Sprint records and current work tracking.
 
 ## Current Sprint
 
-Aucun sprint actif. Voir [backlog/](../backlog/) pour les plans disponibles.
+**[Unified Indexer v2 - Sprint 1](./2026-01-unified-indexer-v2-sprint1.md)** (16 points, 4 stories)
+
+Epic: [IDX-001 - Unified Indexer v2](../epics/epic-unified-indexer.md)
+
+| Story | Points | Status |
+|-------|--------|--------|
+| US-1: indexed_files Table | 3 | To Do |
+| US-2: BatchCollector | 5 | To Do |
+| US-3: Reconciler | 5 | To Do |
+| US-4: Tests Complets | 3 | To Do |
 
 ## Completed Sprints
 
