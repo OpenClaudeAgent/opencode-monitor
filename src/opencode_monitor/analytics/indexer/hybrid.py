@@ -302,6 +302,21 @@ class HybridIndexer:
         if backfilled > 0:
             info(f"[HybridIndexer] Backfilled tokens for {backfilled} traces")
 
+        # Step 4: Build derived trace tables (exchanges, exchange_traces, session_traces)
+        # These tables power the Timeline and Delegations UI views
+        try:
+            stats = self._trace_builder.build_all()
+            exchanges = stats.get("exchanges", 0)
+            exchange_traces = stats.get("exchange_traces", 0)
+            session_traces = stats.get("session_traces", 0)
+            if exchanges > 0 or exchange_traces > 0 or session_traces > 0:
+                info(
+                    f"[HybridIndexer] Built trace tables: "
+                    f"{exchanges} exchanges, {exchange_traces} events, {session_traces} sessions"
+                )
+        except Exception as e:
+            debug(f"[HybridIndexer] Failed to build trace tables: {e}")
+
     def _run_realtime_phase(self) -> None:
         """Process files in realtime as they arrive."""
         while self._running:
