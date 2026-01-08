@@ -9,6 +9,7 @@ from .files import FilesTab
 from .agents import AgentsTab
 from .timeline import TimelineTab
 from .transcript import TranscriptTab
+from .delegations import DelegationsTab
 
 __all__ = [
     "BaseTab",
@@ -18,4 +19,5 @@ __all__ = [
     "AgentsTab",
     "TimelineTab",
     "TranscriptTab",
+    "DelegationsTab",
 ]

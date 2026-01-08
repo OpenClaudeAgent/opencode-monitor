@@ -35,6 +35,7 @@ from ..tabs import (
     AgentsTab,
     TimelineTab,
     TranscriptTab,
+    DelegationsTab,
 )
 from .components import MetricsBar, StatusBadge
 from .handlers import DataLoaderMixin
@@ -227,6 +228,13 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._files_tab = FilesTab()
         self._agents_tab = AgentsTab()
         self._timeline_tab = TimelineTab()
+        self._timeline_tab.event_selected.connect(self._on_timeline_event_selected)
+
+        # Delegations tab
+        self._delegations_tab = DelegationsTab()
+        self._delegations_tab.session_selected.connect(
+            self._on_delegation_session_selected
+        )
 
         # Add tabs with icons
         self._tabs.addTab(self._transcript_tab, "📜")
@@ -235,6 +243,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._tabs.addTab(self._files_tab, "📁")
         self._tabs.addTab(self._agents_tab, "🤖")
         self._tabs.addTab(self._timeline_tab, "⏱")
+        self._tabs.addTab(self._delegations_tab, "🌲")
 
         # Tooltips
         tooltips = [
@@ -244,6 +253,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
             "Files - File operations",
             "Agents - Agent hierarchy",
             "Timeline - Event timeline",
+            "Delegations - Agent tree",
         ]
         for i, tip in enumerate(tooltips):
             self._tabs.setTabToolTip(i, tip)
@@ -650,6 +660,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._files_tab.clear()  # type: ignore[attr-defined]
         self._agents_tab.clear()  # type: ignore[attr-defined]
         self._timeline_tab.clear()  # type: ignore[attr-defined]
+        self._delegations_tab.clear()  # type: ignore[attr-defined]
 
     def clear(self) -> None:
         """Clear all trace details."""
@@ -661,3 +672,38 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._status_badge.clear()
         self._metrics_bar.reset()
         self._clear_tabs()
+
+    # ===== Event Handlers =====
+
+    def _on_timeline_event_selected(self, event: dict) -> None:
+        """Handle timeline event click - show details in panel."""
+        event_type = event.get("type", "")
+
+        if event_type == "tool_call":
+            self.show_tool(
+                tool_name=event.get("tool_name", ""),
+                display_info=event.get("arguments", ""),
+                status=event.get("status", "completed"),
+                duration_ms=event.get("duration_ms", 0),
+                timestamp=event.get("timestamp"),
+            )
+        elif event_type == "reasoning":
+            # Show reasoning as assistant message
+            self.show_message(
+                role="assistant",
+                content=event.get("content", ""),
+                timestamp=event.get("timestamp"),
+            )
+        elif event_type in ("user_prompt", "assistant_response"):
+            self.show_message(
+                role="user" if event_type == "user_prompt" else "assistant",
+                content=event.get("content", ""),
+                tokens_in=event.get("tokens_in", 0),
+                tokens_out=event.get("tokens_out", 0),
+                timestamp=event.get("timestamp"),
+            )
+
+    def _on_delegation_session_selected(self, session_id: str) -> None:
+        """Handle delegation session selection - navigate to that session."""
+        # Load the selected session's details
+        self.show_session_summary(session_id)
