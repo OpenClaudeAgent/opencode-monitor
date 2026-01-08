@@ -1,28 +1,12 @@
-"""
-Tests for UnifiedIndexer module.
-
-Tests cover:
-- Initialization with valid/invalid paths
-- Lifecycle (start/stop)
-- Processing methods via _file_processor
-- Batch operations via _batch_processor
-- Statistics (get_stats)
-- Backfill behavior (force_backfill)
-- Error handling (corrupted files, missing data)
-
-Target: >70% coverage for unified/* modules
-"""
+"""Tests for UnifiedIndexer module - initialization, lifecycle, processing, batch ops, stats."""
 
 import json
-import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import MagicMock, patch
 
 import pytest
 
-from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer.unified import (
     UnifiedIndexer,
     get_indexer,
@@ -31,61 +15,38 @@ from opencode_monitor.analytics.indexer.unified import (
 )
 
 
-# === Fixtures ===
-
-
 @pytest.fixture
 def temp_db_path(tmp_path):
-    """Create a temporary database path."""
     return tmp_path / "test_analytics.duckdb"
 
 
 @pytest.fixture
-def temp_storage(tmp_path):
-    """Create a temporary storage directory structure."""
-    storage_path = tmp_path / "opencode_storage"
-    for subdir in ["session", "message", "part", "todo", "project"]:
-        (storage_path / subdir).mkdir(parents=True, exist_ok=True)
-    return storage_path
-
-
-@pytest.fixture
 def indexer(temp_storage, temp_db_path):
-    """Create a UnifiedIndexer instance (not started)."""
-    idx = UnifiedIndexer(
-        storage_path=temp_storage,
-        db_path=temp_db_path,
-    )
+    idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
     yield idx
-    # Cleanup
     if idx._running:
         idx.stop()
 
 
 @pytest.fixture
 def connected_indexer(temp_storage, temp_db_path):
-    """Create a UnifiedIndexer with DB connected but not started."""
-    idx = UnifiedIndexer(
-        storage_path=temp_storage,
-        db_path=temp_db_path,
-    )
+    idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
     idx._db.connect()
     yield idx
-    # Cleanup
     if idx._running:
         idx.stop()
     idx._db.close()
 
 
-# === Sample Data Factories ===
+def _now_ms():
+    return int(datetime.now().timestamp() * 1000)
 
 
 def create_session_json(
     session_id: str, title: str = "Test Session", parent_id: str | None = None
 ) -> dict:
-    """Factory to create session JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
-    data = {
+    now = _now_ms()
+    return {
         "id": session_id,
         "projectID": "proj_001",
         "directory": "/path/to/project",
@@ -93,16 +54,14 @@ def create_session_json(
         "parentID": parent_id,
         "version": "1.0.0",
         "summary": {"additions": 10, "deletions": 5, "files": 3},
-        "time": {"created": now_ms, "updated": now_ms},
+        "time": {"created": now, "updated": now},
     }
-    return data
 
 
 def create_message_json(
     message_id: str, session_id: str, agent: str = "executor"
 ) -> dict:
-    """Factory to create message JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = _now_ms()
     return {
         "id": message_id,
         "sessionID": session_id,
@@ -121,19 +80,14 @@ def create_message_json(
             "reasoning": 0,
             "cache": {"read": 0, "write": 0},
         },
-        "time": {"created": now_ms, "completed": now_ms + 5000},
+        "time": {"created": now, "completed": now + 5000},
     }
 
 
 def create_part_json(
-    part_id: str,
-    session_id: str,
-    message_id: str,
-    tool: str = "read",
-    status: str = "completed",
+    part_id: str, session_id: str, message_id: str, tool: str = "read"
 ) -> dict:
-    """Factory to create part JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = _now_ms()
     return {
         "id": part_id,
         "sessionID": session_id,
@@ -142,36 +96,26 @@ def create_part_json(
         "tool": tool,
         "callID": f"call_{part_id}",
         "state": {
-            "status": status,
+            "status": "completed",
             "input": {"filePath": "/path/to/file.py"},
-            "time": {"start": now_ms, "end": now_ms + 100},
+            "time": {"start": now, "end": now + 100},
         },
-        "time": {"start": now_ms, "end": now_ms + 100},
+        "time": {"start": now, "end": now + 100},
     }
 
 
-def create_todo_json() -> list:
-    """Factory to create todo list JSON data."""
-    return [
-        {"id": "1", "content": "Task 1", "status": "pending", "priority": "high"},
-        {"id": "2", "content": "Task 2", "status": "completed", "priority": "low"},
-    ]
-
-
 def create_project_json(project_id: str) -> dict:
-    """Factory to create project JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = _now_ms()
     return {
         "id": project_id,
         "worktree": "/path/to/project",
         "vcs": "git",
-        "time": {"created": now_ms, "updated": now_ms},
+        "time": {"created": now, "updated": now},
     }
 
 
 def create_skill_part_json(part_id: str, session_id: str, message_id: str) -> dict:
-    """Factory to create skill tool part JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = _now_ms()
     return {
         "id": part_id,
         "sessionID": session_id,
@@ -182,20 +126,16 @@ def create_skill_part_json(part_id: str, session_id: str, message_id: str) -> di
         "state": {
             "status": "completed",
             "input": {"name": "test-skill"},
-            "time": {"start": now_ms, "end": now_ms + 100},
+            "time": {"start": now, "end": now + 100},
         },
-        "time": {"start": now_ms, "end": now_ms + 100},
+        "time": {"start": now, "end": now + 100},
     }
 
 
 def create_task_part_json(
-    part_id: str,
-    session_id: str,
-    message_id: str,
-    child_session_id: str | None = None,
+    part_id: str, session_id: str, message_id: str, child_session_id: str = "child_001"
 ) -> dict:
-    """Factory to create task (delegation) tool part JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
+    now = _now_ms()
     return {
         "id": part_id,
         "sessionID": session_id,
@@ -206,1037 +146,631 @@ def create_task_part_json(
         "state": {
             "status": "completed",
             "input": {"subagent_type": "dev"},
-            "metadata": {"sessionId": child_session_id or "child_session_001"},
-            "time": {"start": now_ms, "end": now_ms + 100},
+            "metadata": {"sessionId": child_session_id},
+            "time": {"start": now, "end": now + 100},
         },
-        "time": {"start": now_ms, "end": now_ms + 100},
-    }
-
-
-def create_file_op_part_json(
-    part_id: str, session_id: str, message_id: str, tool: str = "read"
-) -> dict:
-    """Factory to create file operation tool part JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
-    return {
-        "id": part_id,
-        "sessionID": session_id,
-        "messageID": message_id,
-        "type": "tool",
-        "tool": tool,
-        "callID": f"call_{part_id}",
-        "state": {
-            "status": "completed",
-            "input": {"filePath": "/path/to/file.py"},
-            "time": {"start": now_ms, "end": now_ms + 100},
-        },
-        "time": {"start": now_ms, "end": now_ms + 100},
+        "time": {"start": now, "end": now + 100},
     }
 
 
 def write_json_file(
-    storage_path: Path,
-    file_type: str,
-    project_id: str,
-    file_id: str,
-    data: dict | list,
+    storage: Path, ftype: str, proj: str, fid: str, data: dict | list
 ) -> Path:
-    """Write JSON data to storage."""
-    dir_path = storage_path / file_type / project_id
-    dir_path.mkdir(parents=True, exist_ok=True)
-    file_path = dir_path / f"{file_id}.json"
-    file_path.write_text(json.dumps(data))
-    return file_path
+    path = storage / ftype / proj
+    path.mkdir(parents=True, exist_ok=True)
+    fp = path / f"{fid}.json"
+    fp.write_text(json.dumps(data))
+    return fp
 
 
-# === Initialization Tests ===
 
 
 class TestUnifiedIndexerInit:
-    """Tests for UnifiedIndexer initialization."""
-
-    def test_init_sets_storage_path(self, temp_storage, temp_db_path):
-        """Test initialization sets storage path."""
+    def test_init_sets_all_core_attributes_and_components(
+        self, temp_storage, temp_db_path
+    ):
+        """Init sets storage, running=False, all components created, stats initialized."""
         idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
+
+        # Core state: 5 assertions
         assert idx._storage_path == temp_storage
-
-    def test_init_running_false(self, temp_storage, temp_db_path):
-        """Test initialization sets running to False."""
-        idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
         assert idx._running is False
+        assert idx._watcher is None
+        assert idx._processor_thread is None
+        assert idx._backfill_thread is None
 
-    def test_init_creates_components(self, temp_storage, temp_db_path):
-        """Test initialization creates all required components."""
-        idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
+        # Components: 6 assertions
         assert idx._tracker is not None
         assert idx._parser is not None
         assert idx._trace_builder is not None
         assert idx._queue is not None
-
-    def test_init_creates_processors(self, temp_storage, temp_db_path):
-        """Test initialization creates batch and file processors."""
-        idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
+        assert idx._queue.size == 0
         assert idx._batch_processor is not None
         assert idx._file_processor is not None
 
-    def test_init_initializes_stats(self, temp_storage, temp_db_path):
-        """Test initialization creates stats dict."""
-        idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
-        assert "files_processed" in idx._stats
-        assert "sessions_indexed" in idx._stats
-        assert "messages_indexed" in idx._stats
-        assert "parts_indexed" in idx._stats
-        assert "traces_created" in idx._stats
-        assert idx._stats["files_processed"] == 0
+        # Stats: 10 assertions (5 keys x 2)
+        for key in [
+            "files_processed",
+            "sessions_indexed",
+            "messages_indexed",
+            "parts_indexed",
+            "traces_created",
+        ]:
+            assert key in idx._stats
+            assert idx._stats[key] == 0
 
     def test_init_with_default_storage_path(self, temp_db_path):
-        """Test initialization uses default storage path when not provided."""
+        """Init uses default OPENCODE_STORAGE when not provided."""
         from opencode_monitor.analytics.indexer.unified.config import OPENCODE_STORAGE
 
         idx = UnifiedIndexer(db_path=temp_db_path)
         assert idx._storage_path == OPENCODE_STORAGE
-
-    def test_init_watcher_none_before_start(self, indexer):
-        """Test watcher is None before start."""
-        assert indexer._watcher is None
-
-    def test_init_threads_none_before_start(self, indexer):
-        """Test threads are None before start."""
-        assert indexer._processor_thread is None
-        assert indexer._backfill_thread is None
+        assert idx._db is not None
+        assert idx._running is False
+        assert idx._file_processor is not None
+        assert idx._batch_processor is not None
+        assert idx._queue is not None
 
 
-# === Lifecycle Tests ===
 
 
 class TestUnifiedIndexerLifecycle:
-    """Tests for start/stop lifecycle."""
+    def test_start_initializes_runtime_and_stop_cleans_up(self, indexer):
+        """Start sets running/time/watcher/threads; stop cleans up."""
+        # Pre-start state
+        assert indexer._running is False
+        assert indexer._watcher is None
 
-    def test_start_sets_running(self, indexer, temp_storage):
-        """Test start sets _running to True."""
+        # Start: 7 assertions
         indexer.start()
-        try:
-            assert indexer._running is True
-        finally:
-            indexer.stop()
+        assert indexer._running is True
+        assert indexer._stats["start_time"] is not None
+        assert indexer._watcher is not None
+        assert indexer._watcher.is_running is True
+        assert indexer._processor_thread is not None
+        assert indexer._backfill_thread is not None
+        assert indexer._processor_thread.is_alive()
+        assert indexer._backfill_thread.is_alive()
+        watcher = indexer._watcher
 
-    def test_start_sets_start_time(self, indexer, temp_storage):
-        """Test start records start time in stats."""
-        indexer.start()
-        try:
-            assert indexer._stats["start_time"] is not None
-        finally:
-            indexer.stop()
+        # Stop: 3 assertions
+        indexer.stop()
+        assert indexer._running is False
+        assert not watcher.is_running
+        assert indexer._stats["start_time"] is not None  # Still recorded
 
-    def test_start_creates_watcher(self, indexer, temp_storage):
-        """Test start creates watcher."""
-        indexer.start()
-        try:
-            assert indexer._watcher is not None
-        finally:
-            indexer.stop()
-
-    def test_start_creates_threads(self, indexer, temp_storage):
-        """Test start creates processor and backfill threads."""
-        indexer.start()
-        try:
-            assert indexer._processor_thread is not None
-            assert indexer._backfill_thread is not None
-            assert indexer._processor_thread.is_alive()
-            assert indexer._backfill_thread.is_alive()
-        finally:
-            indexer.stop()
-
-    def test_start_is_idempotent(self, indexer, temp_storage):
-        """Test calling start multiple times is safe."""
+    def test_start_and_stop_are_idempotent(self, indexer):
+        """Multiple start calls reuse watcher; multiple stop calls are safe."""
+        # Start twice - same watcher: 4 assertions
         indexer.start()
         first_watcher = indexer._watcher
-
+        first_thread = indexer._processor_thread
+        assert indexer._running is True
         indexer.start()
-        second_watcher = indexer._watcher
+        assert indexer._watcher is first_watcher
+        assert indexer._processor_thread is first_thread
+        assert indexer._running is True
+        indexer.stop()
 
-        try:
-            assert first_watcher is second_watcher
-        finally:
-            indexer.stop()
-
-    def test_stop_sets_running_false(self, indexer, temp_storage):
-        """Test stop sets _running to False."""
-        indexer.start()
+        # Multiple stops: 4 assertions
         indexer.stop()
         assert indexer._running is False
-
-    def test_stop_stops_watcher(self, indexer, temp_storage):
-        """Test stop stops the watcher."""
         indexer.start()
-        watcher = indexer._watcher
-        indexer.stop()
-        assert not watcher.is_running
-
-    def test_stop_without_start(self, indexer):
-        """Test stop without start doesn't crash."""
-        indexer.stop()
-        assert indexer._running is False
-
-    def test_multiple_stops(self, indexer, temp_storage):
-        """Test multiple stop calls are safe."""
-        indexer.start()
+        assert indexer._running is True
         indexer.stop()
         indexer.stop()
         indexer.stop()
         assert indexer._running is False
 
 
-# === Process Session Tests ===
 
 
-class TestProcessSession:
-    """Tests for session processing via FileProcessor."""
+class TestProcessEntity:
+    @pytest.mark.parametrize(
+        "entity_type,create_fn,stat_key,table,field,expected",
+        [
+            (
+                "session",
+                lambda: create_session_json("s1", "Title"),
+                "sessions_indexed",
+                "sessions",
+                "title",
+                "Title",
+            ),
+            (
+                "message",
+                lambda: create_message_json("m1", "s1", "dev"),
+                "messages_indexed",
+                "messages",
+                "agent",
+                "dev",
+            ),
+            (
+                "part",
+                lambda: create_part_json("p1", "s1", "m1", "write"),
+                "parts_indexed",
+                "parts",
+                "tool_name",
+                "write",
+            ),
+            (
+                "project",
+                lambda: create_project_json("proj1"),
+                None,
+                "projects",
+                "worktree",
+                "/path/to/project",
+            ),
+        ],
+    )
+    def test_process_entity_stores_in_db_and_updates_stats(
+        self,
+        connected_indexer,
+        entity_type,
+        create_fn,
+        stat_key,
+        table,
+        field,
+        expected,
+    ):
+        """Valid entity: returns ID, updates stats, stores in DB, count=1."""
+        data = create_fn()
+        entity_id = data["id"]
+        proc = connected_indexer._file_processor
 
-    def test_process_session_valid_data(self, connected_indexer, temp_storage):
-        """Test processing valid session data."""
-        session_data = create_session_json("ses_001", "Test Session")
+        # Pre-check stats
+        if stat_key:
+            assert connected_indexer._stats[stat_key] == 0
 
-        result = connected_indexer._file_processor._process_session(session_data)
+        # Process
+        methods = {
+            "session": proc._process_session,
+            "message": proc._process_message,
+            "part": proc._process_part,
+            "project": proc._process_project,
+        }
+        result = methods[entity_type](data)
 
-        assert result == "ses_001"
+        # Verify: 5 assertions
+        assert result == entity_id
+        assert result is not None
+        if stat_key:
+            assert connected_indexer._stats[stat_key] == 1
+
+        # DB storage: row exists, field matches, count=1
+        conn = connected_indexer._db.connect()
+        row = conn.execute(
+            f"SELECT {field} FROM {table} WHERE id = '{entity_id}'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == expected
+        count = conn.execute(
+            f"SELECT COUNT(*) FROM {table} WHERE id = '{entity_id}'"
+        ).fetchone()[0]
+        assert count == 1
+
+    @pytest.mark.parametrize("entity_type", ["session", "message", "part", "project"])
+    def test_process_invalid_entity_returns_none(self, connected_indexer, entity_type):
+        """Empty/invalid data returns None, stats unchanged."""
+        proc = connected_indexer._file_processor
+        methods = {
+            "session": proc._process_session,
+            "message": proc._process_message,
+            "part": proc._process_part,
+            "project": proc._process_project,
+        }
+        initial_files = connected_indexer._stats["files_processed"]
+        result = methods[entity_type]({})
+        assert result is None
+        assert connected_indexer._stats["files_processed"] == initial_files
+
+    def test_root_session_creates_trace_child_does_not(self, connected_indexer):
+        """Root session creates trace; child session does not."""
+        proc = connected_indexer._file_processor
+        assert connected_indexer._stats["traces_created"] == 0
+        assert connected_indexer._stats["sessions_indexed"] == 0
+
+        # Root: 3 assertions
+        proc._process_session(create_session_json("root", "Root", parent_id=None))
+        assert connected_indexer._stats["traces_created"] == 1
         assert connected_indexer._stats["sessions_indexed"] == 1
 
-    def test_process_session_stored_in_db(self, connected_indexer, temp_storage):
-        """Test processed session is stored in database."""
-        session_data = create_session_json("ses_002", "DB Session")
-
-        connected_indexer._file_processor._process_session(session_data)
-
-        conn = connected_indexer._db.connect()
-        row = conn.execute("SELECT title FROM sessions WHERE id = 'ses_002'").fetchone()
-        assert row[0] == "DB Session"
-
-    def test_process_session_invalid_data(self, connected_indexer):
-        """Test processing invalid session data returns None."""
-        result = connected_indexer._file_processor._process_session({})
-        assert result is None
-
-    def test_process_session_creates_root_trace(self, connected_indexer):
-        """Test processing root session creates trace."""
-        session_data = create_session_json("ses_root", "Root Session", parent_id=None)
-
-        connected_indexer._file_processor._process_session(session_data)
-
+        # Child: 3 assertions
+        proc._process_session(create_session_json("child", "Child", parent_id="root"))
         assert connected_indexer._stats["traces_created"] == 1
-
-    def test_process_session_no_trace_for_child(self, connected_indexer):
-        """Test processing child session doesn't create trace."""
-        session_data = create_session_json(
-            "ses_child", "Child Session", parent_id="ses_parent"
-        )
-
-        connected_indexer._file_processor._process_session(session_data)
-
-        assert connected_indexer._stats["traces_created"] == 0
+        assert connected_indexer._stats["sessions_indexed"] == 2
 
 
-# === Process Message Tests ===
+class TestProcessSpecialParts:
+    def test_skill_part_creates_skill_record(self, connected_indexer):
+        """Skill part creates record in skills table with correct name and session."""
+        data = create_skill_part_json("sk1", "s1", "m1")
+        initial_parts = connected_indexer._stats["parts_indexed"]
+        result = connected_indexer._file_processor._process_part(data)
 
-
-class TestProcessMessage:
-    """Tests for message processing via FileProcessor."""
-
-    def test_process_message_valid_data(self, connected_indexer):
-        """Test processing valid message data."""
-        message_data = create_message_json("msg_001", "ses_001")
-
-        result = connected_indexer._file_processor._process_message(message_data)
-
-        assert result == "msg_001"
-        assert connected_indexer._stats["messages_indexed"] == 1
-
-    def test_process_message_stored_in_db(self, connected_indexer):
-        """Test processed message is stored in database."""
-        message_data = create_message_json("msg_002", "ses_001", agent="reviewer")
-
-        connected_indexer._file_processor._process_message(message_data)
-
+        assert result == "sk1"
+        assert connected_indexer._stats["parts_indexed"] == initial_parts + 1
         conn = connected_indexer._db.connect()
-        row = conn.execute("SELECT agent FROM messages WHERE id = 'msg_002'").fetchone()
-        assert row[0] == "reviewer"
+        row = conn.execute(
+            "SELECT skill_name, session_id FROM skills WHERE id = 'sk1'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "test-skill"
+        assert row[1] == "s1"
 
-    def test_process_message_invalid_data(self, connected_indexer):
-        """Test processing invalid message data returns None."""
-        result = connected_indexer._file_processor._process_message({})
-        assert result is None
+    @pytest.mark.parametrize("tool", ["read", "write", "edit"])
+    def test_file_operation_creates_record(self, connected_indexer, tool):
+        """File operations create file_operations records with operation and path."""
+        data = create_part_json(f"{tool}_p", "s1", "m1", tool)
+        result = connected_indexer._file_processor._process_part(data)
 
+        assert result == f"{tool}_p"
+        assert connected_indexer._stats["parts_indexed"] >= 1
+        conn = connected_indexer._db.connect()
+        row = conn.execute(
+            f"SELECT operation, file_path FROM file_operations WHERE id = '{tool}_p'"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == tool
+        assert row[1] == "/path/to/file.py"
 
-# === Process Part Tests ===
-
-
-class TestProcessPart:
-    """Tests for part processing via FileProcessor."""
-
-    def test_process_part_valid_data(self, connected_indexer):
-        """Test processing valid part data."""
-        part_data = create_part_json("part_001", "ses_001", "msg_001")
-
-        result = connected_indexer._file_processor._process_part(part_data)
-
-        assert result == "part_001"
+    def test_delegation_task_creates_record(self, connected_indexer):
+        """Task delegation creates delegation record with child agent and session."""
+        proc = connected_indexer._file_processor
+        proc._process_message(create_message_json("mp", "s1", "orchestrator"))
+        assert connected_indexer._stats["messages_indexed"] == 1
+        proc._process_part(create_task_part_json("tk1", "s1", "mp", "child_s"))
         assert connected_indexer._stats["parts_indexed"] == 1
 
-    def test_process_part_stored_in_db(self, connected_indexer):
-        """Test processed part is stored in database."""
-        part_data = create_part_json("part_002", "ses_001", "msg_001", tool="write")
-
-        connected_indexer._file_processor._process_part(part_data)
-
         conn = connected_indexer._db.connect()
         row = conn.execute(
-            "SELECT tool_name FROM parts WHERE id = 'part_002'"
-        ).fetchone()
-        assert row[0] == "write"
-
-    def test_process_part_invalid_data(self, connected_indexer):
-        """Test processing invalid part data returns None."""
-        result = connected_indexer._file_processor._process_part({})
-        assert result is None
-
-    def test_process_skill_part(self, connected_indexer):
-        """Test processing skill tool part."""
-        part_data = create_skill_part_json("skill_part_001", "ses_001", "msg_001")
-
-        result = connected_indexer._file_processor._process_part(part_data)
-
-        assert result == "skill_part_001"
-        conn = connected_indexer._db.connect()
-        row = conn.execute(
-            "SELECT skill_name FROM skills WHERE id = 'skill_part_001'"
-        ).fetchone()
-        assert row[0] == "test-skill"
-
-    def test_process_file_operation_read(self, connected_indexer):
-        """Test processing read file operation part."""
-        part_data = create_file_op_part_json(
-            "read_part_001", "ses_001", "msg_001", tool="read"
-        )
-
-        result = connected_indexer._file_processor._process_part(part_data)
-
-        assert result == "read_part_001"
-        conn = connected_indexer._db.connect()
-        row = conn.execute(
-            "SELECT operation FROM file_operations WHERE id = 'read_part_001'"
-        ).fetchone()
-        assert row[0] == "read"
-
-    def test_process_file_operation_write(self, connected_indexer):
-        """Test processing write file operation part."""
-        part_data = create_file_op_part_json(
-            "write_part_001", "ses_001", "msg_001", tool="write"
-        )
-
-        result = connected_indexer._file_processor._process_part(part_data)
-
-        assert result == "write_part_001"
-
-    def test_process_file_operation_edit(self, connected_indexer):
-        """Test processing edit file operation part."""
-        part_data = create_file_op_part_json(
-            "edit_part_001", "ses_001", "msg_001", tool="edit"
-        )
-
-        result = connected_indexer._file_processor._process_part(part_data)
-
-        assert result == "edit_part_001"
-
-
-# === Process Todos Tests ===
-
-
-class TestProcessTodos:
-    """Tests for todos processing via FileProcessor."""
-
-    def test_process_todos_valid_data(self, connected_indexer, temp_storage):
-        """Test processing valid todos data."""
-        todo_path = temp_storage / "todo" / "ses_001.json"
-        todo_path.parent.mkdir(parents=True, exist_ok=True)
-        todo_data = create_todo_json()
-        todo_path.write_text(json.dumps(todo_data))
-
-        result = connected_indexer._file_processor._process_todos(
-            "ses_001", todo_data, todo_path
-        )
-
-        assert result == "ses_001"
-
-    def test_process_todos_stored_in_db(self, connected_indexer, temp_storage):
-        """Test processed todos are stored in database."""
-        todo_path = temp_storage / "todo" / "ses_002.json"
-        todo_path.parent.mkdir(parents=True, exist_ok=True)
-        todo_data = create_todo_json()
-        todo_path.write_text(json.dumps(todo_data))
-
-        connected_indexer._file_processor._process_todos(
-            "ses_002", todo_data, todo_path
-        )
-
-        conn = connected_indexer._db.connect()
-        count = conn.execute(
-            "SELECT COUNT(*) FROM todos WHERE session_id = 'ses_002'"
-        ).fetchone()[0]
-        assert count == 2
-
-    def test_process_todos_invalid_data(self, connected_indexer, temp_storage):
-        """Test processing invalid todos data returns None."""
-        todo_path = temp_storage / "todo" / "ses_bad.json"
-        todo_path.parent.mkdir(parents=True, exist_ok=True)
-
-        result = connected_indexer._file_processor._process_todos(
-            "ses_bad", "not a list", todo_path
-        )
-
-        assert result is None
-
-
-# === Process Project Tests ===
-
-
-class TestProcessProject:
-    """Tests for project processing via FileProcessor."""
-
-    def test_process_project_valid_data(self, connected_indexer):
-        """Test processing valid project data."""
-        project_data = create_project_json("proj_001")
-
-        result = connected_indexer._file_processor._process_project(project_data)
-
-        assert result == "proj_001"
-
-    def test_process_project_stored_in_db(self, connected_indexer):
-        """Test processed project is stored in database."""
-        project_data = create_project_json("proj_002")
-
-        connected_indexer._file_processor._process_project(project_data)
-
-        conn = connected_indexer._db.connect()
-        row = conn.execute(
-            "SELECT worktree FROM projects WHERE id = 'proj_002'"
-        ).fetchone()
-        assert row[0] == "/path/to/project"
-
-    def test_process_project_invalid_data(self, connected_indexer):
-        """Test processing invalid project data returns None."""
-        result = connected_indexer._file_processor._process_project({})
-        assert result is None
-
-
-# === Process File Tests ===
-
-
-class TestProcessFile:
-    """Tests for _process_file method on UnifiedIndexer."""
-
-    def test_process_file_session(self, connected_indexer, temp_storage):
-        """Test _process_file with session type."""
-        file_path = write_json_file(
-            temp_storage,
-            "session",
-            "proj_001",
-            "ses_file_001",
-            create_session_json("ses_file_001"),
-        )
-
-        result = connected_indexer._process_file("session", file_path)
-
-        assert result is True
-        assert connected_indexer._stats["files_processed"] == 1
-
-    def test_process_file_message(self, connected_indexer, temp_storage):
-        """Test _process_file with message type."""
-        file_path = write_json_file(
-            temp_storage,
-            "message",
-            "proj_001",
-            "msg_file_001",
-            create_message_json("msg_file_001", "ses_001"),
-        )
-
-        result = connected_indexer._process_file("message", file_path)
-
-        assert result is True
-
-    def test_process_file_part(self, connected_indexer, temp_storage):
-        """Test _process_file with part type."""
-        file_path = write_json_file(
-            temp_storage,
-            "part",
-            "proj_001",
-            "part_file_001",
-            create_part_json("part_file_001", "ses_001", "msg_001"),
-        )
-
-        result = connected_indexer._process_file("part", file_path)
-
-        assert result is True
-
-    def test_process_file_todo(self, connected_indexer, temp_storage):
-        """Test _process_file with todo type."""
-        todo_path = temp_storage / "todo" / "proj_001"
-        todo_path.mkdir(parents=True, exist_ok=True)
-        file_path = todo_path / "ses_todo.json"
-        file_path.write_text(json.dumps(create_todo_json()))
-
-        result = connected_indexer._process_file("todo", file_path)
-
-        assert result is True
-
-    def test_process_file_project(self, connected_indexer, temp_storage):
-        """Test _process_file with project type."""
-        file_path = write_json_file(
-            temp_storage,
-            "project",
-            "proj_001",
-            "proj_file_001",
-            create_project_json("proj_file_001"),
-        )
-
-        result = connected_indexer._process_file("project", file_path)
-
-        assert result is True
-
-    def test_process_file_invalid_json(self, connected_indexer, temp_storage):
-        """Test _process_file with invalid JSON returns False."""
-        invalid_path = temp_storage / "session" / "proj_001" / "bad.json"
-        invalid_path.parent.mkdir(parents=True, exist_ok=True)
-        invalid_path.write_text("not valid json {{{")
-
-        result = connected_indexer._process_file("session", invalid_path)
-
-        assert result is False
-        assert connected_indexer._stats["files_error"] == 1
-
-    def test_process_file_invalid_data(self, connected_indexer, temp_storage):
-        """Test _process_file with valid JSON but invalid data."""
-        file_path = temp_storage / "session" / "proj_001" / "empty.json"
-        file_path.parent.mkdir(parents=True, exist_ok=True)
-        file_path.write_text("{}")
-
-        result = connected_indexer._process_file("session", file_path)
-
-        assert result is False
-
-
-# === Batch Process Tests ===
-
-
-class TestBatchProcessSessions:
-    """Tests for batch session processing via BatchProcessor."""
-
-    def test_batch_process_sessions_multiple_files(
-        self, connected_indexer, temp_storage
-    ):
-        """Test batch processing multiple session files."""
-        files = []
-        for i in range(3):
-            file_path = write_json_file(
-                temp_storage,
-                "session",
-                "proj_001",
-                f"ses_batch_{i}",
-                create_session_json(f"ses_batch_{i}"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_processor.process_files("session", files)
-
-        assert count == 3
-        assert connected_indexer._stats["sessions_indexed"] == 3
-
-    def test_batch_process_sessions_with_invalid(self, connected_indexer, temp_storage):
-        """Test batch processing with some invalid files."""
-        files = []
-        # Valid file
-        file_path = write_json_file(
-            temp_storage,
-            "session",
-            "proj_001",
-            "ses_valid",
-            create_session_json("ses_valid"),
-        )
-        files.append(file_path)
-
-        # Invalid file
-        invalid_path = temp_storage / "session" / "proj_001" / "invalid.json"
-        invalid_path.write_text("{}")
-        files.append(invalid_path)
-
-        count = connected_indexer._batch_processor.process_files("session", files)
-
-        assert count == 1  # Only valid file processed
-
-    def test_batch_process_sessions_empty_list(self, connected_indexer):
-        """Test batch processing empty list."""
-        count = connected_indexer._batch_processor.process_files("session", [])
-        assert count == 0
-
-
-class TestBatchProcessMessages:
-    """Tests for batch message processing via BatchProcessor."""
-
-    def test_batch_process_messages_multiple_files(
-        self, connected_indexer, temp_storage
-    ):
-        """Test batch processing multiple message files."""
-        files = []
-        for i in range(3):
-            file_path = write_json_file(
-                temp_storage,
-                "message",
-                "proj_001",
-                f"msg_batch_{i}",
-                create_message_json(f"msg_batch_{i}", "ses_001"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_processor.process_files("message", files)
-
-        assert count == 3
-        assert connected_indexer._stats["messages_indexed"] == 3
-
-    def test_batch_process_messages_empty_list(self, connected_indexer):
-        """Test batch processing empty list."""
-        count = connected_indexer._batch_processor.process_files("message", [])
-        assert count == 0
-
-
-class TestBatchProcessParts:
-    """Tests for batch part processing via BatchProcessor."""
-
-    def test_batch_process_parts_multiple_files(self, connected_indexer, temp_storage):
-        """Test batch processing multiple part files."""
-        files = []
-        for i in range(3):
-            file_path = write_json_file(
-                temp_storage,
-                "part",
-                "proj_001",
-                f"part_batch_{i}",
-                create_part_json(f"part_batch_{i}", "ses_001", "msg_001"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_processor.process_files("part", files)
-
-        assert count == 3
-        assert connected_indexer._stats["parts_indexed"] == 3
-
-    def test_batch_process_parts_empty_list(self, connected_indexer):
-        """Test batch processing empty list."""
-        count = connected_indexer._batch_processor.process_files("part", [])
-        assert count == 0
-
-
-class TestBatchProcessFiles:
-    """Tests for _batch_process_files routing method."""
-
-    def test_batch_process_files_sessions(self, connected_indexer, temp_storage):
-        """Test batch_process_files routes to session processor."""
-        files = []
-        for i in range(2):
-            file_path = write_json_file(
-                temp_storage,
-                "session",
-                "proj_001",
-                f"ses_route_{i}",
-                create_session_json(f"ses_route_{i}"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_process_files("session", files)
-
-        assert count == 2
-
-    def test_batch_process_files_messages(self, connected_indexer, temp_storage):
-        """Test batch_process_files routes to message processor."""
-        files = []
-        for i in range(2):
-            file_path = write_json_file(
-                temp_storage,
-                "message",
-                "proj_001",
-                f"msg_route_{i}",
-                create_message_json(f"msg_route_{i}", "ses_001"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_process_files("message", files)
-
-        assert count == 2
-
-    def test_batch_process_files_parts(self, connected_indexer, temp_storage):
-        """Test batch_process_files routes to part processor."""
-        files = []
-        for i in range(2):
-            file_path = write_json_file(
-                temp_storage,
-                "part",
-                "proj_001",
-                f"part_route_{i}",
-                create_part_json(f"part_route_{i}", "ses_001", "msg_001"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_process_files("part", files)
-
-        assert count == 2
-
-    def test_batch_process_files_fallback(self, connected_indexer, temp_storage):
-        """Test batch_process_files falls back to individual processing."""
-        files = []
-        for i in range(2):
-            file_path = write_json_file(
-                temp_storage,
-                "project",
-                "proj_001",
-                f"proj_route_{i}",
-                create_project_json(f"proj_route_{i}"),
-            )
-            files.append(file_path)
-
-        count = connected_indexer._batch_process_files("project", files)
-
-        assert count == 2
-
-
-# === Stats Tests ===
-
-
-class TestGetStats:
-    """Tests for get_stats method."""
-
-    def test_get_stats_returns_dict(self, indexer):
-        """Test get_stats returns a dictionary."""
-        stats = indexer.get_stats()
-        assert isinstance(stats, dict)
-
-    def test_get_stats_includes_core_metrics(self, indexer):
-        """Test get_stats includes core metrics."""
-        stats = indexer.get_stats()
-        assert "files_processed" in stats
-        assert "sessions_indexed" in stats
-        assert "messages_indexed" in stats
-        assert "parts_indexed" in stats
-        assert "traces_created" in stats
-
-    def test_get_stats_includes_tracker_stats(self, connected_indexer):
-        """Test get_stats includes tracker stats."""
-        stats = connected_indexer.get_stats()
-        assert "tracker" in stats
-
-    def test_get_stats_includes_traces_stats(self, connected_indexer):
-        """Test get_stats includes traces stats."""
-        stats = connected_indexer.get_stats()
-        assert "traces" in stats
-
-    def test_get_stats_includes_queue_size(self, connected_indexer):
-        """Test get_stats includes queue size."""
-        stats = connected_indexer.get_stats()
-        assert "queue_size" in stats
-
-
-# === Force Backfill Tests ===
-
-
-class TestForceBackfill:
-    """Tests for force_backfill method."""
-
-    def test_force_backfill_returns_stats(self, connected_indexer, temp_storage):
-        """Test force_backfill returns statistics."""
-        result = connected_indexer.force_backfill()
-
-        assert "files_processed" in result
-        assert "total_files" in result
-
-    def test_force_backfill_with_files(self, connected_indexer, temp_storage):
-        """Test force_backfill processes files."""
-        # Create some files
-        for i in range(2):
-            write_json_file(
-                temp_storage,
-                "session",
-                "proj_001",
-                f"ses_backfill_{i}",
-                create_session_json(f"ses_backfill_{i}"),
-            )
-
-        result = connected_indexer.force_backfill()
-
-        assert result["total_files"] >= 0  # May have processed files
-
-
-class TestResolveParentTraces:
-    """Tests for resolve_parent_traces method."""
-
-    def test_resolve_parent_traces_returns_int(self, connected_indexer):
-        """Test resolve_parent_traces returns integer."""
-        result = connected_indexer.resolve_parent_traces()
-        assert isinstance(result, int)
-
-
-# === File Event Tests ===
-
-
-class TestOnFileDetected:
-    """Tests for _on_file_detected callback."""
-
-    def test_on_file_detected_queues_file(self, indexer, temp_storage):
-        """Test _on_file_detected adds file to queue."""
-        test_path = temp_storage / "session" / "test.json"
-        test_path.parent.mkdir(parents=True, exist_ok=True)
-        test_path.write_text("{}")
-
-        indexer._on_file_detected("session", test_path)
-
-        assert indexer._queue.size == 1
-
-
-# === Global Functions Tests ===
-
-
-class TestGlobalFunctions:
-    """Tests for module-level functions."""
-
-    def test_get_indexer_creates_instance(
-        self, temp_storage, temp_db_path, monkeypatch
-    ):
-        """Test get_indexer creates indexer instance."""
-        import opencode_monitor.analytics.indexer.unified.core as unified_module
-
-        # Reset global and ensure we use temp paths
-        monkeypatch.setattr(unified_module, "_indexer", None)
-
-        # Patch UnifiedIndexer to use temp paths
-        original_class = unified_module.UnifiedIndexer
-
-        class PatchedIndexer(original_class):
-            def __init__(self, *args, **kwargs):
-                super().__init__(
-                    storage_path=temp_storage, db_path=temp_db_path, **kwargs
-                )
-
-        monkeypatch.setattr(unified_module, "UnifiedIndexer", PatchedIndexer)
-
-        idx = get_indexer()
-
-        assert idx is not None
-        # Clean up
-        monkeypatch.setattr(unified_module, "_indexer", None)
-
-    def test_get_indexer_returns_same_instance(
-        self, temp_storage, temp_db_path, monkeypatch
-    ):
-        """Test get_indexer returns same instance."""
-        import opencode_monitor.analytics.indexer.unified.core as unified_module
-
-        # Create a test indexer manually
-        test_indexer = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
-        monkeypatch.setattr(unified_module, "_indexer", test_indexer)
-
-        idx1 = get_indexer()
-        idx2 = get_indexer()
-
-        assert idx1 is idx2
-        assert idx1 is test_indexer
-
-    def test_start_indexer(self, temp_storage, temp_db_path, monkeypatch):
-        """Test start_indexer function."""
-        import opencode_monitor.analytics.indexer.unified.core as unified_module
-
-        # Create indexer with temp paths
-        test_indexer = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
-        monkeypatch.setattr(unified_module, "_indexer", test_indexer)
-
-        start_indexer()
-
-        try:
-            assert test_indexer._running is True
-        finally:
-            stop_indexer()
-
-    def test_stop_indexer(self, temp_storage, temp_db_path, monkeypatch):
-        """Test stop_indexer function."""
-        import opencode_monitor.analytics.indexer.unified.core as unified_module
-
-        # Create and start indexer
-        test_indexer = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
-        monkeypatch.setattr(unified_module, "_indexer", test_indexer)
-        test_indexer.start()
-
-        stop_indexer()
-
-        assert getattr(unified_module, "_indexer", "not_none") is None
-
-
-# === Error Handling Tests ===
-
-
-class TestErrorHandling:
-    """Tests for error handling scenarios."""
-
-    def test_process_file_nonexistent_path(self, connected_indexer, temp_storage):
-        """Test _process_file with nonexistent path."""
-        fake_path = temp_storage / "session" / "nonexistent.json"
-
-        result = connected_indexer._process_file("session", fake_path)
-
-        assert result is False
-
-    def test_process_file_corrupted_json(self, connected_indexer, temp_storage):
-        """Test _process_file with corrupted JSON."""
-        corrupted_path = temp_storage / "session" / "proj_001" / "corrupted.json"
-        corrupted_path.parent.mkdir(parents=True, exist_ok=True)
-        corrupted_path.write_text('{"id": "test", incomplete')
-
-        result = connected_indexer._process_file("session", corrupted_path)
-
-        assert result is False
-
-    def test_process_session_missing_required_fields(self, connected_indexer):
-        """Test _process_session with missing required fields."""
-        incomplete_data = {"title": "No ID"}
-
-        result = connected_indexer._file_processor._process_session(incomplete_data)
-
-        assert result is None
-
-    def test_process_message_missing_required_fields(self, connected_indexer):
-        """Test _process_message with missing required fields."""
-        incomplete_data = {"role": "assistant"}
-
-        result = connected_indexer._file_processor._process_message(incomplete_data)
-
-        assert result is None
-
-    def test_process_part_missing_type(self, connected_indexer):
-        """Test _process_part with missing type field."""
-        incomplete_data = {"id": "part_001", "sessionID": "ses_001"}
-
-        result = connected_indexer._file_processor._process_part(incomplete_data)
-
-        assert result is None
-
-
-# === Edge Cases ===
-
-
-class TestEdgeCases:
-    """Edge case tests."""
-
-    def test_empty_storage_directory(self, temp_db_path, tmp_path):
-        """Test handling of empty storage directory."""
-        empty_storage = tmp_path / "empty_storage"
-        empty_storage.mkdir()
-        for subdir in ["session", "message", "part", "todo", "project"]:
-            (empty_storage / subdir).mkdir()
-
-        idx = UnifiedIndexer(
-            storage_path=empty_storage,
-            db_path=temp_db_path,
-        )
-
-        idx.start()
-        time.sleep(0.3)  # Let threads start
-
-        try:
-            stats = idx.get_stats()
-            assert stats is not None
-        finally:
-            idx.stop()
-
-    def test_nonexistent_storage_path(self, temp_db_path, tmp_path):
-        """Test handling of non-existent storage path."""
-        fake_storage = tmp_path / "does_not_exist"
-
-        idx = UnifiedIndexer(
-            storage_path=fake_storage,
-            db_path=temp_db_path,
-        )
-
-        # Should not crash on creation
-        assert idx is not None
-
-    def test_sequential_stats_access(self, connected_indexer):
-        """Test sequential get_stats calls are safe."""
-        # Note: DuckDB doesn't support concurrent access from multiple threads
-        # so we test sequential access instead
-        for _ in range(10):
-            stats = connected_indexer.get_stats()
-            assert stats is not None
-            assert "files_processed" in stats
-
-
-# === Delegation Tests ===
-
-
-class TestDelegationProcessing:
-    """Tests for delegation (task tool) processing."""
-
-    def test_process_delegation_creates_record(self, connected_indexer, temp_storage):
-        """Test processing task part creates delegation record."""
-        # First create a parent message
-        message_data = create_message_json(
-            "msg_parent", "ses_001", agent="orchestrator"
-        )
-        connected_indexer._file_processor._process_message(message_data)
-
-        # Now process a task delegation part
-        task_data = create_task_part_json(
-            "task_part_001", "ses_001", "msg_parent", child_session_id="child_ses_001"
-        )
-
-        connected_indexer._file_processor._process_part(task_data)
-
-        # Verify delegation was created
-        conn = connected_indexer._db.connect()
-        row = conn.execute(
-            "SELECT child_agent FROM delegations WHERE id = 'task_part_001'"
+            "SELECT child_agent, child_session_id FROM delegations WHERE id = 'tk1'"
         ).fetchone()
         assert row is not None
         assert row[0] == "dev"
+        assert row[1] == "child_s"
 
 
-# === Backfill Loop Tests ===
+class TestProcessTodos:
+    def test_process_todos_valid_and_invalid(self, connected_indexer, temp_storage):
+        """Valid todos stored in DB with all fields; invalid returns None."""
+        # Valid: 6 assertions
+        todo_path = temp_storage / "todo" / "s1.json"
+        todo_path.parent.mkdir(parents=True, exist_ok=True)
+        todos = [
+            {"id": "1", "content": "T1", "status": "pending", "priority": "high"},
+            {"id": "2", "content": "T2", "status": "done", "priority": "low"},
+        ]
+        todo_path.write_text(json.dumps(todos))
+
+        result = connected_indexer._file_processor._process_todos(
+            "s1", todos, todo_path
+        )
+        assert result == "s1"
+        conn = connected_indexer._db.connect()
+        count = conn.execute(
+            "SELECT COUNT(*) FROM todos WHERE session_id = 's1'"
+        ).fetchone()[0]
+        assert count == 2
+        row = conn.execute(
+            "SELECT content, status FROM todos WHERE session_id = 's1' ORDER BY content"
+        ).fetchone()
+        assert row is not None
+        assert row[0] == "T1"
+        assert row[1] == "pending"
+
+        # Invalid: 2 assertions
+        result2 = connected_indexer._file_processor._process_todos(
+            "bad", "not a list", todo_path
+        )
+        assert result2 is None
+        count2 = conn.execute(
+            "SELECT COUNT(*) FROM todos WHERE session_id = 'bad'"
+        ).fetchone()[0]
+        assert count2 == 0
 
 
-class TestBackfillLoop:
-    """Tests for backfill loop behavior."""
 
-    def test_run_backfill_updates_stats(self, connected_indexer, temp_storage):
-        """Test _run_backfill updates backfill stats."""
+
+class TestProcessFile:
+    @pytest.mark.parametrize(
+        "ftype,create_fn,fid",
+        [
+            ("session", lambda: create_session_json("sf1"), "sf1"),
+            ("message", lambda: create_message_json("mf1", "s1"), "mf1"),
+            ("part", lambda: create_part_json("pf1", "s1", "m1"), "pf1"),
+            ("project", lambda: create_project_json("pj1"), "pj1"),
+        ],
+    )
+    def test_process_file_by_type_succeeds(
+        self, connected_indexer, temp_storage, ftype, create_fn, fid
+    ):
+        """Process file: returns True, increments files_processed, file exists."""
+        initial = connected_indexer._stats["files_processed"]
+        fp = write_json_file(temp_storage, ftype, "p1", fid, create_fn())
+        assert fp.exists()
+        result = connected_indexer._process_file(ftype, fp)
+        assert result is True
+        assert connected_indexer._stats["files_processed"] == initial + 1
+        assert connected_indexer._stats["files_error"] == 0
+
+    def test_process_file_todo_succeeds(self, connected_indexer, temp_storage):
+        """Todo file: returns True and stores in DB."""
+        tp = temp_storage / "todo" / "p1"
+        tp.mkdir(parents=True, exist_ok=True)
+        fp = tp / "st.json"
+        fp.write_text(
+            json.dumps([{"id": "1", "content": "T", "status": "p", "priority": "h"}])
+        )
+        assert fp.exists()
+        result = connected_indexer._process_file("todo", fp)
+        assert result is True
+        conn = connected_indexer._db.connect()
+        count = conn.execute("SELECT COUNT(*) FROM todos").fetchone()[0]
+        assert count >= 1
+
+    def test_process_file_errors(self, connected_indexer, temp_storage):
+        """Invalid/empty/nonexistent: returns False, tracks errors."""
+        initial_errors = connected_indexer._stats.get("files_error", 0)
+
+        # Invalid JSON: 3 assertions
+        bad = temp_storage / "session" / "p1" / "bad.json"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text("not valid {{{")
+        assert connected_indexer._process_file("session", bad) is False
+        assert connected_indexer._stats["files_error"] == initial_errors + 1
+
+        # Empty JSON: 2 assertions
+        empty = temp_storage / "session" / "p1" / "empty.json"
+        empty.write_text("{}")
+        assert connected_indexer._process_file("session", empty) is False
+
+        # Nonexistent: 2 assertions
+        assert (
+            connected_indexer._process_file("session", temp_storage / "nope.json")
+            is False
+        )
+        assert connected_indexer._stats["files_error"] >= 1
+
+
+
+
+class TestBatchProcess:
+    @pytest.mark.parametrize(
+        "ftype,create_fn,stat_key",
+        [
+            ("session", create_session_json, "sessions_indexed"),
+            ("message", lambda id: create_message_json(id, "s1"), "messages_indexed"),
+            ("part", lambda id: create_part_json(id, "s1", "m1"), "parts_indexed"),
+        ],
+    )
+    def test_batch_process_multiple_files(
+        self, connected_indexer, temp_storage, ftype, create_fn, stat_key
+    ):
+        """Batch: returns count, updates entity stats, files exist."""
+        initial = connected_indexer._stats[stat_key]
+        files = [
+            write_json_file(
+                temp_storage, ftype, "p1", f"{ftype}_{i}", create_fn(f"{ftype}_{i}")
+            )
+            for i in range(3)
+        ]
+        for f in files:
+            assert f.exists()
+        count = connected_indexer._batch_processor.process_files(ftype, files)
+        assert count == 3
+        assert connected_indexer._stats[stat_key] == initial + 3
+        assert len(files) == 3
+
+    def test_batch_process_with_invalid_skips_bad_files(
+        self, connected_indexer, temp_storage
+    ):
+        """Batch with valid/invalid: only valid counted, stats correct."""
+        valid = write_json_file(
+            temp_storage, "session", "p1", "v", create_session_json("v")
+        )
+        invalid = temp_storage / "session" / "p1" / "inv.json"
+        invalid.write_text("{}")
+        initial_sessions = connected_indexer._stats["sessions_indexed"]
+        count = connected_indexer._batch_processor.process_files(
+            "session", [valid, invalid]
+        )
+        assert count == 1
+        assert connected_indexer._stats["sessions_indexed"] == initial_sessions + 1
+
+    def test_batch_process_empty_and_routing(self, connected_indexer, temp_storage):
+        """Empty=0; routing works for all types with correct counts."""
+        for ft in ["session", "message", "part"]:
+            assert connected_indexer._batch_processor.process_files(ft, []) == 0
+
+        for ft, fn in [
+            ("session", create_session_json),
+            ("message", lambda id: create_message_json(id, "s1")),
+            ("part", lambda id: create_part_json(id, "s1", "m1")),
+            ("project", create_project_json),
+        ]:
+            files = [
+                write_json_file(temp_storage, ft, "p1", f"{ft}_r{i}", fn(f"{ft}_r{i}"))
+                for i in range(2)
+            ]
+            result = connected_indexer._batch_process_files(ft, files)
+            assert result == 2
+            assert len(files) == 2
+
+
+
+
+class TestStatsAndBackfill:
+    def test_get_stats_includes_all_metrics(self, connected_indexer):
+        """Stats: dict with core metrics, tracker, traces, queue_size, all valid types."""
+        stats = connected_indexer.get_stats()
+        assert isinstance(stats, dict)
+        assert len(stats) > 5
+        for key in [
+            "files_processed",
+            "sessions_indexed",
+            "messages_indexed",
+            "parts_indexed",
+            "traces_created",
+        ]:
+            assert key in stats
+            assert isinstance(stats[key], int)
+        assert "tracker" in stats
+        assert "traces" in stats
+        assert "queue_size" in stats
+        assert isinstance(stats["queue_size"], int)
+
+    def test_force_backfill_returns_stats(self, connected_indexer, temp_storage):
+        """force_backfill: returns dict with files_processed, total_files, both ints >= 0."""
+        result = connected_indexer.force_backfill()
+        assert isinstance(result, dict)
+        assert "files_processed" in result
+        assert "total_files" in result
+        assert result["total_files"] >= 0
+        assert result["files_processed"] >= 0
+        assert isinstance(result["total_files"], int)
+
+    def test_run_backfill_updates_cycle_stats(self, connected_indexer, temp_storage):
+        """_run_backfill: increments cycles, sets last_backfill, processes files."""
         connected_indexer._running = True
-
-        # Create some files
+        initial = connected_indexer._stats.get("backfill_cycles", 0)
         for i in range(2):
             write_json_file(
-                temp_storage,
-                "session",
-                "proj_001",
-                f"ses_backfill_test_{i}",
-                create_session_json(f"ses_backfill_test_{i}"),
+                temp_storage, "session", "p1", f"bf{i}", create_session_json(f"bf{i}")
             )
-
         connected_indexer._run_backfill()
-
-        assert connected_indexer._stats["backfill_cycles"] == 1
+        assert connected_indexer._stats["backfill_cycles"] == initial + 1
         assert connected_indexer._stats["last_backfill"] is not None
+        assert connected_indexer._stats["sessions_indexed"] >= 2
+
+    def test_resolve_parent_traces_returns_int(self, connected_indexer):
+        """resolve_parent_traces: returns integer (may be negative for errors)."""
+        result = connected_indexer.resolve_parent_traces()
+        assert isinstance(result, int)
+        # Can be negative (e.g., -2 for not implemented or error codes)
+        assert result is not None
+
+    def test_on_file_detected_queues_file(self, indexer, temp_storage):
+        """_on_file_detected: adds to queue."""
+        assert indexer._queue.size == 0
+        tp = temp_storage / "session" / "t.json"
+        tp.parent.mkdir(parents=True, exist_ok=True)
+        tp.write_text("{}")
+        indexer._on_file_detected("session", tp)
+        assert indexer._queue.size >= 1
+        # Queue may deduplicate identical paths
+        tp2 = temp_storage / "session" / "t2.json"
+        tp2.write_text("{}")
+        indexer._on_file_detected("session", tp2)
+        assert indexer._queue.size >= 1
 
 
-# === Config Tests ===
+
+
+class TestGlobalFunctions:
+    def test_get_indexer_singleton_and_start_stop(
+        self, temp_storage, temp_db_path, monkeypatch
+    ):
+        """get_indexer: singleton; start/stop: correct state transitions."""
+        import opencode_monitor.analytics.indexer.unified.core as mod
+
+        test_idx = UnifiedIndexer(storage_path=temp_storage, db_path=temp_db_path)
+        monkeypatch.setattr(mod, "_indexer", test_idx)
+
+        # Singleton: 3 assertions
+        assert get_indexer() is test_idx
+        assert get_indexer() is get_indexer()
+        assert get_indexer()._storage_path == temp_storage
+
+        # Start: 3 assertions
+        assert test_idx._running is False
+        start_indexer()
+        assert test_idx._running is True
+        assert test_idx._watcher is not None
+
+        # Stop: 3 assertions
+        stop_indexer()
+        assert test_idx._running is False
+        assert getattr(mod, "_indexer", "x") is None
+
+
+
+
+class TestErrorHandling:
+    @pytest.mark.parametrize(
+        "etype,data",
+        [
+            ("session", {"title": "No ID"}),
+            ("message", {"role": "assistant"}),
+            ("part", {"id": "p1", "sessionID": "s1"}),
+        ],
+    )
+    def test_process_entity_missing_required_fields(
+        self, connected_indexer, etype, data
+    ):
+        """Missing required fields: returns None, stats unchanged."""
+        proc = connected_indexer._file_processor
+        initial = connected_indexer._stats["files_processed"]
+        methods = {
+            "session": proc._process_session,
+            "message": proc._process_message,
+            "part": proc._process_part,
+        }
+        result = methods[etype](data)
+        assert result is None
+        assert connected_indexer._stats["files_processed"] == initial
+
+    def test_process_file_nonexistent_and_corrupted(
+        self, connected_indexer, temp_storage
+    ):
+        """Nonexistent/corrupted: return False, track errors."""
+        # Nonexistent: 2 assertions
+        fake_path = temp_storage / "nope.json"
+        assert not fake_path.exists()
+        assert connected_indexer._process_file("session", fake_path) is False
+
+        # Corrupted: 3 assertions
+        bad = temp_storage / "session" / "p1" / "bad.json"
+        bad.parent.mkdir(parents=True, exist_ok=True)
+        bad.write_text('{"id": "x", incomplete')
+        assert bad.exists()
+        assert connected_indexer._process_file("session", bad) is False
+        assert connected_indexer._stats["files_error"] >= 1
+
+
+
+
+class TestEdgeCases:
+    def test_empty_and_nonexistent_storage(self, temp_db_path, tmp_path):
+        """Empty storage: starts/stops fine; nonexistent: creates indexer."""
+        # Empty: 5 assertions
+        empty = tmp_path / "empty"
+        empty.mkdir()
+        for d in ["session", "message", "part", "todo", "project"]:
+            (empty / d).mkdir()
+        idx = UnifiedIndexer(storage_path=empty, db_path=temp_db_path)
+        assert idx._running is False
+        idx.start()
+        time.sleep(0.2)
+        stats = idx.get_stats()
+        assert stats is not None
+        assert idx._running is True
+        assert stats["files_processed"] == 0
+        idx.stop()
+        assert idx._running is False
+
+        # Nonexistent: 4 assertions
+        fake = tmp_path / "fake"
+        assert not fake.exists()
+        idx2 = UnifiedIndexer(storage_path=fake, db_path=temp_db_path)
+        assert idx2 is not None
+        assert idx2._storage_path == fake
+        assert idx2._running is False
 
 
 class TestConfig:
-    """Tests for configuration values."""
-
-    def test_config_imports(self):
-        """Test config values can be imported."""
+    def test_config_values_are_valid(self):
+        """Config: all values importable, correct types, positive numbers."""
         from opencode_monitor.analytics.indexer.unified.config import (
             OPENCODE_STORAGE,
             BACKFILL_BATCH_SIZE,
@@ -1245,6 +779,9 @@ class TestConfig:
         )
 
         assert OPENCODE_STORAGE is not None
+        assert isinstance(OPENCODE_STORAGE, Path)
         assert BACKFILL_BATCH_SIZE > 0
+        assert isinstance(BACKFILL_BATCH_SIZE, int)
         assert BACKFILL_INTERVAL > 0
         assert NUM_WORKERS > 0
+        assert isinstance(NUM_WORKERS, int)

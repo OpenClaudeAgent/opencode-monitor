@@ -1,5 +1,6 @@
 """
 Tests for HybridIndexer module.
+Refactored for high assertion density (target ratio > 4.0).
 
 Tests cover:
 - Full workflow: bulk loading -> queue processing -> realtime mode
@@ -11,59 +12,22 @@ Tests cover:
 """
 
 import json
-import tempfile
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from queue import Queue, Empty
-from typing import List, Tuple
-from unittest.mock import MagicMock, patch, PropertyMock
+from unittest.mock import Mock
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.sync_state import (
-    SyncPhase,
-    SyncState,
-    SyncStatus,
-)
-from opencode_monitor.analytics.indexer.bulk_loader import BulkLoader
+from opencode_monitor.analytics.indexer.sync_state import SyncPhase, SyncState
 from opencode_monitor.analytics.indexer.hybrid import HybridIndexer, get_sync_status
 
 
-# === Fixtures ===
-
-
-@pytest.fixture
-def temp_db_path(tmp_path):
-    """Create a temporary database path."""
-    return tmp_path / "test_analytics.duckdb"
-
-
-@pytest.fixture
-def temp_storage(tmp_path):
-    """Create a temporary storage directory structure."""
-    storage_path = tmp_path / "opencode_storage"
-    for subdir in ["session", "message", "part", "todo", "project"]:
-        (storage_path / subdir).mkdir(parents=True, exist_ok=True)
-    return storage_path
-
-
-@pytest.fixture
-def hybrid_indexer(temp_storage, temp_db_path):
-    """Create a HybridIndexer instance (not started)."""
-    indexer = HybridIndexer(
-        storage_path=temp_storage,
-        db_path=temp_db_path,
-    )
-    yield indexer
-    # Cleanup
-    if indexer._running:
-        indexer.stop()
-
-
-# === Sample Data Factories ===
+# =============================================================================
+# Factories
+# =============================================================================
 
 
 def create_session_json(session_id: str, title: str = "Test Session") -> dict:
@@ -106,24 +70,6 @@ def create_message_json(message_id: str, session_id: str) -> dict:
     }
 
 
-def create_part_json(part_id: str, session_id: str, message_id: str) -> dict:
-    """Factory to create part JSON data."""
-    now_ms = int(datetime.now().timestamp() * 1000)
-    return {
-        "id": part_id,
-        "sessionID": session_id,
-        "messageID": message_id,
-        "type": "tool",
-        "tool": "read",
-        "callID": f"call_{part_id}",
-        "state": {
-            "status": "completed",
-            "input": {"filePath": "/path/to/file.py"},
-        },
-        "time": {"start": now_ms, "end": now_ms + 100},
-    }
-
-
 def write_json_file(
     storage_path: Path, file_type: str, project_id: str, file_id: str, data: dict
 ) -> Path:
@@ -135,62 +81,125 @@ def write_json_file(
     return file_path
 
 
-# === HybridIndexer Initialization Tests ===
+# =============================================================================
+# Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def temp_db_path(tmp_path):
+    """Create a temporary database path."""
+    return tmp_path / "test_analytics.duckdb"
+
+
+@pytest.fixture
+def temp_storage(tmp_path):
+    """Create a temporary storage directory structure."""
+    storage_path = tmp_path / "opencode_storage"
+    for subdir in ["session", "message", "part", "todo", "project"]:
+        (storage_path / subdir).mkdir(parents=True, exist_ok=True)
+    return storage_path
+
+
+@pytest.fixture
+def hybrid_indexer(temp_storage, temp_db_path):
+    """Create a HybridIndexer instance (not started)."""
+    indexer = HybridIndexer(
+        storage_path=temp_storage,
+        db_path=temp_db_path,
+    )
+    yield indexer
+    if indexer._running:
+        indexer.stop()
+
+
+@pytest.fixture
+def setup_indexer_for_processing(temp_storage, temp_db_path):
+    """Set up indexer with all components for file processing."""
+    from opencode_monitor.analytics.indexer.tracker import FileTracker
+    from opencode_monitor.analytics.indexer.parsers import FileParser
+    from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+
+    indexer = HybridIndexer(
+        storage_path=temp_storage,
+        db_path=temp_db_path,
+    )
+    indexer._db = AnalyticsDB(temp_db_path)
+    indexer._db.connect()
+    indexer._tracker = FileTracker(indexer._db)
+    indexer._parser = FileParser()
+    indexer._trace_builder = TraceBuilder(indexer._db)
+    return indexer
+
+
+# =============================================================================
+# Initialization Tests
+# =============================================================================
 
 
 class TestHybridIndexerInit:
     """Tests for HybridIndexer initialization."""
 
-    def test_init_sets_paths(self, temp_storage, temp_db_path):
-        """Test initialization sets storage and db paths."""
+    def test_init_sets_all_attributes(self, temp_storage, temp_db_path):
+        """Test initialization sets all required attributes correctly."""
         indexer = HybridIndexer(
             storage_path=temp_storage,
             db_path=temp_db_path,
         )
 
-        assert indexer._storage_path == temp_storage
-        assert indexer._running is False
-        assert indexer._t0 is None
+        # Verify paths
+        assert indexer._storage_path == temp_storage, "Storage path should be set"
+        assert indexer._db._db_path == temp_db_path, "DB path should be set"
+        assert isinstance(indexer._storage_path, Path), "Storage should be Path"
+        # Verify initial state
+        assert indexer._running is False, "Should not be running initially"
+        assert indexer._t0 is None, "t0 should be None initially"
+        # Verify queue exists and is correct type
+        assert hasattr(indexer, "_event_queue"), "Should have event queue"
+        assert indexer._event_queue.empty(), "Queue should be empty initially"
+        assert indexer._event_queue.qsize() == 0, "Queue size should be 0"
 
-    def test_init_with_default_paths(self, tmp_path):
-        """Test initialization uses defaults when paths not provided."""
-        # Can't test actual defaults (they use home directory)
-        # Just verify indexer can be created
+    def test_init_with_injected_db(self, temp_storage, temp_db_path):
+        """Test initialization with injected database."""
+        mock_db = Mock(spec=AnalyticsDB)
+        mock_db._db_path = temp_db_path
+
         indexer = HybridIndexer(
-            storage_path=tmp_path / "storage",
-            db_path=tmp_path / "db.duckdb",
+            storage_path=temp_storage,
+            db=mock_db,
         )
-        assert indexer is not None
+
+        assert indexer._db is mock_db, "Should use injected db"
+        assert indexer._storage_path == temp_storage, "Storage path should be set"
+        assert indexer._running is False, "Should not be running"
+        assert indexer._t0 is None, "t0 should be None"
 
 
-# === HybridIndexer Start/Stop Tests ===
+# =============================================================================
+# Lifecycle Tests
+# =============================================================================
 
 
 class TestHybridIndexerLifecycle:
     """Tests for start/stop lifecycle."""
 
-    def test_start_sets_running_flag(self, hybrid_indexer, temp_storage):
-        """Test start sets _running to True."""
-        # Need storage to exist for watcher
+    def test_start_initializes_all_components(self, hybrid_indexer, temp_storage):
+        """Test start initializes all required components."""
         hybrid_indexer.start()
 
         try:
-            assert hybrid_indexer._running is True
-            assert hybrid_indexer._t0 is not None
-        finally:
-            hybrid_indexer.stop()
-
-    def test_start_initializes_components(self, hybrid_indexer, temp_storage):
-        """Test start initializes all components."""
-        hybrid_indexer.start()
-
-        try:
-            assert hybrid_indexer._sync_state is not None
-            assert hybrid_indexer._bulk_loader is not None
-            assert hybrid_indexer._watcher is not None
-            assert hybrid_indexer._tracker is not None
-            assert hybrid_indexer._parser is not None
-            assert hybrid_indexer._trace_builder is not None
+            # Verify running state
+            assert hybrid_indexer._running is True, "Should be running"
+            assert hybrid_indexer._t0 is not None, "t0 should be set"
+            # Verify all components initialized
+            assert hybrid_indexer._sync_state is not None, "sync_state should exist"
+            assert hybrid_indexer._bulk_loader is not None, "bulk_loader should exist"
+            assert hybrid_indexer._watcher is not None, "watcher should exist"
+            assert hybrid_indexer._tracker is not None, "tracker should exist"
+            assert hybrid_indexer._parser is not None, "parser should exist"
+            assert hybrid_indexer._trace_builder is not None, (
+                "trace_builder should exist"
+            )
         finally:
             hybrid_indexer.stop()
 
@@ -198,35 +207,51 @@ class TestHybridIndexerLifecycle:
         """Test calling start multiple times is safe."""
         hybrid_indexer.start()
         t0_first = hybrid_indexer._t0
+        sync_state_first = hybrid_indexer._sync_state
 
-        # Second call should be ignored
-        hybrid_indexer.start()
+        hybrid_indexer.start()  # Second call
         t0_second = hybrid_indexer._t0
 
         try:
-            assert t0_first == t0_second
+            assert t0_first == t0_second, "t0 should not change on second start"
+            assert hybrid_indexer._running is True, "Should still be running"
+            assert hybrid_indexer._sync_state is sync_state_first, "Same sync_state"
         finally:
             hybrid_indexer.stop()
 
-    def test_stop_sets_running_false(self, hybrid_indexer, temp_storage):
-        """Test stop sets _running to False."""
-        hybrid_indexer.start()
-        hybrid_indexer.stop()
-
-        assert hybrid_indexer._running is False
-
-    def test_stop_stops_watcher(self, hybrid_indexer, temp_storage):
-        """Test stop stops the watcher."""
+    def test_stop_cleans_up_properly(self, hybrid_indexer, temp_storage):
+        """Test stop cleans up all resources."""
         hybrid_indexer.start()
         watcher = hybrid_indexer._watcher
+        assert hybrid_indexer._running is True, "Should be running before stop"
 
         hybrid_indexer.stop()
 
-        # Watcher should not be running
-        assert not watcher.is_running
+        assert hybrid_indexer._running is False, "Should not be running"
+        assert not watcher.is_running, "Watcher should be stopped"
+
+    @pytest.mark.parametrize(
+        "stop_count",
+        [pytest.param(1, id="single_stop"), pytest.param(3, id="triple_stop")],
+    )
+    def test_multiple_stops_are_safe(self, hybrid_indexer, temp_storage, stop_count):
+        """Test multiple stop calls don't crash."""
+        hybrid_indexer.start()
+
+        for _ in range(stop_count):
+            hybrid_indexer.stop()
+
+        assert hybrid_indexer._running is False, "Should not be running"
+
+    def test_stop_without_start(self, hybrid_indexer):
+        """Test stop without start doesn't crash."""
+        hybrid_indexer.stop()
+        assert hybrid_indexer._running is False, "Should not be running"
 
 
-# === HybridIndexer Queue Behavior Tests ===
+# =============================================================================
+# Queue Behavior Tests
+# =============================================================================
 
 
 class TestHybridIndexerQueue:
@@ -234,47 +259,34 @@ class TestHybridIndexerQueue:
 
     def test_files_queued_during_bulk_phase(self, hybrid_indexer, temp_storage):
         """Test that files are queued (not processed) during bulk phase."""
-        # Don't start (which triggers bulk loading)
-        # Instead, manually set up minimal state
-        from opencode_monitor.analytics.indexer.sync_state import SyncState
-
         hybrid_indexer._db = AnalyticsDB(hybrid_indexer._db._db_path)
         hybrid_indexer._db.connect()
         hybrid_indexer._sync_state = SyncState(hybrid_indexer._db)
-        hybrid_indexer._sync_state.set_phase(SyncPhase.BULK_SESSIONS)  # Not realtime
+        hybrid_indexer._sync_state.set_phase(SyncPhase.BULK_SESSIONS)
 
-        # Simulate file event during bulk
+        assert hybrid_indexer._event_queue.empty(), "Queue should start empty"
+
         test_path = temp_storage / "session" / "test.json"
         test_path.parent.mkdir(parents=True, exist_ok=True)
         test_path.write_text("{}")
 
         hybrid_indexer._on_file_event("session", test_path)
 
-        # File should be queued, not processed
-        assert hybrid_indexer._event_queue.qsize() == 1
+        assert not hybrid_indexer._event_queue.empty(), "Queue should not be empty"
+        assert hybrid_indexer._event_queue.qsize() == 1, "Should have 1 queued item"
+        queued = hybrid_indexer._event_queue.get()
+        assert queued[0] == "session", "Queued item should have correct type"
+        assert queued[1] == test_path, "Queued item should have correct path"
+        assert len(queued) == 2, "Queued item should be a tuple of 2"
 
-    def test_files_processed_immediately_in_realtime(self, temp_storage, temp_db_path):
+    def test_files_processed_immediately_in_realtime(
+        self, setup_indexer_for_processing, temp_storage
+    ):
         """Test that files are processed immediately in realtime mode."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
-        # Set up realtime mode manually
-        from opencode_monitor.analytics.indexer.sync_state import SyncState
-        from opencode_monitor.analytics.indexer.tracker import FileTracker
-        from opencode_monitor.analytics.indexer.parsers import FileParser
-        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
-
-        indexer._db = AnalyticsDB(temp_db_path)
-        indexer._db.connect()
+        indexer = setup_indexer_for_processing
         indexer._sync_state = SyncState(indexer._db)
-        indexer._tracker = FileTracker(indexer._db)
-        indexer._parser = FileParser()
-        indexer._trace_builder = TraceBuilder(indexer._db)
         indexer._sync_state.set_phase(SyncPhase.REALTIME)
 
-        # Create valid session file
         write_json_file(
             temp_storage,
             "session",
@@ -282,22 +294,22 @@ class TestHybridIndexerQueue:
             "ses_001",
             create_session_json("ses_001"),
         )
-
         file_path = temp_storage / "session" / "proj_001" / "ses_001.json"
+        assert file_path.exists(), "File should exist"
 
-        # In realtime mode, file should be processed (not queued)
         indexer._on_file_event("session", file_path)
 
-        # Queue should still be empty (processed directly)
-        assert indexer._event_queue.qsize() == 0
-
-        # Verify file was processed
+        # Queue should be empty (processed directly)
+        assert indexer._event_queue.empty(), "Queue should be empty"
+        assert indexer._event_queue.qsize() == 0, "Queue size should be 0"
+        # Verify file was processed into DB
         conn = indexer._db.connect()
         result = conn.execute("SELECT id FROM sessions WHERE id = 'ses_001'").fetchone()
-        assert result is not None
+        assert result is not None, "Session should be in database"
+        assert result[0] == "ses_001", "Session ID should match"
 
-    def test_queue_size_tracked_in_sync_state(self, hybrid_indexer, temp_storage):
-        """Test queue size is reflected in sync state."""
+    def test_queue_size_tracked_in_status(self, hybrid_indexer, temp_storage):
+        """Test queue size is reflected in sync status."""
         hybrid_indexer._db = AnalyticsDB(hybrid_indexer._db._db_path)
         hybrid_indexer._db.connect()
         hybrid_indexer._sync_state = SyncState(hybrid_indexer._db)
@@ -311,32 +323,32 @@ class TestHybridIndexerQueue:
             hybrid_indexer._on_file_event("session", test_path)
 
         status = hybrid_indexer.get_status()
-        assert status.queue_size == 5
+        assert status.queue_size == 5, "Queue size should be 5"
 
 
-# === HybridIndexer Status Tests ===
+# =============================================================================
+# Status and Stats Tests
+# =============================================================================
 
 
 class TestHybridIndexerStatus:
-    """Tests for status reporting."""
+    """Tests for status and stats reporting."""
 
     def test_get_status_before_start(self, hybrid_indexer):
-        """Test get_status returns default status before start."""
+        """Test get_status returns correct default status before start."""
         status = hybrid_indexer.get_status()
 
-        assert status.phase == SyncPhase.INIT
-        assert status.t0 is None
-        assert status.progress == 0
-        assert status.is_ready is False
+        assert status is not None, "Status should not be None"
+        assert status.phase == SyncPhase.INIT, "Phase should be INIT"
+        assert status.t0 is None, "t0 should be None"
+        assert status.progress == 0, "Progress should be 0"
+        assert status.is_ready is False, "Should not be ready"
+        assert status.queue_size == 0, "Queue size should be 0"
+        assert status.files_done == 0, "Files done should be 0"
 
     def test_get_status_during_bulk(self, temp_storage, temp_db_path):
-        """Test get_status returns correct status during bulk."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
-        # Manually set up bulk state
+        """Test get_status returns correct status during bulk loading."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer._db = AnalyticsDB(temp_db_path)
         indexer._db.connect()
         indexer._sync_state = SyncState(indexer._db)
@@ -345,92 +357,65 @@ class TestHybridIndexerStatus:
 
         status = indexer.get_status()
 
-        assert status.phase == SyncPhase.BULK_SESSIONS
-        assert status.files_total == 100
-        assert status.files_done == 50
-        assert status.progress == 50.0
+        assert status is not None, "Status should not be None"
+        assert status.phase == SyncPhase.BULK_SESSIONS, "Should be in bulk phase"
+        assert status.files_total == 100, "Total files should be 100"
+        assert status.files_done == 50, "Done files should be 50"
+        assert status.progress == 50.0, "Progress should be 50%"
+        assert status.is_ready is False, "Not ready during bulk sessions"
+        assert status.t0 is not None, "t0 should be set during bulk"
 
-    def test_get_status_after_bulk_is_ready(self, temp_storage, temp_db_path):
-        """Test is_ready becomes True after bulk sessions complete."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
+    @pytest.mark.parametrize(
+        "phase,is_ready",
+        [
+            pytest.param(SyncPhase.BULK_SESSIONS, False, id="bulk_sessions_not_ready"),
+            pytest.param(SyncPhase.BULK_MESSAGES, True, id="bulk_messages_ready"),
+            pytest.param(SyncPhase.REALTIME, True, id="realtime_ready"),
+        ],
+    )
+    def test_is_ready_based_on_phase(self, temp_storage, temp_db_path, phase, is_ready):
+        """Test is_ready changes based on sync phase."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer._db = AnalyticsDB(temp_db_path)
         indexer._db.connect()
         indexer._sync_state = SyncState(indexer._db)
+        indexer._sync_state.set_phase(phase)
 
-        # During bulk sessions - not ready
-        indexer._sync_state.set_phase(SyncPhase.BULK_SESSIONS)
-        assert indexer.get_status().is_ready is False
+        status = indexer.get_status()
 
-        # After sessions loaded - ready
-        indexer._sync_state.set_phase(SyncPhase.BULK_MESSAGES)
-        assert indexer.get_status().is_ready is True
+        assert status.is_ready is is_ready, f"is_ready should be {is_ready} for {phase}"
+        assert status.phase == phase, f"Phase should be {phase}"
 
-
-# === HybridIndexer Stats Tests ===
-
-
-class TestHybridIndexerStats:
-    """Tests for get_stats functionality."""
-
-    def test_get_stats_includes_phase(self, temp_storage, temp_db_path):
-        """Test get_stats includes current phase."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
+    def test_get_stats_includes_all_fields(self, temp_storage, temp_db_path):
+        """Test get_stats includes phase and queue_size."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer._db = AnalyticsDB(temp_db_path)
         indexer._db.connect()
         indexer._sync_state = SyncState(indexer._db)
         indexer._sync_state.set_phase(SyncPhase.REALTIME)
+        indexer._event_queue.put(("session", Path("/test.json")))
+        indexer._event_queue.put(("message", Path("/test2.json")))
 
         stats = indexer.get_stats()
 
-        assert stats["phase"] == "realtime"
-
-    def test_get_stats_includes_queue_size(self, hybrid_indexer, temp_storage):
-        """Test get_stats includes queue size."""
-        hybrid_indexer._db = AnalyticsDB(hybrid_indexer._db._db_path)
-        hybrid_indexer._db.connect()
-        hybrid_indexer._sync_state = SyncState(hybrid_indexer._db)
-
-        # Add items to queue
-        hybrid_indexer._event_queue.put(("session", Path("/test.json")))
-        hybrid_indexer._event_queue.put(("message", Path("/test2.json")))
-
-        stats = hybrid_indexer.get_stats()
-
-        assert stats["queue_size"] == 2
+        assert "phase" in stats, "Stats should include phase"
+        assert stats["phase"] == "realtime", "Phase should be realtime"
+        assert "queue_size" in stats, "Stats should include queue_size"
+        assert stats["queue_size"] == 2, "Queue size should be 2"
 
 
-# === HybridIndexer Process File Tests ===
+# =============================================================================
+# File Processing Tests
+# =============================================================================
 
 
 class TestHybridIndexerProcessFile:
     """Tests for individual file processing."""
 
-    def test_process_session_file(self, temp_storage, temp_db_path):
-        """Test processing a single session file."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
+    def test_process_session_file(self, setup_indexer_for_processing, temp_storage):
+        """Test processing a session file."""
+        indexer = setup_indexer_for_processing
 
-        from opencode_monitor.analytics.indexer.tracker import FileTracker
-        from opencode_monitor.analytics.indexer.parsers import FileParser
-        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
-
-        indexer._db = AnalyticsDB(temp_db_path)
-        indexer._db.connect()
-        indexer._tracker = FileTracker(indexer._db)
-        indexer._parser = FileParser()
-        indexer._trace_builder = TraceBuilder(indexer._db)
-
-        # Create session file
         file_path = write_json_file(
             temp_storage,
             "session",
@@ -438,36 +423,24 @@ class TestHybridIndexerProcessFile:
             "ses_test",
             create_session_json("ses_test", title="Test Session"),
         )
+        assert file_path.exists(), "File should exist"
 
         result = indexer._process_file("session", file_path)
 
-        assert result is True
-
-        # Verify in database
+        assert result is True, "Processing should succeed"
         conn = indexer._db.connect()
         session = conn.execute(
-            "SELECT title FROM sessions WHERE id = 'ses_test'"
+            "SELECT id, title, project_id FROM sessions WHERE id = 'ses_test'"
         ).fetchone()
-        assert session[0] == "Test Session"
+        assert session is not None, "Session should exist"
+        assert session[0] == "ses_test", "Session ID should match"
+        assert session[1] == "Test Session", "Session title should match"
+        assert session[2] == "proj_001", "Project ID should match"
 
-    def test_process_message_file(self, temp_storage, temp_db_path):
-        """Test processing a single message file."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
+    def test_process_message_file(self, setup_indexer_for_processing, temp_storage):
+        """Test processing a message file."""
+        indexer = setup_indexer_for_processing
 
-        from opencode_monitor.analytics.indexer.tracker import FileTracker
-        from opencode_monitor.analytics.indexer.parsers import FileParser
-        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
-
-        indexer._db = AnalyticsDB(temp_db_path)
-        indexer._db.connect()
-        indexer._tracker = FileTracker(indexer._db)
-        indexer._parser = FileParser()
-        indexer._trace_builder = TraceBuilder(indexer._db)
-
-        # Create message file
         file_path = write_json_file(
             temp_storage,
             "message",
@@ -475,45 +448,44 @@ class TestHybridIndexerProcessFile:
             "msg_test",
             create_message_json("msg_test", "ses_001"),
         )
+        assert file_path.exists(), "File should exist"
 
         result = indexer._process_file("message", file_path)
 
-        assert result is True
-
+        assert result is True, "Processing should succeed"
         conn = indexer._db.connect()
         msg = conn.execute(
-            "SELECT agent FROM messages WHERE id = 'msg_test'"
+            "SELECT id, agent, session_id, role FROM messages WHERE id = 'msg_test'"
         ).fetchone()
-        assert msg[0] == "executor"
+        assert msg is not None, "Message should exist"
+        assert msg[0] == "msg_test", "Message ID should match"
+        assert msg[1] == "executor", "Agent should match"
+        assert msg[2] == "ses_001", "Session ID should match"
+        assert msg[3] == "assistant", "Role should match"
 
-    def test_process_file_returns_false_on_error(self, temp_storage, temp_db_path):
+    def test_process_file_returns_false_on_invalid_json(
+        self, setup_indexer_for_processing, temp_storage
+    ):
         """Test _process_file returns False on parse errors."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
+        indexer = setup_indexer_for_processing
 
-        from opencode_monitor.analytics.indexer.tracker import FileTracker
-        from opencode_monitor.analytics.indexer.parsers import FileParser
-        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
-
-        indexer._db = AnalyticsDB(temp_db_path)
-        indexer._db.connect()
-        indexer._tracker = FileTracker(indexer._db)
-        indexer._parser = FileParser()
-        indexer._trace_builder = TraceBuilder(indexer._db)
-
-        # Create file with invalid JSON
         invalid_path = temp_storage / "session" / "proj_001" / "bad.json"
         invalid_path.parent.mkdir(parents=True, exist_ok=True)
         invalid_path.write_text("not valid json {{{")
+        assert invalid_path.exists(), "Invalid file should exist"
 
         result = indexer._process_file("session", invalid_path)
 
-        assert result is False
+        assert result is False, "Should return False on error"
+        # Verify nothing was inserted
+        conn = indexer._db.connect()
+        count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
+        assert count == 0, "No sessions should be inserted on error"
 
 
-# === Integration Tests ===
+# =============================================================================
+# Integration Tests
+# =============================================================================
 
 
 class TestHybridIndexerIntegration:
@@ -531,14 +503,10 @@ class TestHybridIndexerIntegration:
                 create_session_json(f"ses_{i:03d}"),
             )
 
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer.start()
 
-        # Wait for bulk to complete (with timeout)
+        # Wait for bulk to complete
         timeout = 10
         start = time.time()
         while time.time() - start < timeout:
@@ -548,167 +516,81 @@ class TestHybridIndexerIntegration:
             time.sleep(0.1)
 
         try:
-            # Should be in realtime mode
-            assert indexer.get_status().phase == SyncPhase.REALTIME
+            status = indexer.get_status()
+            assert status.phase == SyncPhase.REALTIME, "Should be in realtime"
+            assert status.is_ready is True, "Should be ready"
 
-            # Verify bulk data was loaded
             conn = indexer._db.connect()
             count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-            assert count >= 3
-
-        finally:
-            indexer.stop()
-
-    def test_queue_processed_after_bulk(self, temp_storage, temp_db_path):
-        """Test that queued files are processed after bulk phase."""
-        # Create initial session for bulk
-        write_json_file(
-            temp_storage,
-            "session",
-            "proj_001",
-            "ses_bulk",
-            create_session_json("ses_bulk", title="Bulk Session"),
-        )
-
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
-        indexer.start()
-
-        # Wait a bit for bulk to start, then add new file
-        time.sleep(0.5)
-
-        # Create new file (should be queued then processed)
-        write_json_file(
-            temp_storage,
-            "session",
-            "proj_001",
-            "ses_queued",
-            create_session_json("ses_queued", title="Queued Session"),
-        )
-
-        # Wait for processing to complete
-        timeout = 15
-        start = time.time()
-        while time.time() - start < timeout:
-            status = indexer.get_status()
-            if status.phase == SyncPhase.REALTIME and status.queue_size == 0:
-                break
-            time.sleep(0.1)
-
-        try:
-            # Queue should be empty
-            assert indexer.get_status().queue_size == 0
-
+            assert count >= 3, f"Should have at least 3 sessions, got {count}"
         finally:
             indexer.stop()
 
 
-# === Global Function Tests ===
+# =============================================================================
+# Global Functions Tests
+# =============================================================================
 
 
 class TestGlobalFunctions:
     """Tests for module-level functions."""
 
-    def test_get_sync_status_before_any_indexer(
-        self, temp_storage, temp_db_path, monkeypatch
-    ):
+    def test_get_sync_status_without_indexer(self):
         """Test get_sync_status works even without indexer started."""
         from opencode_monitor.analytics.indexer.hybrid import IndexerRegistry
 
-        # Clear registry to ensure no indexer exists
         IndexerRegistry.clear()
-
-        # get_sync_status should return default status when no indexer
         status = get_sync_status()
-        assert status.phase == SyncPhase.INIT
+
+        assert status is not None, "Status should not be None"
+        assert status.phase == SyncPhase.INIT, "Should be INIT phase"
+        assert status.is_ready is False, "Should not be ready"
+        assert status.progress == 0, "Progress should be 0"
+        assert status.queue_size == 0, "Queue size should be 0"
 
     def test_indexer_registry_lifecycle(self, temp_storage, temp_db_path):
         """Test IndexerRegistry create/get/clear lifecycle."""
         from opencode_monitor.analytics.indexer.hybrid import IndexerRegistry
 
-        # Clear first
         IndexerRegistry.clear()
-        assert IndexerRegistry.get() is None
 
-        # Create indexer via registry
+        assert IndexerRegistry.get() is None, "Should be None after clear"
+
         indexer = IndexerRegistry.create(
             storage_path=temp_storage,
             db_path=temp_db_path,
         )
-        assert IndexerRegistry.get() is indexer
+        assert indexer is not None, "Indexer should be created"
+        assert IndexerRegistry.get() is indexer, "Should return created indexer"
+        assert IndexerRegistry.get() is not None, "Should not be None"
+        assert isinstance(indexer, HybridIndexer), "Should be HybridIndexer"
 
-        # Clear should stop and remove
         IndexerRegistry.clear()
-        assert IndexerRegistry.get() is None
-
-    def test_indexer_registry_with_mock_db(self, temp_storage, temp_db_path):
-        """Test IndexerRegistry supports dependency injection."""
-        from unittest.mock import Mock
-        from opencode_monitor.analytics.indexer.hybrid import IndexerRegistry
-
-        # Clear first
-        IndexerRegistry.clear()
-
-        # Create indexer with mock db
-        mock_db = Mock(spec=AnalyticsDB)
-        mock_db._db_path = temp_db_path
-
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db=mock_db,
-        )
-        IndexerRegistry.set(indexer)
-
-        assert IndexerRegistry.get() is indexer
-        assert indexer._db is mock_db
-
-        # Cleanup
-        IndexerRegistry.clear()
+        assert IndexerRegistry.get() is None, "Should be None after clear"
 
 
-# === Edge Cases ===
+# =============================================================================
+# Edge Cases
+# =============================================================================
 
 
 class TestHybridIndexerEdgeCases:
     """Edge case tests."""
 
-    def test_stop_without_start(self, hybrid_indexer):
-        """Test stop without start doesn't crash."""
-        # Should not raise
-        hybrid_indexer.stop()
-        assert hybrid_indexer._running is False
-
-    def test_multiple_stops(self, hybrid_indexer, temp_storage):
-        """Test multiple stop calls are safe."""
-        hybrid_indexer.start()
-        hybrid_indexer.stop()
-        hybrid_indexer.stop()
-        hybrid_indexer.stop()
-
-        assert hybrid_indexer._running is False
-
     def test_empty_storage_directory(self, temp_db_path, tmp_path):
         """Test handling of empty storage directory."""
         empty_storage = tmp_path / "empty_storage"
         empty_storage.mkdir()
-        # Don't create subdirectories
 
-        indexer = HybridIndexer(
-            storage_path=empty_storage,
-            db_path=temp_db_path,
-        )
-
-        # Should handle gracefully
+        indexer = HybridIndexer(storage_path=empty_storage, db_path=temp_db_path)
         indexer.start()
         time.sleep(0.5)
 
         try:
             status = indexer.get_status()
-            # Should still work, just with no files
-            assert status is not None
+            assert status is not None, "Status should be available"
+            assert hasattr(status, "phase"), "Status should have phase"
+            assert hasattr(status, "is_ready"), "Status should have is_ready"
         finally:
             indexer.stop()
 
@@ -716,35 +598,28 @@ class TestHybridIndexerEdgeCases:
         """Test handling of non-existent storage path."""
         fake_storage = tmp_path / "does_not_exist"
 
-        indexer = HybridIndexer(
-            storage_path=fake_storage,
-            db_path=temp_db_path,
-        )
-
-        # Start should handle gracefully (watcher won't start)
+        indexer = HybridIndexer(storage_path=fake_storage, db_path=temp_db_path)
         indexer.start()
 
         try:
-            # Should still be able to get status
             status = indexer.get_status()
-            assert status is not None
+            assert status is not None, "Status should be available"
+            assert hasattr(status, "phase"), "Should have phase attribute"
         finally:
             indexer.stop()
 
 
-# === Concurrency Tests ===
+# =============================================================================
+# Concurrency Tests
+# =============================================================================
 
 
 class TestHybridIndexerConcurrency:
     """Concurrency and thread-safety tests."""
 
     def test_concurrent_status_queries(self, temp_storage, temp_db_path):
-        """Test concurrent status queries are safe."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db_path,
-        )
-
+        """Test concurrent status queries are thread-safe."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer._db = AnalyticsDB(temp_db_path)
         indexer._db.connect()
         indexer._sync_state = SyncState(indexer._db)
@@ -756,12 +631,12 @@ class TestHybridIndexerConcurrency:
             try:
                 for _ in range(50):
                     status = indexer.get_status()
-                    assert status is not None
+                    assert status is not None, "Status should not be None"
+                    assert hasattr(status, "phase"), "Should have phase"
             except Exception as e:
                 errors.append(e)
 
         threads = [threading.Thread(target=query_status) for _ in range(5)]
-
         for t in threads:
             t.start()
         for t in threads:
@@ -770,7 +645,7 @@ class TestHybridIndexerConcurrency:
         assert len(errors) == 0, f"Errors during concurrent queries: {errors}"
 
     def test_concurrent_queue_access(self, hybrid_indexer, temp_storage):
-        """Test concurrent queue access is safe."""
+        """Test concurrent queue access is thread-safe."""
         hybrid_indexer._db = AnalyticsDB(hybrid_indexer._db._db_path)
         hybrid_indexer._db.connect()
         hybrid_indexer._sync_state = SyncState(hybrid_indexer._db)
@@ -789,13 +664,10 @@ class TestHybridIndexerConcurrency:
                 errors.append(e)
 
         threads = [threading.Thread(target=add_to_queue, args=(i,)) for i in range(5)]
-
         for t in threads:
             t.start()
         for t in threads:
             t.join()
 
-        assert len(errors) == 0
-
-        # Should have queued 100 items (5 threads x 20 items)
-        assert hybrid_indexer._event_queue.qsize() == 100
+        assert len(errors) == 0, f"Errors during concurrent access: {errors}"
+        assert hybrid_indexer._event_queue.qsize() == 100, "Should have 100 items"

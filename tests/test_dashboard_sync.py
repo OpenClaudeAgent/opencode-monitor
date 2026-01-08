@@ -3,17 +3,18 @@ Tests for DashboardWindow sync functionality.
 
 Coverage target: SyncChecker and read-only dashboard architecture.
 
-The dashboard now operates in read-only mode. The menubar handles all DB writes
+The dashboard operates in read-only mode. The menubar handles all DB writes
 and updates sync_meta table. The dashboard polls the API via SyncChecker
 to detect when new data is available.
 """
 
 import pytest
 from unittest.mock import patch, MagicMock
+from contextlib import contextmanager
 
 
 # =============================================================================
-# Fixtures (qapp is provided by conftest.py with session scope)
+# Fixtures
 # =============================================================================
 
 
@@ -25,182 +26,227 @@ def mock_api_client():
     mock_client.get_stats.return_value = {"sessions": 0}
     mock_client.get_sync_status.return_value = {"backfill_active": False}
 
-    # Patch at the source module where it's imported from
     with patch("opencode_monitor.api.get_api_client") as mock_get:
         mock_get.return_value = mock_client
         yield mock_client
 
 
-@pytest.fixture
-def sync_checker_with_tracker(qapp, mock_api_client):
-    """Create a SyncChecker instance with callback tracker for testing."""
-    from opencode_monitor.dashboard.window import SyncChecker
+@contextmanager
+def patched_dashboard_window():
+    """Context manager for DashboardWindow with all fetch methods patched."""
+    from opencode_monitor.dashboard.window import DashboardWindow
 
-    callback_calls: list[bool] = []
-    checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
-    yield checker, callback_calls
-    checker.stop()
+    with (
+        patch.object(DashboardWindow, "_fetch_monitoring_data"),
+        patch.object(DashboardWindow, "_fetch_security_data"),
+        patch.object(DashboardWindow, "_fetch_analytics_data"),
+        patch.object(DashboardWindow, "_fetch_tracing_data"),
+    ):
+        window = DashboardWindow()
+        try:
+            yield window
+        finally:
+            window.close()
+            window.deleteLater()
 
 
 @pytest.fixture
 def dashboard_window(qapp, mock_api_client):
     """Create a DashboardWindow with mocked fetch methods."""
-    from opencode_monitor.dashboard.window import DashboardWindow
-
-    with patch.object(DashboardWindow, "_fetch_monitoring_data"):
-        with patch.object(DashboardWindow, "_fetch_security_data"):
-            with patch.object(DashboardWindow, "_fetch_analytics_data"):
-                with patch.object(DashboardWindow, "_fetch_tracing_data"):
-                    window = DashboardWindow()
-                    yield window
-                    window.close()
-                    window.deleteLater()
+    with patched_dashboard_window() as window:
+        yield window
 
 
 # =============================================================================
-# SyncChecker Tests (consolidated)
+# SyncChecker Tests
 # =============================================================================
 
 
 class TestSyncChecker:
     """Tests for SyncChecker class - constants, callback, and timer behavior."""
 
-    @pytest.mark.parametrize(
-        "constant_name,expected_value",
-        [
-            ("POLL_FAST_MS", 2000),
-            ("POLL_SLOW_MS", 5000),
-            ("IDLE_THRESHOLD_S", 30),
-        ],
-    )
-    def test_sync_checker_constants(self, constant_name, expected_value):
-        """SyncChecker has correct poll interval constants."""
+    def test_constants_have_correct_values_and_relationships(self):
+        """SyncChecker poll constants are correctly defined."""
         from opencode_monitor.dashboard.window import SyncChecker
 
-        assert getattr(SyncChecker, constant_name) == expected_value
+        # Verify constant values
+        assert SyncChecker.POLL_FAST_MS == 2000
+        assert SyncChecker.POLL_SLOW_MS == 5000
+        assert SyncChecker.POLL_BACKFILL_MS == 10000
+        assert SyncChecker.IDLE_THRESHOLD_S == 30
 
-    def test_sync_checker_callback_and_timer(
-        self, sync_checker_with_tracker, mock_api_client
-    ):
-        """SyncChecker calls callback on change and stop() stops timer."""
-        checker, callback_calls = sync_checker_with_tracker
+        # Verify relationships make sense
+        assert SyncChecker.POLL_FAST_MS < SyncChecker.POLL_SLOW_MS
+        assert SyncChecker.POLL_SLOW_MS < SyncChecker.POLL_BACKFILL_MS
+        assert SyncChecker.IDLE_THRESHOLD_S > 0
 
-        # Timer should be active initially
-        assert checker._timer.isActive() == True
+    def test_initialization_and_cleanup(self, qapp, mock_api_client):
+        """SyncChecker initializes correctly and cleans up on stop."""
+        from opencode_monitor.dashboard.window import SyncChecker
 
-        # Simulate session count change - triggers callback
-        mock_api_client.get_stats.return_value = {"sessions": 10}
-        checker._check()
-        assert len(callback_calls) == 1
+        callback_calls = []
+        checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
 
-        # Stop and verify timer is inactive
-        checker.stop()
-        assert checker._timer.isActive() == False
+        try:
+            # Verify initial state
+            assert checker._timer is not None
+            assert checker._timer.isActive() is True
+            assert checker._on_sync is not None
+            assert checker._known_sync is None  # No sync detected yet
+            assert checker._backfill_active is False
+            assert checker._last_change_time > 0
+
+            # Stop and verify cleanup
+            checker.stop()
+            assert checker._timer.isActive() is False
+        finally:
+            checker.stop()
+
+    def test_detects_session_count_changes(self, qapp, mock_api_client):
+        """SyncChecker triggers callback when session count changes."""
+        from opencode_monitor.dashboard.window import SyncChecker
+
+        callback_calls = []
+        checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
+
+        try:
+            # First check with sessions=0 triggers callback (None -> 0)
+            checker._check()
+            assert len(callback_calls) == 1
+            assert checker._known_sync == 0
+
+            # Same count - no additional callback
+            checker._check()
+            assert len(callback_calls) == 1
+
+            # Count changes - callback triggered
+            mock_api_client.get_stats.return_value = {"sessions": 10}
+            checker._check()
+            assert len(callback_calls) == 2
+            assert checker._known_sync == 10
+
+            # Another change
+            mock_api_client.get_stats.return_value = {"sessions": 15}
+            checker._check()
+            assert len(callback_calls) == 3
+            assert checker._known_sync == 15
+        finally:
+            checker.stop()
+
+    def test_backfill_mode_slows_polling_and_skips_refresh(self, qapp, mock_api_client):
+        """SyncChecker slows down and skips refresh during backfill."""
+        from opencode_monitor.dashboard.window import SyncChecker
+
+        callback_calls = []
+        checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
+
+        try:
+            # Enable backfill mode
+            mock_api_client.get_sync_status.return_value = {"backfill_active": True}
+            checker._check()
+
+            # Verify backfill state
+            assert checker._backfill_active is True
+            assert checker.is_backfill_active is True
+            assert checker._timer.interval() == SyncChecker.POLL_BACKFILL_MS
+            # No callback during backfill
+            assert len(callback_calls) == 0
+        finally:
+            checker.stop()
 
 
 # =============================================================================
-# DashboardWindow Read-Only Architecture Tests (consolidated)
+# DashboardWindow Read-Only Architecture Tests
 # =============================================================================
 
 
 class TestDashboardReadOnly:
     """Tests for read-only dashboard architecture."""
 
-    @pytest.mark.parametrize(
-        "attr_name,should_exist",
-        [
-            ("_sync_config", False),
-            ("_sync_opencode_data", False),
-            ("_sync_checker", True),
-        ],
-    )
-    def test_dashboard_architecture_attributes(
-        self, qapp, mock_api_client, attr_name, should_exist
-    ):
-        """DashboardWindow has correct read-only architecture attributes."""
-        from opencode_monitor.dashboard.window import DashboardWindow
+    def test_uses_sync_checker_not_legacy_attributes(self, dashboard_window):
+        """DashboardWindow uses SyncChecker, not legacy sync attributes."""
+        # New architecture: has SyncChecker
+        assert hasattr(dashboard_window, "_sync_checker")
+        assert dashboard_window._sync_checker is not None
 
-        with patch.object(DashboardWindow, "_fetch_monitoring_data"):
-            with patch.object(DashboardWindow, "_fetch_security_data"):
-                with patch.object(DashboardWindow, "_fetch_analytics_data"):
-                    with patch.object(DashboardWindow, "_fetch_tracing_data"):
-                        window = DashboardWindow()
-                        try:
-                            assert hasattr(window, attr_name) == should_exist
-                        finally:
-                            window.close()
-                            window.deleteLater()
+        # Legacy attributes removed
+        assert not hasattr(dashboard_window, "_sync_config")
+        assert not hasattr(dashboard_window, "_sync_opencode_data")
 
-    def test_dashboard_close_stops_sync_checker(self, dashboard_window):
+    def test_close_stops_sync_checker(self, dashboard_window):
         """DashboardWindow.closeEvent stops the sync checker timer."""
         sync_checker = dashboard_window._sync_checker
 
         # Timer active before close
-        assert sync_checker._timer.isActive() == True
+        assert sync_checker._timer.isActive() is True
 
         # Close triggers timer stop
         dashboard_window.close()
-        assert sync_checker._timer.isActive() == False
+        assert sync_checker._timer.isActive() is False
 
 
 # =============================================================================
-# DataSignals Tests (consolidated)
+# DataSignals Tests
 # =============================================================================
 
 
 class TestDataSignals:
     """Tests for DataSignals class."""
 
-    @pytest.mark.parametrize(
-        "signal_name,should_exist",
-        [
-            ("monitoring_updated", True),
-            ("security_updated", True),
-            ("analytics_updated", True),
-            ("tracing_updated", True),
-            ("sync_completed", False),  # Removed - dashboard uses SyncChecker now
-        ],
-    )
-    def test_data_signals_structure(self, signal_name, should_exist):
-        """DataSignals has expected signals (sync_completed removed)."""
+    def test_has_required_signals_not_legacy(self):
+        """DataSignals has all required update signals but not legacy ones."""
         from opencode_monitor.dashboard.window import DataSignals
 
         signals = DataSignals()
-        assert hasattr(signals, signal_name) == should_exist
+
+        # Required signals exist
+        assert hasattr(signals, "monitoring_updated")
+        assert hasattr(signals, "security_updated")
+        assert hasattr(signals, "analytics_updated")
+        assert hasattr(signals, "tracing_updated")
+
+        # Legacy signal removed (dashboard uses SyncChecker now)
+        assert not hasattr(signals, "sync_completed")
 
 
 # =============================================================================
-# SyncChecker Integration Tests
+# Integration Tests
 # =============================================================================
 
 
 class TestSyncCheckerIntegration:
     """Integration tests for SyncChecker with dashboard."""
 
-    def test_sync_checker_triggers_refresh(self, qapp, mock_api_client):
-        """SyncChecker triggers _refresh_all_data when sync detected."""
+    def test_triggers_dashboard_refresh_on_change(self, qapp, mock_api_client):
+        """SyncChecker triggers dashboard refresh when sync detected."""
         from opencode_monitor.dashboard.window import DashboardWindow, SyncChecker
 
         refresh_calls = []
 
-        with patch.object(DashboardWindow, "_start_refresh"):
-            with patch.object(
-                DashboardWindow, "_refresh_all_data", lambda s: refresh_calls.append(1)
-            ):
-                window = DashboardWindow()
+        with (
+            patch.object(DashboardWindow, "_start_refresh"),
+            patch.object(
+                DashboardWindow,
+                "_refresh_all_data",
+                lambda self: refresh_calls.append(1),
+            ),
+        ):
+            with patched_dashboard_window():
+                checker = SyncChecker(on_sync_detected=lambda: refresh_calls.append(1))
+
                 try:
-                    checker = SyncChecker(
-                        on_sync_detected=lambda: refresh_calls.append(1)
-                    )
+                    # Initial check triggers refresh (None -> 0)
+                    checker._check()
+                    assert len(refresh_calls) == 1
 
                     # Simulate session count change
                     mock_api_client.get_stats.return_value = {"sessions": 5}
                     checker._check()
+                    assert len(refresh_calls) == 2
 
-                    # Verify refresh was called exactly once
-                    assert len(refresh_calls) == 1
-
-                    checker.stop()
+                    # Another change triggers another refresh
+                    mock_api_client.get_stats.return_value = {"sessions": 10}
+                    checker._check()
+                    assert len(refresh_calls) == 3
                 finally:
-                    window.close()
-                    window.deleteLater()
+                    checker.stop()
