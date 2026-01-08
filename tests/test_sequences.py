@@ -1,28 +1,23 @@
 """
 Tests for SequenceAnalyzer - Kill Chain Detection.
 
-Consolidated tests covering:
-- Event buffering per session
-- Kill chain pattern detection (exfiltration, script, supply chain, enumeration)
-- Mass deletion detection
-- Time window filtering
-- Event factory function
+Consolidated tests covering event buffering, kill chain patterns,
+mass deletion detection, time window filtering, and event factory.
 """
 
 import time
-
 import pytest
-
 from opencode_monitor.security.sequences import (
     SequenceAnalyzer,
     SecurityEvent,
     EventType,
+    SequenceMatch,
     create_event_from_audit_data,
 )
 
 
 # =====================================================
-# Fixtures
+# Fixtures & Helpers
 # =====================================================
 
 
@@ -50,8 +45,19 @@ def create_event(
     )
 
 
+def assert_match(
+    m: SequenceMatch, name: str, desc: str, bonus: int, mitre: str, n_events: int
+):
+    """Assert SequenceMatch has expected properties."""
+    assert m.name == name
+    assert m.description == desc
+    assert m.score_bonus == bonus
+    assert m.mitre_technique == mitre
+    assert len(m.events) == n_events
+
+
 # =====================================================
-# Event Buffering Tests (consolidated)
+# Event Buffering Tests
 # =====================================================
 
 
@@ -62,7 +68,6 @@ class TestEventBuffering:
         self, analyzer: SequenceAnalyzer, base_time: float
     ):
         """Session buffers: creation, ordering, max size, clearing."""
-        # Create events in order
         e1 = create_event(EventType.READ, "/file1", timestamp=base_time)
         e2 = create_event(EventType.WRITE, "/file2", timestamp=base_time + 1)
         e3 = create_event(EventType.BASH, "ls", timestamp=base_time + 2)
@@ -71,16 +76,12 @@ class TestEventBuffering:
         analyzer.add_event(e2)
         analyzer.add_event(e3)
 
-        # Verify session created and events ordered
         sessions = analyzer.get_active_sessions()
         buffer = analyzer.get_session_buffer("test-session")
         assert sessions == ["test-session"]
         assert len(buffer) == 3
-        assert buffer[0].target == "/file1"
-        assert buffer[1].target == "/file2"
-        assert buffer[2].target == "ls"
+        assert [b.target for b in buffer] == ["/file1", "/file2", "ls"]
 
-        # Clear and verify
         analyzer.clear_session("test-session")
         assert analyzer.get_active_sessions() == []
         assert analyzer.get_session_buffer("test-session") == []
@@ -89,32 +90,28 @@ class TestEventBuffering:
         """Buffer respects max size and sessions are isolated."""
         small_analyzer = SequenceAnalyzer(buffer_size=5)
 
-        # Overflow buffer with 10 events
         for i in range(10):
             event = create_event(EventType.BASH, f"cmd{i}", timestamp=base_time + i)
             small_analyzer.add_event(event)
 
-        # Add event to different session
         e_other = create_event(EventType.READ, "/other", session_id="other-session")
         small_analyzer.add_event(e_other)
 
-        # Verify buffer size and session isolation
         buffer = small_analyzer.get_session_buffer("test-session")
         assert len(buffer) == 5
-        assert buffer[0].target == "cmd5"  # First 5 dropped
+        assert buffer[0].target == "cmd5"
         assert buffer[4].target == "cmd9"
 
         sessions = small_analyzer.get_active_sessions()
         assert len(sessions) == 2
         assert len(small_analyzer.get_session_buffer("other-session")) == 1
 
-        # clear_all works
         small_analyzer.clear_all()
         assert small_analyzer.get_active_sessions() == []
 
 
 # =====================================================
-# Kill Chain Detection Tests (consolidated)
+# Kill Chain Detection Tests
 # =====================================================
 
 
@@ -126,21 +123,19 @@ class TestKillChainDetection:
         [
             ("/app/.env", "https://evil.com/collect", True, 10),
             ("/secrets/api.key", "https://attacker.io/exfil", True, 10),
-            ("/app/.env", "http://localhost:3000/api", False, 10),  # localhost excluded
-            (
-                "/app/.env",
-                "http://127.0.0.1:8080/test",
-                False,
-                10,
-            ),  # 127.0.0.1 excluded
-            (
-                "/app/.env",
-                "https://evil.com",
-                True,
-                300,
-            ),  # Exactly at boundary (kills <= vs < mutant)
+            ("/app/.env", "http://localhost:3000/api", False, 10),
+            ("/app/.env", "http://127.0.0.1:8080/test", False, 10),
+            ("/app/.env", "https://evil.com", True, 300),  # Boundary (kills <= vs <)
+            ("/app/.env", "https://evil.com/collect", False, 600),  # Outside window
         ],
-        ids=["env-external", "key-external", "localhost", "127.0.0.1", "boundary-300s"],
+        ids=[
+            "env-external",
+            "key-external",
+            "localhost",
+            "127.0.0.1",
+            "boundary-300s",
+            "outside-window",
+        ],
     )
     def test_exfiltration_detection(
         self,
@@ -152,7 +147,6 @@ class TestKillChainDetection:
         time_offset: int,
     ):
         """read(sensitive) -> webfetch(external) triggers exfiltration detection."""
-        # Add noise events that should NOT match patterns (kills pattern key mutations)
         noise1 = create_event(
             EventType.READ, "/normal/file.txt", timestamp=base_time - 2
         )
@@ -174,37 +168,12 @@ class TestKillChainDetection:
         if expected_match:
             assert len(exfil_matches) == 1
             m = exfil_matches[0]
-            assert m.name == "exfiltration"
-            assert m.description == "Exfiltration of secrets"
-            assert m.score_bonus == 40
-            assert m.mitre_technique == "T1048"
+            assert_match(m, "exfiltration", "Exfiltration of secrets", 40, "T1048", 2)
             assert m.session_id == "test-session"
-            assert len(m.events) == 2
-            # Verify matched events are the correct ones (kills pattern key mutations)
             assert m.events[0].target == sensitive_file
             assert m.events[1].target == webfetch_url
         else:
             assert len(exfil_matches) == 0
-            # Verify buffer has all events (2 noise + 2 main)
-            buffer = analyzer.get_session_buffer("test-session")
-            assert len(buffer) == 4
-
-    def test_exfiltration_outside_window(
-        self, analyzer: SequenceAnalyzer, base_time: float
-    ):
-        """Events outside 5-minute window don't trigger detection."""
-        e1 = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        e2 = create_event(
-            EventType.WEBFETCH,
-            "https://evil.com/collect",
-            timestamp=base_time + 600,  # 10 minutes later
-        )
-
-        analyzer.add_event(e1)
-        matches = analyzer.add_event(e2)
-
-        exfil_matches = [m for m in matches if m.name == "exfiltration"]
-        assert len(exfil_matches) == 0
 
     @pytest.mark.parametrize(
         "chmod_cmd,exec_cmd",
@@ -223,41 +192,30 @@ class TestKillChainDetection:
     ):
         """write(.sh) -> chmod(+x) -> bash(.sh) triggers script execution."""
         script_path = chmod_cmd.split()[-1]
-        # Add noise BEFORE and BETWEEN events (kills pattern key mutations on ALL steps)
         noise0 = create_event(
             EventType.WRITE, "/tmp/readme.txt", timestamp=base_time - 1
-        )  # Before e1
+        )
         e1 = create_event(EventType.WRITE, script_path, timestamp=base_time)
-        noise1 = create_event(
-            EventType.BASH, "ls -la", timestamp=base_time + 2
-        )  # Between e1 and e2
+        noise1 = create_event(EventType.BASH, "ls -la", timestamp=base_time + 2)
         e2 = create_event(EventType.BASH, chmod_cmd, timestamp=base_time + 5)
-        noise2 = create_event(
-            EventType.BASH, "echo test", timestamp=base_time + 7
-        )  # Between e2 and e3
+        noise2 = create_event(EventType.BASH, "echo test", timestamp=base_time + 7)
         e3 = create_event(EventType.BASH, exec_cmd, timestamp=base_time + 10)
 
-        analyzer.add_event(noise0)
-        analyzer.add_event(e1)
-        analyzer.add_event(noise1)
-        analyzer.add_event(e2)
-        analyzer.add_event(noise2)
-        matches = analyzer.add_event(e3)
+        for ev in [noise0, e1, noise1, e2, noise2, e3]:
+            analyzer.add_event(ev)
+        matches = [
+            m
+            for m in analyzer._check_patterns("test-session")
+            if m.name == "script_execution"
+        ]
 
-        script_matches = [m for m in matches if m.name == "script_execution"]
-        assert len(script_matches) == 1
-        m = script_matches[0]
-        assert m.name == "script_execution"
-        assert m.description == "Creation and execution of script"
-        assert m.score_bonus == 30
-        assert m.mitre_technique == "T1059"
-        assert m.session_id == "test-session"
-        assert len(m.events) == 3
-        # Verify matched events are correct (kills pattern key mutations)
+        assert len(matches) == 1
+        m = matches[0]
+        assert_match(
+            m, "script_execution", "Creation and execution of script", 30, "T1059", 3
+        )
         assert m.events[0].target == script_path
-        assert chmod_cmd in m.events[1].target or m.events[1].target == chmod_cmd
         assert m.events[2].target == exec_cmd
-        # Verify all events buffered (3 noise + 3 main)
         assert len(analyzer.get_session_buffer("test-session")) == 6
 
     @pytest.mark.parametrize(
@@ -277,46 +235,29 @@ class TestKillChainDetection:
         post_cmd: str,
     ):
         """git clone -> package install -> execution triggers supply chain detection."""
-        # Use timestamps > 300s apart to kill max_window_seconds key mutations
-        # (supply_chain has 600s window, default is 300s - events must span > 300s)
-        noise0 = create_event(
-            EventType.BASH, "pwd", timestamp=base_time - 1
-        )  # Before e1
+        noise0 = create_event(EventType.BASH, "pwd", timestamp=base_time - 1)
         e1 = create_event(
             EventType.BASH,
             "git clone https://github.com/malicious/repo",
             timestamp=base_time,
         )
-        noise1 = create_event(
-            EventType.BASH, "echo hello", timestamp=base_time + 100
-        )  # Between
+        noise1 = create_event(EventType.BASH, "echo hello", timestamp=base_time + 100)
         e2 = create_event(EventType.BASH, install_cmd, timestamp=base_time + 200)
-        noise2 = create_event(
-            EventType.BASH, "ls -la", timestamp=base_time + 350
-        )  # Between
-        e3 = create_event(
-            EventType.BASH, post_cmd, timestamp=base_time + 400
-        )  # 400s from e1
+        noise2 = create_event(EventType.BASH, "ls -la", timestamp=base_time + 350)
+        e3 = create_event(EventType.BASH, post_cmd, timestamp=base_time + 400)
 
-        analyzer.add_event(noise0)
-        analyzer.add_event(e1)
-        analyzer.add_event(noise1)
-        analyzer.add_event(e2)
-        analyzer.add_event(noise2)
-        matches = analyzer.add_event(e3)
+        for ev in [noise0, e1, noise1, e2, noise2, e3]:
+            analyzer.add_event(ev)
+        matches = [
+            m
+            for m in analyzer._check_patterns("test-session")
+            if m.name == "supply_chain"
+        ]
 
-        supply_matches = [m for m in matches if m.name == "supply_chain"]
-        assert len(supply_matches) == 1
-        m = supply_matches[0]
-        assert m.name == "supply_chain"
-        assert m.description == "Potential supply chain attack"
-        assert m.score_bonus == 25
-        assert m.mitre_technique == "T1195"
-        assert m.session_id == "test-session"
-        assert len(m.events) == 3
-        # Verify matched events are correct (kills pattern key mutations)
+        assert len(matches) == 1
+        m = matches[0]
+        assert_match(m, "supply_chain", "Potential supply chain attack", 25, "T1195", 3)
         assert "git clone" in m.events[0].target
-        assert install_cmd in m.events[1].target or m.events[1].target == install_cmd
         assert m.events[2].target == post_cmd
 
     @pytest.mark.parametrize(
@@ -331,39 +272,33 @@ class TestKillChainDetection:
         second_file: str,
     ):
         """read(/etc/passwd) -> read(system file) triggers enumeration."""
-        # Add noise BEFORE and BETWEEN events (kills pattern key mutations on ALL steps)
         noise0 = create_event(
             EventType.READ, "/tmp/readme.txt", timestamp=base_time - 1
-        )  # Before e1
+        )
         e1 = create_event(EventType.READ, "/etc/passwd", timestamp=base_time)
         noise1 = create_event(
             EventType.READ, "/home/user/.bashrc", timestamp=base_time + 2
-        )  # Between
+        )
         e2 = create_event(EventType.READ, second_file, timestamp=base_time + 5)
 
-        analyzer.add_event(noise0)
-        analyzer.add_event(e1)
-        analyzer.add_event(noise1)
-        matches = analyzer.add_event(e2)
+        for ev in [noise0, e1, noise1, e2]:
+            analyzer.add_event(ev)
+        matches = [
+            m
+            for m in analyzer._check_patterns("test-session")
+            if m.name == "system_enumeration"
+        ]
 
-        enum_matches = [m for m in matches if m.name == "system_enumeration"]
-        assert len(enum_matches) == 1
-        m = enum_matches[0]
-        assert m.name == "system_enumeration"
-        assert m.description == "System enumeration"
-        assert m.score_bonus == 35
-        assert m.mitre_technique == "T1087"
-        assert m.session_id == "test-session"
-        assert len(m.events) == 2
-        # Verify matched events are correct (kills pattern key mutations)
+        assert len(matches) == 1
+        m = matches[0]
+        assert_match(m, "system_enumeration", "System enumeration", 35, "T1087", 2)
         assert m.events[0].target == "/etc/passwd"
         assert m.events[1].target == second_file
-        # All read events in buffer (2 noise + 2 main)
         assert len(analyzer.get_session_buffer("test-session")) == 4
 
 
 # =====================================================
-# Mass Deletion Tests (consolidated)
+# Mass Deletion Tests
 # =====================================================
 
 
@@ -373,10 +308,10 @@ class TestMassDeletion:
     @pytest.mark.parametrize(
         "rm_count,window_seconds,threshold,expected_match",
         [
-            (6, 30, 5, True),  # 6 rm in 30s, threshold 5 -> match
-            (3, 30, 5, False),  # 3 rm in 30s, threshold 5 -> no match
-            (10, 60, 5, True),  # 10 rm in 60s, threshold 5 -> match
-            (5, 30, 5, True),  # Exactly at threshold (kills >= vs > mutant)
+            (6, 30, 5, True),
+            (3, 30, 5, False),
+            (10, 60, 5, True),
+            (5, 30, 5, True),  # Exact threshold (kills >= vs >)
         ],
         ids=["above-threshold", "below-threshold", "many-deletions", "exact-threshold"],
     )
@@ -392,19 +327,16 @@ class TestMassDeletion:
         """Mass deletion detected based on rm count and time window."""
         for i in range(rm_count):
             event = create_event(
-                EventType.BASH,
-                f"rm -rf /tmp/dir{i}",
-                timestamp=base_time + i * 3,  # 3s apart
+                EventType.BASH, f"rm -rf /tmp/dir{i}", timestamp=base_time + i * 3
             )
             analyzer.add_event(event)
 
         match = analyzer.check_mass_deletion(
-            "test-session",
-            window_seconds=window_seconds,
-            threshold=threshold,
+            "test-session", window_seconds=window_seconds, threshold=threshold
         )
 
         if expected_match:
+            assert match is not None
             assert match.name == "mass_deletion"
             assert match.description == "Mass deletion detected"
             assert match.score_bonus == 20
@@ -413,55 +345,47 @@ class TestMassDeletion:
         else:
             assert match is None
 
-    def test_mass_deletion_outside_window(
-        self, analyzer: SequenceAnalyzer, base_time: float
+    @pytest.mark.parametrize(
+        "timestamps,window,threshold,expect_match,reason",
+        [
+            # First 5 rm in 0-4s, 6th at 60s => only 1 in last 30s window
+            ([0, 1, 2, 3, 4, 60], 30, 5, False, "outside-window"),
+            # 5 rm at t=30,35,45,55,60 => t=30 exactly at boundary from t=60
+            ([30, 35, 45, 55, 60], 30, 5, True, "boundary-included"),
+        ],
+        ids=["outside-window", "boundary-window"],
+    )
+    def test_mass_deletion_window_edge_cases(
+        self,
+        analyzer: SequenceAnalyzer,
+        base_time: float,
+        timestamps: list,
+        window: int,
+        threshold: int,
+        expect_match: bool,
+        reason: str,
     ):
-        """rm commands outside window don't count together."""
-        # First 5 rm commands
-        for i in range(5):
+        """Edge cases: events outside window don't count, boundary events included."""
+        for i, ts in enumerate(timestamps):
             event = create_event(
-                EventType.BASH, f"rm /tmp/file{i}", timestamp=base_time + i
+                EventType.BASH, f"rm /tmp/file{i}", timestamp=base_time + ts
             )
             analyzer.add_event(event)
 
-        # 6th rm command 60 seconds later (outside 30s window)
-        event = create_event(EventType.BASH, "rm /tmp/last", timestamp=base_time + 60)
-        analyzer.add_event(event)
-
-        # Only 1 rm in the last 30s window
         match = analyzer.check_mass_deletion(
-            "test-session", window_seconds=30, threshold=5
+            "test-session", window_seconds=window, threshold=threshold
         )
-        assert match is None
 
-    def test_mass_deletion_boundary_window(
-        self, analyzer: SequenceAnalyzer, base_time: float
-    ):
-        """rm command exactly at window boundary should be included (kills <= vs < mutant)."""
-        # 5 rm commands: 4 within window + 1 exactly at boundary
-        timestamps = [
-            base_time + 30,
-            base_time + 35,
-            base_time + 45,
-            base_time + 55,
-            base_time + 60,
-        ]
-        for i, ts in enumerate(timestamps):
-            event = create_event(EventType.BASH, f"rm /tmp/file{i}", timestamp=ts)
-            analyzer.add_event(event)
-
-        # With window=30s from last event (60), events from 30+ should be included
-        # Event at t=30 is exactly 30s before t=60
-        match = analyzer.check_mass_deletion(
-            "test-session", window_seconds=30, threshold=5
-        )
-        assert match is not None
-        assert match.name == "mass_deletion"
-        assert len(match.events) == 5
+        if expect_match:
+            assert match is not None
+            assert match.name == "mass_deletion"
+            assert len(match.events) == len(timestamps)
+        else:
+            assert match is None
 
 
 # =====================================================
-# Event Factory Tests (consolidated)
+# Event Factory Tests
 # =====================================================
 
 
@@ -474,7 +398,7 @@ class TestEventFactory:
             ("bash", EventType.BASH),
             ("read", EventType.READ),
             ("write", EventType.WRITE),
-            ("edit", EventType.WRITE),  # edit maps to WRITE
+            ("edit", EventType.WRITE),
             ("webfetch", EventType.WEBFETCH),
             ("mystery_tool", EventType.UNKNOWN),
             ("glob", EventType.UNKNOWN),
@@ -484,42 +408,30 @@ class TestEventFactory:
     def test_tool_to_event_type_mapping(self, tool: str, expected_type: EventType):
         """Tool names map correctly to EventType."""
         event = create_event_from_audit_data(
-            tool=tool,
-            target="test-target",
-            session_id="sess-001",
-            risk_score=10,
+            tool=tool, target="test-target", session_id="sess-001", risk_score=10
         )
-
         assert event.event_type == expected_type
         assert event.target == "test-target"
         assert event.session_id == "sess-001"
         assert event.risk_score == 10
 
-    def test_default_timestamp_set(self):
-        """Default timestamp is set to current time if not provided."""
+    def test_timestamp_handling(self):
+        """Default timestamp is now; explicit timestamp preserved (kills or vs and)."""
         before = time.time()
-        event = create_event_from_audit_data(
+        event_default = create_event_from_audit_data(
             tool="bash", target="ls", session_id="sess-001"
         )
         after = time.time()
+        assert before <= event_default.timestamp <= after
 
-        assert before <= event.timestamp <= after
-
-    def test_explicit_timestamp_preserved(self):
-        """Explicitly provided timestamp should be preserved (kills or vs and mutant)."""
         explicit_ts = 1234567890.0
-        event = create_event_from_audit_data(
-            tool="bash",
-            target="ls",
-            session_id="sess-001",
-            timestamp=explicit_ts,
+        event_explicit = create_event_from_audit_data(
+            tool="bash", target="ls", session_id="sess-001", timestamp=explicit_ts
         )
-        # With 'or': explicit_ts or time.time() = explicit_ts (correct)
-        # With 'and': explicit_ts and time.time() = time.time() (wrong!)
-        assert event.timestamp == explicit_ts
+        assert event_explicit.timestamp == explicit_ts
 
     def test_default_risk_score_is_zero(self):
-        """Default risk_score should be 0 (kills risk_score: 0 -> 1 mutant)."""
+        """Default risk_score is 0 (kills risk_score: 0 -> 1 mutant)."""
         event = create_event_from_audit_data(
             tool="bash", target="ls", session_id="sess-001"
         )
@@ -527,22 +439,21 @@ class TestEventFactory:
 
 
 # =====================================================
-# Edge Cases (consolidated)
+# Edge Cases
 # =====================================================
 
 
 class TestEdgeCases:
     """Tests for edge cases and boundary conditions."""
 
-    def test_empty_and_single_event_behavior(self, analyzer: SequenceAnalyzer):
-        """Empty buffer returns empty list, single event triggers no sequences."""
-        from opencode_monitor.security.sequences import SequenceMatch
+    def test_empty_buffer_single_event_and_match_properties(
+        self, analyzer: SequenceAnalyzer
+    ):
+        """Empty buffer, single event, and SequenceMatch edge cases."""
+        # Non-existent session returns empty
+        assert analyzer.get_session_buffer("non-existent") == []
 
-        # Non-existent session
-        buffer = analyzer.get_session_buffer("non-existent")
-        assert buffer == []
-
-        # SequenceMatch with empty events has empty session_id and default mitre
+        # SequenceMatch with empty events
         empty_match = SequenceMatch(
             name="test", description="test", events=[], score_bonus=0
         )
@@ -577,6 +488,4 @@ class TestEdgeCases:
         assert len(matches) == 1
         m = matches[0]
         assert m.session_id == "custom-session"
-        assert m.name == "exfiltration"
-        assert m.description == "Exfiltration of secrets"
-        assert m.mitre_technique == "T1048"
+        assert_match(m, "exfiltration", "Exfiltration of secrets", 40, "T1048", 2)

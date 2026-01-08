@@ -115,22 +115,16 @@ class TestCorrelationDetection:
         e1 = create_event(e1_type, e1_target, timestamp=base_time, risk_score=85)
         e2 = create_event(e2_type, e2_target, timestamp=base_time + 30, risk_score=50)
 
-        corrs1 = correlator.add_event(e1)
+        assert correlator.add_event(e1) == []
         corrs2 = correlator.add_event(e2)
 
-        # First event no correlations
-        assert isinstance(corrs1, list)
-        assert len(corrs1) == 0
-        # Second event triggers correlation
         matching = [c for c in corrs2 if c.correlation_type == corr_type]
         assert len(matching) == 1
         c = matching[0]
-        assert c.mitre_technique == mitre
-        assert c.mitre_technique != "XXXX"  # Kill mutant 145
+        assert c.mitre_technique == mitre and c.mitre_technique != "XXXX"
         assert c.score_modifier == modifier
-        assert 0.0 <= c.confidence <= 1.0  # Kill mutants 171, 184
-        assert isinstance(c, Correlation)
-        assert c.description != ""  # Kill description mutants
+        assert 0.0 <= c.confidence <= 1.0
+        assert c.description != ""
 
     def test_correlation_context_time_delta(self, correlator, base_time):
         """Verify correlation context contains accurate time_delta_seconds."""
@@ -148,11 +142,9 @@ class TestCorrelationDetection:
         ]
 
         assert len(exfil) == 1
-        assert exfil[0].context["time_delta_seconds"] == 30
-        assert isinstance(exfil[0].context, dict)
-        assert "time_delta_seconds" in exfil[0].context
-        assert "source_target" in exfil[0].context
-        assert "related_target" in exfil[0].context
+        ctx = exfil[0].context
+        assert ctx["time_delta_seconds"] == 30
+        assert "source_target" in ctx and "related_target" in ctx
 
     def test_correlation_at_window_boundary(self, correlator, base_time):
         """Verify correlation works exactly at max_window_seconds boundary."""
@@ -201,24 +193,17 @@ class TestCorrelationDetection:
         correlator.add_event(e1)
         correlations = correlator.add_event(e2)
 
-        # Verify execution_preparation correlation
         prep = [
             c for c in correlations if c.correlation_type == "execution_preparation"
         ]
-        assert len(prep) == 1
-        assert prep[0].session_id == "my-session"
-        assert isinstance(prep[0].session_id, str)
-        assert prep[0].session_id != ""
-        # Test find_related_events by path (kills mutants 190, 192)
+        assert len(prep) == 1 and prep[0].session_id == "my-session"
+
         related = correlator.find_related_events(e1)
-        assert isinstance(related, list)
-        assert len(related) == 1
-        assert related[0] is e2
-        # Verify get_events_by_path returns the indexed event
-        path_events = correlator.get_events_by_path("my-session", "/tmp/malware.sh")
-        assert len(path_events) >= 1
-        # Test find_related_events with events in mixed order (kills 195)
-        correlator.clear_all()
+        assert related == [e2]
+        assert len(correlator.get_events_by_path("my-session", "/tmp/malware.sh")) >= 1
+
+    def test_find_related_events_skips_outside_window(self, correlator, base_time):
+        """find_related_events uses continue (not break) for outside-window events."""
         ea = create_event(
             EventType.WRITE, "/path/file.sh", session_id="s", timestamp=base_time
         )
@@ -234,13 +219,13 @@ class TestCorrelationDetection:
             session_id="s",
             timestamp=base_time + 10,
         )
+
         correlator.add_event(ea)
-        correlator.add_event(eb)  # Added second, outside window from ea
-        correlator.add_event(ec)  # Added third, inside window from ea
-        # Buffer order: ea, eb, ec. When checking ea, loop sees eb first (outside window).
-        # With continue: skip eb, find ec. With break: exit after eb, miss ec.
-        related3 = correlator.find_related_events(ea)
-        assert len(related3) == 1  # Should find ec despite eb being outside window
+        correlator.add_event(eb)  # Outside window from ea
+        correlator.add_event(ec)  # Inside window from ea
+
+        # Should find ec despite eb being outside window (continue, not break)
+        assert len(correlator.find_related_events(ea)) == 1
 
 
 class TestNoCorrelation:
@@ -285,56 +270,37 @@ class TestNoCorrelation:
 
         correlator.add_event(e1)
         correlations = correlator.add_event(e2)
-        exfil = [
+
+        assert not [
             c
             for c in correlations
             if c.correlation_type == "exfiltration_read_webfetch"
         ]
-
-        assert len(exfil) == 0
-        assert isinstance(correlations, list)
-        # Correlator still works
-        assert correlator is not None
 
     def test_chmod_without_prior_write_no_correlation(self, correlator, base_time):
         """chmod without prior write doesn't create execution_preparation."""
         e1 = create_event(
             EventType.BASH, "chmod +x /some/script.sh", timestamp=base_time
         )
-        e2 = create_event(
-            EventType.READ,
-            "no_path_here",
-            timestamp=base_time + 5,  # No "/" in target
-        )
+        e2 = create_event(EventType.READ, "no_path_here", timestamp=base_time + 5)
+
         correlations = correlator.add_event(e1)
         correlator.add_event(e2)
-        prep = [
+
+        assert not [
             c for c in correlations if c.correlation_type == "execution_preparation"
         ]
-
-        assert len(prep) == 0
-        assert isinstance(correlations, list)
-        # Test find_related_events: e1 and e2 have no correlated paths
-        related = correlator.find_related_events(e1)
-        assert isinstance(related, list)
-        # e2 has no extractable path (no "/"), so they don't correlate
-        assert len(related) == 0
+        # e2 has no extractable path (no "/"), so no correlation
+        assert correlator.find_related_events(e1) == []
 
     def test_single_event_no_correlation(self, correlator, base_time):
         """Single event cannot create correlations, find_related_events returns empty."""
         event = create_event(EventType.READ, "/app/.env", timestamp=base_time)
-        correlations = correlator.add_event(event)
 
-        assert len(correlations) == 0
-        assert isinstance(correlations, list)
+        assert correlator.add_event(event) == []
         assert len(correlator.get_session_buffer("test-session")) == 1
-        assert event.event_type == EventType.READ
-        # Verify find_related_events returns empty list for single event
-        related = correlator.find_related_events(event)
-        assert related == []
-        # Verify get_events_by_path indexes correctly
-        path_events = correlator.get_events_by_path("test-session", "/app/.env")
-        assert len(path_events) == 1
+        assert correlator.find_related_events(event) == []
+        assert len(correlator.get_events_by_path("test-session", "/app/.env")) == 1
 
 
 class TestSessionManagement:
@@ -361,19 +327,13 @@ class TestSessionManagement:
     def test_session_buffer_counts(self, correlator, events, expected):
         """Verify session buffers track events correctly."""
         for session_id, event_type, target in events:
-            event = create_event(event_type, target, session_id=session_id)
-            correlator.add_event(event)
+            correlator.add_event(
+                create_event(event_type, target, session_id=session_id)
+            )
 
         for session_id, count in expected.items():
             buffer = correlator.get_session_buffer(session_id)
             assert len(buffer) == count
-            assert isinstance(buffer, list)
-            # Verify get_events_by_path works
-            if buffer:
-                path_events = correlator.get_events_by_path(
-                    session_id, buffer[0].target
-                )
-                assert isinstance(path_events, list)
 
     def test_clear_session_removes_only_target(self, correlator):
         """Clearing a session removes only that session's data including path_index."""
@@ -382,15 +342,13 @@ class TestSessionManagement:
 
         correlator.add_event(e1)
         correlator.add_event(e2)
-        # Verify path_index has s1 before clear
         assert correlator.get_events_by_path("s1", "/path/file1") != []
+
         correlator.clear_session("s1")
 
-        assert len(correlator.get_session_buffer("s1")) == 0
+        assert correlator.get_session_buffer("s1") == []
         assert len(correlator.get_session_buffer("s2")) == 1
-        # Verify path_index is also cleared for s1 (kills mutant 200)
         assert correlator.get_events_by_path("s1", "/path/file1") == []
-        assert isinstance(correlator.get_session_buffer("s1"), list)
 
     def test_clear_all_removes_all_sessions(self, correlator):
         """Clearing all removes all session data including path_index."""
@@ -399,40 +357,27 @@ class TestSessionManagement:
 
         correlator.add_event(e1)
         correlator.add_event(e2)
-        # Verify data exists before clear
         assert correlator.get_events_by_path("s1", "/path/file1") != []
+
         correlator.clear_all()
 
-        assert len(correlator.get_session_buffer("s1")) == 0
-        assert len(correlator.get_session_buffer("s2")) == 0
         assert correlator.get_session_buffer("s1") == []
         assert correlator.get_session_buffer("s2") == []
-        # Verify path_index is also cleared
         assert correlator.get_events_by_path("s1", "/path/file1") == []
 
     def test_empty_session_buffer_returns_empty_list(self, correlator, base_time):
         """Getting buffer for non-existent session returns empty list."""
-        buffer = correlator.get_session_buffer("non-existent")
-        path_events = correlator.get_events_by_path("non-existent", "/any/path")
+        assert correlator.get_session_buffer("non-existent") == []
+        assert correlator.get_events_by_path("non-existent", "/any/path") == []
 
-        assert buffer == []
-        assert isinstance(buffer, list)
-        assert len(buffer) == 0
-        assert buffer is not None
-        assert not buffer  # Falsy check
-        assert path_events == []
-        # Test get_events_by_path with path that has no "/" (kills mutant 197)
+    def test_get_events_by_path_no_slash_in_target(self, correlator, base_time):
+        """get_events_by_path with target lacking '/' returns empty (no index entry)."""
         e = create_event(
             EventType.READ, "simple_target", session_id="s", timestamp=base_time
         )
         correlator.add_event(e)
-        # "simple_target" has no "/" so _extract_path returns None, uses fallback
-        events = correlator.get_events_by_path("s", "simple_target")
-        # With `or path`: normalized_path = "simple_target", finds event
-        # With `and path`: normalized_path = None, won't find event
-        assert (
-            len(events) == 0
-        )  # Actually won't find because path_index uses extracted path
+        # "simple_target" has no "/" so _extract_path returns None, not indexed
+        assert correlator.get_events_by_path("s", "simple_target") == []
 
 
 class TestCorrelationMetrics:
