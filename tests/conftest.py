@@ -611,3 +611,86 @@ def trace_builder(analytics_db):
     from tests.builders import TraceBuilder
 
     return TraceBuilder(db=analytics_db)
+
+
+@pytest.fixture
+def part_builder(analytics_db):
+    """Create a PartBuilder with database connection.
+
+    Usage:
+        def test_example(part_builder, session_builder, message_builder):
+            sess_id = session_builder.insert()
+            msg_id = message_builder.for_session(sess_id).insert()
+            part_id = part_builder.for_session(sess_id).for_message(msg_id).as_tool("bash").insert()
+    """
+    from tests.builders import PartBuilder
+
+    return PartBuilder(db=analytics_db)
+
+
+# =============================================================================
+# API Test Fixtures
+# =============================================================================
+
+
+@pytest.fixture
+def sessions_app():
+    """Create Flask test app with sessions blueprint."""
+    from flask import Flask
+    from opencode_monitor.api.routes.sessions import sessions_bp
+
+    app = Flask(__name__)
+    app.config["TESTING"] = True
+    app.register_blueprint(sessions_bp)
+    return app
+
+
+@pytest.fixture
+def sessions_client(sessions_app):
+    """Create test client for sessions API."""
+    return sessions_app.test_client()
+
+
+@pytest.fixture
+def mock_tracing_service():
+    """Create mock tracing service for API tests."""
+    return MagicMock()
+
+
+@pytest.fixture
+def api_mocks(mock_tracing_service):
+    """Context manager for mocking API dependencies.
+
+    Usage:
+        def test_api(sessions_client, api_mocks, mock_tracing_service):
+            mock_tracing_service.get_session_file_parts.return_value = {...}
+            with api_mocks:
+                response = sessions_client.get("/api/session/test/file-parts")
+    """
+    from contextlib import ExitStack
+
+    class APIMockContext:
+        def __init__(self, service):
+            self._service = service
+            self._stack = None
+
+        def __enter__(self):
+            self._stack = ExitStack()
+            mock_lock = self._stack.enter_context(
+                patch("opencode_monitor.api.routes.sessions.get_db_lock")
+            )
+            mock_lock.return_value.__enter__ = MagicMock()
+            mock_lock.return_value.__exit__ = MagicMock()
+            self._stack.enter_context(
+                patch(
+                    "opencode_monitor.api.routes.sessions.get_service",
+                    return_value=self._service,
+                )
+            )
+            return self
+
+        def __exit__(self, *args):
+            if self._stack:
+                self._stack.__exit__(*args)
+
+    return APIMockContext(mock_tracing_service)
