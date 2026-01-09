@@ -13,6 +13,7 @@ from PyQt6.QtGui import QColor
 from opencode_monitor.dashboard.styles import COLORS
 
 from .helpers import format_duration, format_tokens_short, AGENT_SUFFIX_PATTERN
+from .enriched_helpers import get_tool_display_label, build_tool_tooltip
 from .tree_utils import (
     format_time,
     get_project_name,
@@ -172,11 +173,14 @@ def build_session_tree(
 
             icon = TREE_TOOL_ICONS.get(tool_name, "⚙️")
 
+            # Use enriched title if available, fallback to tool_name
+            display_label = get_tool_display_label(session)
+
             # Build label
             if display_info:
-                label = f"{icon} {tool_name}: {display_info}"
+                label = f"{icon} {display_label}: {display_info}"
             else:
-                label = f"{icon} {tool_name}"
+                label = f"{icon} {display_label}"
 
             # Truncate if too long
             if len(label) > 60:
@@ -218,6 +222,11 @@ def build_session_tree(
             else:
                 item.setText(5, "◐")
                 item.setForeground(5, QColor(COLORS["warning"]))
+
+            # Enriched tooltip with result_summary, cost, tokens
+            tooltip = build_tool_tooltip(session)
+            if tooltip:
+                item.setToolTip(0, tooltip)
 
             item.setData(0, Qt.ItemDataRole.UserRole, session)
             return item  # Tools don't have children

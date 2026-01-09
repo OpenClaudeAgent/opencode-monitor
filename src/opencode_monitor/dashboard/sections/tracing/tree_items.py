@@ -11,6 +11,7 @@ from PyQt6.QtGui import QColor
 from opencode_monitor.dashboard.styles import COLORS
 
 from .helpers import format_duration, format_tokens_short
+from .enriched_helpers import get_tool_display_label, build_tool_tooltip
 from .tree_utils import TOOL_ICONS
 
 
@@ -132,15 +133,17 @@ def add_part_item(parent: QTreeWidgetItem, part: dict) -> QTreeWidgetItem:
 
     if tool_name:
         icon = TOOL_ICONS.get(tool_name, "⚙️")
+        # Use enriched title if available, fallback to tool_name
+        display_label = get_tool_display_label(part)
         # Build label with display info
         if display_info:
             info_preview = (
                 display_info[:50] + "..." if len(display_info) > 50 else display_info
             )
             info_preview = info_preview.replace("\n", " ")
-            label = f"  {icon} {tool_name}: {info_preview}"
+            label = f"  {icon} {display_label}: {info_preview}"
         else:
-            label = f"  {icon} {tool_name}"
+            label = f"  {icon} {display_label}"
     elif part_type == "text":
         icon = "💭"
         text_preview = content[:60] + "..." if len(content) > 60 else content
@@ -190,6 +193,12 @@ def add_part_item(parent: QTreeWidgetItem, part: dict) -> QTreeWidgetItem:
     elif status == "running":
         item.setText(5, "◐")
         item.setForeground(5, QColor(COLORS["warning"]))
+
+    # Enriched tooltip with result_summary, cost, tokens
+    if tool_name:
+        tooltip = build_tool_tooltip(part)
+        if tooltip:
+            item.setToolTip(0, tooltip)
 
     # Store data for detail panel
     item.setData(
