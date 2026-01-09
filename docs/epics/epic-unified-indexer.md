@@ -5,7 +5,14 @@
 **Priority**: P1 - High  
 **Owner**: Core Team  
 **Created**: 2026-01-08  
+**Updated**: 2026-01-09 (review post-Plan 45)  
 **Target Completion**: Sprint 3
+
+> **⚠️ Review 2026-01-09** : Epic mis à jour suite à la review architecturale.
+> Changements majeurs :
+> - Story 1 : Étendre `file_index` existante (au lieu de créer `indexed_files`)
+> - Story 2 : Renommé `BatchCollector` → `FileBatchAccumulator`
+> - Ajout Story 0 : POC Benchmark (prérequis Sprint 1)
 
 ---
 
@@ -36,93 +43,117 @@ L'Unified Indexer v2 unifie les deux flux dans un seul pipeline DuckDB micro-bat
 
 ## User Stories
 
-### Story 1: Table indexed_files et Migration
+### Story 0: POC Benchmark Micro-Batch (Prérequis)
 
-**ID**: IDX-001-S1  
-**Priority**: P0 - Critical (Foundation)  
-**Estimate**: 3 points  
-**Sprint**: 1
+**ID**: IDX-001-S0  
+**Priority**: P0 - Critical (Blocker)  
+**Estimate**: 2 points  
+**Sprint**: 0 (avant Sprint 1)
 
 #### Description
 
-En tant que système d'indexation, je veux une table `indexed_files` pour tracker les fichiers déjà indexés afin de permettre la réconciliation et éviter les doublons.
-
-#### Scope
-
-- Création table `indexed_files` avec schéma optimisé
-- Migration automatique au démarrage
-- Index pour queries fréquentes
-
-#### Technical Design
-
-```sql
--- Table indexed_files
-CREATE TABLE IF NOT EXISTS indexed_files (
-    file_path VARCHAR PRIMARY KEY,
-    file_type VARCHAR NOT NULL,        -- 'session', 'message', 'part'
-    mtime DOUBLE NOT NULL,             -- File modification time (epoch)
-    size BIGINT NOT NULL,              -- File size in bytes
-    indexed_at TIMESTAMP DEFAULT NOW(),
-    status VARCHAR DEFAULT 'indexed',  -- 'indexed', 'error', 'pending'
-    error_message VARCHAR,
-    record_id VARCHAR                  -- FK to sessions/messages/parts
-);
-
--- Index pour réconciliation rapide
-CREATE INDEX IF NOT EXISTS idx_indexed_files_mtime ON indexed_files(mtime);
-CREATE INDEX IF NOT EXISTS idx_indexed_files_status ON indexed_files(status);
-CREATE INDEX IF NOT EXISTS idx_indexed_files_type ON indexed_files(file_type);
-```
+En tant qu'équipe, je veux valider les performances du micro-batch DuckDB avant de commencer l'implémentation afin de confirmer que l'objectif de 5,000 files/sec est atteignable.
 
 #### Acceptance Criteria
 
 ```gherkin
-GIVEN une nouvelle installation
-WHEN l'application démarre pour la première fois
-THEN la table indexed_files est créée avec tous les index
-AND aucune erreur n'est levée
+GIVEN le script de benchmark tmp/benchmark_microbatch.py
+WHEN je l'exécute avec 10,000 fichiers JSON de test
+THEN le throughput mesuré est >= 4,500 files/sec avec batch de 100
+AND la latence p95 est < 100ms par batch
+AND aucune erreur de lock contention avec dashboard ouvert
+```
 
-GIVEN une installation existante sans indexed_files
+#### Definition of Done
+
+- [ ] Script de benchmark créé et exécuté
+- [ ] Résultats documentés dans le plan
+- [ ] Décision GO/NO-GO prise
+
+---
+
+### Story 1: Extension table file_index avec status
+
+**ID**: IDX-001-S1  
+**Priority**: P0 - Critical (Foundation)  
+**Estimate**: 2 points (réduit car table existe)  
+**Sprint**: 1
+
+#### Description
+
+En tant que système d'indexation, je veux étendre la table `file_index` existante avec une colonne `status` afin de permettre la réconciliation et le suivi des erreurs.
+
+> **Note** : On utilise la table `file_index` existante (gérée par `FileTracker` dans tracker.py), pas une nouvelle table.
+
+#### Scope
+
+- Ajout colonne `status` à `file_index` existante
+- Migration via `_migrate_columns()` dans db.py
+- Index pour queries de réconciliation
+
+#### Technical Design
+
+```sql
+-- Migration à ajouter dans db.py
+ALTER TABLE file_index ADD COLUMN IF NOT EXISTS 
+    status VARCHAR DEFAULT 'indexed';
+
+-- Index pour réconciliation rapide
+CREATE INDEX IF NOT EXISTS idx_file_index_status ON file_index(status);
+```
+
+**Valeurs de status** :
+- `'indexed'` : Fichier traité avec succès
+- `'error'` : Erreur lors du traitement (voir error_message existant)
+- `'pending'` : En attente de traitement
+
+#### Acceptance Criteria
+
+```gherkin
+GIVEN une installation existante avec file_index
 WHEN l'application démarre
-THEN la migration ajoute la table sans affecter les données existantes
-AND le schema est compatible avec les requêtes de réconciliation
+THEN la colonne status est ajoutée si absente
+AND les enregistrements existants ont status='indexed' par défaut
+AND aucune donnée n'est perdue
 
-GIVEN la table indexed_files existe
-WHEN j'insère un fichier avec file_path existant
-THEN le record est mis à jour (upsert) sans créer de doublon
+GIVEN la table file_index avec status
+WHEN je marque un fichier en erreur
+THEN status='error' et error_message contient le détail
+
+GIVEN le reconciler cherche les fichiers manquants
+WHEN il query file_index
+THEN seuls les fichiers avec status='indexed' sont considérés comme traités
 ```
 
 #### Tasks
 
-- [ ] Créer fichier `migrations/004_indexed_files.sql`
-- [ ] Ajouter schema dans `analytics/db.py`
-- [ ] Créer helper `IndexedFilesRepository` avec méthodes CRUD
-- [ ] Tests unitaires pour migration et repository
-- [ ] Documenter schema dans `docs/structure.md`
+- [ ] Ajouter migration dans `db.py` via `_migrate_columns()`
+- [ ] Créer index `idx_file_index_status`
+- [ ] Mettre à jour `FileTracker.mark_indexed()` pour utiliser status
+- [ ] Ajouter méthode `FileTracker.mark_error(path, message)`
+- [ ] Tests unitaires pour nouveau comportement
 
 #### Files
 
 ```
 src/opencode_monitor/analytics/
-├── db.py                        # Ajouter schema indexed_files
+├── db.py                        # Ajouter migration status
 ├── indexer/
-│   ├── migrations/
-│   │   └── 004_indexed_files.sql  # NEW
-│   └── repository.py            # NEW - IndexedFilesRepository
+│   └── tracker.py               # Mettre à jour FileTracker
 tests/
-└── test_indexed_files.py        # NEW
+└── test_file_tracker.py         # Ajouter tests status
 ```
 
 #### Definition of Done
 
-- [ ] Table créée automatiquement au premier démarrage
-- [ ] Migration idempotente (peut être exécutée plusieurs fois)
-- [ ] Tests unitaires couvrent CRUD + edge cases
+- [ ] Colonne status ajoutée au démarrage
+- [ ] Migration backward-compatible (v1 ignore status)
+- [ ] Tests unitaires couvrent les cas status
 - [ ] Aucune régression sur les tests existants
 
 ---
 
-### Story 2: Implémenter BatchCollector
+### Story 2: Implémenter FileBatchAccumulator
 
 **ID**: IDX-001-S2  
 **Priority**: P0 - Critical (Foundation)  
@@ -131,16 +162,20 @@ tests/
 
 #### Description
 
-En tant que système d'indexation, je veux un BatchCollector qui accumule les fichiers détectés et les envoie en micro-batches afin d'optimiser les performances d'insertion DuckDB.
+En tant que système d'indexation, je veux un FileBatchAccumulator qui accumule les fichiers détectés et les envoie en micro-batches afin d'optimiser les performances d'insertion DuckDB.
+
+> **Note** : Renommé de `BatchCollector` à `FileBatchAccumulator` pour éviter la confusion avec `BatchProcessor` (unified/batch.py) qui exécute les INSERTs.
 
 #### Scope
 
-- Classe `BatchCollector` thread-safe
+- Classe `FileBatchAccumulator` thread-safe
 - Configuration : window (200ms), max files (100)
 - Deduplication automatique des fichiers
-- Callbacks pour batch ready
+- Callbacks pour batch ready → alimente `BatchProcessor`
 
 #### Technical Design
+
+**Fichier** : `src/opencode_monitor/analytics/indexer/batch_accumulator.py`
 
 ```python
 from dataclasses import dataclass
@@ -150,14 +185,14 @@ import threading
 
 
 @dataclass
-class BatchConfig:
-    """Configuration du BatchCollector."""
+class AccumulatorConfig:
+    """Configuration du FileBatchAccumulator."""
     window_ms: int = 200        # Fenêtre de collection
     max_files: int = 100        # Max fichiers par batch
     flush_on_stop: bool = True  # Flush à l'arrêt
 
 
-class BatchCollector:
+class FileBatchAccumulator:
     """
     Accumule les fichiers détectés et déclenche des micro-batches.
     
@@ -281,18 +316,18 @@ class BatchCollector:
 #### Acceptance Criteria
 
 ```gherkin
-GIVEN un BatchCollector avec window=200ms et max=100
+GIVEN un FileBatchAccumulator avec window=200ms et max=100
 WHEN j'ajoute 50 fichiers rapidement
 AND j'attends 250ms
 THEN un batch de 50 fichiers est envoyé au callback
 AND pending_files == 0
 
-GIVEN un BatchCollector avec max=100
+GIVEN un FileBatchAccumulator avec max=100
 WHEN j'ajoute 150 fichiers d'un coup via add_many()
 THEN un premier batch de 100 fichiers est envoyé
 AND un second batch de 50 fichiers est envoyé après le timer
 
-GIVEN un BatchCollector actif
+GIVEN un FileBatchAccumulator actif
 WHEN j'appelle force_flush()
 THEN tous les fichiers pending sont envoyés immédiatement
 AND le timer est annulé
@@ -301,15 +336,15 @@ GIVEN deux threads ajoutant des fichiers simultanément
 WHEN ils ajoutent le même fichier
 THEN le fichier n'apparaît qu'une seule fois dans le batch (dedup)
 
-GIVEN un BatchCollector avec flush_on_stop=True
+GIVEN un FileBatchAccumulator avec flush_on_stop=True
 WHEN j'appelle stop()
 THEN les fichiers pending sont envoyés avant l'arrêt
 ```
 
 #### Tasks
 
-- [ ] Créer `BatchConfig` dataclass
-- [ ] Implémenter `BatchCollector` class
+- [ ] Créer `AccumulatorConfig` dataclass
+- [ ] Implémenter `FileBatchAccumulator` class
 - [ ] Ajouter méthode `add_many()` pour réconciliation
 - [ ] Implémenter `get_stats()` pour monitoring
 - [ ] Tests unitaires : single thread
@@ -320,14 +355,14 @@ THEN les fichiers pending sont envoyés avant l'arrêt
 
 ```
 src/opencode_monitor/analytics/indexer/
-├── batch_collector.py    # NEW
+├── batch_accumulator.py    # NEW
 tests/
-└── test_batch_collector.py  # NEW
+└── test_batch_accumulator.py  # NEW
 ```
 
 #### Definition of Done
 
-- [ ] BatchCollector thread-safe vérifié par tests
+- [ ] FileBatchAccumulator thread-safe vérifié par tests
 - [ ] Deduplication fonctionne correctement
 - [ ] Timer se déclenche après window_ms
 - [ ] force_flush() envoie immédiatement
@@ -350,9 +385,9 @@ En tant que système d'indexation, je veux un Reconciler qui scanne périodiquem
 #### Scope
 
 - Classe `Reconciler` avec scan périodique
-- Comparaison filesystem vs indexed_files
+- Comparaison filesystem vs `file_index` (table existante)
 - Détection des fichiers nouveaux ou modifiés
-- Intégration avec BatchCollector
+- Intégration avec `FileBatchAccumulator`
 
 #### Technical Design
 
@@ -534,7 +569,7 @@ THEN le thread s'arrête proprement sous 5 secondes
 - [ ] Tests unitaires : détection fichiers nouveaux
 - [ ] Tests unitaires : détection fichiers modifiés
 - [ ] Tests unitaires : performance sur 10k fichiers
-- [ ] Tests d'intégration avec BatchCollector
+- [ ] Tests d'intégration avec FileBatchAccumulator
 
 #### Files
 
@@ -1198,10 +1233,14 @@ La migration ne nécessite PAS de réindexation des données existantes. La tabl
 
 | Sprint | Stories | Points | Focus |
 |--------|---------|--------|-------|
-| 1 | S1, S2, S3, S4 | 16 | Fondations (table, batch, reconciler, tests) |
-| 2 | S5, S6, S7 | 15 | Intégration (v2 class, batch processing, benchmarks) |
+| 0 | S0 | 2 | POC Benchmark (prérequis) |
+| 1 | S1, S2, S3, S4 | 17 | Fondations (file_index, accumulator, reconciler, tests) |
+| 2 | S5, S6, S7, S7.5 | 18 | Intégration (v2, batch processing, benchmarks, métriques) |
 | 3 | S8, S9, S10 | 8 | Migration (rollout, cleanup, docs) |
-| **Total** | **10** | **39** | |
+| **Total** | **12** | **45** | |
+
+> **Note** : Sprint 1 passe de 16 à 17 points (tests thread-safety plus complexes).
+> Sprint 2 ajoute S7.5 (Observabilité) pour +3 points.
 
 ---
 
@@ -1209,13 +1248,15 @@ La migration ne nécessite PAS de réindexation des données existantes. La tabl
 
 ```mermaid
 graph TD
-    S1[S1: indexed_files] --> S4[S4: Tests]
-    S2[S2: BatchCollector] --> S4
+    S0[S0: POC Benchmark] --> S1
+    S1[S1: file_index status] --> S4[S4: Tests]
+    S2[S2: FileBatchAccumulator] --> S4
     S3[S3: Reconciler] --> S4
-    S4 --> S5[S5: UnifiedIndexerV2]
+    S4 --> S5[S5: UnifiedIndexer évolution]
     S5 --> S6[S6: Batch Processing]
     S6 --> S7[S7: Integration Tests]
-    S7 --> S8[S8: Rollout 10-100%]
+    S7 --> S7.5[S7.5: Observabilité]
+    S7.5 --> S8[S8: Rollout 10-100%]
     S8 --> S9[S9: Cleanup]
     S9 --> S10[S10: Documentation]
 ```

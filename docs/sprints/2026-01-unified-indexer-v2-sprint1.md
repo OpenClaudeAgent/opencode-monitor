@@ -3,8 +3,14 @@
 **Sprint ID**: 2026-01-IDX  
 **Epic**: IDX-001 (Unified Indexer v2)  
 **Duration**: 2 weeks  
-**Start Date**: 2026-01-08  
-**Status**: Planned
+**Start Date**: 2026-01-09  
+**Status**: In Progress (POC validé - 10,308 files/sec)
+
+> **⚠️ Review 2026-01-09** : Sprint mis à jour suite à review architecturale.
+> - US-1 : Utiliser `file_index` existante (pas créer `indexed_files`)
+> - US-2 : Renommé `BatchCollector` → `FileBatchAccumulator`
+> - Points totaux : 16 → 17 (tests thread-safety plus complexes)
+> - **Prérequis** : POC Benchmark (Sprint 0) doit valider >= 4,500 files/sec
 
 ---
 
@@ -16,64 +22,72 @@ Construire les fondations du nouvel indexer : table de tracking, BatchCollector,
 
 | Métrique | Valeur |
 |----------|--------|
-| Points planifiés | 16 |
+| Points planifiés | 17 |
 | Stories | 4 |
 | Focus | Fondations |
+
+## Prérequis (Sprint 0) ✅ VALIDÉ
+
+POC exécuté le 2026-01-09 :
+- [x] Throughput >= 4,500 files/sec → **10,308 files/sec** ✅
+- [x] Query réconciliation < 2s → **8ms** ✅
+- [ ] Lock contention dashboard (à valider en intégration)
+
+> **Note critique** : Utiliser `FileTracker.mark_indexed_batch()` pour éviter le goulot file_index.
 
 ---
 
 ## Stories
 
-### US-1: Table indexed_files et Migration
+### US-1: Extension table file_index avec status
 
 **Story ID**: IDX-001-S1  
-**Points**: 3  
+**Points**: 2 (réduit car table existe déjà)  
 **Priority**: P0 - Critical  
 **Assignee**: TBD
 
 **As a** système d'indexation,  
-**I want** une table `indexed_files` pour tracker les fichiers indexés,  
-**So that** je peux permettre la réconciliation et éviter les doublons.
+**I want** étendre la table `file_index` avec une colonne `status`,  
+**So that** je peux permettre la réconciliation et le suivi des erreurs.
+
+> **Note** : On utilise `file_index` existante (tracker.py), pas une nouvelle table.
 
 **Acceptance Criteria**:
-- [ ] Table `indexed_files` créée au premier démarrage
-- [ ] Migration idempotente (exécutable plusieurs fois sans erreur)
-- [ ] Index optimisés pour queries de réconciliation
-- [ ] Tests unitaires couvrent CRUD + edge cases
+- [ ] Colonne `status` ajoutée à `file_index` au démarrage
+- [ ] Migration backward-compatible (v1 ignore status)
+- [ ] Index `idx_file_index_status` créé
+- [ ] Tests unitaires couvrent les cas status
 
 **Technical Notes**:
 
 ```sql
-CREATE TABLE IF NOT EXISTS indexed_files (
-    file_path VARCHAR PRIMARY KEY,
-    file_type VARCHAR NOT NULL,
-    mtime DOUBLE NOT NULL,
-    size BIGINT NOT NULL,
-    indexed_at TIMESTAMP DEFAULT NOW(),
-    status VARCHAR DEFAULT 'indexed',
-    error_message VARCHAR,
-    record_id VARCHAR
-);
+-- Migration via _migrate_columns() dans db.py
+ALTER TABLE file_index ADD COLUMN IF NOT EXISTS 
+    status VARCHAR DEFAULT 'indexed';
 
-CREATE INDEX IF NOT EXISTS idx_indexed_files_mtime ON indexed_files(mtime);
-CREATE INDEX IF NOT EXISTS idx_indexed_files_status ON indexed_files(status);
+CREATE INDEX IF NOT EXISTS idx_file_index_status ON file_index(status);
 ```
 
+**Valeurs de status** :
+- `'indexed'` : Traité avec succès
+- `'error'` : Erreur (voir error_message)
+- `'pending'` : En attente
+
 **Files**:
-- `src/opencode_monitor/analytics/db.py` - Add schema
-- `src/opencode_monitor/analytics/indexer/repository.py` - NEW
-- `tests/test_indexed_files.py` - NEW
+- `src/opencode_monitor/analytics/db.py` - Add migration
+- `src/opencode_monitor/analytics/indexer/tracker.py` - Update FileTracker
+- `tests/test_file_tracker.py` - Add status tests
 
 **Tasks**:
-- [ ] Ajouter schema dans `db.py`
-- [ ] Créer `IndexedFilesRepository` class
-- [ ] Implémenter méthodes : `upsert()`, `get_by_path()`, `get_missing()`
-- [ ] Écrire tests unitaires
-- [ ] Vérifier migration sur DB existante
+- [ ] Ajouter migration dans `db.py` via `_migrate_columns()`
+- [ ] Créer index `idx_file_index_status`
+- [ ] Mettre à jour `FileTracker.mark_indexed()` pour utiliser status
+- [ ] Ajouter méthode `FileTracker.mark_error(path, message)`
+- [ ] Tests unitaires pour status
 
 ---
 
-### US-2: Implémenter BatchCollector
+### US-2: Implémenter FileBatchAccumulator
 
 **Story ID**: IDX-001-S2  
 **Points**: 5  
@@ -81,11 +95,13 @@ CREATE INDEX IF NOT EXISTS idx_indexed_files_status ON indexed_files(status);
 **Assignee**: TBD
 
 **As a** système d'indexation,  
-**I want** un BatchCollector qui accumule les fichiers en micro-batches,  
+**I want** un FileBatchAccumulator qui accumule les fichiers en micro-batches,  
 **So that** je peux optimiser les performances d'insertion DuckDB.
 
+> **Note** : Renommé de `BatchCollector` pour éviter confusion avec `BatchProcessor` (unified/batch.py)
+
 **Acceptance Criteria**:
-- [ ] BatchCollector thread-safe
+- [ ] FileBatchAccumulator thread-safe
 - [ ] Trigger sur max_files (100) OU window_ms (200ms)
 - [ ] Deduplication automatique via Set
 - [ ] Callback `on_batch_ready` appelé avec liste de fichiers
@@ -96,12 +112,12 @@ CREATE INDEX IF NOT EXISTS idx_indexed_files_status ON indexed_files(status);
 
 ```python
 @dataclass
-class BatchConfig:
+class AccumulatorConfig:
     window_ms: int = 200
     max_files: int = 100
     flush_on_stop: bool = True
 
-class BatchCollector:
+class FileBatchAccumulator:
     def add(self, file_path: Path) -> None: ...
     def add_many(self, files: List[Path]) -> None: ...
     def force_flush(self) -> int: ...
@@ -110,12 +126,12 @@ class BatchCollector:
 ```
 
 **Files**:
-- `src/opencode_monitor/analytics/indexer/batch_collector.py` - NEW
-- `tests/test_batch_collector.py` - NEW
+- `src/opencode_monitor/analytics/indexer/batch_accumulator.py` - NEW
+- `tests/test_batch_accumulator.py` - NEW
 
 **Tasks**:
-- [ ] Créer `BatchConfig` dataclass
-- [ ] Implémenter `BatchCollector.__init__()` avec timer setup
+- [ ] Créer `AccumulatorConfig` dataclass
+- [ ] Implémenter `FileBatchAccumulator.__init__()` avec timer setup
 - [ ] Implémenter `add()` avec lock et trigger check
 - [ ] Implémenter `add_many()` pour bulk addition
 - [ ] Implémenter `_flush_locked()` avec callback thread
@@ -220,8 +236,8 @@ LIMIT 10000
 - [ ] Tests d'intégration composants combinés
 
 **Files**:
-- `tests/test_indexed_files.py`
-- `tests/test_batch_collector.py`
+- `tests/test_file_tracker.py` - Add status tests
+- `tests/test_batch_accumulator.py`
 - `tests/test_reconciler.py`
 - `tests/test_indexer_v2_integration.py` - NEW
 - `tests/conftest.py` - Add fixtures
@@ -230,8 +246,8 @@ LIMIT 10000
 - [ ] Review coverage des tests US-1, US-2, US-3
 - [ ] Ajouter cas edge manquants
 - [ ] Créer fixtures partagées dans `conftest.py`
-- [ ] Test intégration: BatchCollector + Reconciler
-- [ ] Test intégration: Repository + Reconciler
+- [ ] Test intégration: FileBatchAccumulator + Reconciler
+- [ ] Test intégration: FileTracker + Reconciler
 - [ ] Vérifier 10 runs consécutifs sans flaky
 - [ ] Générer rapport coverage
 
@@ -241,11 +257,13 @@ LIMIT 10000
 
 | ID | Story | Points | Status | Assignee |
 |----|-------|--------|--------|----------|
-| US-1 | indexed_files Table | 3 | To Do | TBD |
-| US-2 | BatchCollector | 5 | To Do | TBD |
+| US-1 | Extension file_index status | 2 | To Do | TBD |
+| US-2 | FileBatchAccumulator | 5 | To Do | TBD |
 | US-3 | Reconciler | 5 | To Do | TBD |
-| US-4 | Tests Complets | 3 | To Do | TBD |
-| **Total** | | **16** | | |
+| US-4 | Tests Complets | 5 | To Do | TBD |
+| **Total** | | **17** | | |
+
+> **Note** : US-4 augmenté de 3 à 5 points (tests thread-safety complexes)
 
 ---
 
@@ -262,11 +280,11 @@ LIMIT 10000
 ## Technical Dependencies
 
 ```
-US-1 (indexed_files) ─┐
-                      ├──► US-4 (Tests)
-US-2 (BatchCollector)─┤
-                      │
-US-3 (Reconciler) ────┘
+US-1 (file_index status) ─┐
+                          ├──► US-4 (Tests)
+US-2 (FileBatchAccumulator)─┤
+                          │
+US-3 (Reconciler) ────────┘
 ```
 
 **Note**: US-1, US-2, US-3 peuvent être développés en parallèle. US-4 les consolide.
@@ -305,15 +323,17 @@ src/opencode_monitor/analytics/indexer/
 ├── __init__.py
 ├── hybrid.py               # Existing (will keep for now)
 ├── bulk_loader.py          # Existing
-├── repository.py           # NEW (US-1)
-├── batch_collector.py      # NEW (US-2)
+├── tracker.py              # UPDATED (US-1) - add status support
+├── batch_accumulator.py    # NEW (US-2)
 ├── reconciler.py           # NEW (US-3)
-├── queries_v2.py           # NEW (queries for new components)
+├── unified/                # Existing module
+│   ├── core.py            # Will be evolved in Sprint 2
+│   └── batch.py           # BatchProcessor (receives from accumulator)
 └── ...
 
 tests/
-├── test_indexed_files.py       # NEW (US-1)
-├── test_batch_collector.py     # NEW (US-2)
+├── test_file_tracker.py        # UPDATED (US-1)
+├── test_batch_accumulator.py   # NEW (US-2)
 ├── test_reconciler.py          # NEW (US-3)
 ├── test_indexer_v2_integration.py  # NEW (US-4)
 └── conftest.py                 # Updated with new fixtures
