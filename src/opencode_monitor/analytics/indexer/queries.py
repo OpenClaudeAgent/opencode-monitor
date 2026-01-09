@@ -105,11 +105,12 @@ FROM read_json_auto('{path}/**/*.json',
 # which returns NULL for any parsing errors, effectively skipping corrupted files.
 # NOTE: state.metadata.sessionId is extracted for task delegations to link child sessions.
 # Plan 34: Enriched columns added - reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name
+# Plan 45+: Added file_url for complete file part data
 LOAD_PARTS_SQL = """
 INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
     call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id,
-    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name,
+    reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name, file_url,
     result_summary, cost, tokens_input, tokens_output, tokens_reasoning, 
     tokens_cache_read, tokens_cache_write, tool_title
 )
@@ -157,6 +158,9 @@ SELECT
     -- file_name: extract filename when type='file'
     CASE WHEN json_extract_string(j, '$.type') = 'file' 
          THEN json_extract_string(j, '$.filename') ELSE NULL END as file_name,
+    -- file_url: extract base64 data URL when type='file'
+    CASE WHEN json_extract_string(j, '$.type') = 'file' 
+         THEN json_extract_string(j, '$.url') ELSE NULL END as file_url,
     -- Plan 45: result_summary - FULL tool output, NO TRUNCATION
     CAST(json_extract(j, '$.state.output') AS VARCHAR) as result_summary,
     -- Plan 45+: Additional data completeness fields

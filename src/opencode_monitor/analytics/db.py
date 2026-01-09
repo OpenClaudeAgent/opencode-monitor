@@ -662,6 +662,7 @@ class AnalyticsDB:
         add_column("parts", "compaction_auto", "BOOLEAN")  # Auto vs manual compaction
         add_column("parts", "file_mime", "VARCHAR")  # MIME type for file parts
         add_column("parts", "file_name", "VARCHAR")  # Filename for file parts
+        add_column("parts", "file_url", "TEXT")  # Base64 data URL for file parts
 
         # Parts - additional data completeness columns (Plan 45+)
         add_column("parts", "cost", "DECIMAL(10,6)")  # Cost per part
