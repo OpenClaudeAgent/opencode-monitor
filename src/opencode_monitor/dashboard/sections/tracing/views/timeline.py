@@ -21,6 +21,8 @@ from PyQt6.QtGui import QColor
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 
 from ..helpers import format_duration
+from ..enriched_helpers import get_tool_display_label, build_tool_tooltip
+from ..enriched_widgets import AgentBadge, ErrorIndicator
 
 
 # Event type configuration: (icon, border_color, bg_color_key)
@@ -116,6 +118,23 @@ class TimelineEventWidget(QFrame):
         """)
         header_row.addWidget(type_label)
 
+        # Agent badge (for message events)
+        agent = self._event.get("agent")
+        if agent and event_type in (
+            "user_prompt",
+            "assistant_response",
+            "reasoning",
+        ):
+            self._agent_badge = AgentBadge(agent)
+            header_row.addWidget(self._agent_badge)
+
+        # Error indicator (for any event with error)
+        error_info = self._event.get("error")
+        if error_info:
+            self._error_indicator = ErrorIndicator()
+            self._error_indicator.set_error(error_info)
+            header_row.addWidget(self._error_indicator)
+
         header_row.addStretch()
 
         # Timestamp
@@ -168,6 +187,12 @@ class TimelineEventWidget(QFrame):
                 """)
                 layout.addWidget(tokens_label)
 
+        # Setup enriched tooltip for tool events
+        if event_type == "tool_call":
+            tooltip = build_tool_tooltip(self._event)
+            if tooltip:
+                self.setToolTip(tooltip)
+
     def _format_type_label(self, event_type: str) -> str:
         """Format event type for display."""
         labels = {
@@ -210,14 +235,14 @@ class TimelineEventWidget(QFrame):
             return self._truncate(text, 80)
 
         elif event_type == "tool_call":
-            tool_name = event_data.get("tool_name", "") or self._event.get(
-                "tool_name", ""
-            )
+            # Use enriched title if available, fallback to tool_name
+            label = get_tool_display_label(self._event)
+
             status = event_data.get("status", "") or self._event.get("status", "")
             status_icon = (
                 "" if status == "completed" else "" if status == "error" else ""
             )
-            return f"{tool_name} {status_icon}"
+            return f"{label} {status_icon}"
 
         elif event_type == "assistant_response":
             content = event_data.get("content", "") or self._event.get("content", "")
