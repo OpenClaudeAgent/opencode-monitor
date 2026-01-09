@@ -408,10 +408,11 @@ class SessionQueriesMixin:
         try:
             events = []
 
-            # Get messages
+            # Get messages with enhanced fields
             msg_results = self._conn.execute(
                 """
-                SELECT id, role, created_at, tokens_input, tokens_output
+                SELECT id, role, created_at, tokens_input, tokens_output,
+                       error_name, error_data, root_path, summary_title, agent
                 FROM messages
                 WHERE session_id = ?
                 ORDER BY created_at ASC
@@ -420,21 +421,33 @@ class SessionQueriesMixin:
             ).fetchall()
 
             for row in msg_results:
-                events.append(
-                    {
-                        "type": "message",
-                        "id": row[0],
-                        "role": row[1],
-                        "timestamp": row[2].isoformat() if row[2] else None,
-                        "tokens_in": row[3] or 0,
-                        "tokens_out": row[4] or 0,
+                msg_event = {
+                    "type": "message",
+                    "id": row[0],
+                    "role": row[1],
+                    "timestamp": row[2].isoformat() if row[2] else None,
+                    "tokens_in": row[3] or 0,
+                    "tokens_out": row[4] or 0,
+                }
+                # Add enhanced fields if present
+                if row[5]:  # error_name
+                    msg_event["error"] = {
+                        "name": row[5],
+                        "data": row[6],
                     }
-                )
+                if row[7]:  # root_path
+                    msg_event["root_path"] = row[7]
+                if row[8]:  # summary_title
+                    msg_event["summary_title"] = row[8]
+                if row[9]:  # agent
+                    msg_event["agent"] = row[9]
+                events.append(msg_event)
 
-            # Get tool calls
+            # Get tool calls with enhanced fields
             tool_results = self._conn.execute(
                 """
-                SELECT id, tool_name, tool_status, created_at, duration_ms
+                SELECT id, tool_name, tool_status, created_at, duration_ms,
+                       tool_title, result_summary, cost, tokens_input, tokens_output
                 FROM parts
                 WHERE session_id = ? AND tool_name IS NOT NULL
                 ORDER BY created_at ASC
@@ -443,16 +456,27 @@ class SessionQueriesMixin:
             ).fetchall()
 
             for row in tool_results:
-                events.append(
-                    {
-                        "type": "tool",
-                        "id": row[0],
-                        "tool_name": row[1],
-                        "status": row[2],
-                        "timestamp": row[3].isoformat() if row[3] else None,
-                        "duration_ms": row[4] or 0,
+                tool_event = {
+                    "type": "tool",
+                    "id": row[0],
+                    "tool_name": row[1],
+                    "status": row[2],
+                    "timestamp": row[3].isoformat() if row[3] else None,
+                    "duration_ms": row[4] or 0,
+                }
+                # Add enhanced fields if present
+                if row[5]:
+                    tool_event["title"] = row[5]
+                if row[6]:
+                    tool_event["result_summary"] = row[6]
+                if row[7]:
+                    tool_event["cost"] = float(row[7])
+                if row[8] or row[9]:
+                    tool_event["tokens"] = {
+                        "input": row[8] or 0,
+                        "output": row[9] or 0,
                     }
-                )
+                events.append(tool_event)
 
             # Sort by timestamp
             events.sort(key=lambda e: e.get("timestamp") or "")
