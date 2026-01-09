@@ -525,3 +525,70 @@ class TestThreadSafety:
             assert isinstance(missing, list)
         finally:
             rec.stop()
+
+
+# =============================================================================
+# Test: performance
+# =============================================================================
+
+
+class TestPerformance:
+    """Performance tests for Reconciler scan operations."""
+
+    def test_performance_1k_files(
+        self,
+        tmp_path: Path,
+    ):
+        """Scan of 1000 files should complete in < 1 second.
+
+        This validates that the DuckDB glob() approach with SQL-based
+        mtime comparison is efficient enough for large file counts.
+        Target: < 1s for 1000 files (extrapolates to ~10s for 100k).
+        """
+        # Setup: create storage and DB
+        storage = tmp_path / "storage"
+        storage.mkdir()
+        db_path = tmp_path / "perf.duckdb"
+        db = AnalyticsDB(db_path)
+        db.connect()
+
+        # Create FileTracker to ensure file_index table exists
+        tracker = FileTracker(db)
+
+        # Create 1000 files across 100 subdirectories
+        num_files = 1000
+        num_dirs = 100
+        for i in range(num_files):
+            subdir = storage / f"project_{i % num_dirs}"
+            subdir.mkdir(exist_ok=True)
+            (subdir / f"session_{i}.json").write_text('{"id": "test"}')
+
+        # Index half of the files (to test both new and modified detection)
+        for i in range(0, num_files, 2):
+            subdir = storage / f"project_{i % num_dirs}"
+            file_path = subdir / f"session_{i}.json"
+            tracker.mark_indexed(file_path, "session", record_id=f"sess-{i}")
+
+        # Create reconciler
+        callback = Mock()
+        config = ReconcilerConfig(interval_seconds=30, max_files_per_scan=2000)
+        rec = Reconciler(storage, db, config, callback)
+
+        try:
+            # Measure scan time
+            start = time.time()
+            missing = rec.scan_now()
+            duration = time.time() - start
+
+            # Assertions
+            assert duration < 1.0, f"Scan took {duration:.2f}s, expected < 1s"
+            assert len(missing) == 500, (
+                f"Expected 500 unindexed files, got {len(missing)}"
+            )
+
+            # Verify stats
+            stats = rec.get_stats()
+            assert stats.last_scan_duration_ms < 1000
+        finally:
+            rec.stop()
+            db.close()
