@@ -15,7 +15,7 @@ This package provides:
 - get_stylesheet: QSS stylesheet generator
 """
 
-from .colors import COLORS
+from .colors import COLORS, AGENT_COLORS
 from .dimensions import SPACING, RADIUS, FONTS, UI, COL_WIDTH, ICONS
 from .utils import format_tokens, format_duration_ms
 from .stylesheet import get_stylesheet
@@ -23,6 +23,7 @@ from .stylesheet import get_stylesheet
 __all__ = [
     # Colors
     "COLORS",
+    "AGENT_COLORS",
     # Dimensions
     "SPACING",
     "RADIUS",

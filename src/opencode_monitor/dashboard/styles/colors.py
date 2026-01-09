@@ -93,3 +93,14 @@ COLORS = {
     "agent_researcher": "#3b82f6",  # Blue - researcher
     "agent_default": "#94a3b8",  # Slate 400 - unknown
 }
+
+# Agent colors for badges (text_color, bg_color)
+AGENT_COLORS = {
+    "main": ("#3b82f6", "rgba(59, 130, 246, 0.15)"),  # Blue
+    "executor": ("#22c55e", "rgba(34, 197, 94, 0.15)"),  # Green
+    "tea": ("#f59e0b", "rgba(245, 158, 11, 0.15)"),  # Amber
+    "subagent": ("#a855f7", "rgba(168, 85, 247, 0.15)"),  # Violet
+    "coder": ("#22c55e", "rgba(34, 197, 94, 0.15)"),  # Green
+    "analyst": ("#3b82f6", "rgba(59, 130, 246, 0.15)"),  # Blue
+    "default": ("#6b7280", "rgba(107, 114, 128, 0.15)"),  # Gray
+}
