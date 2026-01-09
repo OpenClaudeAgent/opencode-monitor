@@ -30,6 +30,7 @@ class FileInfo:
     record_id: Optional[str] = None
     indexed_at: Optional[datetime] = None
     error_message: Optional[str] = None
+    status: str = "indexed"  # indexed, error, pending
 
 
 class FileTracker:
@@ -59,9 +60,25 @@ class FileTracker:
                 size INTEGER NOT NULL,
                 record_id VARCHAR,
                 indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                error_message VARCHAR
+                error_message VARCHAR,
+                status VARCHAR DEFAULT 'indexed'
             )
         """)
+
+        # Migration: add status column to existing tables (US-1)
+        try:
+            result = conn.execute(
+                "SELECT * FROM information_schema.columns "
+                "WHERE table_name = 'file_index' AND column_name = 'status'"
+            ).fetchone()
+            if result is None:
+                conn.execute(
+                    "ALTER TABLE file_index ADD COLUMN status VARCHAR DEFAULT 'indexed'"
+                )
+                debug("[FileTracker] Added status column via migration")
+        except Exception:
+            pass  # Column already exists or table doesn't exist yet
+
         # Indexes for efficient queries
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_file_index_type
@@ -70,6 +87,11 @@ class FileTracker:
         conn.execute("""
             CREATE INDEX IF NOT EXISTS idx_file_index_mtime
             ON file_index(mtime DESC)
+        """)
+        # Index for status queries (US-1: reconciliation support)
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_file_index_status
+            ON file_index(status)
         """)
         debug("[FileTracker] file_index table ensured")
 
@@ -126,7 +148,7 @@ class FileTracker:
         conn = self._db.connect()
         result = conn.execute(
             """
-            SELECT file_path, file_type, mtime, size, record_id, indexed_at, error_message
+            SELECT file_path, file_type, mtime, size, record_id, indexed_at, error_message, status
             FROM file_index WHERE file_path = ?
             """,
             [str(path)],
@@ -143,6 +165,7 @@ class FileTracker:
             record_id=result[4],
             indexed_at=result[5],
             error_message=result[6],
+            status=result[7] or "indexed",
         )
 
     def mark_indexed(
@@ -168,27 +191,60 @@ class FileTracker:
             return
 
         conn = self._db.connect()
+        now = datetime.now()
         conn.execute(
             """
-            INSERT OR REPLACE INTO file_index
-            (file_path, file_type, mtime, size, record_id, indexed_at, error_message)
-            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ?)
+            INSERT INTO file_index
+            (file_path, file_type, mtime, size, record_id, indexed_at, error_message, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 'indexed')
+            ON CONFLICT (file_path) DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                mtime = EXCLUDED.mtime,
+                size = EXCLUDED.size,
+                record_id = EXCLUDED.record_id,
+                indexed_at = EXCLUDED.indexed_at,
+                error_message = EXCLUDED.error_message,
+                status = 'indexed'
             """,
-            [str(path), file_type, mtime, size, record_id, error_message],
+            [str(path), file_type, mtime, size, record_id, now, error_message],
         )
 
     def mark_error(self, path: Path, file_type: str, error: str) -> None:
         """Mark a file as having an indexing error.
 
         The file's mtime/size are still stored so we don't retry unchanged
-        files that consistently fail.
+        files that consistently fail. Sets status='error'.
 
         Args:
             path: Path to the file
             file_type: Type of file
             error: Error message describing the failure
         """
-        self.mark_indexed(path, file_type, record_id=None, error_message=error)
+        try:
+            stat = path.stat()
+            mtime = stat.st_mtime
+            size = stat.st_size
+        except OSError:
+            return
+
+        conn = self._db.connect()
+        now = datetime.now()
+        conn.execute(
+            """
+            INSERT INTO file_index
+            (file_path, file_type, mtime, size, record_id, indexed_at, error_message, status)
+            VALUES (?, ?, ?, ?, NULL, ?, ?, 'error')
+            ON CONFLICT (file_path) DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                mtime = EXCLUDED.mtime,
+                size = EXCLUDED.size,
+                record_id = NULL,
+                indexed_at = EXCLUDED.indexed_at,
+                error_message = EXCLUDED.error_message,
+                status = 'error'
+            """,
+            [str(path), file_type, mtime, size, now, error],
+        )
 
     def mark_indexed_batch(
         self,
@@ -197,6 +253,7 @@ class FileTracker:
         """Mark multiple files as indexed in a single batch INSERT.
 
         Much faster than individual mark_indexed calls for large batches.
+        Sets status='indexed' for all files.
 
         Args:
             items: List of (path, file_type, record_id) tuples
@@ -219,6 +276,7 @@ class FileTracker:
                         stat.st_size,
                         record_id,
                         None,  # error_message
+                        "indexed",  # status
                     )
                 )
             except OSError:
@@ -230,9 +288,71 @@ class FileTracker:
         conn = self._db.connect()
         conn.executemany(
             """
-            INSERT OR REPLACE INTO file_index
-            (file_path, file_type, mtime, size, record_id, error_message)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO file_index
+            (file_path, file_type, mtime, size, record_id, error_message, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (file_path) DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                mtime = EXCLUDED.mtime,
+                size = EXCLUDED.size,
+                record_id = EXCLUDED.record_id,
+                error_message = EXCLUDED.error_message,
+                status = EXCLUDED.status
+            """,
+            records,
+        )
+        return len(records)
+
+    def mark_pending(self, paths: list[Path], file_type: str) -> int:
+        """Mark multiple files as pending processing.
+
+        Used for reconciliation to mark files that need to be processed.
+        Sets status='pending' for all specified files.
+
+        Args:
+            paths: List of file paths to mark as pending
+            file_type: Type of files (session, message, part, todo, project)
+
+        Returns:
+            Number of files successfully marked as pending
+        """
+        if not paths:
+            return 0
+
+        records = []
+        for path in paths:
+            try:
+                stat = path.stat()
+                records.append(
+                    (
+                        str(path),
+                        file_type,
+                        stat.st_mtime,
+                        stat.st_size,
+                        None,  # record_id (not yet processed)
+                        None,  # error_message
+                        "pending",  # status
+                    )
+                )
+            except OSError:
+                continue
+
+        if not records:
+            return 0
+
+        conn = self._db.connect()
+        conn.executemany(
+            """
+            INSERT INTO file_index
+            (file_path, file_type, mtime, size, record_id, error_message, status)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (file_path) DO UPDATE SET
+                file_type = EXCLUDED.file_type,
+                mtime = EXCLUDED.mtime,
+                size = EXCLUDED.size,
+                record_id = EXCLUDED.record_id,
+                error_message = EXCLUDED.error_message,
+                status = EXCLUDED.status
             """,
             records,
         )
