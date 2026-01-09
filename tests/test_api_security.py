@@ -65,6 +65,8 @@ def mock_auditor():
         mock.risk_level = risk_level
         mock.risk_score = risk_score
         mock.risk_reason = risk_reason
+        mock.scope_verdict = "in_scope"
+        mock.scope_resolved_path = path
         return mock
 
     def make_webfetch(url, risk_level, risk_score, risk_reason):

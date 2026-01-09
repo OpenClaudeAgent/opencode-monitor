@@ -298,6 +298,7 @@ class SessionQueriesMixin:
         - User prompts
         - Assistant responses
         - Tool calls (without content, just metadata)
+        - Error information (if message failed)
 
         Args:
             session_id: The session ID to query
@@ -318,7 +319,11 @@ class SessionQueriesMixin:
                     p.tool_status,
                     COALESCE(p.created_at, m.created_at) as created_at,
                     m.tokens_input,
-                    m.tokens_output
+                    m.tokens_output,
+                    m.error_name,
+                    m.error_data,
+                    m.root_path,
+                    m.summary_title
                 FROM messages m
                 LEFT JOIN parts p ON p.message_id = m.id
                 WHERE m.session_id = ?
@@ -341,6 +346,10 @@ class SessionQueriesMixin:
                 created_at = row[7]
                 tokens_in = row[8] or 0
                 tokens_out = row[9] or 0
+                error_name = row[10]
+                error_data = row[11]
+                root_path = row[12]
+                summary_title = row[13]
 
                 # Skip duplicate message entries (one message can have multiple parts)
                 entry_key = f"{msg_id}_{part_type}_{tool_name or ''}"
@@ -357,6 +366,21 @@ class SessionQueriesMixin:
                     "tokens_in": tokens_in,
                     "tokens_out": tokens_out,
                 }
+
+                # Add summary_title if present (the "hook" - auto-generated title)
+                if summary_title:
+                    msg["summary_title"] = summary_title
+
+                # Add root_path if present
+                if root_path:
+                    msg["root_path"] = root_path
+
+                # Add error info if present
+                if error_name:
+                    msg["error"] = {
+                        "name": error_name,
+                        "data": error_data,
+                    }
 
                 if part_type == "text" and content:
                     msg["content"] = content
@@ -472,7 +496,12 @@ class SessionQueriesMixin:
                     p.content,
                     p.arguments,
                     p.created_at,
-                    p.duration_ms
+                    p.duration_ms,
+                    p.tool_title,
+                    p.result_summary,
+                    p.cost,
+                    p.tokens_input,
+                    p.tokens_output
                 FROM parts p
                 WHERE p.session_id = ? 
                   AND p.tool_name IS NOT NULL
@@ -492,16 +521,33 @@ class SessionQueriesMixin:
                     tool_name, content, arguments
                 )
 
-                operations.append(
-                    {
-                        "id": row[0],
-                        "tool_name": tool_name,
-                        "status": row[2] or "completed",
-                        "display_info": display_info,
-                        "timestamp": row[5].isoformat() if row[5] else None,
-                        "duration_ms": row[6] or 0,
+                op = {
+                    "id": row[0],
+                    "tool_name": tool_name,
+                    "status": row[2] or "completed",
+                    "display_info": display_info,
+                    "timestamp": row[5].isoformat() if row[5] else None,
+                    "duration_ms": row[6] or 0,
+                }
+
+                # Add tool_title if present (human-readable title from state.title)
+                if row[7]:
+                    op["title"] = row[7]
+
+                # Add result_summary if present (full tool output)
+                if row[8]:
+                    op["result_summary"] = row[8]
+
+                # Add cost and tokens if present
+                if row[9]:
+                    op["cost"] = float(row[9])
+                if row[10] or row[11]:
+                    op["tokens"] = {
+                        "input": row[10] or 0,
+                        "output": row[11] or 0,
                     }
-                )
+
+                operations.append(op)
 
             return operations
 
@@ -747,6 +793,83 @@ class SessionQueriesMixin:
                 "meta": {"session_id": session_id, "commits": 0, "error": str(e)},
                 "summary": {"total_commits": 0, "unique_files": 0, "files_list": []},
                 "details": [],
+            }
+
+    def get_session_file_parts(self, session_id: str) -> dict:
+        """Get file parts (images, attachments) for a session.
+
+        Returns file parts with their base64 data URLs, mime types, and filenames.
+        These are typically screenshots or images pasted by the user.
+
+        Args:
+            session_id: The session ID to query
+
+        Returns:
+            Dict with meta, summary, and file parts details
+        """
+        try:
+            results = self._conn.execute(
+                """
+                SELECT 
+                    id,
+                    message_id,
+                    file_name,
+                    file_mime,
+                    file_url,
+                    created_at
+                FROM parts
+                WHERE session_id = ?
+                  AND part_type = 'file'
+                ORDER BY created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            files = []
+            for row in results:
+                file_entry = {
+                    "id": row[0],
+                    "message_id": row[1],
+                    "filename": row[2] or "unknown",
+                    "mime_type": row[3] or "application/octet-stream",
+                    "timestamp": row[5].isoformat() if row[5] else None,
+                }
+
+                # Include data URL if present
+                if row[4]:
+                    file_entry["data_url"] = row[4]
+                    # Calculate approximate size from base64 length
+                    file_entry["size_bytes"] = int(len(row[4]) * 0.75)
+
+                files.append(file_entry)
+
+            # Group by mime type for summary
+            mime_counts: dict = {}
+            for f in files:
+                mime = f["mime_type"]
+                mime_counts[mime] = mime_counts.get(mime, 0) + 1
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                },
+                "summary": {
+                    "total_files": len(files),
+                    "by_mime_type": [
+                        {"mime_type": k, "count": v}
+                        for k, v in sorted(mime_counts.items(), key=lambda x: -x[1])
+                    ],
+                },
+                "files": files,
+            }
+
+        except Exception as e:
+            debug(f"get_session_file_parts failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "error": str(e)},
+                "summary": {"total_files": 0, "by_mime_type": []},
+                "files": [],
             }
 
     def get_session_precise_cost(self, session_id: str) -> dict:
@@ -1110,7 +1233,8 @@ class SessionQueriesMixin:
                 p.id, p.part_type, p.content, p.tool_name, p.tool_status,
                 p.arguments, p.result_summary, p.reasoning_text,
                 p.anthropic_signature, p.duration_ms, p.created_at,
-                m.role
+                m.role,
+                p.file_name, p.file_mime, p.file_url, p.tool_title
             FROM parts p
             LEFT JOIN messages m ON p.message_id = m.id
             WHERE p.session_id = ?
@@ -1154,18 +1278,33 @@ class SessionQueriesMixin:
                     }
                 )
             elif part_type == "tool":
-                timeline.append(
-                    {
-                        "type": "tool_call",
-                        "exchange_number": exchange_num,
-                        "timestamp": part[10].isoformat() if part[10] else None,
-                        "tool_name": part[3] or "",
-                        "status": part[4] or "completed",
-                        "arguments": part[5],
-                        "result_summary": part[6] or "",
-                        "duration_ms": part[9] or 0,
-                    }
-                )
+                tool_event = {
+                    "type": "tool_call",
+                    "exchange_number": exchange_num,
+                    "timestamp": part[10].isoformat() if part[10] else None,
+                    "tool_name": part[3] or "",
+                    "status": part[4] or "completed",
+                    "arguments": part[5],
+                    "result_summary": part[6] or "",
+                    "duration_ms": part[9] or 0,
+                }
+                # Add tool_title if present
+                if part[15]:
+                    tool_event["title"] = part[15]
+                timeline.append(tool_event)
+            elif part_type == "file":
+                # File attachment (image, screenshot, etc.)
+                file_event = {
+                    "type": "file_attachment",
+                    "exchange_number": exchange_num,
+                    "timestamp": part[10].isoformat() if part[10] else None,
+                    "filename": part[12] or "unknown",
+                    "mime_type": part[13] or "application/octet-stream",
+                }
+                # Include data URL if present
+                if part[14]:
+                    file_event["data_url"] = part[14]
+                timeline.append(file_event)
             elif part_type == "text" and role == "assistant":
                 timeline.append(
                     {

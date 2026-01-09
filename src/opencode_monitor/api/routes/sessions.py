@@ -218,6 +218,23 @@ def get_session_git_history(session_id: str):
         return jsonify({"success": False, "error": str(e)}), 500
 
 
+@sessions_bp.route("/api/session/<session_id>/file-parts", methods=["GET"])
+def get_session_file_parts(session_id: str):
+    """Get session file parts (images, attachments).
+
+    Returns file parts with their base64 data URLs, mime types,
+    and filenames. Typically screenshots or pasted images.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_session_file_parts(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting session file parts: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500
+
+
 @sessions_bp.route("/api/session/<session_id>/precise-cost", methods=["GET"])
 def get_session_precise_cost(session_id: str):
     """Get session cost calculated from step-finish events.
