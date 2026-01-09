@@ -488,6 +488,15 @@ class TestErrorResponseFormat:
             "/api/session/test/timeline",
             "/api/session/test/prompts",
             "/api/session/test/messages",
+            # Plan 34: Enriched Parts Endpoints
+            "/api/session/test/reasoning",
+            "/api/session/test/steps",
+            "/api/session/test/git-history",
+            "/api/session/test/file-parts",
+            "/api/session/test/precise-cost",
+            # Plan 45: Timeline & Aggregation Endpoints
+            "/api/session/test/exchanges",
+            "/api/session/test/delegations",
         ],
     )
     def test_all_endpoints_return_consistent_error_format(self, client, endpoint):
