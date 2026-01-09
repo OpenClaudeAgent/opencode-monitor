@@ -203,3 +203,288 @@ class TestImagePreviewDialog:
 
         # Dialog should be closed (or closing)
         assert not dialog.isVisible()
+
+    def test_dialog_with_invalid_image(self, qtbot):
+        """Dialog should handle invalid image data gracefully."""
+        from opencode_monitor.dashboard.sections.tracing.image_widgets import (
+            ImagePreviewDialog,
+        )
+
+        # Invalid base64 that will fail to decode as image
+        invalid_data_url = "data:image/png;base64,invaliddata"
+        dialog = ImagePreviewDialog(invalid_data_url)
+        qtbot.addWidget(dialog)
+
+        # Dialog should still be created without crashing
+        assert dialog is not None
+
+    def test_dialog_with_large_image(self, qtbot):
+        """Dialog should scale large images to fit MAX_SIZE."""
+        from opencode_monitor.dashboard.sections.tracing.image_widgets import (
+            ImagePreviewDialog,
+        )
+        from PyQt6.QtGui import QImage, QPixmap
+        from PyQt6.QtCore import QBuffer, QIODevice, QByteArray
+        import base64
+
+        # Create a large image (1000x1000)
+        large_image = QImage(1000, 1000, QImage.Format.Format_RGB32)
+        large_image.fill(0xFF0000)  # Red
+
+        # Convert to PNG base64
+        buffer = QBuffer()
+        buffer.open(QIODevice.OpenModeFlag.WriteOnly)
+        large_image.save(buffer, "PNG")
+        buffer.close()
+
+        b64_data = base64.b64encode(buffer.data().data()).decode()
+        large_data_url = f"data:image/png;base64,{b64_data}"
+
+        dialog = ImagePreviewDialog(large_data_url)
+        qtbot.addWidget(dialog)
+
+        # Dialog should be created and scaled down
+        assert dialog is not None
+        # Dialog dimensions should be limited by MAX_SIZE
+        assert dialog.width() <= 820  # 800 + margin
+        assert dialog.height() <= 620  # 600 + margin
+
+
+class TestImageThumbnailErrorHandling:
+    """Tests for error handling in ImageThumbnail."""
+
+    def test_corrupted_base64_hides_widget(self, qtbot):
+        """Widget should hide on corrupted base64 data."""
+        from opencode_monitor.dashboard.sections.tracing.image_widgets import (
+            ImageThumbnail,
+        )
+
+        thumb = ImageThumbnail()
+        qtbot.addWidget(thumb)
+
+        # Valid format but invalid base64 that causes decode error
+        corrupted_url = "data:image/png;base64,not_valid_base64_!!!"
+        thumb.set_image_url(corrupted_url)
+
+        assert not thumb.isVisible()
+
+    def test_valid_base64_invalid_image_hides_widget(self, qtbot):
+        """Widget should hide when base64 decodes but isn't a valid image."""
+        from opencode_monitor.dashboard.sections.tracing.image_widgets import (
+            ImageThumbnail,
+        )
+        import base64
+
+        thumb = ImageThumbnail()
+        qtbot.addWidget(thumb)
+
+        # Valid base64 of text, not an image
+        text_data = base64.b64encode(b"This is not an image").decode()
+        invalid_image_url = f"data:image/png;base64,{text_data}"
+        thumb.set_image_url(invalid_image_url)
+
+        assert not thumb.isVisible()
+
+    def test_click_without_data_url_does_nothing(self, qtbot):
+        """Click on empty thumbnail should not emit signal."""
+        from opencode_monitor.dashboard.sections.tracing.image_widgets import (
+            ImageThumbnail,
+        )
+
+        thumb = ImageThumbnail()
+        qtbot.addWidget(thumb)
+
+        # Don't set any image
+        signals_emitted = []
+        thumb.clicked.connect(lambda url: signals_emitted.append(url))
+
+        # Simulate click (though widget is hidden)
+        thumb.show()
+        qtbot.mouseClick(thumb, Qt.MouseButton.LeftButton)
+
+        # No signal should be emitted (no data_url set)
+        assert len(signals_emitted) == 0
+
+
+class TestThumbnailCacheAdvanced:
+    """Advanced tests for ThumbnailCache functionality."""
+
+    def test_get_thumbnail_cache_returns_singleton(self):
+        """get_thumbnail_cache should return same instance."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            get_thumbnail_cache,
+        )
+
+        cache1 = get_thumbnail_cache()
+        cache2 = get_thumbnail_cache()
+
+        assert cache1 is cache2
+
+    def test_cache_evicts_oldest_when_full(self):
+        """Cache should evict oldest entries when MAX_CACHE_SIZE exceeded."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailCache,
+        )
+        from PyQt6.QtGui import QPixmap
+
+        cache = ThumbnailCache()
+        original_max = cache.MAX_CACHE_SIZE
+        cache.MAX_CACHE_SIZE = 3  # Small limit for testing
+
+        try:
+            # Add 3 items (at capacity)
+            for i in range(3):
+                cache._cache[f"key_{i}"] = QPixmap(10, 10)
+
+            assert len(cache._cache) == 3
+            assert "key_0" in cache._cache
+
+            # Simulate _on_decoded adding a 4th item
+            new_pixmap = QPixmap(10, 10)
+            cache._on_decoded("key_3", new_pixmap)
+
+            # Should have evicted oldest (key_0)
+            assert len(cache._cache) == 3
+            assert "key_0" not in cache._cache
+            assert "key_3" in cache._cache
+        finally:
+            cache.MAX_CACHE_SIZE = original_max
+
+    def test_on_decoded_emits_signal(self):
+        """_on_decoded should emit thumbnail_ready signal."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailCache,
+        )
+        from PyQt6.QtGui import QPixmap
+
+        cache = ThumbnailCache()
+
+        received = []
+        cache.thumbnail_ready.connect(lambda key, pix: received.append((key, pix)))
+
+        test_pixmap = QPixmap(10, 10)
+        cache._on_decoded("test_key", test_pixmap)
+
+        assert len(received) == 1
+        assert received[0][0] == "test_key"
+
+    def test_on_decoded_handles_null_pixmap(self):
+        """_on_decoded should handle null pixmap gracefully."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailCache,
+        )
+        from PyQt6.QtGui import QPixmap
+
+        cache = ThumbnailCache()
+        null_pixmap = QPixmap()  # Null pixmap
+
+        # Should not crash
+        cache._on_decoded("null_key", null_pixmap)
+
+        # Should not be cached
+        assert "null_key" not in cache._cache
+
+    def test_make_key_handles_empty_data_url(self):
+        """_make_key should handle empty/None data URLs."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailCache,
+        )
+
+        cache = ThumbnailCache()
+
+        key1 = cache._make_key("", (48, 48))
+        key2 = cache._make_key("", (48, 48))
+
+        # Same empty URL should produce same key
+        assert key1 == key2
+
+    def test_request_thumbnail_skips_if_already_cached(self):
+        """request_thumbnail should emit immediately if already cached."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailCache,
+        )
+        from PyQt6.QtGui import QPixmap
+
+        cache = ThumbnailCache()
+
+        # Pre-cache the thumbnail
+        cache_key = cache._make_key(VALID_PNG_DATA_URL, (48, 48))
+        cached_pixmap = QPixmap(48, 48)
+        cache._cache[cache_key] = cached_pixmap
+
+        received = []
+        cache.thumbnail_ready.connect(lambda key, pix: received.append((key, pix)))
+
+        # Request should emit immediately
+        cache.request_thumbnail(VALID_PNG_DATA_URL)
+
+        assert len(received) == 1
+        assert received[0][0] == cache_key
+
+
+class TestThumbnailWorker:
+    """Tests for ThumbnailWorker thread."""
+
+    def test_worker_stop(self):
+        """Worker stop() should set _running to False."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailWorker,
+        )
+
+        worker = ThumbnailWorker()
+        assert worker._running is True
+
+        worker.stop()
+        assert worker._running is False
+
+    def test_worker_add_task(self):
+        """add_task should add to task queue."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailWorker,
+        )
+
+        worker = ThumbnailWorker()
+        assert len(worker._tasks) == 0
+
+        worker.add_task("key1", VALID_PNG_DATA_URL, (48, 48))
+
+        assert len(worker._tasks) == 1
+        assert worker._tasks[0][0] == "key1"
+
+    def test_worker_decode_thumbnail_valid(self, qtbot):
+        """_decode_thumbnail should decode valid PNG (needs Qt context)."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailWorker,
+        )
+        from PyQt6.QtWidgets import QWidget
+
+        # Create a widget to ensure Qt context
+        widget = QWidget()
+        qtbot.addWidget(widget)
+
+        worker = ThumbnailWorker()
+        pixmap = worker._decode_thumbnail(VALID_PNG_DATA_URL, (48, 48))
+
+        assert not pixmap.isNull()
+
+    def test_worker_decode_thumbnail_invalid(self, qtbot):
+        """_decode_thumbnail should return null pixmap for invalid data."""
+        from opencode_monitor.dashboard.sections.tracing.image_cache import (
+            ThumbnailWorker,
+        )
+        from PyQt6.QtWidgets import QWidget
+        import base64
+
+        # Create a widget to ensure Qt context
+        widget = QWidget()
+        qtbot.addWidget(widget)
+
+        worker = ThumbnailWorker()
+
+        # Valid base64 but not an image
+        text_data = base64.b64encode(b"not an image").decode()
+        invalid_url = f"data:image/png;base64,{text_data}"
+
+        pixmap = worker._decode_thumbnail(invalid_url, (48, 48))
+
+        assert pixmap.isNull()
