@@ -26,6 +26,7 @@ Usage:
 
 from .session import SessionBuilder
 from .message import MessageBuilder
+from .part import PartBuilder
 from .tracing import TraceBuilder
 
-__all__ = ["SessionBuilder", "MessageBuilder", "TraceBuilder"]
+__all__ = ["SessionBuilder", "MessageBuilder", "PartBuilder", "TraceBuilder"]

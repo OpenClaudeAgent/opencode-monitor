@@ -1,38 +1,149 @@
 """
-Tests for Analytics module - DuckDB database and collector.
+Tests for Analytics module - DuckDB database and queries.
 
 Tests the enriched data model with todos, projects, and new fields.
+Schema tests verify the database structure.
+Query tests verify analytics queries work correctly.
+
+Note: Data loading tests are in test_bulk_loader.py and test_hybrid_indexer.py.
+The former collector insert tests have been migrated there.
 """
 
-import json
 import time
-from pathlib import Path
+from datetime import datetime
 
 import pytest
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.collector import AnalyticsCollector
 from opencode_monitor.analytics.models import Todo, Project
 from opencode_monitor.analytics.queries import AnalyticsQueries
 
 
-# Note: 'db' fixture is now provided by conftest.py (analytics_db)
+# Note: 'temp_db' fixture is provided by conftest.py (analytics_db)
 
 
-@pytest.fixture
-def collector():
-    """Create a fresh collector instance."""
-    collector = AnalyticsCollector.__new__(AnalyticsCollector)
-    collector._stats = {
-        "sessions": 0,
-        "messages": 0,
-        "parts": 0,
-        "skills": 0,
-        "delegations": 0,
-        "todos": 0,
-        "projects": 0,
-    }
-    return collector
+# =====================================================
+# Helper functions for direct SQL insertion
+# =====================================================
+
+
+def insert_session(conn, session_id: str, **kwargs) -> None:
+    """Insert a session directly via SQL."""
+    now = datetime.now()
+    conn.execute(
+        """
+        INSERT INTO sessions (
+            id, project_id, directory, title, created_at, updated_at,
+            parent_id, version, additions, deletions, files_changed
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            session_id,
+            kwargs.get("project_id", "proj_001"),
+            kwargs.get("directory", "/test"),
+            kwargs.get("title", "Test Session"),
+            kwargs.get("created_at", now),
+            kwargs.get("updated_at", now),
+            kwargs.get("parent_id"),
+            kwargs.get("version"),
+            kwargs.get("additions", 0),
+            kwargs.get("deletions", 0),
+            kwargs.get("files_changed", 0),
+        ],
+    )
+
+
+def insert_message(conn, message_id: str, session_id: str, **kwargs) -> None:
+    """Insert a message directly via SQL."""
+    now = datetime.now()
+    conn.execute(
+        """
+        INSERT INTO messages (
+            id, session_id, role, agent, model_id, provider_id,
+            tokens_input, tokens_output, cost, created_at, mode, finish_reason
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            message_id,
+            session_id,
+            kwargs.get("role", "assistant"),
+            kwargs.get("agent", "main"),
+            kwargs.get("model_id", "claude-sonnet"),
+            kwargs.get("provider_id", "anthropic"),
+            kwargs.get("tokens_input", 100),
+            kwargs.get("tokens_output", 50),
+            kwargs.get("cost", 0.0),
+            kwargs.get("created_at", now),
+            kwargs.get("mode"),
+            kwargs.get("finish_reason"),
+        ],
+    )
+
+
+def insert_part(conn, part_id: str, session_id: str, message_id: str, **kwargs) -> None:
+    """Insert a part directly via SQL."""
+    now = datetime.now()
+    conn.execute(
+        """
+        INSERT INTO parts (
+            id, session_id, message_id, part_type, tool_name, tool_status,
+            created_at, ended_at, duration_ms
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            part_id,
+            session_id,
+            message_id,
+            kwargs.get("part_type", "tool"),
+            kwargs.get("tool_name", "bash"),
+            kwargs.get("tool_status", "completed"),
+            kwargs.get("created_at", now),
+            kwargs.get("ended_at"),
+            kwargs.get("duration_ms"),
+        ],
+    )
+
+
+def insert_todo(conn, todo_id: str, session_id: str, **kwargs) -> None:
+    """Insert a todo directly via SQL."""
+    now = datetime.now()
+    conn.execute(
+        """
+        INSERT INTO todos (id, session_id, content, status, priority, position, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
+            todo_id,
+            session_id,
+            kwargs.get("content", "Test todo"),
+            kwargs.get("status", "pending"),
+            kwargs.get("priority", "medium"),
+            kwargs.get("position", 0),
+            kwargs.get("created_at", now),
+            kwargs.get("updated_at", now),
+        ],
+    )
+
+
+def insert_project(conn, project_id: str, **kwargs) -> None:
+    """Insert a project directly via SQL."""
+    now = datetime.now()
+    conn.execute(
+        """
+        INSERT INTO projects (id, worktree, vcs, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        [
+            project_id,
+            kwargs.get("worktree", "/test/path"),
+            kwargs.get("vcs", "git"),
+            kwargs.get("created_at", now),
+            kwargs.get("updated_at", now),
+        ],
+    )
 
 
 # =====================================================
@@ -128,156 +239,6 @@ class TestDatabaseSchema:
 
 
 # =====================================================
-# Collector Insert Tests
-# =====================================================
-
-
-class TestCollectorInserts:
-    """Tests for collector insert methods."""
-
-    def test_insert_session_with_summary(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
-    ):
-        """Insert session with summary data (additions, deletions, files)."""
-        conn = temp_db.connect()
-        data = {
-            "id": "ses_test",
-            "projectID": "proj_001",
-            "directory": "/test/path",
-            "title": "Test Session",
-            "parentID": "ses_parent",
-            "version": "1.0.0",
-            "time": {"created": 1700000000000, "updated": 1700001000000},
-            "summary": {"additions": 100, "deletions": 50, "files": 5},
-        }
-
-        collector._insert_session(conn, data)
-        result = conn.execute(
-            "SELECT parent_id, version, additions, deletions, files_changed "
-            "FROM sessions WHERE id = 'ses_test'"
-        ).fetchone()
-
-        assert result is not None
-        # Verify new fields: parent_id, version, additions, deletions, files_changed
-        assert result[0] == "ses_parent"  # parent_id
-        assert result[1] == "1.0.0"  # version
-        assert result[2] == 100  # additions
-        assert result[3] == 50  # deletions
-        assert result[4] == 5  # files_changed
-
-    def test_insert_message_with_cost(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
-    ):
-        """Insert message with cost, mode, and finish_reason."""
-        conn = temp_db.connect()
-        data = {
-            "id": "msg_test",
-            "sessionID": "ses_test",
-            "parentID": "msg_parent",
-            "role": "assistant",
-            "agent": "executor",
-            "modelID": "claude-sonnet",
-            "providerID": "anthropic",
-            "mode": "code",
-            "cost": 0.005,
-            "finish": "tool-calls",
-            "path": {"cwd": "/test/path"},
-            "time": {"created": 1700000500000, "completed": 1700000600000},
-            "tokens": {
-                "input": 1000,
-                "output": 500,
-                "reasoning": 0,
-                "cache": {"read": 200, "write": 50},
-            },
-        }
-
-        collector._insert_message(conn, data)
-        result = conn.execute(
-            "SELECT mode, cost, finish_reason, working_dir FROM messages WHERE id = 'msg_test'"
-        ).fetchone()
-
-        assert result is not None
-        assert result[0] == "code"
-        assert float(result[1]) == 0.005
-        assert result[2] == "tool-calls"
-        assert result[3] == "/test/path"
-
-    def test_insert_part_with_duration(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
-    ):
-        """Insert part with session_id, call_id, and duration."""
-        conn = temp_db.connect()
-        data = {
-            "id": "prt_test",
-            "sessionID": "ses_test",
-            "messageID": "msg_test",
-            "type": "tool",
-            "tool": "edit",
-            "callID": "call_123",
-            "state": {"status": "completed"},
-            "time": {"start": 1700000550000, "end": 1700000560000},
-        }
-
-        collector._insert_part(conn, data)
-        result = conn.execute(
-            "SELECT session_id, call_id, duration_ms FROM parts WHERE id = 'prt_test'"
-        ).fetchone()
-
-        assert result is not None
-        assert result[0] == "ses_test"
-        assert result[1] == "call_123"
-        assert result[2] == 10000  # 10 seconds in ms
-
-    def test_insert_todos(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
-    ):
-        """Insert todos for a session."""
-        conn = temp_db.connect()
-        todos = [
-            {
-                "id": "1",
-                "content": "First task",
-                "status": "completed",
-                "priority": "high",
-            },
-            {
-                "id": "2",
-                "content": "Second task",
-                "status": "in_progress",
-                "priority": "medium",
-            },
-        ]
-        todo_file = tmp_path / "ses_test.json"
-        todo_file.write_text(json.dumps(todos))
-
-        collector._insert_todos(conn, "ses_test", todos, todo_file)
-        results = conn.execute("SELECT * FROM todos ORDER BY position").fetchall()
-
-        assert len(results) == 2
-        assert results[0][2] == "First task"  # content
-        assert results[0][3] == "completed"  # status
-        assert results[1][2] == "Second task"
-        assert results[1][3] == "in_progress"
-
-    def test_insert_project(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
-        """Insert a project."""
-        conn = temp_db.connect()
-        data = {
-            "id": "proj_001",
-            "worktree": "/test/path",
-            "vcs": "git",
-            "time": {"created": 1699999000000, "updated": 1700001000000},
-        }
-
-        collector._insert_project(conn, data)
-        result = conn.execute("SELECT * FROM projects WHERE id = 'proj_001'").fetchone()
-
-        assert result is not None
-        assert result[1] == "/test/path"  # worktree
-        assert result[2] == "git"  # vcs
-
-
-# =====================================================
 # Queries Tests
 # =====================================================
 
@@ -285,38 +246,21 @@ class TestCollectorInserts:
 class TestAnalyticsQueries:
     """Tests for analytics query methods."""
 
-    def _setup_test_todos(
-        self,
-        temp_db: AnalyticsDB,
-        collector: AnalyticsCollector,
-        tmp_path: Path,
-    ) -> list[dict]:
-        """Helper to setup test todos in database.
-
-        Creates 2 todos (one completed, one pending) and inserts them.
-        Returns the todo list for assertions.
-        """
-        conn = temp_db.connect()
-        todos = [
-            {"id": "1", "content": "Task 1", "status": "completed", "priority": "high"},
-            {"id": "2", "content": "Task 2", "status": "pending", "priority": "low"},
-        ]
-        todo_file = tmp_path / "ses_test.json"
-        todo_file.write_text(json.dumps(todos))
-        collector._insert_todos(conn, "ses_test", todos, todo_file)
-        return todos
-
     def test_get_todos_empty(self, temp_db: AnalyticsDB):
         """Get todos returns empty list when no data."""
         queries = AnalyticsQueries(temp_db)
         result = queries.get_todos()
         assert result == []
 
-    def test_get_todos_with_data(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
-    ):
+    def test_get_todos_with_data(self, temp_db: AnalyticsDB):
         """Get todos returns correct data."""
-        self._setup_test_todos(temp_db, collector, tmp_path)
+        conn = temp_db.connect()
+        insert_todo(
+            conn, "todo_1", "ses_test", content="Task 1", status="completed", position=0
+        )
+        insert_todo(
+            conn, "todo_2", "ses_test", content="Task 2", status="pending", position=1
+        )
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_todos()
@@ -325,11 +269,15 @@ class TestAnalyticsQueries:
         assert isinstance(result[0], Todo)
         assert result[0].content == "Task 1"
 
-    def test_get_todos_filter_by_status(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
-    ):
+    def test_get_todos_filter_by_status(self, temp_db: AnalyticsDB):
         """Get todos can filter by status."""
-        self._setup_test_todos(temp_db, collector, tmp_path)
+        conn = temp_db.connect()
+        insert_todo(
+            conn, "todo_1", "ses_test", content="Task 1", status="completed", position=0
+        )
+        insert_todo(
+            conn, "todo_2", "ses_test", content="Task 2", status="pending", position=1
+        )
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_todos(status="completed")
@@ -343,18 +291,10 @@ class TestAnalyticsQueries:
         result = queries.get_projects()
         assert result == []
 
-    def test_get_projects_with_data(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector
-    ):
+    def test_get_projects_with_data(self, temp_db: AnalyticsDB):
         """Get projects returns correct data."""
         conn = temp_db.connect()
-        data = {
-            "id": "proj_001",
-            "worktree": "/test/path",
-            "vcs": "git",
-            "time": {"created": 1699999000000, "updated": 1700001000000},
-        }
-        collector._insert_project(conn, data)
+        insert_project(conn, "proj_001", worktree="/test/path", vcs="git")
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_projects()
@@ -364,24 +304,21 @@ class TestAnalyticsQueries:
         assert result[0].worktree == "/test/path"
         assert result[0].vcs == "git"
 
-    def test_get_code_stats(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_code_stats(self, temp_db: AnalyticsDB):
         """Get code stats returns additions/deletions totals."""
         conn = temp_db.connect()
-
-        # Use current timestamp (in ms) for recent data
-        now_ms = int(time.time() * 1000)
+        now = datetime.now()
 
         # Insert sessions with code changes
         for i in range(3):
-            data = {
-                "id": f"ses_{i}",
-                "projectID": "proj_001",
-                "directory": "/test",
-                "title": f"Session {i}",
-                "time": {"created": now_ms - i * 1000, "updated": now_ms},
-                "summary": {"additions": 100, "deletions": 50, "files": 5},
-            }
-            collector._insert_session(conn, data)
+            insert_session(
+                conn,
+                f"ses_{i}",
+                created_at=now,
+                additions=100,
+                deletions=50,
+                files_changed=5,
+            )
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_code_stats(days=30)
@@ -391,24 +328,14 @@ class TestAnalyticsQueries:
         assert result["files_changed"] == 15
         assert result["sessions_with_changes"] == 3
 
-    def test_get_cost_stats(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_cost_stats(self, temp_db: AnalyticsDB):
         """Get cost stats returns cost totals."""
         conn = temp_db.connect()
-
-        # Use current timestamp (in ms) for recent data
-        now_ms = int(time.time() * 1000)
+        now = datetime.now()
 
         # Insert messages with cost
         for i in range(3):
-            data = {
-                "id": f"msg_{i}",
-                "sessionID": "ses_test",
-                "role": "assistant",
-                "cost": 0.01,
-                "time": {"created": now_ms - i * 1000},
-                "tokens": {"input": 100, "output": 50, "cache": {}},
-            }
-            collector._insert_message(conn, data)
+            insert_message(conn, f"msg_{i}", "ses_test", cost=0.01, created_at=now)
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_cost_stats(days=30)
@@ -416,28 +343,23 @@ class TestAnalyticsQueries:
         assert result["total_cost"] == pytest.approx(0.03, rel=0.01)
         assert result["messages_with_cost"] == 3
 
-    def test_get_tool_performance(self, temp_db: AnalyticsDB, collector: AnalyticsCollector):
+    def test_get_tool_performance(self, temp_db: AnalyticsDB):
         """Get tool performance stats."""
         conn = temp_db.connect()
-
-        # Use current timestamp (in ms) for recent data
-        now_ms = int(time.time() * 1000)
+        now = datetime.now()
 
         # Insert parts with duration
         for i in range(3):
-            data = {
-                "id": f"prt_{i}",
-                "sessionID": "ses_test",
-                "messageID": "msg_test",
-                "type": "tool",
-                "tool": "edit",
-                "state": {"status": "completed"},
-                "time": {
-                    "start": now_ms - 60000,
-                    "end": now_ms - 60000 + (i + 1) * 1000,
-                },
-            }
-            collector._insert_part(conn, data)
+            insert_part(
+                conn,
+                f"prt_{i}",
+                "ses_test",
+                "msg_test",
+                tool_name="edit",
+                tool_status="completed",
+                created_at=now,
+                duration_ms=(i + 1) * 1000,  # 1000, 2000, 3000
+            )
 
         queries = AnalyticsQueries(temp_db)
         result = queries.get_tool_performance(days=30)
@@ -462,31 +384,17 @@ class TestDatabaseUtilities:
         assert "todos" in result
         assert "projects" in result
 
-    def test_clear_data_clears_new_tables(
-        self, temp_db: AnalyticsDB, collector: AnalyticsCollector, tmp_path: Path
-    ):
+    def test_clear_data_clears_new_tables(self, temp_db: AnalyticsDB):
         """Clear data clears todos and projects too."""
         conn = temp_db.connect()
 
-        # Insert some data
-        collector._insert_project(
-            conn,
-            {
-                "id": "proj_001",
-                "worktree": "/test",
-                "vcs": "git",
-                "time": {"created": 1700000000000, "updated": 1700001000000},
-            },
-        )
+        # Insert some data using direct SQL
+        insert_project(conn, "proj_001", worktree="/test", vcs="git")
+        insert_todo(conn, "todo_1", "ses_test", content="Test", status="pending")
 
-        todo_file = tmp_path / "ses_test.json"
-        todo_file.write_text("[]")
-        collector._insert_todos(
-            conn,
-            "ses_test",
-            [{"id": "1", "content": "Test", "status": "pending", "priority": "high"}],
-            todo_file,
-        )
+        # Verify data was inserted
+        assert conn.execute("SELECT COUNT(*) FROM projects").fetchone()[0] == 1
+        assert conn.execute("SELECT COUNT(*) FROM todos").fetchone()[0] == 1
 
         # Clear and verify
         temp_db.clear_data()

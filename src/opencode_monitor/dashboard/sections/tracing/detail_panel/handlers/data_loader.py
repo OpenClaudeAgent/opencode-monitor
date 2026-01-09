@@ -5,7 +5,7 @@ from typing import Optional, TYPE_CHECKING
 from opencode_monitor.utils.logger import debug
 
 if TYPE_CHECKING:
-    pass
+    from opencode_monitor.analytics import TracingDataService
 
 
 class DataLoaderMixin:
@@ -19,12 +19,14 @@ class DataLoaderMixin:
 
     # These attributes are expected from TraceDetailPanel
     _current_session_id: Optional[str]
+    _service: Optional["TracingDataService"]
     _transcript_tab: "object"
     _tokens_tab: "object"
     _tools_tab: "object"
     _files_tab: "object"
     _agents_tab: "object"
     _timeline_tab: "object"
+    _delegations_tab: "object"
 
     def _get_api_client(self):
         """Get the API client for data access."""
@@ -53,6 +55,7 @@ class DataLoaderMixin:
             3 = Files
             4 = Agents
             5 = Timeline
+            6 = Delegations
 
         Args:
             tab_index: Index of the tab to load data for
@@ -80,6 +83,8 @@ class DataLoaderMixin:
                 self._load_agents_tab()
             elif tab_index == 5:  # Timeline
                 self._load_timeline_tab()
+            elif tab_index == 6:  # Delegations
+                self._load_delegations_tab()
         except Exception as e:
             debug(f"Failed to load tab data: {e}")
 
@@ -177,7 +182,76 @@ class DataLoaderMixin:
         if not session_id:
             return
 
+        # Try full timeline from service first
+        events = self._load_timeline_full_data(session_id)
+        if events:
+            self._timeline_tab.load_data(events)  # type: ignore
+            return
+
+        # Fallback to API client
         client = self._get_api_client()
         events = client.get_session_timeline(session_id)
         if events:
             self._timeline_tab.load_data(events)  # type: ignore
+
+    def _load_timeline_full_data(self, session_id: str) -> list[dict]:
+        """Load full timeline from TracingDataService.
+
+        Uses get_session_timeline_full() which returns complete event data
+        including reasoning, tool calls, patches, etc.
+
+        Args:
+            session_id: The session ID to load timeline for
+
+        Returns:
+            List of timeline events, empty list on error
+        """
+        if not self._service or not session_id:
+            return []
+
+        try:
+            result = self._service.get_session_timeline_full(session_id)
+            if result and result.get("success"):
+                data = result.get("data", {})
+                return data.get("timeline", [])
+        except Exception as e:
+            debug(f"Error loading timeline: {e}")
+
+        return []
+
+    def _load_delegations_tab(self) -> None:
+        """Load delegations tab data."""
+        if self._delegations_tab.is_loaded():  # type: ignore
+            return
+
+        session_id = self._current_session_id
+        if not session_id:
+            return
+
+        tree = self._load_delegations_data(session_id)
+        if tree:
+            self._delegations_tab.load_data(tree)  # type: ignore
+
+    def _load_delegations_data(self, session_id: str) -> dict:
+        """Load delegation tree from TracingDataService.
+
+        Uses get_delegation_tree() which returns the full tree of agent
+        delegations starting from this session.
+
+        Args:
+            session_id: The session ID to load delegation tree for
+
+        Returns:
+            Delegation tree dict, empty dict on error
+        """
+        if not self._service or not session_id:
+            return {}
+
+        try:
+            result = self._service.get_delegation_tree(session_id)
+            if result:
+                return result.get("tree", {})
+        except Exception as e:
+            debug(f"Error loading delegations: {e}")
+
+        return {}

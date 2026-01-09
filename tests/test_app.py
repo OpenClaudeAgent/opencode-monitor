@@ -153,8 +153,6 @@ def mock_dependencies():
     mock_info = MagicMock()
     mock_error = MagicMock()
     mock_debug = MagicMock()
-    mock_start_collector = MagicMock()
-    mock_get_collector = MagicMock()
     mock_start_indexer = MagicMock()
     mock_get_indexer = MagicMock()
 
@@ -199,10 +197,6 @@ def mock_dependencies():
         patch("opencode_monitor.utils.logger.info", mock_info),
         patch("opencode_monitor.utils.logger.error", mock_error),
         patch("opencode_monitor.utils.logger.debug", mock_debug),
-        patch(
-            "opencode_monitor.analytics.collector.start_collector", mock_start_collector
-        ),
-        patch("opencode_monitor.analytics.collector.get_collector", mock_get_collector),
         patch(
             "opencode_monitor.analytics.indexer.start_indexer",
             mock_start_indexer,
