@@ -163,8 +163,6 @@ def write_json_file(
     return fp
 
 
-
-
 class TestUnifiedIndexerInit:
     def test_init_sets_all_core_attributes_and_components(
         self, temp_storage, temp_db_path
@@ -212,25 +210,33 @@ class TestUnifiedIndexerInit:
         assert idx._queue is not None
 
 
-
-
 class TestUnifiedIndexerLifecycle:
     def test_start_initializes_runtime_and_stop_cleans_up(self, indexer):
         """Start sets running/time/watcher/threads; stop cleans up."""
+        from opencode_monitor.analytics.indexer.unified.core import USE_V2_INDEXER
+
         # Pre-start state
         assert indexer._running is False
         assert indexer._watcher is None
 
-        # Start: 7 assertions
+        # Start: assertions depend on v1 or v2 architecture
         indexer.start()
         assert indexer._running is True
         assert indexer._stats["start_time"] is not None
         assert indexer._watcher is not None
         assert indexer._watcher.is_running is True
-        assert indexer._processor_thread is not None
-        assert indexer._backfill_thread is not None
-        assert indexer._processor_thread.is_alive()
-        assert indexer._backfill_thread.is_alive()
+
+        if USE_V2_INDEXER:
+            # v2: Check accumulator and reconciler
+            assert indexer._accumulator is not None
+            assert indexer._reconciler is not None
+        else:
+            # v1: Check threads
+            assert indexer._processor_thread is not None
+            assert indexer._backfill_thread is not None
+            assert indexer._processor_thread.is_alive()
+            assert indexer._backfill_thread.is_alive()
+
         watcher = indexer._watcher
 
         # Stop: 3 assertions
@@ -241,14 +247,22 @@ class TestUnifiedIndexerLifecycle:
 
     def test_start_and_stop_are_idempotent(self, indexer):
         """Multiple start calls reuse watcher; multiple stop calls are safe."""
+        from opencode_monitor.analytics.indexer.unified.core import USE_V2_INDEXER
+
         # Start twice - same watcher: 4 assertions
         indexer.start()
         first_watcher = indexer._watcher
-        first_thread = indexer._processor_thread
+        if USE_V2_INDEXER:
+            first_accumulator = indexer._accumulator
+        else:
+            first_thread = indexer._processor_thread
         assert indexer._running is True
         indexer.start()
         assert indexer._watcher is first_watcher
-        assert indexer._processor_thread is first_thread
+        if USE_V2_INDEXER:
+            assert indexer._accumulator is first_accumulator
+        else:
+            assert indexer._processor_thread is first_thread
         assert indexer._running is True
         indexer.stop()
 
@@ -261,8 +275,6 @@ class TestUnifiedIndexerLifecycle:
         indexer.stop()
         indexer.stop()
         assert indexer._running is False
-
-
 
 
 class TestProcessEntity:
@@ -470,8 +482,6 @@ class TestProcessTodos:
         assert count2 == 0
 
 
-
-
 class TestProcessFile:
     @pytest.mark.parametrize(
         "ftype,create_fn,fid",
@@ -531,8 +541,6 @@ class TestProcessFile:
             is False
         )
         assert connected_indexer._stats["files_error"] >= 1
-
-
 
 
 class TestBatchProcess:
@@ -596,8 +604,6 @@ class TestBatchProcess:
             result = connected_indexer._batch_process_files(ft, files)
             assert result == 2
             assert len(files) == 2
-
-
 
 
 class TestStatsAndBackfill:
@@ -665,8 +671,6 @@ class TestStatsAndBackfill:
         assert indexer._queue.size >= 1
 
 
-
-
 class TestGlobalFunctions:
     def test_get_indexer_singleton_and_start_stop(
         self, temp_storage, temp_db_path, monkeypatch
@@ -692,8 +696,6 @@ class TestGlobalFunctions:
         stop_indexer()
         assert test_idx._running is False
         assert getattr(mod, "_indexer", "x") is None
-
-
 
 
 class TestErrorHandling:
@@ -736,8 +738,6 @@ class TestErrorHandling:
         assert bad.exists()
         assert connected_indexer._process_file("session", bad) is False
         assert connected_indexer._stats["files_error"] >= 1
-
-
 
 
 class TestEdgeCases:

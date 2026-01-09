@@ -3,19 +3,25 @@ Core UnifiedIndexer class and global instance management.
 
 This module contains the main orchestrator class that combines
 real-time file watching with progressive backfill.
+
+v2 Architecture (Plan 46):
+- FileWatcher → FileBatchAccumulator → BatchProcessor (micro-batch)
+- Reconciler → FileBatchAccumulator (periodic scan for missed files)
 """
 
 import threading
 import time
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Optional
+from typing import Any, List, Optional
 
 from ...db import AnalyticsDB
 from ..tracker import FileTracker
 from ..parsers import FileParser
 from ..trace_builder import TraceBuilder
 from ..watcher import FileWatcher, ProcessingQueue
+from ..batch_accumulator import FileBatchAccumulator, AccumulatorConfig
+from ..reconciler import Reconciler, ReconcilerConfig
 from ....utils.logger import debug, info
 
 from .config import (
@@ -25,6 +31,10 @@ from .config import (
 )
 from .batch import BatchProcessor
 from .processing import FileProcessor
+
+
+# Feature flag for v2 architecture
+USE_V2_INDEXER = True
 
 
 class UnifiedIndexer:
@@ -58,10 +68,16 @@ class UnifiedIndexer:
         self._tracker = FileTracker(self._db)
         self._parser = FileParser()
         self._trace_builder = TraceBuilder(self._db)
-        self._queue = ProcessingQueue()
         self._watcher: Optional[FileWatcher] = None
 
-        # Threads
+        # v1 components (kept for backward compatibility)
+        self._queue = ProcessingQueue()
+
+        # v2 components (Plan 46)
+        self._accumulator: Optional[FileBatchAccumulator] = None
+        self._reconciler: Optional[Reconciler] = None
+
+        # Threads (v1 - kept for backward compatibility)
         self._processor_thread: Optional[threading.Thread] = None
         self._backfill_thread: Optional[threading.Thread] = None
 
@@ -117,10 +133,63 @@ class UnifiedIndexer:
         self._db.connect()
         info("[UnifiedIndexer] Database connected")
 
-        # Start watcher
+        if USE_V2_INDEXER:
+            self._start_v2()
+        else:
+            self._start_v1()
+
+        info("[UnifiedIndexer] All threads started - beginning indexation")
+
+    def _start_v2(self) -> None:
+        """Start v2 architecture (Plan 46): Accumulator + Reconciler."""
+        info("[UnifiedIndexer] Using v2 architecture (Plan 46)")
+
+        # Create FileBatchAccumulator with callback to process batches
+        # window_ms=200, max_files=200 (validated by POC)
+        acc_config = AccumulatorConfig(
+            window_ms=200,
+            max_files=200,
+            flush_on_stop=True,
+        )
+        self._accumulator = FileBatchAccumulator(
+            config=acc_config,
+            on_batch_ready=self._on_batch_ready,
+        )
+        info("[UnifiedIndexer] FileBatchAccumulator created (200ms/200 files)")
+
+        # Create Reconciler with callback to feed accumulator
+        rec_config = ReconcilerConfig(
+            interval_seconds=BACKFILL_INTERVAL,
+            max_files_per_scan=BACKFILL_BATCH_SIZE * 5,  # Allow larger scans
+        )
+        self._reconciler = Reconciler(
+            storage_path=self._storage_path,
+            db=self._db,
+            config=rec_config,
+            on_missing_files=self._on_missing_files,
+        )
+        info(f"[UnifiedIndexer] Reconciler created (interval={BACKFILL_INTERVAL}s)")
+
+        # Start watcher (feeds accumulator via _on_file_detected)
         self._watcher = FileWatcher(
             self._storage_path,
             self._on_file_detected,
+        )
+        self._watcher.start()
+        info("[UnifiedIndexer] File watcher started")
+
+        # Start reconciler (periodic background scanning)
+        self._reconciler.start()
+        info("[UnifiedIndexer] Reconciler started")
+
+    def _start_v1(self) -> None:
+        """Start v1 architecture (legacy): Queue + Backfill loop."""
+        info("[UnifiedIndexer] Using v1 architecture (legacy)")
+
+        # Start watcher
+        self._watcher = FileWatcher(
+            self._storage_path,
+            self._on_file_detected_v1,
         )
         self._watcher.start()
         info("[UnifiedIndexer] File watcher started")
@@ -141,12 +210,37 @@ class UnifiedIndexer:
         )
         self._backfill_thread.start()
 
-        info("[UnifiedIndexer] All threads started - beginning indexation")
-
     def stop(self) -> None:
         """Stop the indexer."""
         self._running = False
 
+        if USE_V2_INDEXER:
+            self._stop_v2()
+        else:
+            self._stop_v1()
+
+        self._db.close()
+        info("[UnifiedIndexer] Stopped")
+
+    def _stop_v2(self) -> None:
+        """Stop v2 architecture components."""
+        # Stop accumulator first (flushes pending files)
+        if self._accumulator:
+            self._accumulator.stop()
+            debug("[UnifiedIndexer] Accumulator stopped")
+
+        # Stop reconciler
+        if self._reconciler:
+            self._reconciler.stop()
+            debug("[UnifiedIndexer] Reconciler stopped")
+
+        # Stop watcher
+        if self._watcher:
+            self._watcher.stop()
+            debug("[UnifiedIndexer] Watcher stopped")
+
+    def _stop_v1(self) -> None:
+        """Stop v1 architecture components."""
         if self._watcher:
             self._watcher.stop()
 
@@ -156,17 +250,150 @@ class UnifiedIndexer:
         if self._backfill_thread:
             self._backfill_thread.join(timeout=5)
 
-        self._db.close()
-        info("[UnifiedIndexer] Stopped")
-
     def _on_file_detected(self, file_type: str, path: Path) -> None:
         """Callback when watcher detects a file change.
+
+        v2: Feeds the FileBatchAccumulator for micro-batch processing.
+        v1: Feeds the ProcessingQueue (legacy).
 
         Args:
             file_type: Type of file (session, message, part, etc.)
             path: Path to the file
         """
+        if USE_V2_INDEXER and self._accumulator:
+            self._accumulator.add(path)
+        else:
+            self._queue.put(file_type, path)
+
+    def _on_file_detected_v1(self, file_type: str, path: Path) -> None:
+        """v1 callback: Feeds the ProcessingQueue."""
         self._queue.put(file_type, path)
+
+    # =========================================================================
+    # v2 Callbacks (Plan 46)
+    # =========================================================================
+
+    def _on_batch_ready(self, files: List[Path]) -> None:
+        """v2 callback: Process a micro-batch of files.
+
+        Called by FileBatchAccumulator when batch is ready (timer or max_files).
+        Groups files by type and processes them via BatchProcessor.
+
+        Args:
+            files: List of file paths to process
+        """
+        if not files or not self._running:
+            return
+
+        debug(f"[UnifiedIndexer] Processing batch of {len(files)} files")
+
+        # Group files by type
+        by_type = self._group_files_by_type(files)
+
+        # Process each type with BatchProcessor
+        for file_type, type_files in by_type.items():
+            if not type_files:
+                continue
+            processed = self._batch_processor.process_files(file_type, type_files)
+            debug(
+                f"[UnifiedIndexer] Processed {processed}/{len(type_files)} {file_type} files"
+            )
+
+        # Post-batch trace resolution (like in _run_backfill)
+        self._post_batch_processing()
+
+    def _on_missing_files(self, files: List[Path]) -> None:
+        """v2 callback: Handle files found by Reconciler.
+
+        Called by Reconciler when it finds missing/modified files.
+        Feeds them to the FileBatchAccumulator for batched processing.
+
+        Args:
+            files: List of missing/modified file paths
+        """
+        if not files or not self._running:
+            return
+
+        debug(f"[UnifiedIndexer] Reconciler found {len(files)} missing files")
+
+        if self._accumulator:
+            self._accumulator.add_many(files)
+
+    def _group_files_by_type(self, files: List[Path]) -> dict[str, List[Path]]:
+        """Group files by their type based on path.
+
+        Args:
+            files: List of file paths
+
+        Returns:
+            Dict mapping file_type to list of paths
+        """
+        by_type: dict[str, List[Path]] = {
+            "session": [],
+            "message": [],
+            "part": [],
+            "todo": [],
+            "project": [],
+        }
+
+        for path in files:
+            file_type = self._get_file_type(path)
+            if file_type in by_type:
+                by_type[file_type].append(path)
+
+        return by_type
+
+    def _get_file_type(self, path: Path) -> str:
+        """Determine file type from path.
+
+        Path structure: storage/{type}/{project_id}/{file}.json
+        or: storage/{type}/{file}.json (for todo/project)
+
+        Args:
+            path: File path
+
+        Returns:
+            File type (session, message, part, todo, project)
+        """
+        # Get path relative to storage
+        try:
+            rel_path = path.relative_to(self._storage_path)
+            # First part of relative path is the type
+            parts = rel_path.parts
+            if parts:
+                return parts[0]
+        except ValueError:
+            pass
+
+        # Fallback: check parent directories
+        path_str = str(path)
+        for file_type in ["session", "message", "part", "todo", "project"]:
+            if f"/{file_type}/" in path_str:
+                return file_type
+
+        return "unknown"
+
+    def _post_batch_processing(self) -> None:
+        """Run post-batch processing tasks (trace resolution, etc.)."""
+        # Update root trace agents from messages
+        updated_agents = self._trace_builder.update_root_trace_agents()
+        if updated_agents > 0:
+            debug(f"[UnifiedIndexer] Updated {updated_agents} root trace agents")
+
+        # Create conversation segments
+        segments_created = self._trace_builder.analyze_all_sessions_for_segments()
+        if segments_created > 0:
+            debug(f"[UnifiedIndexer] Created {segments_created} conversation segments")
+
+        # Resolve parent traces
+        resolved = self._trace_builder.resolve_parent_traces()
+        if resolved > 0:
+            debug(f"[UnifiedIndexer] Resolved {resolved} parent traces")
+
+        # Backfill missing tokens
+        backfilled = self._trace_builder.backfill_missing_tokens()
+        if backfilled > 0:
+            debug(f"[UnifiedIndexer] Backfilled tokens for {backfilled} traces")
 
     def _process_queue_loop(self) -> None:
         """Process files from the queue continuously."""
@@ -327,9 +554,30 @@ class UnifiedIndexer:
         stats["tracker"] = self._tracker.get_stats()
         stats["traces"] = self._trace_builder.get_stats()
         stats["queue_size"] = self._queue.size
+        stats["v2_enabled"] = USE_V2_INDEXER
 
         if self._watcher:
             stats["watcher"] = self._watcher.get_stats()
+
+        # v2 component stats
+        if self._accumulator:
+            acc_stats = self._accumulator.get_stats()
+            stats["accumulator"] = {
+                "batches_sent": acc_stats.batches_sent,
+                "files_accumulated": acc_stats.files_accumulated,
+                "files_deduplicated": acc_stats.files_deduplicated,
+                "batches_by_timer": acc_stats.batches_by_timer,
+                "batches_by_max_files": acc_stats.batches_by_max_files,
+            }
+
+        if self._reconciler:
+            rec_stats = self._reconciler.get_stats()
+            stats["reconciler"] = {
+                "scans_completed": rec_stats.scans_completed,
+                "files_found": rec_stats.files_found,
+                "last_scan_duration_ms": rec_stats.last_scan_duration_ms,
+                "last_scan_files": rec_stats.last_scan_files,
+            }
 
         return stats
 
