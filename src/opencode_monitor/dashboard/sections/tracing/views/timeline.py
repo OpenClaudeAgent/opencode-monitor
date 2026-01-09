@@ -23,6 +23,7 @@ from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 from ..helpers import format_duration
 from ..enriched_helpers import get_tool_display_label, build_tool_tooltip
 from ..enriched_widgets import AgentBadge, ErrorIndicator
+from ..image_widgets import ImageThumbnail, ImagePreviewDialog
 
 
 # Event type configuration: (icon, border_color, bg_color_key)
@@ -193,6 +194,14 @@ class TimelineEventWidget(QFrame):
             if tooltip:
                 self.setToolTip(tooltip)
 
+        # Image thumbnail (for file_attachment events)
+        file_url = self._event.get("file_url")
+        if file_url and file_url.startswith("data:image"):
+            self._thumbnail = ImageThumbnail()
+            self._thumbnail.set_image_url(file_url)
+            self._thumbnail.clicked.connect(self._show_image_preview)
+            layout.addWidget(self._thumbnail)
+
     def _format_type_label(self, event_type: str) -> str:
         """Format event type for display."""
         labels = {
@@ -268,6 +277,11 @@ class TimelineEventWidget(QFrame):
         if len(text) > max_len:
             return text[: max_len - 3] + "..."
         return text
+
+    def _show_image_preview(self, data_url: str) -> None:
+        """Show full-size image preview dialog."""
+        dialog = ImagePreviewDialog(data_url, self)
+        dialog.exec()
 
     def mousePressEvent(self, event) -> None:
         """Handle click event."""
