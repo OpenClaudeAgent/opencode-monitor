@@ -4,16 +4,17 @@ Sprint records and current work tracking.
 
 ## Current Sprint
 
-**[Unified Indexer v2 - Sprint 1](./2026-01-unified-indexer-v2-sprint1.md)** (16 points, 4 stories)
+**[Data Quality - Parts Enrichment](./2026-01-parts-enrichment.md)** (17 points, 5 stories)
 
-Epic: [IDX-001 - Unified Indexer v2](../epics/epic-unified-indexer.md)
+Enriching the loader to process 5 types of parts currently ignored (reasoning, step-finish, step-start, patch, compaction, file). This improves debugging visibility, cost precision, and traceability.
 
 | Story | Points | Status |
 |-------|--------|--------|
-| US-1: indexed_files Table | 3 | To Do |
-| US-2: BatchCollector | 5 | To Do |
-| US-3: Reconciler | 5 | To Do |
-| US-4: Tests Complets | 3 | To Do |
+| US-01: Schema DB - New tables and columns | 3 | To Do |
+| US-02: Loader - Enriched parts | 5 | To Do |
+| US-03: Service - Query methods | 3 | To Do |
+| US-04: API - New endpoints | 3 | To Do |
+| US-05: Tests - Complete coverage | 3 | To Do |
 
 ## Completed Sprints
 
@@ -22,6 +23,14 @@ Epic: [IDX-001 - Unified Indexer v2](../epics/epic-unified-indexer.md)
 | [Code Quality](../archive/plans/code-quality-plan.md) | Jan 2026 | 34 | 17 |
 | [Complexity Refactoring](../archive/plans/refactoring-plan.md) | Jan 2026 | 8 | 3 |
 | [UI Modernization](./2026-01-ui-modernization.md) | Jan 2026 | 8 | 5 |
+
+## Cancelled Sprints
+
+| Sprint | Date | Points | Reason |
+|--------|------|--------|--------|
+| [Unified Indexer v2 - Sprint 1](./2026-01-unified-indexer-v2-sprint1.md) | 2026-01-10 | 16 | **CANCELLED**: Unified indexer approach superseded by data quality improvements. Worktree caused UI freezes. |
+
+**Note**: The unified indexer v2 was cancelled in favor of incremental data quality improvements via parts enrichment (see [Parts Enrichment Sprint](./2026-01-parts-enrichment.md)). This approach delivers immediate value without the complexity and UI performance issues of a full indexer rewrite.
 
 ## Sprint Workflow
 
