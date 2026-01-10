@@ -601,7 +601,7 @@ class TestHybridIndexerEdgeCases:
         This test now verifies indexer handles empty storage gracefully.
         """
         empty_storage = tmp_path / "empty_storage"
-        empty_storage.mkdir()  # Create empty directory (security validation requires path exists)
+        empty_storage.mkdir()
 
         indexer = HybridIndexer(storage_path=empty_storage, db_path=temp_db_path)
         indexer.start()

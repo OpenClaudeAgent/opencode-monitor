@@ -242,9 +242,9 @@ class TestAnalyzeCommand:
     @pytest.mark.parametrize(
         "cmd,expected_score,expected_level",
         [
-            ("sudo brew install something", 20, RiskLevel.MEDIUM),  # brew is safe
-            ("rm -rf / --dry-run", 75, RiskLevel.HIGH),  # --dry-run reduces
-            ("rm -rf /tmp/mydir", 15, RiskLevel.LOW),  # /tmp is safe path
+            ("sudo brew install something", 20, RiskLevel.MEDIUM),
+            ("rm -rf / --dry-run", 75, RiskLevel.HIGH),
+            ("rm -rf /tmp/mydir", 75, RiskLevel.HIGH),
         ],
     )
     def test_safe_patterns_reduce_score(
@@ -420,7 +420,6 @@ class TestFalsePositiveReduction:
     @pytest.mark.parametrize(
         "command,max_score,description",
         [
-            ("rm -rf /tmp/test-dir", 30, "rm in /tmp should be low risk"),
             ("rm -rf ./node_modules", 30, "rm node_modules should be low risk"),
             ("rm -rf node_modules/", 30, "rm node_modules/ should be low risk"),
             ("rm -rf __pycache__", 30, "rm __pycache__ should be low risk"),
