@@ -35,6 +35,13 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
             "duration_ms": 125000,
             "tokens_in": 5000,
             "tokens_out": 8000,
+            "tokens": {
+                "input": 5000,
+                "output": 8000,
+                "cache_read": 1000,
+                "cache_write": 500,
+                "total": 14500,
+            },
             "trace_count": 5,
             "agent_type": "user",
             "parent_agent": None,
@@ -51,6 +58,13 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
                     "duration_ms": 45000,
                     "tokens_in": 2000,
                     "tokens_out": 3000,
+                    "tokens": {
+                        "input": 2000,
+                        "output": 3000,
+                        "cache_read": 400,
+                        "cache_write": 200,
+                        "total": 5600,
+                    },
                     "trace_count": 2,
                     "children": [
                         # Tool used by executor
@@ -78,6 +92,13 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
                             "duration_ms": 30000,
                             "tokens_in": 1500,
                             "tokens_out": 2500,
+                            "tokens": {
+                                "input": 1500,
+                                "output": 2500,
+                                "cache_read": 300,
+                                "cache_write": 150,
+                                "total": 4450,
+                            },
                             "trace_count": 1,
                             "children": [
                                 # Tool used by tester (3rd level)
@@ -118,6 +139,13 @@ def _create_session_hierarchy(base_date: datetime) -> list[dict[str, Any]]:
                     "duration_ms": 15000,
                     "tokens_in": 1000,
                     "tokens_out": 1500,
+                    "tokens": {
+                        "input": 1000,
+                        "output": 1500,
+                        "cache_read": 200,
+                        "cache_write": 100,
+                        "total": 2800,
+                    },
                     "trace_count": 1,
                     "children": [
                         {
