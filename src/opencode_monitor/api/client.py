@@ -162,6 +162,28 @@ class AnalyticsAPIClient:
         """
         return self._request(f"/api/session/{session_id}/messages")
 
+    def get_session_timeline_full(
+        self, session_id: str, include_children: bool = True, depth: int = 3
+    ) -> Optional[dict]:
+        """Get complete timeline for a session with all events.
+
+        Returns timeline with user_prompt, reasoning, tool_call,
+        step_finish, assistant_response events.
+
+        Args:
+            session_id: Session ID
+            include_children: Include child session timelines (delegations)
+            depth: Max recursion depth for children
+
+        Returns:
+            Full timeline data dict or None
+        """
+        params = {
+            "include_children": str(include_children).lower(),
+            "depth": depth,
+        }
+        return self._request(f"/api/session/{session_id}/timeline/full", params)
+
     def get_tracing_tree(self, days: int = 30) -> Optional[dict]:
         """Get hierarchical tracing tree for dashboard display.
 
