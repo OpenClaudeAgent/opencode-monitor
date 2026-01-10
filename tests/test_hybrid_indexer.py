@@ -595,10 +595,15 @@ class TestHybridIndexerEdgeCases:
             indexer.stop()
 
     def test_nonexistent_storage_path(self, temp_db_path, tmp_path):
-        """Test handling of non-existent storage path."""
-        fake_storage = tmp_path / "does_not_exist"
+        """Test handling of empty storage path.
 
-        indexer = HybridIndexer(storage_path=fake_storage, db_path=temp_db_path)
+        Note: After DQ-001 security fix, storage path must exist.
+        This test now verifies indexer handles empty storage gracefully.
+        """
+        empty_storage = tmp_path / "empty_storage"
+        empty_storage.mkdir()
+
+        indexer = HybridIndexer(storage_path=empty_storage, db_path=temp_db_path)
         indexer.start()
 
         try:

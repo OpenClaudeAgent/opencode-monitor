@@ -17,7 +17,7 @@ import threading
 import time
 from pathlib import Path
 from typing import Any, Optional
-from queue import Queue, Empty
+from queue import Queue, Empty, Full
 
 from ..db import AnalyticsDB
 from .sync_state import SyncState, SyncPhase, SyncStatus
@@ -26,6 +26,7 @@ from .watcher import FileWatcher
 from .parsers import FileParser
 from .tracker import FileTracker
 from .trace_builder import TraceBuilder
+from .file_processing import FileProcessingState
 from .handlers import FileHandler, SessionHandler, MessageHandler, PartHandler
 from ...utils.logger import info, debug
 
@@ -105,9 +106,10 @@ class HybridIndexer:
         self._tracker: Optional[FileTracker] = None
         self._parser: Optional[FileParser] = None
         self._trace_builder: Optional[TraceBuilder] = None
+        self._file_processing: Optional[FileProcessingState] = None
 
-        # Queue for files detected during bulk
-        self._event_queue: Queue = Queue()
+        # Queue for files detected during bulk (bounded to prevent OOM)
+        self._event_queue: Queue = Queue(maxsize=10000)
 
         # Handlers for different file types (Strategy pattern)
         self._handlers: dict[str, FileHandler] = {
@@ -123,6 +125,7 @@ class HybridIndexer:
         # State
         self._running = False
         self._t0: Optional[float] = None
+        self._dropped_events = 0  # Counter for dropped events (queue full)
 
     def start(self) -> None:
         """Start the hybrid indexer."""
@@ -144,6 +147,7 @@ class HybridIndexer:
         self._tracker = self._injected_tracker or FileTracker(self._db)
         self._parser = self._injected_parser or FileParser()
         self._trace_builder = self._injected_trace_builder or TraceBuilder(self._db)
+        self._file_processing = FileProcessingState(self._db)
         self._bulk_loader = self._injected_bulk_loader or BulkLoader(
             self._db, self._storage_path, self._sync_state
         )
@@ -187,9 +191,19 @@ class HybridIndexer:
         if self._sync_state and self._sync_state.is_realtime:
             self._process_file(file_type, path)
         else:
-            self._event_queue.put((file_type, path))
-            if self._sync_state:
-                self._sync_state.set_queue_size(self._event_queue.qsize())
+            try:
+                # Try to add to queue with timeout (bounded queue)
+                self._event_queue.put((file_type, path), timeout=1.0)
+                if self._sync_state:
+                    self._sync_state.set_queue_size(self._event_queue.qsize())
+            except Full:
+                # Queue is full - drop event and log
+                self._dropped_events += 1
+                if self._dropped_events % 100 == 0:
+                    info(
+                        f"[HybridIndexer] Dropped {self._dropped_events} events (queue full)"
+                    )
+                debug(f"[HybridIndexer] Event queue full, dropping {path}")
 
     def _run_bulk_phase(self) -> None:
         """Run the bulk loading phase."""
@@ -274,6 +288,12 @@ class HybridIndexer:
 
         info(f"[HybridIndexer] Queue processed: {processed} files")
 
+        # Report dropped events (if any)
+        if self._dropped_events > 0:
+            info(
+                f"[HybridIndexer] Total events dropped during bulk: {self._dropped_events}"
+            )
+
     def _run_post_bulk_processing(self) -> None:
         """Run post-processing after bulk load completes.
 
@@ -340,6 +360,22 @@ class HybridIndexer:
                 debug("[HybridIndexer] Components not initialized")
                 return False
 
+            # Check if already processed by bulk loader (race condition prevention)
+            # ONLY check for files that existed BEFORE T0 (bulk cutoff time)
+            # Files created AFTER T0 are new and should always be processed
+            if self._t0 and self._file_processing:
+                try:
+                    file_mtime = path.stat().st_mtime
+                    if file_mtime < self._t0:
+                        # File existed during bulk phase - check if already processed
+                        if self._file_processing.is_already_processed(str(path)):
+                            debug(
+                                f"[HybridIndexer] Skipping {path} - already processed by bulk loader (mtime={file_mtime:.2f} < T0={self._t0:.2f})"
+                            )
+                            return True
+                except (OSError, FileNotFoundError):
+                    pass  # File may have been deleted, continue processing
+
             # Check if needs indexing (not indexed or modified)
             if not self._tracker.needs_indexing(path):
                 return True  # Already up to date
@@ -368,9 +404,19 @@ class HybridIndexer:
 
             if record_id:
                 self._tracker.mark_indexed(path, file_type, record_id)
+                # Also mark in file_processing to prevent reprocessing
+                if self._file_processing:
+                    self._file_processing.mark_processed(
+                        str(path), file_type, status="processed"
+                    )
                 return True
             else:
                 self._tracker.mark_error(path, file_type, "Invalid data")
+                # Mark as failed to prevent retrying
+                if self._file_processing:
+                    self._file_processing.mark_processed(
+                        str(path), file_type, status="failed"
+                    )
                 return False
 
         except Exception as e:
@@ -401,6 +447,7 @@ class HybridIndexer:
         stats: dict[str, Any] = {
             "phase": self._sync_state.phase.value if self._sync_state else "init",
             "queue_size": self._event_queue.qsize(),
+            "dropped_events": self._dropped_events,
         }
 
         if self._bulk_loader:

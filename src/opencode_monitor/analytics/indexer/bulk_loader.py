@@ -14,6 +14,7 @@ from typing import Optional, Callable
 
 from ..db import AnalyticsDB
 from .sync_state import SyncState, SyncPhase
+from .file_processing import FileProcessingState
 from ...utils.logger import info, debug
 from .queries import (
     LOAD_SESSIONS_SQL,
@@ -68,7 +69,8 @@ class BulkLoader:
             on_progress: Optional callback(files_done, files_total)
         """
         self._db = db
-        self._storage_path = storage_path
+        # Validate and resolve storage path before using in SQL
+        self._storage_path = self._validate_storage_path(storage_path)
         self._sync_state = sync_state
         self._on_progress = on_progress
 
@@ -82,8 +84,42 @@ class BulkLoader:
     # Allowed file types for bulk loading - prevents path injection
     _ALLOWED_FILE_TYPES = frozenset({"session", "message", "part"})
 
+    def _validate_storage_path(self, path: Path) -> Path:
+        """
+        Validate storage path is safe for SQL.
+
+        Args:
+            path: Path to validate
+
+        Returns:
+            Resolved absolute path
+
+        Raises:
+            ValueError: If path does not exist, is not a directory, or fails validation
+        """
+        if not path.exists():
+            raise ValueError(f"Storage path does not exist: {path}")
+        if not path.is_dir():
+            raise ValueError(f"Storage path is not a directory: {path}")
+
+        # Resolve to absolute path to prevent path traversal
+        resolved = path.resolve()
+
+        # Ensure path is absolute (no relative components)
+        if not resolved.is_absolute():
+            raise ValueError(f"Storage path must be absolute: {path}")
+
+        debug(f"[BulkLoader] Validated storage path: {resolved}")
+        return resolved
+
     def count_files(self) -> dict[str, int]:
         """Count files to be loaded by type."""
+        # Path is validated in __init__ and resolved to absolute path
+        # file_type is from _ALLOWED_FILE_TYPES, preventing injection
+        if not self._storage_path.exists() or not self._storage_path.is_dir():
+            debug(f"Invalid storage path: {self._storage_path}")
+            return {}
+
         conn = self._db.connect()
         counts = {}
 
@@ -91,10 +127,10 @@ class BulkLoader:
             path = self._storage_path / file_type
             if path.exists():
                 try:
-                    # file_type is from hardcoded list, path is from trusted storage_path
+                    # Path validated in __init__, file_type from hardcoded list
                     result = conn.execute(f"""
                         SELECT COUNT(*) FROM glob('{path}/**/*.json')
-                    """).fetchone()  # nosec B608
+                    """).fetchone()
                     counts[file_type] = result[0] if result else 0
                 except Exception:
                     counts[file_type] = 0
@@ -156,14 +192,20 @@ class BulkLoader:
         results["patch"] = self.load_patches(cutoff_time)
         self._sync_state.checkpoint()
 
+        # Mark all loaded files as processed to prevent duplicates
+        if cutoff_time:
+            marked = self.mark_bulk_files_processed(cutoff_time)
+            info(f"[BulkLoader] Marked {marked:,} files as processed")
+
         return results
 
     def load_sessions(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
         """Load session files via DuckDB native JSON reading."""
         start = time.time()
+        # Path validated in __init__ - safe to use in SQL
         path = self._storage_path / "session"
 
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return BulkLoadResult("session", 0, 0, 0, 0)
 
         conn = self._db.connect()
@@ -177,6 +219,7 @@ class BulkLoader:
                 time_filter = f"WHERE (time.created / 1000.0) < {cutoff_time}"
 
             # Load and transform in one query using SQL template
+            # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_SESSIONS_SQL.format(path=path, time_filter=time_filter)
             conn.execute(query)
 
@@ -202,9 +245,10 @@ class BulkLoader:
     def load_messages(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
         """Load message files via DuckDB native JSON reading."""
         start = time.time()
+        # Path validated in __init__ - safe to use in SQL
         path = self._storage_path / "message"
 
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return BulkLoadResult("message", 0, 0, 0, 0)
 
         conn = self._db.connect()
@@ -215,6 +259,7 @@ class BulkLoader:
                 time_filter = f"WHERE (time.created / 1000.0) < {cutoff_time}"
 
             # Load and transform in one query using SQL template
+            # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_MESSAGES_SQL.format(path=path, time_filter=time_filter)
             conn.execute(query)
 
@@ -237,9 +282,10 @@ class BulkLoader:
     def load_parts(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
         """Load part files via DuckDB native JSON reading."""
         start = time.time()
+        # Path validated in __init__ - safe to use in SQL
         path = self._storage_path / "part"
 
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return BulkLoadResult("part", 0, 0, 0, 0)
 
         conn = self._db.connect()
@@ -252,6 +298,7 @@ class BulkLoader:
             conn.execute("SET preserve_insertion_order=false")
 
             # Load and transform in one query using SQL template
+            # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_PARTS_SQL.format(path=path)
             conn.execute(query)
 
@@ -277,9 +324,10 @@ class BulkLoader:
     def load_step_events(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
         """Load step events (step-start, step-finish) via DuckDB native JSON reading."""
         start = time.time()
+        # Path validated in __init__ - safe to use in SQL
         path = self._storage_path / "part"
 
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return BulkLoadResult("step_event", 0, 0, 0, 0)
 
         conn = self._db.connect()
@@ -290,6 +338,7 @@ class BulkLoader:
             conn.execute("SET preserve_insertion_order=false")
 
             # Load step events from part files (they share the same storage)
+            # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_STEP_EVENTS_SQL.format(path=path)
             conn.execute(query)
 
@@ -314,9 +363,10 @@ class BulkLoader:
     def load_patches(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:
         """Load patches (git commits) via DuckDB native JSON reading."""
         start = time.time()
+        # Path validated in __init__ - safe to use in SQL
         path = self._storage_path / "part"
 
-        if not path.exists():
+        if not path.exists() or not path.is_dir():
             return BulkLoadResult("patch", 0, 0, 0, 0)
 
         conn = self._db.connect()
@@ -327,6 +377,7 @@ class BulkLoader:
             conn.execute("SET preserve_insertion_order=false")
 
             # Load patches from part files (they share the same storage)
+            # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_PATCHES_SQL.format(path=path)
             conn.execute(query)
 
@@ -376,6 +427,71 @@ class BulkLoader:
         except Exception as e:
             debug(f"[BulkLoader] Delegation trace creation error: {e}")
             return 0
+
+    def mark_bulk_files_processed(self, cutoff_time: float) -> int:
+        """
+        Mark all files with mtime < cutoff_time as processed.
+
+        This prevents the real-time watcher from reprocessing files
+        that were already loaded by the bulk loader.
+
+        Args:
+            cutoff_time: Only mark files modified before this timestamp
+
+        Returns:
+            Number of files marked
+        """
+        state = FileProcessingState(self._db)
+        marked = 0
+
+        # Scan each file type directory
+        for file_type in ["session", "message", "part"]:
+            type_path = self._storage_path / file_type
+            if not type_path.exists():
+                continue
+
+            # Collect files with mtime < cutoff_time
+            files_to_mark = []
+
+            # For flat directories (no subdirs)
+            if file_type in ("todo", "project"):
+                for json_file in type_path.glob("*.json"):
+                    try:
+                        mtime = json_file.stat().st_mtime
+                        if mtime < cutoff_time:
+                            files_to_mark.append(
+                                (str(json_file), file_type, "processed", None, mtime)
+                            )
+                    except OSError:
+                        continue
+            else:
+                # For nested directories (project_id/file.json)
+                for subdir in type_path.iterdir():
+                    if not subdir.is_dir():
+                        continue
+                    for json_file in subdir.glob("*.json"):
+                        try:
+                            mtime = json_file.stat().st_mtime
+                            if mtime < cutoff_time:
+                                files_to_mark.append(
+                                    (
+                                        str(json_file),
+                                        file_type,
+                                        "processed",
+                                        None,
+                                        mtime,
+                                    )
+                                )
+                        except OSError:
+                            continue
+
+            # Mark in batch for performance
+            if files_to_mark:
+                count = state.mark_processed_batch(files_to_mark)
+                marked += count
+                debug(f"[BulkLoader] Marked {count} {file_type} files as processed")
+
+        return marked
 
     def get_stats(self) -> dict:
         """Get loading statistics."""

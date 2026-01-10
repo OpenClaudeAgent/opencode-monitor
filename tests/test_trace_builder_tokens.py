@@ -173,6 +173,7 @@ class TestCreateTraceUpdatesTokens:
             ended_at=datetime.now(),
             duration_ms=300000,
             error_message=None,
+            error_data=None,
         )
 
         # Create trace (should update tokens immediately)
@@ -241,6 +242,7 @@ class TestParentTraceResolution:
             ended_at=datetime.now(),
             duration_ms=300000,
             error_message=None,
+            error_data=None,
         )
 
         # Create trace - parent should be resolved immediately
@@ -287,6 +289,7 @@ class TestParentTraceResolution:
             ended_at=datetime.now(),
             duration_ms=1000,
             error_message=None,
+            error_data=None,
         )
 
         trace_id = trace_builder.create_trace_from_delegation(delegation, part)
@@ -353,6 +356,7 @@ class TestParentTraceResolution:
             ended_at=datetime.now(),
             duration_ms=600000,
             error_message=None,
+            error_data=None,
         )
 
         trace_id = trace_builder.create_trace_from_delegation(delegation_b_to_c, part)

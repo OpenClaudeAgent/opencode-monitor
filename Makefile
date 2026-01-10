@@ -2,7 +2,7 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean roadmap
+.PHONY: help run run-debug test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean roadmap
 
 # Default target
 help:
@@ -10,6 +10,7 @@ help:
 	@echo ""
 	@echo "Usage:"
 	@echo "  make run                    Run the menu bar app"
+	@echo "  make run-debug              Run with debug logs enabled"
 	@echo "  make test                   Run unit tests (excludes integration)"
 	@echo "  make test-unit              Run unit tests only"
 	@echo "  make test-integration       Run integration tests (headless)"
@@ -44,6 +45,9 @@ help:
 
 run:
 	@uv run python -c "import sys; sys.path.insert(0, 'src'); from opencode_monitor.app import main; main()"
+
+run-debug:
+	@OPENCODE_DEBUG=1 OPENCODE_LOG_LEVEL=DEBUG uv run python -c "import sys; sys.path.insert(0, 'src'); from opencode_monitor.app import main; main()"
 
 # === Testing ===
 
