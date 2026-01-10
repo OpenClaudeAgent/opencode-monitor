@@ -146,8 +146,18 @@ class DashboardWindow(QMainWindow):
         main_layout.addWidget(content_frame)
 
     def _on_section_changed(self, index: int) -> None:
-        """Handle sidebar navigation."""
+        """Handle sidebar navigation.
+
+        Lazy-loads tracing data when user navigates to Tracing tab to avoid
+        expensive queries during auto-refresh cycles. Tracing data fetches
+        194+ root sessions, causing UI lag when done every 10s.
+        """
         self._pages.setCurrentIndex(index)
+
+        # Load tracing data on-demand when user clicks Tracing tab
+        # Index mapping: 0=Monitoring, 1=Security, 2=Analytics, 3=Tracing
+        if index == 3:
+            threading.Thread(target=self._fetch_tracing_data, daemon=True).start()
 
     def _connect_signals(self) -> None:
         """Connect data signals to UI updates."""
@@ -202,17 +212,17 @@ class DashboardWindow(QMainWindow):
 
         Performance optimization: Uses adaptive polling to reduce CPU usage.
         - Monitoring data refreshes every 2s (real-time agent detection)
-        - Secondary data (security, analytics, tracing) refreshes every 10s
+        - Secondary data (security, analytics) refreshes every 10s
+        - Tracing data loads on-demand when user clicks Tracing tab
         """
         # Always refresh monitoring (real-time requirement for agent detection)
         threading.Thread(target=self._fetch_monitoring_data, daemon=True).start()
 
         # Secondary data refreshes less frequently (every SECONDARY_REFRESH_DIVISOR iterations)
-        # This reduces API calls from 4/2s to 1/2s + 3/10s = ~60% reduction
+        # Tracing removed from auto-refresh to reduce CPU usage (loads on-demand)
         if self._refresh_count % self.SECONDARY_REFRESH_DIVISOR == 0:
             threading.Thread(target=self._fetch_security_data, daemon=True).start()
             threading.Thread(target=self._fetch_analytics_data, daemon=True).start()
-            threading.Thread(target=self._fetch_tracing_data, daemon=True).start()
 
         self._refresh_count += 1
 
