@@ -2,7 +2,7 @@
 Panel strategies package - Strategy pattern for panel content generation.
 """
 
-from .types import PanelContent, TreeNodeData, MetricsData, TranscriptData
+from .types import PanelContent, TreeNodeData, TranscriptData
 from .protocol import PanelStrategy
 from .session import SessionStrategy
 from .exchange import ExchangeStrategy
@@ -52,7 +52,6 @@ def get_strategy_factory() -> StrategyFactory:
 __all__ = [
     "PanelContent",
     "TreeNodeData",
-    "MetricsData",
     "TranscriptData",
     "PanelStrategy",
     "SessionStrategy",
