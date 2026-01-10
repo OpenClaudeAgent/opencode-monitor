@@ -5,7 +5,7 @@ Session strategy - Handle session nodes (root and child).
 import os
 
 from ...helpers import format_duration, format_tokens_short
-from .types import PanelContent, TreeNodeData, MetricsData, TranscriptData
+from .types import PanelContent, TreeNodeData, TranscriptData
 
 
 class SessionStrategy:
@@ -22,23 +22,9 @@ class SessionStrategy:
     def _get_root_content(self, node: TreeNodeData) -> PanelContent:
         directory = node.directory
         project_name = os.path.basename(directory) if directory else "Session"
-        tokens_total = node.tokens_in + node.tokens_out
-        children_count = len(node.children)
 
         return PanelContent(
-            header=project_name,
-            header_icon="🌳",
-            header_color=None,
             breadcrumb=[f"🌳 {project_name}"],
-            status=node.status,  # type: ignore[typeddict-item]
-            status_label=None,
-            metrics=MetricsData(
-                duration=format_duration(node.duration_ms),
-                tokens=format_tokens_short(tokens_total),
-                tools="-",
-                files="-",
-                agents=str(children_count),
-            ),
             content_type="overview",
             overview_data={
                 "project": project_name,
@@ -59,11 +45,6 @@ class SessionStrategy:
     def _get_child_content(self, node: TreeNodeData) -> PanelContent:
         agent_type = node.agent_type or "agent"
         parent_agent = node.parent_agent or "user"
-        tokens_total = node.tokens_in + node.tokens_out
-        children_count = len(node.children)
-
-        icon = "💬" if parent_agent == "user" else "🔗"
-        header = f"{parent_agent} → {agent_type}" if parent_agent else agent_type
 
         breadcrumb: list[str] = ["🌳 ROOT"]
         if parent_agent and parent_agent != "user":
@@ -82,19 +63,7 @@ class SessionStrategy:
         )
 
         return PanelContent(
-            header=header,
-            header_icon=icon,
-            header_color=None,
             breadcrumb=breadcrumb,
-            status=node.status,  # type: ignore[typeddict-item]
-            status_label=None,
-            metrics=MetricsData(
-                duration=format_duration(node.duration_ms),
-                tokens=format_tokens_short(tokens_total),
-                tools="-",
-                files="-",
-                agents=str(children_count),
-            ),
             content_type="tabs",
             overview_data=None,
             transcript=TranscriptData(

@@ -6,27 +6,13 @@ from typing import TypedDict, Literal
 from dataclasses import dataclass
 
 
-class MetricsData(TypedDict, total=False):
-    duration: str
-    tokens: str
-    tools: str
-    files: str
-    agents: str
-
-
 class TranscriptData(TypedDict, total=False):
     user_content: str
     assistant_content: str
 
 
 class PanelContent(TypedDict, total=False):
-    header: str
-    header_icon: str
-    header_color: str | None
     breadcrumb: list[str]
-    status: Literal["completed", "error", "running"] | None
-    status_label: str | None
-    metrics: MetricsData
     content_type: Literal["overview", "tabs"]
     overview_data: dict | None
     transcript: TranscriptData | None

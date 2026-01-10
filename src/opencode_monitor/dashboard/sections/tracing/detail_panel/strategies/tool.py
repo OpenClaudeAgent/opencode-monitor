@@ -3,7 +3,7 @@ Tool strategy - Handle tool nodes.
 """
 
 from ...helpers import format_duration
-from .types import PanelContent, TreeNodeData, MetricsData, TranscriptData
+from .types import PanelContent, TreeNodeData, TranscriptData
 
 TOOL_ICONS = {
     "read": "📖",
@@ -48,19 +48,7 @@ class ToolStrategy:
             tool_info += f"Timestamp: {created_at}\n"
 
         return PanelContent(
-            header=header,
-            header_icon=icon,
-            header_color=None,
             breadcrumb=[],
-            status=status if status in ("completed", "error") else None,  # type: ignore[typeddict-item]
-            status_label=None,
-            metrics=MetricsData(
-                duration=format_duration(duration_ms),
-                tokens="-",
-                tools="1",
-                files="-",
-                agents="-",
-            ),
             content_type="tabs",
             overview_data=None,
             transcript=TranscriptData(
@@ -73,22 +61,9 @@ class ToolStrategy:
 
     def _get_text_content(self, node: TreeNodeData) -> PanelContent:
         content = node.content
-        created_at = node.created_at
 
         return PanelContent(
-            header="Assistant Response",
-            header_icon="🤖",
-            header_color=None,
             breadcrumb=[],
-            status=None,
-            status_label=None,
-            metrics=MetricsData(
-                duration="-",
-                tokens="-",
-                tools="-",
-                files="-",
-                agents="-",
-            ),
             content_type="tabs",
             overview_data=None,
             transcript=TranscriptData(

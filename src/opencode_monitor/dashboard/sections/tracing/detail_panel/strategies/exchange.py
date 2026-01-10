@@ -3,7 +3,7 @@ Exchange strategy - Handle exchange/conversation nodes.
 """
 
 from ...helpers import format_tokens_short
-from .types import PanelContent, TreeNodeData, MetricsData, TranscriptData
+from .types import PanelContent, TreeNodeData, TranscriptData
 
 
 class ExchangeStrategy:
@@ -29,25 +29,10 @@ class ExchangeStrategy:
 
         user_content = user.get("content", "") if user else ""
         assistant_content = assistant.get("content", "") if assistant else ""
-        agent = assistant.get("agent", "assistant") if assistant else "assistant"
         parts = assistant.get("parts", []) if assistant else []
 
-        tool_count = sum(1 for p in parts if p.get("tool_name"))
-
         return PanelContent(
-            header=f"user → {agent}",
-            header_icon="💬",
-            header_color=None,
             breadcrumb=[],
-            status=None,
-            status_label=None,
-            metrics=MetricsData(
-                duration="-",
-                tokens=format_tokens_short(tokens_total),
-                tools=str(tool_count) if tool_count else "-",
-                files="-",
-                agents="-",
-            ),
             content_type="tabs",
             overview_data=None,
             transcript=TranscriptData(
@@ -61,23 +46,10 @@ class ExchangeStrategy:
     def _get_conversation_content(
         self, node: TreeNodeData, tokens_total: int
     ) -> PanelContent:
-        prompt_input = node.prompt_input or node.get("message_preview", "")
-        agent = node.get("agent") or node.get("subagent_type", "assistant")
+        prompt_input = node.prompt_input or node.get("message_preview", "") or ""
 
         return PanelContent(
-            header=f"user → {agent}",
-            header_icon="💬",
-            header_color=None,
             breadcrumb=[],
-            status=None,
-            status_label=None,
-            metrics=MetricsData(
-                duration="-",
-                tokens=format_tokens_short(tokens_total),
-                tools="-",
-                files="-",
-                agents="-",
-            ),
             content_type="tabs",
             overview_data=None,
             transcript=TranscriptData(
