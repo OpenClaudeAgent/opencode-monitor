@@ -91,13 +91,13 @@ class TestSessionBuilder:
         assert isinstance(json_data["time"]["created"], int)
 
     def test_write_file_creates_json_file(self, tmp_path: Path):
-        """write_file creates session.json in correct location."""
+        """write_file creates session JSON in correct location."""
         builder = SessionBuilder().with_id("sess-test")
         file_path = builder.write_file(tmp_path)
 
         assert file_path.exists()
-        assert file_path.name == "session.json"
-        assert "sess-test" in str(file_path.parent)
+        assert file_path.name == "sess-test.json"
+        assert "session" in str(file_path.parent)  # session/{project_hash}/
 
         # Verify content
         content = json.loads(file_path.read_text())
@@ -374,10 +374,10 @@ class TestBuilderIntegration:
         )
         msg2.write_file(tmp_path)
 
-        # Verify files exist
-        assert (tmp_path / "sessions" / "sess-int" / "session.json").exists()
-        assert (tmp_path / "messages" / "sess-int" / "msg-001.json").exists()
-        assert (tmp_path / "messages" / "sess-int" / "msg-002.json").exists()
+        # Verify files exist (using OpenCode singular folder names)
+        assert (tmp_path / "session" / "default" / "sess-int.json").exists()
+        assert (tmp_path / "message" / "sess-int" / "msg-001.json").exists()
+        assert (tmp_path / "message" / "sess-int" / "msg-002.json").exists()
 
     def test_trace_tree_with_token_totals(self):
         """TraceBuilder calculates token totals correctly."""

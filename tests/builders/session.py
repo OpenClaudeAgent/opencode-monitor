@@ -209,19 +209,22 @@ class SessionBuilder:
         )
         return self._id
 
-    def write_file(self, storage_path: Path) -> Path:
+    def write_file(self, storage_path: Path, project_hash: str = "default") -> Path:
         """Write session JSON file to storage.
+
+        Matches OpenCode structure: session/{project_hash}/ses_XXX.json
 
         Args:
             storage_path: Base storage path
+            project_hash: Project hash directory (default: "default")
 
         Returns:
             Path to created session file
         """
-        session_dir = storage_path / "sessions" / self._id
+        session_dir = storage_path / "session" / project_hash
         session_dir.mkdir(parents=True, exist_ok=True)
 
-        session_file = session_dir / "session.json"
+        session_file = session_dir / f"{self._id}.json"
         session_file.write_text(json.dumps(self.build_json()))
 
         return session_file

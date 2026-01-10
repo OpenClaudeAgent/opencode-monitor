@@ -257,13 +257,15 @@ class MessageBuilder:
     def write_file(self, storage_path: Path) -> Path:
         """Write message JSON file to storage.
 
+        Matches OpenCode structure: message/{session_id}/msg_XXX.json
+
         Args:
             storage_path: Base storage path
 
         Returns:
             Path to created message file
         """
-        message_dir = storage_path / "messages" / self._session_id
+        message_dir = storage_path / "message" / self._session_id
         message_dir.mkdir(parents=True, exist_ok=True)
 
         message_file = message_dir / f"{self._id}.json"

@@ -398,37 +398,28 @@ class UnifiedIndexer:
         Path structure: storage/{type}/{project_id}/{file}.json
         or: storage/{type}/{file}.json (for todo/project)
 
+        OpenCode uses singular folder names: session, message, part, todo, project
+
         Args:
             path: File path
 
         Returns:
             File type (session, message, part, todo, project)
         """
-        # OpenCode uses plural folder names, but we use singular type names
-        folder_to_type = {
-            "sessions": "session",
-            "messages": "message",
-            "parts": "part",
-            "todos": "todo",
-            "projects": "project",
-        }
-
         # Get path relative to storage
         try:
             rel_path = path.relative_to(self._storage_path)
-            # First part of relative path is the folder name (plural)
+            # First part of relative path is the type folder
             parts = rel_path.parts
             if parts:
-                folder_name = parts[0]
-                # Map plural folder name to singular type
-                return folder_to_type.get(folder_name, folder_name)
+                return parts[0]  # session, message, part, todo, or project
         except ValueError:
             pass
 
         # Fallback: check parent directories
         path_str = str(path)
-        for folder, file_type in folder_to_type.items():
-            if f"/{folder}/" in path_str:
+        for file_type in ["session", "message", "part", "todo", "project"]:
+            if f"/{file_type}/" in path_str:
                 return file_type
 
         return "unknown"
