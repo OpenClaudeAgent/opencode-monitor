@@ -45,7 +45,8 @@ class SessionStrategy:
                 "title": node.title,
                 "directory": directory,
                 "duration_ms": node.duration_ms,
-                "tokens_in": node.tokens_in,
+                "tokens": node.get("tokens"),  # Pass complete tokens object from API
+                "tokens_in": node.tokens_in,  # Keep for backward compatibility
                 "tokens_out": node.tokens_out,
                 "cache_read": node.get("cache_read", 0),
                 "children": node.children,

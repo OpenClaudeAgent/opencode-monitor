@@ -8,7 +8,7 @@ Tests verify that:
 """
 
 import pytest
-from PyQt6.QtWidgets import QWidget
+from PyQt6.QtWidgets import QWidget, QLabel
 
 from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
 from ..fixtures import MockAPIResponses
@@ -117,3 +117,178 @@ class TestTracingTreeContent:
         assert root_item.columnCount() == TREE_COLUMN_COUNT
         assert first_child.columnCount() == TREE_COLUMN_COUNT
         assert second_child.columnCount() == TREE_COLUMN_COUNT
+
+
+class TestTokenDisplayNonRegression:
+    """Tests de non-régression pour l'affichage des tokens."""
+
+    def test_token_display_no_regression(self, dashboard_window, qtbot, click_nav):
+        """Test de non-régression : tokens ne doivent jamais être doublés."""
+        click_nav(dashboard_window, SECTION_TRACING)
+        tracing = dashboard_window._tracing
+
+        # Given: Une session avec tokens connus
+        data = {
+            "session_hierarchy": [
+                {
+                    "session_id": "ses_regression_test",
+                    "title": "Regression Test",
+                    "started_at": "2024-01-10T10:00:00Z",
+                    "duration_seconds": 60,
+                    "tokens": {
+                        "input": 1000,
+                        "output": 2000,
+                        "cache_read": 3000,
+                        "cache_write": 4000,
+                        "total": 10000,
+                    },
+                    "children": [],
+                }
+            ]
+        }
+
+        # When: On affiche le panel plusieurs fois (simulate navigation)
+        for iteration in range(3):
+            dashboard_window._signals.tracing_updated.emit(data)
+            qtbot.wait(SIGNAL_WAIT_MS)
+
+            root_item = tracing._tree.topLevelItem(0)
+            tracing._tree.setCurrentItem(root_item)
+            tracing._on_item_clicked(root_item, 0)
+            qtbot.wait(SIGNAL_WAIT_MS)
+
+            # Then: Les valeurs doivent rester identiques (pas de double comptage)
+            detail_panel = tracing._detail_panel
+            overview_panel = detail_panel._session_overview
+            tokens_widget = overview_panel._tokens
+
+            labels = tokens_widget.findChildren(QLabel)
+            label_texts = [label.text() for label in labels]
+
+            # Vérifier qu'on ne voit pas de doublons ou valeurs multipliées
+            # Le total doit toujours être "10K" (pas "20K", "30K", etc.)
+            total_labels = [text for text in label_texts if "Total" in text]
+            assert len(total_labels) > 0, (
+                f"Should have Total label (iteration {iteration})"
+            )
+
+            total_text = total_labels[0]
+            # format_tokens_short(10000) = "10K"
+            assert "10" in total_text, (
+                f"Total should be ~10K (iteration {iteration}), got: {total_text}"
+            )
+            # Make sure it's not doubled (20K) or tripled (30K)
+            assert "20" not in total_text and "30" not in total_text, (
+                f"Total should not be doubled/tripled (iteration {iteration}), got: {total_text}"
+            )
+
+    def test_legacy_format_backward_compatibility(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Test que l'ancien format (sans objet tokens) fonctionne encore."""
+        click_nav(dashboard_window, SECTION_TRACING)
+        tracing = dashboard_window._tracing
+
+        # Given: Une session avec ancien format (pas d'objet tokens structuré)
+        # Note: L'ancien format pourrait avoir tokens_in/tokens_out flat ou pas de tokens du tout
+        data = {
+            "session_hierarchy": [
+                {
+                    "session_id": "ses_legacy_format",
+                    "title": "Legacy Session",
+                    "started_at": "2024-01-10T10:00:00Z",
+                    "duration_seconds": 60,
+                    # Pas d'objet tokens structuré
+                    "children": [],
+                }
+            ]
+        }
+
+        # When: On charge les données et sélectionne la session
+        success = True
+        error = None
+        try:
+            dashboard_window._signals.tracing_updated.emit(data)
+            qtbot.wait(SIGNAL_WAIT_MS)
+
+            root_item = tracing._tree.topLevelItem(0)
+            tracing._tree.setCurrentItem(root_item)
+            tracing._on_item_clicked(root_item, 0)
+            qtbot.wait(SIGNAL_WAIT_MS)
+        except Exception as e:
+            success = False
+            error = str(e)
+
+        # Then: Le panel doit fonctionner (backward compatibility)
+        assert success, f"Panel should handle legacy format without error, got: {error}"
+
+        # Verify the panel loaded something (even if tokens are missing)
+        detail_panel = tracing._detail_panel
+        overview_panel = detail_panel._session_overview
+        assert overview_panel is not None
+        assert overview_panel.isVisible() or not overview_panel.isHidden()
+
+    def test_cache_write_not_missing_from_total(
+        self, dashboard_window, qtbot, click_nav
+    ):
+        """Test que cache_write n'est pas omis du total (bug historique)."""
+        click_nav(dashboard_window, SECTION_TRACING)
+        tracing = dashboard_window._tracing
+
+        # Given: Une session avec cache_write significatif
+        data = {
+            "session_hierarchy": [
+                {
+                    "session_id": "ses_cache_write_test",
+                    "title": "Cache Write Test",
+                    "started_at": "2024-01-10T10:00:00Z",
+                    "duration_seconds": 60,
+                    "tokens": {
+                        "input": 100,
+                        "output": 200,
+                        "cache_read": 300,
+                        "cache_write": 5000,  # Large cache_write value
+                        "total": 5600,  # Must include cache_write
+                    },
+                    "children": [],
+                }
+            ]
+        }
+
+        # When: On charge les données
+        dashboard_window._signals.tracing_updated.emit(data)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        root_item = tracing._tree.topLevelItem(0)
+        tracing._tree.setCurrentItem(root_item)
+        tracing._on_item_clicked(root_item, 0)
+        qtbot.wait(SIGNAL_WAIT_MS)
+
+        # Then: Vérifier que cache_write est bien affiché
+        detail_panel = tracing._detail_panel
+        overview_panel = detail_panel._session_overview
+        tokens_widget = overview_panel._tokens
+
+        labels = tokens_widget.findChildren(QLabel)
+        label_texts = [label.text() for label in labels]
+
+        # Cache Write doit être présent dans les labels
+        cache_write_labels = [text for text in label_texts if "Cache Write" in text]
+        assert len(cache_write_labels) > 0, (
+            f"Should display Cache Write, got labels: {label_texts}"
+        )
+
+        # Vérifier que la valeur affichée contient "5" (5000 -> "5K")
+        cache_write_text = cache_write_labels[0]
+        assert "5" in cache_write_text, (
+            f"Cache Write should show ~5K, got: {cache_write_text}"
+        )
+
+        # Vérifier que le total inclut cache_write
+        total_labels = [text for text in label_texts if "Total" in text]
+        assert len(total_labels) > 0
+        total_text = total_labels[0]
+        # Total should be ~5.6K (includes the 5K cache_write)
+        assert "5" in total_text or "6" in total_text, (
+            f"Total should include cache_write (~5.6K), got: {total_text}"
+        )

@@ -25,7 +25,6 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
-from opencode_monitor.utils.logger import debug
 
 from ..helpers import format_duration, format_tokens_short
 from ..tabs import (
@@ -293,7 +292,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self, session_id: str, tree_data: dict | None = None
     ) -> None:
         """Show session summary - main entry point for displaying session details."""
-        debug(f"[TraceDetailPanel] show_session_summary called for: {session_id}")
         self._current_session_id = session_id
         self._tree_data = tree_data or {}
         self._clear_tabs()
@@ -310,13 +308,11 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Show root session with SessionOverviewPanel."""
         client = self._get_api_client()
         if not client.is_available:
-            debug("[TraceDetailPanel] API not available, using fallback")
             self._header.setText("API not available")
             self._set_header_style(muted=True)
             return
 
         summary = client.get_session_summary(session_id)
-        debug(f"[TraceDetailPanel] Got summary: {summary is not None}")
 
         if summary is None:
             summary = {"meta": {}, "summary": {}, "details": {}}
@@ -327,7 +323,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"
-        title = tree_data.get("title") or meta.get("title") or ""
 
         self._header.setText(f"🌳 {project_name}")
         self._set_header_style(muted=False)
@@ -335,25 +330,33 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._status_badge.set_status(s.get("status", "completed"))
 
         duration_ms = tree_data.get("duration_ms") or s.get("duration_ms", 0)
+
+        # Calculate total tokens from 'tokens' object (new format) or summary (legacy)
+        tokens_obj = tree_data.get("tokens", {})
+        if tokens_obj:
+            total_tokens = tokens_obj.get("total", 0)
+            # If total not available, calculate from components
+            if not total_tokens:
+                total_tokens = (
+                    tokens_obj.get("input", 0)
+                    + tokens_obj.get("output", 0)
+                    + tokens_obj.get("cache_read", 0)
+                    + tokens_obj.get("cache_write", 0)
+                )
+        else:
+            total_tokens = s.get("total_tokens", 0)
+
         self._metrics_bar.update_all(
             duration=format_duration(duration_ms),
-            tokens=format_tokens_short(s.get("total_tokens", 0)),
+            tokens=format_tokens_short(total_tokens),
             tools=str(s.get("total_tool_calls", 0)),
             files=str(s.get("total_files", 0)),
             agents=str(tree_data.get("children_count", s.get("unique_agents", 0))),
         )
 
-        overview_data = {
-            "project": project_name,
-            "title": title,
-            "directory": directory,
-            "duration_ms": duration_ms,
-            "tokens_in": tree_data.get("tokens_in") or s.get("tokens_in", 0),
-            "tokens_out": tree_data.get("tokens_out") or s.get("tokens_out", 0),
-            "cache_read": tree_data.get("cache_read", 0),
-            "children": tree_data.get("children", []),
-        }
-        self._session_overview.load_session(overview_data)
+        # Pass tree_data directly to preserve 'tokens' object structure
+        # session_overview.load_session() expects tokens as an object with input/output/cache_read/cache_write
+        self._session_overview.load_session(tree_data)
         self._content_stack.setCurrentIndex(0)
 
     def _show_child_session(self, tree_data: dict) -> None:
@@ -385,10 +388,11 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         # Status
         self._status_badge.set_status(status)
 
-        # Metrics
+        # Metrics - Extract tokens from 'tokens' object (new format) or flat fields (legacy)
         duration_ms = tree_data.get("duration_ms") or 0
-        tokens_in = tree_data.get("tokens_in") or 0
-        tokens_out = tree_data.get("tokens_out") or 0
+        tokens_obj = tree_data.get("tokens", {})
+        tokens_in = tokens_obj.get("input") or tree_data.get("tokens_in") or 0
+        tokens_out = tokens_obj.get("output") or tree_data.get("tokens_out") or 0
 
         self._metrics_bar.update_all(
             duration=format_duration(duration_ms),

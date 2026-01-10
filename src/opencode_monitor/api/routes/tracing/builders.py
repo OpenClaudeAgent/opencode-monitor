@@ -428,6 +428,13 @@ def build_session_node(
     trace_id = row[0]
     agent_type = row[3]
 
+    # Extract token values
+    tokens_in = session_tokens.get("tokens_in") or row[7] or 0
+    tokens_out = session_tokens.get("tokens_out") or row[8] or 0
+    cache_read = session_tokens.get("cache_read") or 0
+    cache_write = session_tokens.get("cache_write") or 0
+    total_tokens = tokens_in + tokens_out + cache_read + cache_write
+
     session = {
         "session_id": session_id,
         "trace_id": trace_id,
@@ -437,10 +444,18 @@ def build_session_node(
         "started_at": row[4].isoformat() if row[4] else None,
         "ended_at": row[5].isoformat() if row[5] else None,
         "duration_ms": row[6],
-        "tokens_in": session_tokens.get("tokens_in") or row[7],
-        "tokens_out": session_tokens.get("tokens_out") or row[8],
-        "cache_read": session_tokens.get("cache_read"),
-        "cache_write": session_tokens.get("cache_write"),
+        "tokens_in": tokens_in,
+        "tokens_out": tokens_out,
+        "cache_read": cache_read,
+        "cache_write": cache_write,
+        # Add structured tokens object for dashboard
+        "tokens": {
+            "input": tokens_in,
+            "output": tokens_out,
+            "cache_read": cache_read,
+            "cache_write": cache_write,
+            "total": total_tokens,
+        },
         "status": row[9],
         "prompt_input": row[10],
         "title": row[11] or "",

@@ -38,7 +38,6 @@ from PyQt6.QtWidgets import (
 
 from opencode_monitor.dashboard.sections.tracing.helpers import format_tokens_short
 from opencode_monitor.dashboard.styles import COLORS, FONTS, RADIUS, SPACING
-from opencode_monitor.utils.logger import debug
 
 
 # ============================================================
@@ -911,21 +910,15 @@ def _collect_agents_recursive(node: dict, agents: list[dict], depth: int = 0) ->
     node_type = node.get("node_type", "")
     agent_type = node.get("agent_type", "")
 
-    debug(
-        f"[SessionOverview] Walking node type={node_type} agent_type={agent_type} at depth={depth}"
-    )
-
     # Collect agent/delegation nodes (old way - kept for compatibility)
     if node_type in ["delegation", "agent"]:
         if agent_type:
-            debug(f"[SessionOverview] Found agent from delegation: {agent_type}")
             agents.append(node)
 
     # NEW: Collect agents from user_turn nodes (where agent responds)
     if node_type == "user_turn":
         agent = node.get("agent") or node.get("subagent_type")
         if agent:
-            debug(f"[SessionOverview] Found agent from user_turn: {agent}")
             # Only add if not "assistant" (which is the default)
             if agent != "assistant":
                 agents.append({"agent_type": agent, "node_type": "user_turn_agent"})
@@ -933,65 +926,6 @@ def _collect_agents_recursive(node: dict, agents: list[dict], depth: int = 0) ->
     # Recurse into children
     for child in node.get("children", []):
         _collect_agents_recursive(child, agents, depth + 1)
-
-
-def _aggregate_tokens_recursive(
-    node: dict, depth: int = 0
-) -> tuple[int, int, int, int]:
-    """Recursively aggregate tokens from entire tree.
-
-    Args:
-        node: Current tree node
-        depth: Current recursion depth (for logging)
-
-    Returns:
-        Tuple of (tokens_in, tokens_out, cache_read, cache_write)
-    """
-    node_type = node.get("node_type", "unknown")
-    indent = "  " * depth
-
-    debug(
-        f"[SessionOverview] {indent}Aggregating tokens for node type={node_type} at depth={depth}"
-    )
-
-    # Get tokens from current node
-    tokens_in = node.get("tokens_in", 0) or 0
-    tokens_out = node.get("tokens_out", 0) or 0
-    cache_read = node.get("cache_read", 0) or 0
-    cache_write = node.get("cache_write", 0) or 0
-
-    debug(
-        f"[SessionOverview] {indent}Node {node_type} tokens - in: {tokens_in}, out: {tokens_out}, "
-        f"cache_read: {cache_read}, cache_write: {cache_write}"
-    )
-
-    # FIX: Only aggregate from user_turn nodes (exchanges), not from session nodes
-    # Session nodes already have aggregated tokens that duplicate their children's tokens
-    if node_type == "session":
-        debug(
-            f"[SessionOverview] {indent}⚠️  SKIPPING session node tokens (would cause double counting)"
-        )
-        tokens_in = 0
-        tokens_out = 0
-        cache_read = 0
-        cache_write = 0
-
-    # Aggregate tokens from children
-    for child in node.get("children", []):
-        child_in, child_out, child_cr, child_cw = _aggregate_tokens_recursive(
-            child, depth + 1
-        )
-        tokens_in += child_in
-        tokens_out += child_out
-        cache_read += child_cr
-        cache_write += child_cw
-
-    debug(
-        f"[SessionOverview] {indent}→ Total after children for {node_type}: "
-        f"in={tokens_in}, out={tokens_out}, cr={cache_read}, cw={cache_write}"
-    )
-
-    return tokens_in, tokens_out, cache_read, cache_write
 
 
 # ============================================================
@@ -1069,30 +1003,20 @@ class SessionOverviewPanel(QFrame):
 
     def load_session(self, tree_data: dict) -> None:
         """Load session data and display rich overview."""
-        debug(
-            f"[SessionOverview] Loading session with {len(tree_data.get('children', []))} direct children"
-        )
-
         # Extract structured data (exchanges, tools, files, errors)
         data = extract_session_data(tree_data)
 
-        # Aggregate tokens recursively from entire tree
-        debug("[SessionOverview] Starting recursive token aggregation...")
-        tokens_in, tokens_out, cache_read, cache_write = _aggregate_tokens_recursive(
-            tree_data
-        )
-        debug(
-            f"[SessionOverview] Total tokens aggregated - in: {tokens_in}, out: {tokens_out}, "
-            f"cache_read: {cache_read}, cache_write: {cache_write}"
-        )
+        # Get tokens directly from API response (pre-calculated server-side)
+        # Use 'or {}' to handle both missing keys and explicit None values
+        tokens = tree_data.get("tokens") or {}
+        tokens_in = tokens.get("input", 0) if isinstance(tokens, dict) else 0
+        tokens_out = tokens.get("output", 0) if isinstance(tokens, dict) else 0
+        cache_read = tokens.get("cache_read", 0) if isinstance(tokens, dict) else 0
+        cache_write = tokens.get("cache_write", 0) if isinstance(tokens, dict) else 0
 
         # Collect agents recursively from entire tree
-        debug("[SessionOverview] Starting recursive agent collection...")
         agents = []
         _collect_agents_recursive(tree_data, agents)
-        debug(
-            f"[SessionOverview] Found {len(agents)} agents: {[a.get('agent_type', 'unknown') for a in agents]}"
-        )
 
         # Load widgets
         self._timeline.load_exchanges(data.exchanges)
