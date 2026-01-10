@@ -2,7 +2,6 @@
 TraceDetailPanel - Panel showing detailed trace/session information with tabs.
 
 Features:
-- Header with key metrics (duration, tokens, tools, files, agents, status)
 - 6 tabs: Transcript, Tokens, Tools, Files, Agents, Timeline
 - Lazy loading: only loads data for the active tab
 - TracingDataService integration
@@ -15,7 +14,6 @@ from typing import Optional, TYPE_CHECKING
 from PyQt6.QtWidgets import (
     QWidget,
     QVBoxLayout,
-    QHBoxLayout,
     QLabel,
     QFrame,
     QTabWidget,
@@ -36,7 +34,7 @@ from ..tabs import (
     TranscriptTab,
     DelegationsTab,
 )
-from .components import MetricsBar, StatusBadge, SessionOverviewPanel
+from .components import SessionOverviewPanel
 from .handlers import DataLoaderMixin
 from .strategies import PanelContent
 
@@ -90,9 +88,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         # Setup sections
         self._setup_breadcrumb(layout)
-        self._setup_header(layout)
-        self._setup_metrics(layout)
-        self._setup_separator(layout)
 
         # Stacked widget for contextual content
         self._content_stack = QStackedWidget()
@@ -172,47 +167,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         self._breadcrumb.setText(" › ".join(path))
         self._breadcrumb.show()
-
-    def _setup_header(self, layout: QVBoxLayout) -> None:
-        """Setup header with title and status."""
-        header_row = QHBoxLayout()
-        header_row.setSpacing(SPACING["sm"])
-
-        self._header = QLabel("Select a session")
-        self._set_header_style(muted=True)
-        header_row.addWidget(self._header)
-        header_row.addStretch()
-
-        self._status_badge = StatusBadge()
-        header_row.addWidget(self._status_badge)
-
-        layout.addLayout(header_row)
-
-    def _set_header_style(self, muted: bool = False, color: str | None = None) -> None:
-        """Set header text style."""
-        text_color = (
-            color
-            if color
-            else (COLORS["text_muted"] if muted else COLORS["text_primary"])
-        )
-        self._header.setStyleSheet(f"""
-            font-size: {FONTS["size_lg"]}px;
-            font-weight: {FONTS["weight_semibold"]};
-            color: {text_color};
-        """)
-
-    def _setup_metrics(self, layout: QVBoxLayout) -> None:
-        """Setup metrics bar."""
-        self._metrics_bar = MetricsBar()
-        layout.addWidget(self._metrics_bar)
-
-    def _setup_separator(self, layout: QVBoxLayout) -> None:
-        """Add horizontal separator."""
-        sep = QFrame()
-        sep.setFrameShape(QFrame.Shape.HLine)
-        sep.setStyleSheet(f"background-color: {COLORS['border_default']};")
-        sep.setFixedHeight(1)
-        layout.addWidget(sep)
 
     def _setup_tabs(self, layout: QVBoxLayout) -> None:
         """Setup tab widget with 6 sections."""
@@ -308,8 +262,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Show root session with SessionOverviewPanel."""
         client = self._get_api_client()
         if not client.is_available:
-            self._header.setText("API not available")
-            self._set_header_style(muted=True)
             return
 
         summary = client.get_session_summary(session_id)
@@ -324,35 +276,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"
 
-        self._header.setText(f"🌳 {project_name}")
-        self._set_header_style(muted=False)
         self._update_breadcrumb([f"🌳 {project_name}"])
-        self._status_badge.set_status(s.get("status", "completed"))
-
-        duration_ms = tree_data.get("duration_ms") or s.get("duration_ms", 0)
-
-        # Calculate total tokens from 'tokens' object (new format) or summary (legacy)
-        tokens_obj = tree_data.get("tokens", {})
-        if tokens_obj:
-            total_tokens = tokens_obj.get("total", 0)
-            # If total not available, calculate from components
-            if not total_tokens:
-                total_tokens = (
-                    tokens_obj.get("input", 0)
-                    + tokens_obj.get("output", 0)
-                    + tokens_obj.get("cache_read", 0)
-                    + tokens_obj.get("cache_write", 0)
-                )
-        else:
-            total_tokens = s.get("total_tokens", 0)
-
-        self._metrics_bar.update_all(
-            duration=format_duration(duration_ms),
-            tokens=format_tokens_short(total_tokens),
-            tools=str(s.get("total_tool_calls", 0)),
-            files=str(s.get("total_files", 0)),
-            agents=str(tree_data.get("children_count", s.get("unique_agents", 0))),
-        )
 
         # Pass tree_data directly to preserve 'tokens' object structure
         # session_overview.load_session() expects tokens as an object with input/output/cache_read/cache_write
@@ -368,16 +292,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         title = tree_data.get("title", "")
         status = tree_data.get("status", "completed")
 
-        # Header with delegation chain
-        icon = "💬" if parent_agent == "user" else "🔗"
-        header_text = (
-            f"{icon} {parent_agent} → {agent_type}"
-            if parent_agent
-            else f"🤖 {agent_type}"
-        )
-        self._header.setText(header_text)
-        self._set_header_style(muted=False)
-
         # Breadcrumb
         breadcrumb_path = ["🌳 ROOT"]
         if parent_agent and parent_agent != "user":
@@ -385,22 +299,11 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         breadcrumb_path.append(f"🤖 {agent_type}")
         self._update_breadcrumb(breadcrumb_path)
 
-        # Status
-        self._status_badge.set_status(status)
-
-        # Metrics - Extract tokens from 'tokens' object (new format) or flat fields (legacy)
+        # Extract tokens from 'tokens' object (new format) or flat fields (legacy)
         duration_ms = tree_data.get("duration_ms") or 0
         tokens_obj = tree_data.get("tokens", {})
         tokens_in = tokens_obj.get("input") or tree_data.get("tokens_in") or 0
         tokens_out = tokens_obj.get("output") or tree_data.get("tokens_out") or 0
-
-        self._metrics_bar.update_all(
-            duration=format_duration(duration_ms),
-            tokens=format_tokens_short(tokens_in + tokens_out),
-            tools="-",
-            files="-",
-            agents=str(tree_data.get("children_count") or 0),
-        )
 
         # Transcript data
         prompt_input = (
@@ -431,24 +334,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Display message content (user prompt or assistant response)."""
         self._prepare_display()
 
-        if role == "user":
-            self._header.setText("💬 User Message")
-            self._set_header_style(color=COLORS.get("info", "#60A5FA"))
-        else:
-            self._header.setText("🤖 Assistant Response")
-            self._set_header_style(color=COLORS.get("success", "#34D399"))
-
-        self._status_badge.clear()
-
-        total_tokens = (tokens_in or 0) + (tokens_out or 0)
-        self._metrics_bar.update_all(
-            duration="-",
-            tokens=format_tokens_short(total_tokens),
-            tools="-",
-            files="-",
-            agents="-",
-        )
-
         user = content if role == "user" else ""
         assistant = content if role == "assistant" else ""
         self._show_transcript(user, assistant)
@@ -464,41 +349,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Display tool operation details."""
         self._prepare_display()
 
-        # Tool icons
-        tool_icons = {
-            "read": "📖",
-            "edit": "✏️",
-            "write": "📝",
-            "bash": "🔧",
-            "glob": "🔍",
-            "grep": "🔎",
-            "task": "🤖",
-            "webfetch": "🌐",
-            "web_fetch": "🌐",
-            "todowrite": "📋",
-            "todoread": "📋",
-        }
-        icon = tool_icons.get(tool_name, "⚙️")
-
-        header_text = f"{icon} {tool_name}"
-        if display_info:
-            header_text += f": {display_info}"
-        self._header.setText(header_text)
-        self._set_header_style(muted=False)
-
         self._breadcrumb.hide()
-        if status in ("completed", "error"):
-            self._status_badge.set_status(status)
-        else:
-            self._status_badge.clear()
-
-        self._metrics_bar.update_all(
-            duration=format_duration(duration_ms),
-            tokens="-",
-            tools="1",
-            files="-",
-            agents="-",
-        )
 
         tool_info = f"Tool: {tool_name}\n"
         if display_info:
@@ -543,10 +394,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._current_session_id = None
         self._current_data = {}
 
-        self._header.setText("Select a session")
-        self._set_header_style(muted=True)
-        self._status_badge.clear()
-        self._metrics_bar.reset()
         self._clear_tabs()
         self._session_overview.clear()
         self._content_stack.setCurrentIndex(1)
@@ -593,30 +440,8 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._current_session_id = None
         self._clear_tabs()
 
-        header_icon = content.get("header_icon", "")
-        header_text = content.get("header", "")
-        self._header.setText(
-            f"{header_icon} {header_text}" if header_icon else header_text
-        )
-        self._set_header_style(muted=False, color=content.get("header_color"))
-
         breadcrumb = content.get("breadcrumb", [])
         self._update_breadcrumb(breadcrumb)
-
-        status = content.get("status")
-        if status:
-            self._status_badge.set_status(status)
-        else:
-            self._status_badge.clear()
-
-        metrics = content.get("metrics", {})
-        self._metrics_bar.update_all(
-            duration=metrics.get("duration", "-"),
-            tokens=metrics.get("tokens", "-"),
-            tools=metrics.get("tools", "-"),
-            files=metrics.get("files", "-"),
-            agents=metrics.get("agents", "-"),
-        )
 
         content_type = content.get("content_type", "tabs")
         if content_type == "overview":
