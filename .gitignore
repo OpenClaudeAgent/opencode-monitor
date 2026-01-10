@@ -23,6 +23,12 @@
 worktrees/
 __pycache__/
 
+# Python caches
+.pytest_cache/
+.ruff_cache/
+*.pyc
+*.pyo
+
 # Coverage
 .coverage
 htmlcov/
@@ -39,3 +45,9 @@ package-lock.json
 # Mutation testing
 mutants/
 .mutmut-cache/
+
+# Temporary reports and audits
+maintenance/audit-reports/
+maintenance/reports/
+audit-reports/
+reports/*.md
