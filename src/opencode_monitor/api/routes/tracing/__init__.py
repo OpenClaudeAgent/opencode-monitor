@@ -61,7 +61,7 @@ def get_tracing_tree():
       - Agent trace ...
     """
     try:
-        days = request.args.get("days", 30, type=int)
+        days = request.args.get("days", 1, type=int)  # Default 24h for performance
         include_tools = request.args.get("include_tools", "true").lower() == "true"
 
         with get_db_lock():
