@@ -1187,7 +1187,12 @@ class TestBuildSessionNode:
             {"trace_id": "child_1", "children": []},
             {"trace_id": "child_2", "children": [{"trace_id": "grandchild"}]},
         ]
-        session_tokens = {"tokens_in": 150, "tokens_out": 250, "cache_read": 500}
+        session_tokens = {
+            "tokens_in": 150,
+            "tokens_out": 250,
+            "cache_read": 500,
+            "cache_write": 100,
+        }
 
         result = build_session_node(row, agent_children, session_tokens)
 
@@ -1201,6 +1206,22 @@ class TestBuildSessionNode:
         assert result["tokens_out"] == 250
         assert result["cache_read"] == 500
         assert result["trace_count"] == 3  # 2 children + 1 grandchild
+
+        # Verify complete tokens object
+        assert "tokens" in result
+        tokens = result["tokens"]
+        assert "input" in tokens
+        assert "output" in tokens
+        assert "cache_read" in tokens
+        assert "cache_write" in tokens
+        assert "total" in tokens
+        assert (
+            tokens["total"]
+            == tokens["input"]
+            + tokens["output"]
+            + tokens["cache_read"]
+            + tokens["cache_write"]
+        )
 
     def test_build_session_node_fallback_tokens(self):
         """Use row tokens when session_tokens empty."""
