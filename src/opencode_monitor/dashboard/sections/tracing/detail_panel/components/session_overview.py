@@ -335,6 +335,519 @@ class TimelineWidget(QFrame):
 
 
 # ============================================================
+# EXPANDABLE TIMELINE WIDGET (NEW)
+# ============================================================
+
+
+# Event type configuration for visual styling
+EVENT_CONFIG = {
+    "user_prompt": {"icon": "💬", "color": COLORS["accent_primary"]},
+    "reasoning": {"icon": "🧠", "color": COLORS["warning"]},
+    "tool_call": {"icon": "🔧", "color": COLORS["info"]},
+    "step_finish": {"icon": "⏱️", "color": COLORS["text_muted"]},
+    "assistant_response": {"icon": "✅", "color": COLORS["success"]},
+    "delegation": {"icon": "🤖", "color": COLORS["tree_child"]},
+}
+
+
+class TimelineEventWidget(QFrame):
+    """Single event item (reasoning, tool_call, response)."""
+
+    def __init__(
+        self,
+        event: dict,
+        parent: QWidget | None = None,
+        is_delegation: bool = False,
+        child_timeline: list[dict] | None = None,
+        depth: int = 0,
+    ):
+        super().__init__(parent)
+        self._event = event
+        self._is_delegation = is_delegation
+        self._child_timeline = child_timeline
+        self._depth = depth
+        self._child_container: QWidget | None = None
+        self._is_child_expanded = False
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        event_type = self._event.get("type", "unknown")
+
+        # Check if this is a delegation (tool_call with child_session_id)
+        if event_type == "tool_call" and self._event.get("child_session_id"):
+            event_type = "delegation"
+            self._is_delegation = True
+
+        config = EVENT_CONFIG.get(
+            event_type, {"icon": "•", "color": COLORS["text_muted"]}
+        )
+        icon = config["icon"]
+        color = config["color"]
+
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: transparent;
+                border: none;
+                padding: 2px 0;
+            }}
+        """)
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Row container
+        row = QFrame()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(SPACING["sm"], 2, SPACING["xs"], 2)
+        row_layout.setSpacing(SPACING["xs"])
+
+        # Icon
+        icon_label = QLabel(icon)
+        icon_label.setStyleSheet(f"font-size: {FONTS['size_sm']}px;")
+        icon_label.setFixedWidth(20)
+        row_layout.addWidget(icon_label)
+
+        # Content based on type
+        content = self._get_content_text(event_type)
+        content_label = QLabel(content)
+        content_label.setWordWrap(True)
+        content_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {color};
+            font-family: {FONTS["mono"]};
+        """)
+        row_layout.addWidget(content_label, 1)
+
+        # Expand button for delegations with child timeline
+        if self._is_delegation and self._child_timeline:
+            expand_btn = QLabel("▶")
+            expand_btn.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                color: {COLORS["text_muted"]};
+            """)
+            expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+            expand_btn.mousePressEvent = lambda ev: self._toggle_child()
+            self._expand_btn = expand_btn
+            row_layout.addWidget(expand_btn)
+
+        main_layout.addWidget(row)
+
+        # Child timeline container (hidden by default)
+        if self._is_delegation and self._child_timeline:
+            self._child_container = QFrame()
+            self._child_container.setStyleSheet(f"""
+                QFrame {{
+                    background-color: {COLORS["tree_child_bg"]};
+                    border-left: 2px solid {COLORS["tree_child"]};
+                    margin-left: {SPACING["md"]}px;
+                }}
+            """)
+            child_layout = QVBoxLayout(self._child_container)
+            child_layout.setContentsMargins(
+                SPACING["sm"], SPACING["xs"], 0, SPACING["xs"]
+            )
+            child_layout.setSpacing(2)
+
+            # Add child events (limit depth)
+            if self._depth < 2:  # Max 2 levels of nesting
+                for child_event in self._child_timeline[:10]:  # Limit to 10 events
+                    child_widget = TimelineEventWidget(
+                        event=child_event,
+                        parent=self._child_container,
+                        depth=self._depth + 1,
+                    )
+                    child_layout.addWidget(child_widget)
+
+                if len(self._child_timeline) > 10:
+                    more_label = QLabel(
+                        f"... +{len(self._child_timeline) - 10} more events"
+                    )
+                    more_label.setStyleSheet(f"""
+                        font-size: {FONTS["size_xs"]}px;
+                        color: {COLORS["text_muted"]};
+                        padding-left: {SPACING["md"]}px;
+                    """)
+                    child_layout.addWidget(more_label)
+
+            self._child_container.hide()
+            main_layout.addWidget(self._child_container)
+
+        # Add tooltip with full details
+        self._set_tooltip(event_type)
+
+    def _toggle_child(self) -> None:
+        """Toggle child timeline visibility."""
+        if self._child_container:
+            self._is_child_expanded = not self._is_child_expanded
+            self._child_container.setVisible(self._is_child_expanded)
+            if hasattr(self, "_expand_btn"):
+                self._expand_btn.setText("▼" if self._is_child_expanded else "▶")
+
+    def _get_content_text(self, event_type: str) -> str:
+        """Get display text based on event type."""
+        if event_type == "user_prompt":
+            return truncate_text(self._event.get("content", ""), 80)
+
+        elif event_type == "reasoning":
+            entries = self._event.get("entries", [])
+            if entries:
+                first_entry = entries[0].get("text", "")
+                return truncate_text(first_entry, 60)
+            return "Thinking..."
+
+        elif event_type == "tool_call":
+            tool_name = shorten_tool_name(self._event.get("tool_name", ""))
+            display = self._event.get("display_info", "") or self._event.get(
+                "arguments", ""
+            )
+            if display:
+                display = truncate_text(str(display), 40)
+                return f"{tool_name}: {display}"
+            return tool_name
+
+        elif event_type == "delegation":
+            tool_name = self._event.get("tool_name", "agent")
+            return f"→ {shorten_tool_name(tool_name)}"
+
+        elif event_type == "step_finish":
+            tokens = self._event.get("tokens", {})
+            total = tokens.get("total", 0) if isinstance(tokens, dict) else 0
+            cost = self._event.get("cost", 0)
+            if total and cost:
+                return f"tokens: {format_tokens_short(total)} · ${cost:.4f}"
+            elif total:
+                return f"tokens: {format_tokens_short(total)}"
+            return "step complete"
+
+        elif event_type == "assistant_response":
+            content = self._event.get("content", "")
+            return truncate_text(content, 60)
+
+        return str(self._event)[:50]
+
+    def _set_tooltip(self, event_type: str) -> None:
+        """Set tooltip with full details."""
+        if event_type == "reasoning":
+            entries = self._event.get("entries", [])
+            if entries:
+                full_text = "\n\n".join(e.get("text", "")[:500] for e in entries[:3])
+                self.setToolTip(full_text)
+
+        elif event_type in ["tool_call", "delegation"]:
+            tool = self._event.get("tool_name", "")
+            args = self._event.get("arguments", "")
+            result = self._event.get("result_summary", "")
+            tooltip = f"Tool: {tool}"
+            if args:
+                tooltip += f"\nArgs: {str(args)[:200]}"
+            if result:
+                tooltip += f"\nResult: {str(result)[:200]}"
+            self.setToolTip(tooltip)
+
+        elif event_type == "assistant_response":
+            content = self._event.get("content", "")
+            self.setToolTip(content[:500] if content else "")
+
+
+class ExchangeGroupWidget(QFrame):
+    """Single exchange with collapse/expand functionality."""
+
+    def __init__(
+        self,
+        exchange_number: int,
+        events: list[dict],
+        parent: QWidget | None = None,
+        is_expanded: bool = False,
+        delegations: dict | None = None,
+    ):
+        super().__init__(parent)
+        self._exchange_number = exchange_number
+        self._events = events
+        self._is_expanded = is_expanded
+        self._delegations = delegations or {}
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        self.setStyleSheet(f"""
+            QFrame#exchangeGroup {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_subtle"]};
+                border-radius: {RADIUS["sm"]}px;
+                margin-bottom: 2px;
+            }}
+            QFrame#exchangeGroup:hover {{
+                border-color: {COLORS["border_default"]};
+            }}
+        """)
+        self.setObjectName("exchangeGroup")
+
+        main_layout = QVBoxLayout(self)
+        main_layout.setContentsMargins(0, 0, 0, 0)
+        main_layout.setSpacing(0)
+
+        # Header (clickable)
+        self._header = QFrame()
+        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.mousePressEvent = lambda a0: self.toggle()
+        header_layout = QHBoxLayout(self._header)
+        header_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["sm"], SPACING["xs"]
+        )
+        header_layout.setSpacing(SPACING["xs"])
+
+        # Toggle arrow
+        self._arrow = QLabel("▶")
+        self._arrow.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        self._arrow.setFixedWidth(16)
+        header_layout.addWidget(self._arrow)
+
+        # Find user_prompt for header content
+        user_prompt = self._find_user_prompt()
+        if user_prompt:
+            time_str = format_time(user_prompt.get("timestamp", ""))
+            prompt_text = truncate_text(user_prompt.get("content", ""), 60)
+            header_text = (
+                f"{time_str}  💬 {prompt_text}" if time_str else f"💬 {prompt_text}"
+            )
+        else:
+            header_text = f"Exchange #{self._exchange_number}"
+
+        self._header_label = QLabel(header_text)
+        self._header_label.setStyleSheet(f"""
+            font-size: {FONTS["size_sm"]}px;
+            color: {COLORS["text_primary"]};
+        """)
+        self._header_label.setWordWrap(True)
+        header_layout.addWidget(self._header_label, 1)
+
+        # Event count badge
+        non_prompt_events = [e for e in self._events if e.get("type") != "user_prompt"]
+        if non_prompt_events:
+            count_label = QLabel(f"({len(non_prompt_events)})")
+            count_label.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                color: {COLORS["text_muted"]};
+            """)
+            header_layout.addWidget(count_label)
+
+        main_layout.addWidget(self._header)
+
+        # Content (expandable)
+        self._content = QFrame()
+        self._content.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_elevated"]};
+                border-top: 1px solid {COLORS["border_subtle"]};
+            }}
+        """)
+        content_layout = QVBoxLayout(self._content)
+        content_layout.setContentsMargins(
+            SPACING["md"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        )
+        content_layout.setSpacing(0)
+
+        # Add event widgets (skip user_prompt - it's in header)
+        for event in self._events:
+            if event.get("type") != "user_prompt":
+                # Check for delegation with child timeline
+                child_timeline = None
+                child_session_id = event.get("child_session_id")
+                if child_session_id and child_session_id in self._delegations:
+                    child_timeline = self._delegations[child_session_id].get(
+                        "timeline", []
+                    )
+
+                event_widget = TimelineEventWidget(
+                    event=event,
+                    parent=self,
+                    child_timeline=child_timeline,
+                )
+                content_layout.addWidget(event_widget)
+
+        main_layout.addWidget(self._content)
+
+        # Initial state
+        self._update_state()
+
+    def _find_user_prompt(self) -> dict | None:
+        """Find the user_prompt event in this exchange."""
+        for event in self._events:
+            if event.get("type") == "user_prompt":
+                return event
+        return None
+
+    def toggle(self) -> None:
+        """Toggle expand/collapse state."""
+        self._is_expanded = not self._is_expanded
+        self._update_state()
+
+    def _update_state(self) -> None:
+        """Update visual state based on expanded/collapsed."""
+        self._content.setVisible(self._is_expanded)
+        self._arrow.setText("▼" if self._is_expanded else "▶")
+
+
+class ExpandableTimelineWidget(QFrame):
+    """Timeline with expandable exchange groups."""
+
+    exchange_clicked = pyqtSignal(int)
+
+    def __init__(self, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._exchange_widgets: list[ExchangeGroupWidget] = []
+        self._delegations: dict = {}
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        self.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_subtle"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
+        )
+        layout.setSpacing(SPACING["xs"])
+
+        # Header
+        header = QLabel("💬 Timeline")
+        header.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_muted"]};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        """)
+        layout.addWidget(header)
+
+        # Scrollable content
+        scroll = QScrollArea()
+        scroll.setWidgetResizable(True)
+        scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+
+        self._container = QWidget()
+        self._container_layout = QVBoxLayout(self._container)
+        self._container_layout.setContentsMargins(0, 0, 0, 0)
+        self._container_layout.setSpacing(SPACING["xs"])
+        self._container_layout.addStretch()
+
+        scroll.setWidget(self._container)
+        layout.addWidget(scroll, 1)
+
+    def load_timeline_full(self, data: dict) -> None:
+        """Load from /timeline/full API response."""
+        # Clear existing
+        self._clear_content()
+
+        timeline = data.get("timeline", [])
+        self._delegations = {
+            d.get("child_session_id"): d
+            for d in data.get("delegations", [])
+            if d.get("child_session_id")
+        }
+
+        if not timeline:
+            self._show_empty_state()
+            return
+
+        # Group events by exchange_number
+        groups = self._group_by_exchange(timeline)
+
+        # Create exchange widgets
+        for exchange_num in sorted(groups.keys()):
+            events = groups[exchange_num]
+            widget = ExchangeGroupWidget(
+                exchange_number=exchange_num,
+                events=events,
+                parent=self._container,
+                is_expanded=False,
+                delegations=self._delegations,
+            )
+            # Insert before the stretch
+            self._container_layout.insertWidget(
+                self._container_layout.count() - 1, widget
+            )
+            self._exchange_widgets.append(widget)
+
+        # Auto-expand last exchange
+        if self._exchange_widgets:
+            self._exchange_widgets[-1].toggle()
+
+    def _group_by_exchange(self, timeline: list[dict]) -> dict[int, list[dict]]:
+        """Group events by exchange_number."""
+        groups: dict[int, list[dict]] = {}
+        for event in timeline:
+            num = event.get("exchange_number", 0)
+            if num not in groups:
+                groups[num] = []
+            groups[num].append(event)
+        return groups
+
+    def _clear_content(self) -> None:
+        """Clear all exchange widgets."""
+        for widget in self._exchange_widgets:
+            widget.deleteLater()
+        self._exchange_widgets.clear()
+
+    def _show_empty_state(self) -> None:
+        """Show empty state message."""
+        label = QLabel("No timeline events")
+        label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+            padding: {SPACING["sm"]}px;
+        """)
+        label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self._container_layout.insertWidget(0, label)
+
+    def load_exchanges(self, exchanges: list[Exchange]) -> None:
+        """Fallback: Load from legacy Exchange format.
+
+        This maintains compatibility with the old TimelineWidget API.
+        """
+        self._clear_content()
+
+        if not exchanges:
+            self._show_empty_state()
+            return
+
+        # Convert to timeline format
+        for i, exchange in enumerate(exchanges, 1):
+            events = [
+                {
+                    "type": "user_prompt",
+                    "exchange_number": i,
+                    "content": exchange.prompt,
+                    "timestamp": exchange.timestamp,
+                }
+            ]
+            widget = ExchangeGroupWidget(
+                exchange_number=i,
+                events=events,
+                parent=self._container,
+                is_expanded=False,
+            )
+            self._container_layout.insertWidget(
+                self._container_layout.count() - 1, widget
+            )
+            self._exchange_widgets.append(widget)
+
+
+# ============================================================
 # TOOLS BREAKDOWN WIDGET
 # ============================================================
 
@@ -963,8 +1476,8 @@ class SessionOverviewPanel(QFrame):
             }
         """)
 
-        # Left column: Timeline (60%)
-        self._timeline = TimelineWidget()
+        # Left column: Timeline (60%) - Use expandable widget
+        self._timeline = ExpandableTimelineWidget()
         splitter.addWidget(self._timeline)
 
         # Right column: Tools + Files + Tokens + Agents (40%)
@@ -1018,13 +1531,43 @@ class SessionOverviewPanel(QFrame):
         agents = []
         _collect_agents_recursive(tree_data, agents)
 
-        # Load widgets
-        self._timeline.load_exchanges(data.exchanges)
+        # Try to load extended timeline from API
+        session_id = tree_data.get("session_id")
+        timeline_loaded = False
+        if session_id:
+            timeline_loaded = self._load_extended_timeline(session_id)
+
+        # Fallback to legacy format if API failed
+        if not timeline_loaded:
+            self._timeline.load_exchanges(data.exchanges)
+
+        # Load other widgets
         self._tools.load_tools(data.tools, data.tool_targets)
         self._files.load_files(data.files)
         self._tokens.load_tokens(tokens_in, tokens_out, cache_read, cache_write)
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
+
+    def _load_extended_timeline(self, session_id: str) -> bool:
+        """Load full timeline from API.
+
+        Args:
+            session_id: Session ID to load
+
+        Returns:
+            True if timeline was loaded successfully, False otherwise
+        """
+        from opencode_monitor.api import get_api_client
+
+        client = get_api_client()
+        if not client.is_available:
+            return False
+
+        data = client.get_session_timeline_full(session_id)
+        if data:
+            self._timeline.load_timeline_full(data)
+            return True
+        return False
 
     def clear(self) -> None:
         """Reset the panel to empty state."""
