@@ -602,11 +602,15 @@ class TraceBuilder:
         conn = self._db.connect()
 
         try:
-            # Delete existing exchanges for the session(s)
+            # Delete existing exchanges for the session(s) and commit immediately
+            # This prevents "duplicate key" errors if the transaction is interrupted
             if session_id:
                 conn.execute("DELETE FROM exchanges WHERE session_id = ?", [session_id])
             else:
                 conn.execute("DELETE FROM exchanges")
+
+            # Commit the DELETE to ensure it's persisted before INSERT
+            conn.commit()
 
             # Build session filter clause
             session_filter = "WHERE ep.session_id = ?" if session_id else ""
@@ -775,13 +779,16 @@ class TraceBuilder:
         conn = self._db.connect()
 
         try:
-            # Delete existing exchange_traces for the session(s)
+            # Delete existing exchange_traces for the session(s) and commit immediately
             if session_id:
                 conn.execute(
                     "DELETE FROM exchange_traces WHERE session_id = ?", [session_id]
                 )
             else:
                 conn.execute("DELETE FROM exchange_traces")
+
+            # Commit the DELETE to ensure it's persisted before INSERT
+            conn.commit()
 
             # Build session filter clause
             session_filter = "WHERE all_events.session_id = ?" if session_id else ""
@@ -1067,13 +1074,16 @@ class TraceBuilder:
         conn = self._db.connect()
 
         try:
-            # Delete existing session_traces for the session(s)
+            # Delete existing session_traces for the session(s) and commit immediately
             if session_id:
                 conn.execute(
                     "DELETE FROM session_traces WHERE session_id = ?", [session_id]
                 )
             else:
                 conn.execute("DELETE FROM session_traces")
+
+            # Commit the DELETE to ensure it's persisted before INSERT
+            conn.commit()
 
             # Build session filter clause
             session_filter = "WHERE s.id = ?" if session_id else ""
