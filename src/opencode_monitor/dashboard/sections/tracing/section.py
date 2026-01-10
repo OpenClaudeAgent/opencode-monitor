@@ -18,8 +18,9 @@ from PyQt6.QtGui import QColor
 
 from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
+from opencode_monitor.utils.logger import debug
 
-from .detail_panel import TraceDetailPanel
+from .detail_panel import TraceDetailPanel, PanelController
 from .tree_builder import build_session_tree
 from .tree_items import add_exchange_item, add_part_item
 
@@ -42,6 +43,7 @@ class TracingSection(QWidget):
         self._view_mode: str = "sessions"  # Always sessions view
         self._last_session_ids: set[str | None] = set()  # Track for change detection
         self._setup_ui()
+        self._controller = PanelController(self._detail_panel)
         self._connect_signals()
 
     def _setup_ui(self) -> None:
@@ -191,7 +193,9 @@ class TracingSection(QWidget):
         self, current: QTreeWidgetItem, _previous: QTreeWidgetItem
     ) -> None:
         """Handle current item change (keyboard navigation)."""
+        debug(f"[SECTION] currentItemChanged signal fired, current={current}")
         if current:
+            debug("[SECTION] Calling _on_item_clicked from currentItemChanged")
             self._on_item_clicked(current, 0)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
@@ -205,111 +209,14 @@ class TracingSection(QWidget):
         pass
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        """Handle click on tree item - show details."""
+        """Handle click on tree item - delegate to controller."""
         data = item.data(0, Qt.ItemDataRole.UserRole)
-        if not data:
-            return
-
-        node_type = data.get("node_type", "session")
-        session_id = data.get("session_id")
-
-        if node_type in ("user_turn", "conversation"):
-            # Show conversation details (user → agent from API)
-            prompt_input = data.get("prompt_input") or data.get("message_preview", "")
-            agent = data.get("agent") or data.get("subagent_type", "assistant")
-            self._detail_panel.show_exchange(
-                user_content=prompt_input,
-                assistant_content="",  # Not included in conversation
-                agent=agent,
-                tokens_in=data.get("tokens_in", 0),
-                tokens_out=data.get("tokens_out", 0),
-                parts=[],
-                timestamp=data.get("started_at"),
-            )
-        elif node_type == "exchange":
-            # Legacy: Show exchange details (user → assistant)
-            user = data.get("user", {})
-            assistant = data.get("assistant", {})
-            self._detail_panel.show_exchange(
-                user_content=user.get("content", "") if user else "",
-                assistant_content=assistant.get("content", "") if assistant else "",
-                agent=assistant.get("agent", "assistant") if assistant else "assistant",
-                tokens_in=assistant.get("tokens_in", 0) if assistant else 0,
-                tokens_out=assistant.get("tokens_out", 0) if assistant else 0,
-                parts=assistant.get("parts", []) if assistant else [],
-                timestamp=user.get("created_at") if user else None,
-            )
-        elif node_type == "part":
-            # Show part details (tool, text, etc.)
-            tool_name = data.get("tool_name", "")
-            if tool_name:
-                self._detail_panel.show_tool(
-                    tool_name=tool_name,
-                    display_info=data.get("display_info", ""),
-                    status=data.get("status", "completed"),
-                    duration_ms=data.get("duration_ms", 0),
-                    timestamp=data.get("created_at"),
-                )
-            else:
-                # Text part - show as message
-                self._detail_panel.show_message(
-                    role="assistant",
-                    content=data.get("content", ""),
-                    tokens_in=0,
-                    tokens_out=0,
-                    timestamp=data.get("created_at"),
-                )
-        elif node_type == "tool":
-            self._detail_panel.show_tool(
-                tool_name=data.get("tool_name", ""),
-                display_info=data.get("display_info", ""),
-                status=data.get("status", "completed"),
-                duration_ms=data.get("duration_ms", 0),
-                timestamp=data.get("created_at"),
-            )
-        elif node_type in ("session", "agent", "delegation"):
-            duration = data.get("duration_ms") or data.get("total_duration_ms", 0)
-            tree_data = {
-                "node_type": node_type,
-                "children_count": len(data.get("children", [])),
-                "trace_count": data.get("trace_count", 0),
-                "tokens_in": data.get("tokens_in", 0),
-                "tokens_out": data.get("tokens_out", 0),
-                "duration_ms": duration,
-                "agent_type": data.get("agent_type"),
-                "parent_agent": data.get("parent_agent"),
-                "title": data.get("title", ""),
-                "status": data.get("status"),
-                "prompt_input": data.get("prompt_input"),
-                "prompt_output": data.get("prompt_output"),
-                "session_id": session_id,
-                "directory": data.get("directory", ""),
-            }
-            if session_id:
-                self._detail_panel.show_session_summary(session_id, tree_data=tree_data)
-            else:
-                self._detail_panel.show_session(
-                    title=data.get("title", ""),
-                    agent_type=data.get("agent_type"),
-                    parent_agent=data.get("parent_agent"),
-                    directory=data.get("directory", ""),
-                    created_at=data.get("created_at"),
-                    trace_count=data.get("trace_count", 0),
-                    children_count=len(data.get("children", [])),
-                    prompt_input=data.get("prompt_input"),
-                )
-        else:
-            # Fallback for unknown types
-            self._detail_panel.show_trace(
-                agent=data.get("subagent_type", ""),
-                duration_ms=data.get("duration_ms"),
-                tokens_in=data.get("tokens_in"),
-                tokens_out=data.get("tokens_out"),
-                status=data.get("status", ""),
-                prompt_input=data.get("prompt_input", ""),
-                prompt_output=data.get("prompt_output"),
-                tools_used=data.get("tools_used", []),
-            )
+        debug("[SECTION] _on_item_clicked called")
+        debug(f"[SECTION] node_type={data.get('node_type') if data else None}")
+        debug(f"[SECTION] agent_type={data.get('agent_type') if data else None}")
+        debug(f"[SECTION] parent_agent={data.get('parent_agent') if data else None}")
+        debug("[SECTION] Delegating to controller...")
+        self._controller.handle_selection(item)
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Handle double-click - open terminal."""

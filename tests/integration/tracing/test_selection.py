@@ -60,6 +60,28 @@ class TestTracingSessionSelection:
             f"MetricsBar should have {expected_metrics}, got {actual_metrics}"
         )
 
+        # === CRITICAL: For root session, SessionOverviewPanel should display (NOT tabs) ===
+        # Verify _content_stack exists
+        assert hasattr(detail, "_content_stack"), (
+            "Detail panel should have _content_stack"
+        )
+
+        # For root session: page 0 = SessionOverviewPanel, page 1 = tabs
+        assert detail._content_stack.currentIndex() == 0, (
+            f"Root session should show SessionOverviewPanel (page 0), "
+            f"but showing page {detail._content_stack.currentIndex()} (tabs)"
+        )
+
+        # Verify SessionOverviewPanel is loaded with data
+        assert hasattr(detail, "_session_overview"), (
+            "Detail panel should have _session_overview"
+        )
+        overview = detail._session_overview
+        # The title label should have session data loaded, not default
+        assert overview._title_label.text() != "", (
+            "SessionOverviewPanel should have title loaded"
+        )
+
 
 class TestTracingTabsNavigation:
     """Test tabs structure and navigation in detail panel."""
@@ -70,7 +92,7 @@ class TestTracingTabsNavigation:
         """Verify tabs structure, default selection, and navigation.
 
         Consolidated test verifying:
-        - Exactly 6 tabs exist (transcript, tokens, tools, files, agents, timeline)
+        - Exactly 7 tabs exist (transcript, tokens, tools, files, agents, timeline, delegations)
         - Tab widget is correct QTabWidget type
         - Default tab is transcript (index 0)
         - Navigation to each tab works correctly
@@ -83,8 +105,8 @@ class TestTracingTabsNavigation:
             f"Expected QTabWidget, got {type(detail._tabs).__name__}"
         )
 
-        # Verify exact tab count
-        assert detail._tabs.count() == 6, f"Expected 6 tabs, got {detail._tabs.count()}"
+        # Verify exact tab count (7 tabs including delegations)
+        assert detail._tabs.count() == 7, f"Expected 7 tabs, got {detail._tabs.count()}"
 
         # Verify default tab is transcript (index 0)
         assert detail._tabs.currentIndex() == 0, (
@@ -92,7 +114,15 @@ class TestTracingTabsNavigation:
         )
 
         # Test navigation to each tab
-        tab_names = ["transcript", "tokens", "tools", "files", "agents", "timeline"]
+        tab_names = [
+            "transcript",
+            "tokens",
+            "tools",
+            "files",
+            "agents",
+            "timeline",
+            "delegations",
+        ]
         for i, name in enumerate(tab_names):
             click_tab(detail._tabs, i)
             assert detail._tabs.currentIndex() == i, (
@@ -109,6 +139,7 @@ class TestTracingTabsNavigation:
             ("files", 3, "Files - File operations"),
             ("agents", 4, "Agents - Agent hierarchy"),
             ("timeline", 5, "Timeline - Event timeline"),
+            ("delegations", 6, "Delegations - Agent tree"),
         ],
     )
     def test_tab_widget_type_accessibility_and_tooltip(

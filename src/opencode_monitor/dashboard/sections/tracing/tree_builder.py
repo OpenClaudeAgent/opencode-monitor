@@ -305,6 +305,9 @@ def build_session_tree(
             item.setText(5, "◐")
             item.setForeground(5, QColor(COLORS["warning"]))
 
+        # Store session data with root flag for reliable detection
+        if is_root:
+            session = {**session, "_is_tree_root": True}
         item.setData(0, Qt.ItemDataRole.UserRole, session)
 
         if directory:

@@ -21,6 +21,7 @@ from PyQt6.QtWidgets import (
     QFrame,
     QTabWidget,
     QScrollArea,
+    QStackedWidget,
 )
 from PyQt6.QtCore import Qt
 
@@ -37,8 +38,9 @@ from ..tabs import (
     TranscriptTab,
     DelegationsTab,
 )
-from .components import MetricsBar, StatusBadge
+from .components import MetricsBar, StatusBadge, SessionOverviewPanel
 from .handlers import DataLoaderMixin
+from .strategies import PanelContent
 
 if TYPE_CHECKING:
     from opencode_monitor.analytics import TracingDataService
@@ -93,7 +95,24 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._setup_header(layout)
         self._setup_metrics(layout)
         self._setup_separator(layout)
-        self._setup_tabs(layout)
+
+        # Stacked widget for contextual content
+        self._content_stack = QStackedWidget()
+
+        # Page 0: Session overview (for root sessions)
+        self._session_overview = SessionOverviewPanel()
+        self._content_stack.addWidget(self._session_overview)
+
+        # Page 1: Tabs container (for child elements)
+        self._tabs_container = QWidget()
+        self._tabs_container.setStyleSheet("background-color: transparent;")
+        tabs_layout = QVBoxLayout(self._tabs_container)
+        tabs_layout.setContentsMargins(0, 0, 0, 0)
+        tabs_layout.setSpacing(0)
+        self._setup_tabs(tabs_layout)
+        self._content_stack.addWidget(self._tabs_container)
+
+        layout.addWidget(self._content_stack)
 
         scroll.setWidget(content)
         main_layout.addWidget(scroll)
@@ -273,15 +292,16 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._tree_data = tree_data or {}
         self._clear_tabs()
 
-        # Check if child session
         agent_type = self._tree_data.get("agent_type")
-        is_child = agent_type is not None and agent_type != "user"
+        is_root = agent_type is None or agent_type == "user"
 
-        if is_child:
-            self._show_child_session(tree_data or {})
-            return
+        if is_root:
+            self._show_root_session(session_id, self._tree_data)
+        else:
+            self._show_child_session(self._tree_data)
 
-        # Root session - get from API
+    def _show_root_session(self, session_id: str, tree_data: dict) -> None:
+        """Show root session with SessionOverviewPanel."""
         client = self._get_api_client()
         if not client.is_available:
             debug("[TraceDetailPanel] API not available, using fallback")
@@ -299,32 +319,41 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         meta = summary.get("meta", {})
         s = summary.get("summary", {})
 
-        # Update header
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"
+        title = tree_data.get("title") or meta.get("title") or ""
+
         self._header.setText(f"🌳 {project_name}")
         self._set_header_style(muted=False)
-
-        # Breadcrumb and status
         self._update_breadcrumb([f"🌳 {project_name}"])
         self._status_badge.set_status(s.get("status", "completed"))
 
-        # Metrics
-        duration_ms = self._tree_data.get("duration_ms") or s.get("duration_ms", 0)
+        duration_ms = tree_data.get("duration_ms") or s.get("duration_ms", 0)
         self._metrics_bar.update_all(
             duration=format_duration(duration_ms),
             tokens=format_tokens_short(s.get("total_tokens", 0)),
             tools=str(s.get("total_tool_calls", 0)),
             files=str(s.get("total_files", 0)),
-            agents=str(
-                self._tree_data.get("children_count", s.get("unique_agents", 0))
-            ),
+            agents=str(tree_data.get("children_count", s.get("unique_agents", 0))),
         )
 
-        self._load_tab_data(self._tabs.currentIndex())
+        overview_data = {
+            "project": project_name,
+            "title": title,
+            "directory": directory,
+            "duration_ms": duration_ms,
+            "tokens_in": tree_data.get("tokens_in") or s.get("tokens_in", 0),
+            "tokens_out": tree_data.get("tokens_out") or s.get("tokens_out", 0),
+            "cache_read": tree_data.get("cache_read", 0),
+            "children": tree_data.get("children", []),
+        }
+        self._session_overview.load_session(overview_data)
+        self._content_stack.setCurrentIndex(0)
 
     def _show_child_session(self, tree_data: dict) -> None:
         """Show details for a child session (sub-agent trace)."""
+        self._content_stack.setCurrentIndex(1)
+
         agent_type = tree_data.get("agent_type", "agent")
         parent_agent = tree_data.get("parent_agent", "user")
         title = tree_data.get("title", "")
@@ -642,6 +671,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Prepare panel for new display (clear state)."""
         self._current_session_id = None
         self._clear_tabs()
+        self._content_stack.setCurrentIndex(1)
 
     def _show_transcript(self, user_content: str, assistant_content: str) -> None:
         """Load transcript and switch to transcript tab."""
@@ -672,6 +702,8 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._status_badge.clear()
         self._metrics_bar.reset()
         self._clear_tabs()
+        self._session_overview.clear()
+        self._content_stack.setCurrentIndex(1)
 
     # ===== Event Handlers =====
 
@@ -707,3 +739,62 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         """Handle delegation session selection - navigate to that session."""
         # Load the selected session's details
         self.show_session_summary(session_id)
+
+    # ===== Strategy-based Rendering =====
+
+    def render(self, content: PanelContent) -> None:
+        """Render panel content from strategy."""
+        debug("[PANEL] render() called")
+        debug(f"[PANEL] content_type={content.get('content_type')}")
+
+        self._current_session_id = None
+        self._clear_tabs()
+
+        header_icon = content.get("header_icon", "")
+        header_text = content.get("header", "")
+        self._header.setText(
+            f"{header_icon} {header_text}" if header_icon else header_text
+        )
+        self._set_header_style(muted=False, color=content.get("header_color"))
+
+        breadcrumb = content.get("breadcrumb", [])
+        self._update_breadcrumb(breadcrumb)
+
+        status = content.get("status")
+        if status:
+            self._status_badge.set_status(status)
+        else:
+            self._status_badge.clear()
+
+        metrics = content.get("metrics", {})
+        self._metrics_bar.update_all(
+            duration=metrics.get("duration", "-"),
+            tokens=metrics.get("tokens", "-"),
+            tools=metrics.get("tools", "-"),
+            files=metrics.get("files", "-"),
+            agents=metrics.get("agents", "-"),
+        )
+
+        content_type = content.get("content_type", "tabs")
+        if content_type == "overview":
+            debug("[PANEL] Switching to SessionOverviewPanel (index 0)")
+            overview_data = content.get("overview_data")
+            if overview_data:
+                self._session_overview.load_session(overview_data)
+            self._content_stack.setCurrentIndex(0)
+        else:
+            debug("[PANEL] Switching to Tabs (index 1)")
+            transcript = content.get("transcript")
+            if transcript:
+                self._current_data = {
+                    "user_content": transcript.get("user_content", ""),
+                    "assistant_content": transcript.get("assistant_content", ""),
+                }
+                self._transcript_tab.load_data(self._current_data)  # type: ignore[attr-defined]
+            initial_tab = content.get("initial_tab", 0)
+            self._tabs.setCurrentIndex(initial_tab)
+            self._content_stack.setCurrentIndex(1)
+
+        debug(
+            f"[PANEL] Current stack index is now: {self._content_stack.currentIndex()}"
+        )
