@@ -109,7 +109,7 @@ FROM read_json_auto('{path}/**/*.json',
 LOAD_PARTS_SQL = """
 INSERT OR REPLACE INTO parts (
     id, session_id, message_id, part_type, content, tool_name, tool_status,
-    call_id, created_at, ended_at, duration_ms, arguments, error_message, child_session_id,
+    call_id, created_at, ended_at, duration_ms, arguments, error_message, error_data, child_session_id,
     reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name, file_url,
     result_summary, cost, tokens_input, tokens_output, tokens_reasoning, 
     tokens_cache_read, tokens_cache_write, tool_title
@@ -141,6 +141,7 @@ SELECT
     END as duration_ms,
     CAST(json_extract(j, '$.state.input') AS VARCHAR) as arguments,
     NULL as error_message,
+    NULL as error_data,
     -- Extract child_session_id from state.metadata.sessionId for task delegations
     json_extract_string(j, '$.state.metadata.sessionId') as child_session_id,
     -- Plan 34: Enriched columns
@@ -180,6 +181,9 @@ WHERE j IS NOT NULL
 """
 
 # Query for creating root traces for sessions without parent
+# DQ-001: Aggregate tokens from messages instead of hardcoding 0
+# Tokens are initially 0 but will be backfilled by backfill_missing_tokens()
+# after messages are indexed
 CREATE_ROOT_TRACES_SQL = """
 INSERT OR IGNORE INTO agent_traces (
     trace_id, session_id, parent_trace_id, parent_agent, subagent_type,
@@ -187,22 +191,30 @@ INSERT OR IGNORE INTO agent_traces (
     tokens_in, tokens_out, status, child_session_id
 )
 SELECT 
-    'root_' || id as trace_id,
-    id as session_id,
+    'root_' || s.id as trace_id,
+    s.id as session_id,
     NULL as parent_trace_id,
     NULL as parent_agent,
     'user' as subagent_type,
-    title as prompt_input,
+    s.title as prompt_input,
     NULL as prompt_output,
-    created_at as started_at,
-    updated_at as ended_at,
+    s.created_at as started_at,
+    s.updated_at as ended_at,
     NULL as duration_ms,
-    0 as tokens_in,
-    0 as tokens_out,
+    COALESCE(token_agg.total_in, 0) as tokens_in,
+    COALESCE(token_agg.total_out, 0) as tokens_out,
     'completed' as status,
-    id as child_session_id
-FROM sessions
-WHERE parent_id IS NULL
+    s.id as child_session_id
+FROM sessions s
+LEFT JOIN (
+    SELECT 
+        session_id,
+        SUM(tokens_input) as total_in,
+        SUM(tokens_output) as total_out
+    FROM messages
+    GROUP BY session_id
+) token_agg ON token_agg.session_id = s.id
+WHERE s.parent_id IS NULL
 """
 
 # Query for counting root traces

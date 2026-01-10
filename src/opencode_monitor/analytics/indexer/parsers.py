@@ -13,6 +13,7 @@ from typing import Any, Optional
 
 from ...utils.datetime import ms_to_datetime
 from ...utils.logger import debug
+from .validators import validate_token_counts
 
 
 @dataclass
@@ -73,6 +74,7 @@ class ParsedPart:
     ended_at: Optional[datetime]
     duration_ms: Optional[int]
     error_message: Optional[str]
+    error_data: Optional[str]  # Structured error data as JSON string
 
 
 @dataclass
@@ -146,6 +148,76 @@ class FileParser:
     """
 
     @staticmethod
+    def _structure_error_data(
+        error_message: Optional[str],
+        tool_name: Optional[str],
+        tool_status: Optional[str],
+        state: dict,
+        created_at: Optional[datetime],
+    ) -> Optional[str]:
+        """Structure error data as JSON.
+
+        Args:
+            error_message: Error message from state.error
+            tool_name: Name of the tool that errored
+            tool_status: Status of the tool (e.g., 'error', 'failed')
+            state: Full state dict for additional error context
+            created_at: Timestamp when error occurred
+
+        Returns:
+            JSON string with structured error data, or None if no error
+        """
+        if not error_message:
+            return None
+
+        # Determine error type from tool status and error message
+        error_type = "unknown"
+        error_code = None
+
+        # Common error patterns
+        if tool_status == "error":
+            error_type = "tool_error"
+        elif "timeout" in error_message.lower():
+            error_type = "timeout"
+            error_code = 408
+        elif "auth" in error_message.lower() or "permission" in error_message.lower():
+            error_type = "auth"
+            error_code = 403
+        elif (
+            "network" in error_message.lower() or "connection" in error_message.lower()
+        ):
+            error_type = "network"
+            error_code = 500
+        elif "syntax" in error_message.lower() or "parse" in error_message.lower():
+            error_type = "syntax"
+            error_code = 400
+        elif "not found" in error_message.lower():
+            error_type = "not_found"
+            error_code = 404
+
+        # Extract stack trace if available
+        stack_trace = None
+        if isinstance(state, dict):
+            stack_trace = state.get("stack") or state.get("stackTrace")
+
+        # Build structured error data
+        error_data = {
+            "error_type": error_type,
+            "error_message": error_message,
+            "tool_name": tool_name,
+            "tool_status": tool_status,
+            "timestamp": created_at.isoformat() if created_at else None,
+        }
+
+        if error_code:
+            error_data["error_code"] = error_code
+
+        if stack_trace:
+            error_data["stack_trace"] = stack_trace
+
+        return json.dumps(error_data)
+
+    @staticmethod
     def read_json(path: Path) -> Optional[Any]:
         """Read and parse a JSON file.
 
@@ -210,6 +282,18 @@ class FileParser:
         cache = tokens.get("cache", {})
         path_data = data.get("path", {})
 
+        # DQ-001: Validate token counts and log suspicious values
+        tokens_input_raw = tokens.get("input", 0) or 0
+        tokens_output_raw = tokens.get("output", 0) or 0
+        tokens_reasoning_raw = tokens.get("reasoning", 0) or 0
+
+        tokens_input, tokens_output, tokens_reasoning = validate_token_counts(
+            tokens_input_raw,
+            tokens_output_raw,
+            tokens_reasoning_raw,
+            context=f"message {data.get('id', 'unknown')}",
+        )
+
         return ParsedMessage(
             id=data["id"],
             session_id=data.get("sessionID"),
@@ -222,9 +306,9 @@ class FileParser:
             cost=data.get("cost", 0) or 0,
             finish_reason=data.get("finish"),
             working_dir=path_data.get("cwd") if isinstance(path_data, dict) else None,
-            tokens_input=tokens.get("input", 0) or 0,
-            tokens_output=tokens.get("output", 0) or 0,
-            tokens_reasoning=tokens.get("reasoning", 0) or 0,
+            tokens_input=tokens_input,
+            tokens_output=tokens_output,
+            tokens_reasoning=tokens_reasoning,
             tokens_cache_read=cache.get("read", 0) or 0,
             tokens_cache_write=cache.get("write", 0) or 0,
             created_at=ms_to_datetime(time_data.get("created")),
@@ -286,6 +370,16 @@ class FileParser:
             # Other types (thinking, etc.) - store raw content if available
             content = data.get("content") or data.get("text")
 
+        # Structure error data as JSON if error exists
+        created_at_dt = ms_to_datetime(start_time)
+        error_data = FileParser._structure_error_data(
+            error_message=error_message,
+            tool_name=tool_name,
+            tool_status=tool_status,
+            state=state,
+            created_at=created_at_dt,
+        )
+
         return ParsedPart(
             id=data["id"],
             session_id=data.get("sessionID"),
@@ -296,10 +390,11 @@ class FileParser:
             tool_status=tool_status,
             call_id=data.get("callID"),
             arguments=arguments,
-            created_at=ms_to_datetime(start_time),
+            created_at=created_at_dt,
             ended_at=ms_to_datetime(end_time),
             duration_ms=duration_ms,
             error_message=error_message,
+            error_data=error_data,
         )
 
     @staticmethod

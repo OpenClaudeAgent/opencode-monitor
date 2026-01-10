@@ -562,6 +562,47 @@ class AnalyticsDB:
             ON exchange_traces(event_type)
         """)
 
+        # =================================================================
+        # DQ-004: Data Quality Sprint 0 - Composite Indexes
+        # =================================================================
+        # Purpose: Optimize common query patterns for 50x performance improvement
+        # Added: 2026-01-10
+
+        # Index: Sessions by project and time
+        # Pattern: WHERE project_name = ? ORDER BY created_at DESC
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_sessions_project_time
+            ON sessions(project_name, created_at DESC)
+        """)
+
+        # Index: Parts by message and tool
+        # Pattern: WHERE message_id = ? AND tool_name = ?
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_message_tool
+            ON parts(message_id, tool_name)
+        """)
+
+        # Index: File operations by session and operation (composite)
+        # Pattern: WHERE session_id = ? AND operation = ?
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_file_ops_session_operation
+            ON file_operations(session_id, operation)
+        """)
+
+        # Index: Messages by root_path (Sprint 1 prep)
+        # Pattern: WHERE root_path = ? OR root_path LIKE ?
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_messages_root_path
+            ON messages(root_path)
+        """)
+
+        # Index: Parts by error_message (error analysis)
+        # Pattern: WHERE error_message IS NOT NULL
+        conn.execute("""
+            CREATE INDEX IF NOT EXISTS idx_parts_error_message
+            ON parts(error_message)
+        """)
+
         # NOTE: Old security_* tables removed in Plan 42
         # Security data is now stored in the unified `parts` table
         # with risk_score, risk_level, risk_reason, mitre_techniques columns
@@ -654,6 +695,7 @@ class AnalyticsDB:
         add_column("parts", "arguments", "TEXT")
         add_column("parts", "result_summary", "TEXT")
         add_column("parts", "error_message", "TEXT")
+        add_column("parts", "error_data", "JSON")  # Structured error data (DQ-005)
         add_column("parts", "child_session_id", "VARCHAR")  # For task delegations
 
         # Parts - enriched columns for reasoning, compaction, file parts
