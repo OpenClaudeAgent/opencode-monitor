@@ -1373,8 +1373,8 @@ class TestFetchTokensBySession:
 
         conn = MagicMock()
         token_rows = [
-            ("sess_1", 100, 200, 50),
-            ("sess_2", 150, 250, 75),
+            ("sess_1", 100, 200, 50, 25),
+            ("sess_2", 150, 250, 75, 30),
         ]
         conn.execute.return_value.fetchall.return_value = token_rows
 
@@ -1383,7 +1383,9 @@ class TestFetchTokensBySession:
         assert result["sess_1"]["tokens_in"] == 100
         assert result["sess_1"]["tokens_out"] == 200
         assert result["sess_1"]["cache_read"] == 50
+        assert result["sess_1"]["cache_write"] == 25
         assert result["sess_2"]["tokens_in"] == 150
+        assert result["sess_2"]["cache_write"] == 30
 
 
 class TestGetInitialAgents:
