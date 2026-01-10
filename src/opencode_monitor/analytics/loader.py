@@ -1,11 +1,10 @@
 """
 JSON data loader for OpenCode storage.
 
-DEPRECATED: This module is deprecated in favor of the unified indexer.
+DEPRECATED: This module is deprecated in favor of the indexer.
 Use `opencode_monitor.analytics.indexer` instead:
 
     from opencode_monitor.analytics.indexer import (
-        UnifiedIndexer,
         start_indexer,
         stop_indexer,
     )

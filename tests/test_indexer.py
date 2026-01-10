@@ -1,5 +1,5 @@
 """
-Tests for the unified indexer module.
+Tests for the indexer module.
 
 Tests the core functionality:
 - File tracking (change detection)
@@ -25,7 +25,6 @@ from opencode_monitor.analytics.indexer import (
     ParsedPart,
     ParsedDelegation,
     TraceBuilder,
-    UnifiedIndexer,
     ProcessingQueue,
 )
 
@@ -499,101 +498,6 @@ class TestTraceBuilder:
 
         assert stats["total"] == 2
         assert stats["root_traces"] == 2
-
-
-# === Integration Tests ===
-
-
-class TestUnifiedIndexer:
-    """Integration tests for UnifiedIndexer."""
-
-    def test_process_session_file(self, temp_db, temp_storage, sample_session_data):
-        """Test processing a session file end-to-end."""
-        indexer = UnifiedIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db._db_path,
-        )
-
-        # Create session file
-        session_dir = temp_storage / "session" / "project1"
-        session_dir.mkdir(parents=True, exist_ok=True)
-        session_file = session_dir / "ses_123.json"
-        session_file.write_text(json.dumps(sample_session_data))
-
-        # Process manually (without starting full indexer)
-        indexer._db = temp_db  # Use test DB
-        indexer._tracker = FileTracker(temp_db)
-        indexer._trace_builder = TraceBuilder(temp_db)
-        indexer._parser = FileParser()
-
-        result = indexer._process_file("session", session_file)
-
-        assert result is True
-
-        # Verify in database
-        conn = temp_db.connect()
-        session = conn.execute(
-            "SELECT title FROM sessions WHERE id = 'ses_123'"
-        ).fetchone()
-
-        assert session is not None
-        assert session[0] == "Test Session"
-
-    def test_get_stats(self, temp_db, temp_storage):
-        """Test getting indexer statistics."""
-        indexer = UnifiedIndexer(
-            storage_path=temp_storage,
-            db_path=temp_db._db_path,
-        )
-        indexer._db = temp_db
-        indexer._tracker = FileTracker(temp_db)
-        indexer._trace_builder = TraceBuilder(temp_db)
-
-        stats = indexer.get_stats()
-
-        assert "files_processed" in stats
-        assert "tracker" in stats
-        assert "traces" in stats
-
-    def test_force_backfill_without_start(self, temp_storage, sample_session_data):
-        """Test force_backfill() works without calling start() (Bug fix #1)."""
-        # Get a fresh temp DB path
-        with tempfile.NamedTemporaryFile(suffix=".duckdb", delete=True) as f:
-            db_path = Path(f.name)
-
-        # Create indexer WITHOUT calling start()
-        indexer = UnifiedIndexer(
-            storage_path=temp_storage,
-            db_path=db_path,
-        )
-
-        # Create session files to index
-        session_dir = temp_storage / "session" / "project1"
-        session_dir.mkdir(parents=True, exist_ok=True)
-
-        for i in range(3):
-            data = sample_session_data.copy()
-            data["id"] = f"ses_{i:03d}"
-            data["title"] = f"Session {i}"
-            session_file = session_dir / f"ses_{i:03d}.json"
-            session_file.write_text(json.dumps(data))
-
-        # force_backfill() should work without start()
-        # Previously this would fail because _running was False
-        result = indexer.force_backfill()
-
-        # Should have processed some files
-        assert result["files_processed"] >= 0  # May be 0 if directory structure differs
-        assert "total_files" in result
-
-        # Verify _running is still False after force_backfill
-        assert indexer._running is False
-
-        # Cleanup
-        try:
-            db_path.unlink()
-        except Exception:
-            pass
 
 
 # === Performance Tests ===
