@@ -13,7 +13,7 @@ import duckdb
 
 from datetime import datetime
 
-from ..utils.logger import info, debug
+from ..utils.logger import info, debug, error
 
 
 def get_db_path() -> Path:
@@ -645,31 +645,62 @@ class AnalyticsDB:
 
         # Helper to check if column exists
         def column_exists(table: str, column: str) -> bool:
+            # Validate table name against whitelist before using in SQL
+            if table not in self._MANAGED_TABLES:
+                debug(f"Table '{table}' not in managed tables whitelist")
+                return False
+
             try:
-                # Table/column names are from internal constants, not user input
+                # Use parameterized query to prevent SQL injection
+                # Table validated against whitelist above, column from internal code
                 result = conn.execute(
-                    f"SELECT * FROM information_schema.columns "  # nosec B608
-                    f"WHERE table_name = '{table}' AND column_name = '{column}'"
+                    """
+                    SELECT 1 FROM information_schema.columns 
+                    WHERE table_name = ? AND column_name = ?
+                    """,
+                    [table, column],
                 ).fetchone()
                 return result is not None
-            except (
-                Exception
-            ):  # Intentional catch-all: schema query may fail on edge cases
+            except duckdb.CatalogException:
+                # Expected: information_schema may not exist or table doesn't exist yet
+                return False
+            except Exception as e:
+                # Unexpected error querying schema - log but treat as non-existent
+                debug(f"Unexpected error checking {table}.{column}: {e}")
                 return False
 
         # Helper to add column if not exists
         def add_column(
             table: str, column: str, col_type: str, default: str = ""
         ) -> None:
+            # Validate table name against whitelist (also checked in column_exists)
+            if table not in self._MANAGED_TABLES:
+                debug(f"Table '{table}' not in managed tables whitelist")
+                return
+
             if not column_exists(table, column):
                 default_clause = f" DEFAULT {default}" if default else ""
                 try:
+                    # Table validated against whitelist, column/type from internal constants
                     conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
                     )
                     debug(f"Added column {table}.{column}")
-                except Exception as e:  # Intentional catch-all: migration failures are logged and skipped
-                    debug(f"Failed to add column {table}.{column}: {e}")
+                except duckdb.CatalogException as e:
+                    # Expected: table doesn't exist yet, will be created later
+                    debug(f"Catalog error for {table}.{column} (likely benign): {e}")
+                except (duckdb.ParserException, duckdb.SyntaxException) as e:
+                    # CRITICAL: SQL syntax error in migration - this is a BUG
+                    error(f"CRITICAL: Invalid SQL for {table}.{column}: {e}")
+                    raise
+                except (duckdb.BinderException, duckdb.InvalidTypeException) as e:
+                    # CRITICAL: Type or binding error in migration - this is a BUG
+                    error(f"CRITICAL: SQL binding/type error for {table}.{column}: {e}")
+                    raise
+                except Exception as e:
+                    # CRITICAL: Unexpected error - fail loudly to debug
+                    error(f"CRITICAL: Unexpected error adding {table}.{column}: {e}")
+                    raise
 
         # Sessions - new columns
         add_column("sessions", "parent_id", "VARCHAR")
@@ -768,31 +799,19 @@ class AnalyticsDB:
         conn = self.connect()
         result = {}
 
-        for table in [
-            "sessions",
-            "messages",
-            "parts",
-            "skills",
-            "delegations",
-            "todos",
-            "projects",
-            "agent_traces",
-            "file_operations",
-            "session_stats",
-            "daily_stats",
-            "step_events",
-            "patches",
-            # Plan 45: Complete Tracing Architecture
-            "exchanges",
-            "session_traces",
-            "exchange_traces",
-        ]:
+        # Use whitelist for validation - ensures only managed tables are queried
+        for table in self._MANAGED_TABLES:
             try:
-                # Table names are from hardcoded list above, not user input
-                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()  # nosec B608
+                # Table name validated against whitelist, safe for SQL
+                count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()
                 result[table] = count[0] if count else 0
-            except Exception:
-                result[table] = 0  # Table may not exist yet
+            except duckdb.CatalogException:
+                # Expected: table doesn't exist yet
+                result[table] = 0
+            except Exception as e:
+                # Unexpected error - log but return 0 for robustness
+                debug(f"Unexpected error counting {table}: {e}")
+                result[table] = 0
 
         return result
 
@@ -810,7 +829,12 @@ class AnalyticsDB:
                     return result[0].timestamp()
                 return float(result[0]) / 1000  # Convert ms to seconds if int
             return 0
-        except Exception:  # Intentional catch-all: return safe default
+        except duckdb.CatalogException:
+            # Expected: sessions table doesn't exist yet
+            return 0
+        except Exception as e:
+            # Unexpected error - log but return 0 for robustness
+            debug(f"Unexpected error getting last refresh: {e}")
             return 0
 
     def migrate_schema(self) -> None:

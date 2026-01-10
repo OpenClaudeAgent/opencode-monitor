@@ -334,16 +334,12 @@ class TestBulkLoaderCount:
         assert counts["part"] == 0
 
     def test_count_files_handles_missing_directory(self, temp_db, sync_state, tmp_path):
-        """Test count_files handles missing directories gracefully."""
-        # Create loader with non-existent path
+        """Test that BulkLoader rejects non-existent paths at initialization."""
+        # Create loader with non-existent path - should raise ValueError
         fake_storage = tmp_path / "nonexistent"
-        loader = BulkLoader(temp_db, fake_storage, sync_state)
 
-        counts = loader.count_files()
-
-        assert counts["session"] == 0
-        assert counts["message"] == 0
-        assert counts["part"] == 0
+        with pytest.raises(ValueError, match="Storage path does not exist"):
+            BulkLoader(temp_db, fake_storage, sync_state)
 
 
 # === BulkLoader Session Loading Tests ===
@@ -932,14 +928,11 @@ class TestBulkLoaderErrorHandling:
             assert count >= 1
 
     def test_load_from_nonexistent_directory(self, temp_db, sync_state, tmp_path):
-        """Test loading from non-existent directory returns empty result."""
+        """Test that BulkLoader rejects non-existent directory at initialization."""
         fake_storage = tmp_path / "does_not_exist"
-        loader = BulkLoader(temp_db, fake_storage, sync_state)
 
-        result = loader.load_sessions()
-
-        assert result.files_loaded == 0
-        assert result.errors == 0
+        with pytest.raises(ValueError, match="Storage path does not exist"):
+            BulkLoader(temp_db, fake_storage, sync_state)
 
     def test_load_parts_with_text_content(self, bulk_loader, temp_storage, temp_db):
         """Test load_parts loads text parts correctly.
