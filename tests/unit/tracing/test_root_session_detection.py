@@ -161,3 +161,19 @@ class TestRootSessionDetection:
         content = strategy.get_content(node)
 
         assert content.get("content_type") == "overview"
+
+    def test_is_tree_root_flag_takes_priority_over_heuristic(self):
+        """Le flag _is_tree_root doit prendre priorité sur l'heuristique agent_type/parent_agent."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.strategies import (
+            TreeNodeData,
+        )
+
+        # Cas : flag _is_tree_root=True mais heuristique dirait False
+        data = {
+            "node_type": "session",
+            "_is_tree_root": True,
+            "parent_agent": "executor",  # Normalement = NOT root
+            "agent_type": "tester",  # Normalement = NOT root
+        }
+        node = TreeNodeData(raw=data)
+        assert node.is_root is True, "Flag _is_tree_root should take priority"
