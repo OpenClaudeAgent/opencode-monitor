@@ -84,15 +84,15 @@ class TracingSection(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
-        # Tree widget with columns: Type/Name | Time | Duration | In | Out | Status
+        # Tree widget with columns: Name | Time | Duration | In | Out | Status
         self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Type / Name", "Time", "Duration", "In", "Out", ""])
-        self._tree.setColumnWidth(0, 380)
-        self._tree.setColumnWidth(1, 85)
-        self._tree.setColumnWidth(2, 70)
-        self._tree.setColumnWidth(3, 55)
-        self._tree.setColumnWidth(4, 55)
-        self._tree.setColumnWidth(5, 30)
+        self._tree.setHeaderLabels(["Name", "Time", "Duration", "In", "Out", ""])
+        self._tree.setColumnWidth(0, 450)  # Name: expanded for better readability
+        self._tree.setColumnWidth(1, 120)  # Time: wider to show full timestamp
+        self._tree.setColumnWidth(2, 100)  # Duration: wider to show full duration
+        self._tree.setColumnWidth(3, 55)  # In: unchanged
+        self._tree.setColumnWidth(4, 55)  # Out: unchanged
+        self._tree.setColumnWidth(5, 30)  # Status: unchanged
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setAnimated(True)
