@@ -14,6 +14,7 @@ from typing import Optional, Callable
 
 from ..db import AnalyticsDB
 from .sync_state import SyncState, SyncPhase
+from .file_processing import FileProcessingState
 from ...utils.logger import info, debug
 from .queries import (
     LOAD_SESSIONS_SQL,
@@ -155,6 +156,11 @@ class BulkLoader:
         # Patches (from part files - patch type)
         results["patch"] = self.load_patches(cutoff_time)
         self._sync_state.checkpoint()
+
+        # Mark all loaded files as processed to prevent duplicates
+        if cutoff_time:
+            marked = self.mark_bulk_files_processed(cutoff_time)
+            info(f"[BulkLoader] Marked {marked:,} files as processed")
 
         return results
 
@@ -376,6 +382,71 @@ class BulkLoader:
         except Exception as e:
             debug(f"[BulkLoader] Delegation trace creation error: {e}")
             return 0
+
+    def mark_bulk_files_processed(self, cutoff_time: float) -> int:
+        """
+        Mark all files with mtime < cutoff_time as processed.
+
+        This prevents the real-time watcher from reprocessing files
+        that were already loaded by the bulk loader.
+
+        Args:
+            cutoff_time: Only mark files modified before this timestamp
+
+        Returns:
+            Number of files marked
+        """
+        state = FileProcessingState(self._db)
+        marked = 0
+
+        # Scan each file type directory
+        for file_type in ["session", "message", "part"]:
+            type_path = self._storage_path / file_type
+            if not type_path.exists():
+                continue
+
+            # Collect files with mtime < cutoff_time
+            files_to_mark = []
+
+            # For flat directories (no subdirs)
+            if file_type in ("todo", "project"):
+                for json_file in type_path.glob("*.json"):
+                    try:
+                        mtime = json_file.stat().st_mtime
+                        if mtime < cutoff_time:
+                            files_to_mark.append(
+                                (str(json_file), file_type, "processed", None, mtime)
+                            )
+                    except OSError:
+                        continue
+            else:
+                # For nested directories (project_id/file.json)
+                for subdir in type_path.iterdir():
+                    if not subdir.is_dir():
+                        continue
+                    for json_file in subdir.glob("*.json"):
+                        try:
+                            mtime = json_file.stat().st_mtime
+                            if mtime < cutoff_time:
+                                files_to_mark.append(
+                                    (
+                                        str(json_file),
+                                        file_type,
+                                        "processed",
+                                        None,
+                                        mtime,
+                                    )
+                                )
+                        except OSError:
+                            continue
+
+            # Mark in batch for performance
+            if files_to_mark:
+                count = state.mark_processed_batch(files_to_mark)
+                marked += count
+                debug(f"[BulkLoader] Marked {count} {file_type} files as processed")
+
+        return marked
 
     def get_stats(self) -> dict:
         """Get loading statistics."""

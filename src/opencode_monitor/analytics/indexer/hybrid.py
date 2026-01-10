@@ -26,6 +26,7 @@ from .watcher import FileWatcher
 from .parsers import FileParser
 from .tracker import FileTracker
 from .trace_builder import TraceBuilder
+from .file_processing import FileProcessingState
 from .handlers import FileHandler, SessionHandler, MessageHandler, PartHandler
 from ...utils.logger import info, debug
 
@@ -105,6 +106,7 @@ class HybridIndexer:
         self._tracker: Optional[FileTracker] = None
         self._parser: Optional[FileParser] = None
         self._trace_builder: Optional[TraceBuilder] = None
+        self._file_processing: Optional[FileProcessingState] = None
 
         # Queue for files detected during bulk
         self._event_queue: Queue = Queue()
@@ -144,6 +146,7 @@ class HybridIndexer:
         self._tracker = self._injected_tracker or FileTracker(self._db)
         self._parser = self._injected_parser or FileParser()
         self._trace_builder = self._injected_trace_builder or TraceBuilder(self._db)
+        self._file_processing = FileProcessingState(self._db)
         self._bulk_loader = self._injected_bulk_loader or BulkLoader(
             self._db, self._storage_path, self._sync_state
         )
@@ -340,6 +343,15 @@ class HybridIndexer:
                 debug("[HybridIndexer] Components not initialized")
                 return False
 
+            # Check if already processed by bulk loader (race condition prevention)
+            if self._file_processing and self._file_processing.is_already_processed(
+                str(path)
+            ):
+                debug(
+                    f"[HybridIndexer] Skipping {path} - already processed by bulk loader"
+                )
+                return True
+
             # Check if needs indexing (not indexed or modified)
             if not self._tracker.needs_indexing(path):
                 return True  # Already up to date
@@ -368,9 +380,19 @@ class HybridIndexer:
 
             if record_id:
                 self._tracker.mark_indexed(path, file_type, record_id)
+                # Also mark in file_processing to prevent reprocessing
+                if self._file_processing:
+                    self._file_processing.mark_processed(
+                        str(path), file_type, status="processed"
+                    )
                 return True
             else:
                 self._tracker.mark_error(path, file_type, "Invalid data")
+                # Mark as failed to prevent retrying
+                if self._file_processing:
+                    self._file_processing.mark_processed(
+                        str(path), file_type, status="failed"
+                    )
                 return False
 
         except Exception as e:
