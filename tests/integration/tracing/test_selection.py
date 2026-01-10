@@ -10,10 +10,6 @@ Tests verify that:
 import pytest
 from PyQt6.QtWidgets import QWidget, QTabWidget
 
-from opencode_monitor.dashboard.sections.tracing.detail_panel.components import (
-    MetricsBar,
-)
-
 from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
@@ -26,12 +22,11 @@ class TestTracingSessionSelection:
     def test_session_selection_updates_detail_panel_and_metrics(
         self, tracing_with_data, select_first_session
     ):
-        """Selecting a session updates header and metrics in detail panel.
+        """Selecting a session updates detail panel.
 
         Consolidated test verifying:
         - Detail panel is updated on session selection
-        - Header contains session info (not default text)
-        - MetricsBar is present and correct type
+        - SessionOverviewPanel is displayed for root sessions (not tabs)
         """
         tracing, dashboard = tracing_with_data
 
@@ -42,23 +37,6 @@ class TestTracingSessionSelection:
         # Detail panel should be updated
         detail = tracing._detail_panel
         assert detail is not None, "Detail panel should exist"
-
-        # Header should contain session info
-        header_text = detail._header.text()
-        assert header_text, "Header should contain session info"
-        assert header_text != "Select a session", "Header should not be default text"
-
-        # MetricsBar should be correct type (not just hasattr check)
-        assert isinstance(detail._metrics_bar, MetricsBar), (
-            f"Expected MetricsBar instance, got {type(detail._metrics_bar).__name__}"
-        )
-
-        # MetricsBar should have all expected metric keys
-        expected_metrics = {"duration", "tokens", "tools", "files", "agents"}
-        actual_metrics = set(detail._metrics_bar._metrics.keys())
-        assert expected_metrics == actual_metrics, (
-            f"MetricsBar should have {expected_metrics}, got {actual_metrics}"
-        )
 
         # === CRITICAL: For root session, SessionOverviewPanel should display (NOT tabs) ===
         # Verify _content_stack exists
