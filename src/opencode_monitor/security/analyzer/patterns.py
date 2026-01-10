@@ -447,9 +447,7 @@ SAFE_PATTERNS = [
     (r"-n\s", -10, "No-execute flag"),
     (r"--help", -50, "Help flag"),
     (r'echo\s+["\']', -10, "Echo command"),
-    (r"\s/tmp/", -60, "Temp directory operation"),
-    (r"\s/var/tmp/", -60, "Temp directory operation"),
-    (r"\s\$TMPDIR/", -60, "Temp directory operation"),
+    # Removed /tmp/ rules - dangerous operations in /tmp are still dangerous
     (r"node_modules", -40, "Node modules operation"),
     (r"\.cache/", -40, "Cache directory operation"),
     (r"/build/", -30, "Build directory operation"),
