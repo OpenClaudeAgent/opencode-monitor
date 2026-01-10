@@ -59,7 +59,12 @@ def build_session_tree(
 
         if is_root:
             project = get_project_name(directory)
-            item.setText(0, f"🌳 {project}")
+            if title:
+                # Show both project and session title
+                item.setText(0, f"🌳 {project}: {title}")
+            else:
+                # Fallback to project only if no title
+                item.setText(0, f"🌳 {project}")
             item.setForeground(0, QColor(COLORS["tree_root"]))
         elif node_type in ("user_turn", "conversation"):
             # Unified format from /api/tracing/tree
