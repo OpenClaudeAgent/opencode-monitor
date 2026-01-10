@@ -334,7 +334,8 @@ def build_exchanges_from_messages(
         content = row[5] or ""
         tokens_input = row[6]
         tokens_output = row[7]
-        tokens_cache = row[8]
+        tokens_cache_read = row[8]
+        tokens_cache_write = row[9]
 
         if role == "user":
             current_user_msg = build_user_exchange(
@@ -352,7 +353,8 @@ def build_exchanges_from_messages(
 
             current_user_msg["tokens_in"] = tokens_input
             current_user_msg["tokens_out"] = tokens_output
-            current_user_msg["cache_read"] = tokens_cache
+            current_user_msg["cache_read"] = tokens_cache_read
+            current_user_msg["cache_write"] = tokens_cache_write
 
             if msg_agent and msg_agent != current_user_msg.get("subagent_type"):
                 current_user_msg["subagent_type"] = msg_agent
@@ -438,6 +440,7 @@ def build_session_node(
         "tokens_in": session_tokens.get("tokens_in") or row[7],
         "tokens_out": session_tokens.get("tokens_out") or row[8],
         "cache_read": session_tokens.get("cache_read"),
+        "cache_write": session_tokens.get("cache_write"),
         "status": row[9],
         "prompt_input": row[10],
         "title": row[11] or "",

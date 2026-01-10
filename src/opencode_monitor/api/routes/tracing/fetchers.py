@@ -158,7 +158,8 @@ def fetch_messages_for_exchanges(conn: Any, root_session_ids: set) -> list:
              LIMIT 1) as content,
             m.tokens_input,
             m.tokens_output,
-            m.tokens_cache_read
+            m.tokens_cache_read,
+            m.tokens_cache_write
         FROM messages m
         WHERE m.session_id IN ({placeholders})
         ORDER BY m.session_id, m.created_at ASC
@@ -256,7 +257,8 @@ def fetch_tokens_by_session(conn: Any, root_session_ids: set) -> dict:
             session_id,
             COALESCE(SUM(tokens_input), 0) as tokens_in,
             COALESCE(SUM(tokens_output), 0) as tokens_out,
-            COALESCE(SUM(tokens_cache_read), 0) as cache_read
+            COALESCE(SUM(tokens_cache_read), 0) as cache_read,
+            COALESCE(SUM(tokens_cache_write), 0) as cache_write
         FROM messages
         WHERE session_id IN ({placeholders})
         GROUP BY session_id
@@ -270,6 +272,7 @@ def fetch_tokens_by_session(conn: Any, root_session_ids: set) -> dict:
             "tokens_in": trow[1],
             "tokens_out": trow[2],
             "cache_read": trow[3],
+            "cache_write": trow[4],
         }
 
     return tokens_by_session

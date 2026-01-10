@@ -637,6 +637,7 @@ class TokensWidget(QFrame):
         tokens_in: int | None = None,
         tokens_out: int | None = None,
         cache_read: int | None = None,
+        cache_write: int | None = None,
     ) -> None:
         """Load token stats."""
         # Clear existing
@@ -645,7 +646,12 @@ class TokensWidget(QFrame):
             if item.widget():
                 item.widget().deleteLater()
 
-        if tokens_in is None and tokens_out is None and cache_read is None:
+        if (
+            tokens_in is None
+            and tokens_out is None
+            and cache_read is None
+            and cache_write is None
+        ):
             label = QLabel("No token data")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
@@ -656,11 +662,16 @@ class TokensWidget(QFrame):
             return
 
         # Calculate total
-        total = (tokens_in or 0) + (tokens_out or 0) + (cache_read or 0)
+        total = (
+            (tokens_in or 0)
+            + (tokens_out or 0)
+            + (cache_read or 0)
+            + (cache_write or 0)
+        )
 
         # Add token breakdown
-        if tokens_in is not None:
-            label = QLabel(f"├─ In: {format_tokens_short(tokens_in)}")
+        if tokens_in is not None and tokens_in > 0:
+            label = QLabel(f"├─ Input: {format_tokens_short(tokens_in)}")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
                 font-family: {FONTS["mono"]};
@@ -669,8 +680,8 @@ class TokensWidget(QFrame):
             """)
             self._container_layout.addWidget(label)
 
-        if tokens_out is not None:
-            label = QLabel(f"├─ Out: {format_tokens_short(tokens_out)}")
+        if tokens_out is not None and tokens_out > 0:
+            label = QLabel(f"├─ Output: {format_tokens_short(tokens_out)}")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
                 font-family: {FONTS["mono"]};
@@ -679,8 +690,18 @@ class TokensWidget(QFrame):
             """)
             self._container_layout.addWidget(label)
 
-        if cache_read is not None:
-            label = QLabel(f"├─ Cache: {format_tokens_short(cache_read)}")
+        if cache_read is not None and cache_read > 0:
+            label = QLabel(f"├─ Cache Read: {format_tokens_short(cache_read)}")
+            label.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-family: {FONTS["mono"]};
+                color: {COLORS["text_secondary"]};
+                padding: 2px {SPACING["xs"]}px;
+            """)
+            self._container_layout.addWidget(label)
+
+        if cache_write is not None and cache_write > 0:
+            label = QLabel(f"├─ Cache Write: {format_tokens_short(cache_write)}")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
                 font-family: {FONTS["mono"]};
@@ -914,7 +935,9 @@ def _collect_agents_recursive(node: dict, agents: list[dict], depth: int = 0) ->
         _collect_agents_recursive(child, agents, depth + 1)
 
 
-def _aggregate_tokens_recursive(node: dict, depth: int = 0) -> tuple[int, int, int]:
+def _aggregate_tokens_recursive(
+    node: dict, depth: int = 0
+) -> tuple[int, int, int, int]:
     """Recursively aggregate tokens from entire tree.
 
     Args:
@@ -922,29 +945,53 @@ def _aggregate_tokens_recursive(node: dict, depth: int = 0) -> tuple[int, int, i
         depth: Current recursion depth (for logging)
 
     Returns:
-        Tuple of (tokens_in, tokens_out, cache_read)
+        Tuple of (tokens_in, tokens_out, cache_read, cache_write)
     """
+    node_type = node.get("node_type", "unknown")
+    indent = "  " * depth
+
     debug(
-        f"[SessionOverview] Aggregating tokens for node type={node.get('node_type')} at depth={depth}"
+        f"[SessionOverview] {indent}Aggregating tokens for node type={node_type} at depth={depth}"
     )
 
     # Get tokens from current node
     tokens_in = node.get("tokens_in", 0) or 0
     tokens_out = node.get("tokens_out", 0) or 0
     cache_read = node.get("cache_read", 0) or 0
+    cache_write = node.get("cache_write", 0) or 0
 
     debug(
-        f"[SessionOverview] Node tokens - in: {tokens_in}, out: {tokens_out}, cache: {cache_read}"
+        f"[SessionOverview] {indent}Node {node_type} tokens - in: {tokens_in}, out: {tokens_out}, "
+        f"cache_read: {cache_read}, cache_write: {cache_write}"
     )
+
+    # FIX: Only aggregate from user_turn nodes (exchanges), not from session nodes
+    # Session nodes already have aggregated tokens that duplicate their children's tokens
+    if node_type == "session":
+        debug(
+            f"[SessionOverview] {indent}⚠️  SKIPPING session node tokens (would cause double counting)"
+        )
+        tokens_in = 0
+        tokens_out = 0
+        cache_read = 0
+        cache_write = 0
 
     # Aggregate tokens from children
     for child in node.get("children", []):
-        child_in, child_out, child_cache = _aggregate_tokens_recursive(child, depth + 1)
+        child_in, child_out, child_cr, child_cw = _aggregate_tokens_recursive(
+            child, depth + 1
+        )
         tokens_in += child_in
         tokens_out += child_out
-        cache_read += child_cache
+        cache_read += child_cr
+        cache_write += child_cw
 
-    return tokens_in, tokens_out, cache_read
+    debug(
+        f"[SessionOverview] {indent}→ Total after children for {node_type}: "
+        f"in={tokens_in}, out={tokens_out}, cr={cache_read}, cw={cache_write}"
+    )
+
+    return tokens_in, tokens_out, cache_read, cache_write
 
 
 # ============================================================
@@ -1031,9 +1078,12 @@ class SessionOverviewPanel(QFrame):
 
         # Aggregate tokens recursively from entire tree
         debug("[SessionOverview] Starting recursive token aggregation...")
-        tokens_in, tokens_out, cache_read = _aggregate_tokens_recursive(tree_data)
+        tokens_in, tokens_out, cache_read, cache_write = _aggregate_tokens_recursive(
+            tree_data
+        )
         debug(
-            f"[SessionOverview] Total tokens aggregated - in: {tokens_in}, out: {tokens_out}, cache: {cache_read}"
+            f"[SessionOverview] Total tokens aggregated - in: {tokens_in}, out: {tokens_out}, "
+            f"cache_read: {cache_read}, cache_write: {cache_write}"
         )
 
         # Collect agents recursively from entire tree
@@ -1048,7 +1098,7 @@ class SessionOverviewPanel(QFrame):
         self._timeline.load_exchanges(data.exchanges)
         self._tools.load_tools(data.tools, data.tool_targets)
         self._files.load_files(data.files)
-        self._tokens.load_tokens(tokens_in, tokens_out, cache_read)
+        self._tokens.load_tokens(tokens_in, tokens_out, cache_read, cache_write)
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
 
