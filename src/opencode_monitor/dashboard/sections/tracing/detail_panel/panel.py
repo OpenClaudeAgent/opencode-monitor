@@ -98,9 +98,16 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         # Stacked widget for contextual content
         self._content_stack = QStackedWidget()
 
-        # Page 0: Session overview (for root sessions)
+        # Page 0: Session overview (for root sessions) - wrapped for top alignment
+        overview_wrapper = QWidget()
+        overview_wrapper.setStyleSheet("background-color: transparent;")
+        overview_layout = QVBoxLayout(overview_wrapper)
+        overview_layout.setContentsMargins(0, 0, 0, 0)
+        overview_layout.setSpacing(0)
+        overview_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._session_overview = SessionOverviewPanel()
-        self._content_stack.addWidget(self._session_overview)
+        overview_layout.addWidget(self._session_overview)
+        self._content_stack.addWidget(overview_wrapper)
 
         # Page 1: Tabs container (for child elements)
         self._tabs_container = QWidget()
