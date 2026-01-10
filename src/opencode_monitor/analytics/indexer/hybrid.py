@@ -361,13 +361,20 @@ class HybridIndexer:
                 return False
 
             # Check if already processed by bulk loader (race condition prevention)
-            if self._file_processing and self._file_processing.is_already_processed(
-                str(path)
-            ):
-                debug(
-                    f"[HybridIndexer] Skipping {path} - already processed by bulk loader"
-                )
-                return True
+            # ONLY check for files that existed BEFORE T0 (bulk cutoff time)
+            # Files created AFTER T0 are new and should always be processed
+            if self._t0 and self._file_processing:
+                try:
+                    file_mtime = path.stat().st_mtime
+                    if file_mtime < self._t0:
+                        # File existed during bulk phase - check if already processed
+                        if self._file_processing.is_already_processed(str(path)):
+                            debug(
+                                f"[HybridIndexer] Skipping {path} - already processed by bulk loader (mtime={file_mtime:.2f} < T0={self._t0:.2f})"
+                            )
+                            return True
+                except (OSError, FileNotFoundError):
+                    pass  # File may have been deleted, continue processing
 
             # Check if needs indexing (not indexed or modified)
             if not self._tracker.needs_indexing(path):
