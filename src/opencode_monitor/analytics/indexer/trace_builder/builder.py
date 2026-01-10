@@ -740,6 +740,24 @@ class TraceBuilder:
                 LEFT JOIN reasoning_counts rc ON rc.message_id = ep.assistant_msg_id
                 {session_filter}
                 ORDER BY ep.session_id, ep.exchange_num
+                ON CONFLICT (id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    exchange_number = EXCLUDED.exchange_number,
+                    user_message_id = EXCLUDED.user_message_id,
+                    assistant_message_id = EXCLUDED.assistant_message_id,
+                    prompt_input = EXCLUDED.prompt_input,
+                    prompt_output = EXCLUDED.prompt_output,
+                    started_at = EXCLUDED.started_at,
+                    ended_at = EXCLUDED.ended_at,
+                    duration_ms = EXCLUDED.duration_ms,
+                    tokens_in = EXCLUDED.tokens_in,
+                    tokens_out = EXCLUDED.tokens_out,
+                    tokens_reasoning = EXCLUDED.tokens_reasoning,
+                    cost = EXCLUDED.cost,
+                    tool_count = EXCLUDED.tool_count,
+                    reasoning_count = EXCLUDED.reasoning_count,
+                    agent = EXCLUDED.agent,
+                    model_id = EXCLUDED.model_id
             """
 
             conn.execute(query, params)
@@ -950,6 +968,16 @@ class TraceBuilder:
                 FROM all_events
                 {session_filter}
                 ORDER BY all_events.exchange_id, all_events.timestamp
+                ON CONFLICT (id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    exchange_id = EXCLUDED.exchange_id,
+                    event_type = EXCLUDED.event_type,
+                    event_order = EXCLUDED.event_order,
+                    event_data = EXCLUDED.event_data,
+                    timestamp = EXCLUDED.timestamp,
+                    duration_ms = EXCLUDED.duration_ms,
+                    tokens_in = EXCLUDED.tokens_in,
+                    tokens_out = EXCLUDED.tokens_out
             """
 
             conn.execute(query, params)
@@ -1192,6 +1220,24 @@ class TraceBuilder:
                 LEFT JOIN delegation_stats ds ON ds.session_id = s.id
                 LEFT JOIN parent_traces pt ON pt.session_id = s.id
                 {session_filter}
+                ON CONFLICT (id) DO UPDATE SET
+                    session_id = EXCLUDED.session_id,
+                    title = EXCLUDED.title,
+                    directory = EXCLUDED.directory,
+                    parent_session_id = EXCLUDED.parent_session_id,
+                    parent_trace_id = EXCLUDED.parent_trace_id,
+                    depth = EXCLUDED.depth,
+                    total_exchanges = EXCLUDED.total_exchanges,
+                    total_tool_calls = EXCLUDED.total_tool_calls,
+                    total_file_reads = EXCLUDED.total_file_reads,
+                    total_file_writes = EXCLUDED.total_file_writes,
+                    total_tokens = EXCLUDED.total_tokens,
+                    total_cost = EXCLUDED.total_cost,
+                    total_delegations = EXCLUDED.total_delegations,
+                    started_at = EXCLUDED.started_at,
+                    ended_at = EXCLUDED.ended_at,
+                    duration_ms = EXCLUDED.duration_ms,
+                    status = EXCLUDED.status
             """
 
             conn.execute(query, params)
