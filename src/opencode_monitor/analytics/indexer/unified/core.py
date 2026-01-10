@@ -15,7 +15,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, List, Optional
 
-from ...db import AnalyticsDB
+from ...db import AnalyticsDB, get_analytics_db, get_db_access_lock
 from ..tracker import FileTracker
 from ..parsers import FileParser
 from ..trace_builder import TraceBuilder
@@ -31,6 +31,7 @@ from .config import (
 )
 from .batch import BatchProcessor
 from .processing import FileProcessor
+from .bulk_load import is_cold_start, bulk_load_initial
 
 
 # Feature flag for v2 architecture
@@ -62,7 +63,14 @@ class UnifiedIndexer:
             db_path: Path to analytics database (default: ~/.config/opencode-monitor/analytics.duckdb)
         """
         self._storage_path = storage_path or OPENCODE_STORAGE
-        self._db = AnalyticsDB(db_path)
+        # Use shared singleton DB to avoid DuckDB connection conflicts with API
+        # DuckDB doesn't allow multiple connections to the same file
+        if db_path is None:
+            self._db = get_analytics_db()
+            self._owns_db = False  # Don't close shared singleton
+        else:
+            self._db = AnalyticsDB(db_path)
+            self._owns_db = True  # We created it, we close it
 
         # Components
         self._tracker = FileTracker(self._db)
@@ -141,8 +149,30 @@ class UnifiedIndexer:
         info("[UnifiedIndexer] All threads started - beginning indexation")
 
     def _start_v2(self) -> None:
-        """Start v2 architecture (Plan 46): Accumulator + Reconciler."""
+        """Start v2 architecture (Plan 46): Accumulator + Reconciler.
+
+        If cold start detected, performs bulk load first for fast initial indexing.
+        """
         info("[UnifiedIndexer] Using v2 architecture (Plan 46)")
+
+        # Check for cold start and perform bulk load if needed
+        if is_cold_start(self._db):
+            info("[UnifiedIndexer] Cold start detected - using bulk load")
+            bulk_results = bulk_load_initial(
+                self._db,
+                self._storage_path,
+                self._stats,
+            )
+            info(
+                f"[UnifiedIndexer] Bulk load complete: "
+                f"{bulk_results['sessions']} sessions, "
+                f"{bulk_results['messages']} messages, "
+                f"{bulk_results['parts']} parts, "
+                f"{bulk_results['traces_created']} traces "
+                f"in {bulk_results['duration_s']}s"
+            )
+        else:
+            info("[UnifiedIndexer] Warm start - skipping bulk load")
 
         # Create FileBatchAccumulator with callback to process batches
         # window_ms=200, max_files=200 (validated by POC)
@@ -212,32 +242,45 @@ class UnifiedIndexer:
 
     def stop(self) -> None:
         """Stop the indexer."""
-        self._running = False
-
+        # For v2: Stop components BEFORE setting _running = False
+        # This allows accumulator's flush callback to process remaining files
         if USE_V2_INDEXER:
             self._stop_v2()
         else:
             self._stop_v1()
 
-        self._db.close()
+        # Now mark as not running (after v2 flush completed)
+        self._running = False
+
+        # Only close DB if we own it (not shared singleton)
+        if self._owns_db:
+            self._db.close()
         info("[UnifiedIndexer] Stopped")
 
     def _stop_v2(self) -> None:
-        """Stop v2 architecture components."""
-        # Stop accumulator first (flushes pending files)
-        if self._accumulator:
-            self._accumulator.stop()
-            debug("[UnifiedIndexer] Accumulator stopped")
+        """Stop v2 architecture components.
 
-        # Stop reconciler
+        Order matters:
+        1. Stop watcher (no more new file events)
+        2. Stop reconciler (no more periodic scans)
+        3. Stop accumulator (flushes pending files while _running is still True)
+        """
+        # Stop watcher first (no more file events)
+        if self._watcher:
+            self._watcher.stop()
+            debug("[UnifiedIndexer] Watcher stopped")
+
+        # Stop reconciler (no more periodic scans)
         if self._reconciler:
             self._reconciler.stop()
             debug("[UnifiedIndexer] Reconciler stopped")
 
-        # Stop watcher
-        if self._watcher:
-            self._watcher.stop()
-            debug("[UnifiedIndexer] Watcher stopped")
+        # Stop accumulator last (flushes pending files)
+        # IMPORTANT: This must happen while _running is still True
+        # so the on_batch_ready callback can process the flushed files
+        if self._accumulator:
+            self._accumulator.stop()
+            debug("[UnifiedIndexer] Accumulator stopped")
 
     def _stop_v1(self) -> None:
         """Stop v1 architecture components."""
@@ -291,13 +334,19 @@ class UnifiedIndexer:
         by_type = self._group_files_by_type(files)
 
         # Process each type with BatchProcessor
+        total_processed = 0
         for file_type, type_files in by_type.items():
             if not type_files:
                 continue
             processed = self._batch_processor.process_files(file_type, type_files)
+            total_processed += processed
             debug(
                 f"[UnifiedIndexer] Processed {processed}/{len(type_files)} {file_type} files"
             )
+
+        # Update files_processed stat (BatchProcessor updates type-specific stats)
+        with self._lock:
+            self._stats["files_processed"] += total_processed
 
         # Post-batch trace resolution (like in _run_backfill)
         self._post_batch_processing()
@@ -355,20 +404,31 @@ class UnifiedIndexer:
         Returns:
             File type (session, message, part, todo, project)
         """
+        # OpenCode uses plural folder names, but we use singular type names
+        folder_to_type = {
+            "sessions": "session",
+            "messages": "message",
+            "parts": "part",
+            "todos": "todo",
+            "projects": "project",
+        }
+
         # Get path relative to storage
         try:
             rel_path = path.relative_to(self._storage_path)
-            # First part of relative path is the type
+            # First part of relative path is the folder name (plural)
             parts = rel_path.parts
             if parts:
-                return parts[0]
+                folder_name = parts[0]
+                # Map plural folder name to singular type
+                return folder_to_type.get(folder_name, folder_name)
         except ValueError:
             pass
 
         # Fallback: check parent directories
         path_str = str(path)
-        for file_type in ["session", "message", "part", "todo", "project"]:
-            if f"/{file_type}/" in path_str:
+        for folder, file_type in folder_to_type.items():
+            if f"/{folder}/" in path_str:
                 return file_type
 
         return "unknown"
@@ -467,6 +527,10 @@ class UnifiedIndexer:
         elapsed = time.time() - start_time
         self._stats["backfill_cycles"] = cycle_num
         self._stats["last_backfill"] = datetime.now().isoformat()
+
+        # Update files_processed stat
+        with self._lock:
+            self._stats["files_processed"] += total_processed
 
         if total_processed > 0:
             # Update root trace agents from messages (root traces created with user type)

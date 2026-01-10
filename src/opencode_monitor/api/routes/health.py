@@ -17,48 +17,78 @@ from flask import Blueprint, jsonify
 health_bp = Blueprint("health", __name__)
 
 
+def _get_indexer_status() -> dict:
+    """Get status from UnifiedIndexer in a format compatible with legacy API.
+
+    Returns dict with:
+    - phase: 'indexing' or 'ready'
+    - progress: 0-100 (estimated)
+    - files_total: Total files processed
+    - files_done: Same as files_total (no queue in v2)
+    - queue_size: Pending files in accumulator
+    - is_ready: True when indexer is running
+    """
+    try:
+        from ...analytics.indexer.unified import get_indexer
+
+        indexer = get_indexer()
+        stats = indexer.get_stats()
+
+        files_processed = stats.get("files_processed", 0)
+        acc_stats = stats.get("accumulator", {})
+        rec_stats = stats.get("reconciler", {})
+
+        # Determine phase based on activity
+        scans_completed = rec_stats.get("scans_completed", 0)
+        is_ready = scans_completed > 0 and files_processed > 0
+
+        return {
+            "phase": "ready" if is_ready else "indexing",
+            "progress": 100 if is_ready else min(99, scans_completed * 10),
+            "files_total": files_processed,
+            "files_done": files_processed,
+            "queue_size": acc_stats.get("files_accumulated", 0)
+            - acc_stats.get("batches_sent", 0) * 200,
+            "eta_seconds": None,
+            "is_ready": is_ready,
+            "v2_stats": {
+                "sessions_indexed": stats.get("sessions_indexed", 0),
+                "messages_indexed": stats.get("messages_indexed", 0),
+                "parts_indexed": stats.get("parts_indexed", 0),
+                "batches_sent": acc_stats.get("batches_sent", 0),
+                "scans_completed": scans_completed,
+            },
+        }
+    except Exception as e:
+        return {
+            "phase": "error",
+            "progress": 0,
+            "files_total": 0,
+            "files_done": 0,
+            "queue_size": 0,
+            "eta_seconds": None,
+            "is_ready": False,
+            "error": str(e),
+        }
+
+
 @health_bp.route("/api/sync/status", methods=["GET"])
-def hybrid_sync_status():
-    """Get detailed sync status from hybrid indexer.
+def sync_status_detailed():
+    """Get detailed sync status from UnifiedIndexer.
 
     Returns comprehensive status including:
-    - phase: Current sync phase (bulk_sessions, bulk_messages, bulk_parts, realtime, etc.)
+    - phase: Current sync phase ('indexing' or 'ready')
     - progress: Percentage complete (0-100)
-    - files_total: Total files to process
+    - files_total: Total files processed
     - files_done: Files processed so far
-    - queue_size: Files waiting in queue
-    - eta_seconds: Estimated time to completion
+    - queue_size: Files waiting in accumulator
     - is_ready: True when data is available for queries
+    - v2_stats: Detailed v2 indexer statistics
 
     Dashboard uses this to show sync progress and decide when to refresh.
     """
-    try:
-        from ...analytics.indexer.hybrid import get_sync_status
-
-        status = get_sync_status()
-        return jsonify(
-            {
-                "success": True,
-                "data": status.to_dict(),
-            }
-        )
-    except Exception as e:
-        # Hybrid indexer not available - return default status
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "phase": "unknown",
-                    "progress": 0,
-                    "files_total": 0,
-                    "files_done": 0,
-                    "queue_size": 0,
-                    "eta_seconds": None,
-                    "is_ready": False,
-                    "error": str(e),
-                },
-            }
-        )
+    status = _get_indexer_status()
+    return jsonify({"success": True, "data": status})
 
 
 @health_bp.route("/api/health", methods=["GET"])
@@ -75,51 +105,27 @@ def sync_status():
 
     DEPRECATED: Use /api/sync/status instead for detailed status.
 
-    This endpoint maintains backward compatibility by deriving legacy
-    properties from the new HybridIndexer's SyncStatus:
-        - backfill_active: True when indexer is not ready (bulk loading)
-        - initial_backfill_done: True when phase is 'realtime' or data is ready
+    Returns:
+        - backfill_active: True when indexer is not ready
+        - initial_backfill_done: True when indexer is ready
         - timestamp: Current server time
-
-    Mapping from new format:
-        - backfill_active = not is_ready
-        - initial_backfill_done = is_ready or phase == 'realtime'
+        - phase: Current phase
+        - progress: Progress percentage
     """
-    try:
-        # Use the same get_sync_status as /api/sync/status
-        from ...analytics.indexer.hybrid import get_sync_status
+    status = _get_indexer_status()
 
-        status = get_sync_status()
-        status_dict = status.to_dict()
+    is_ready = status.get("is_ready", False)
+    phase = status.get("phase", "unknown")
 
-        # Derive legacy properties from new format
-        is_ready = status_dict.get("is_ready", False)
-        phase = status_dict.get("phase", "unknown")
-
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "backfill_active": not is_ready,
-                    "initial_backfill_done": is_ready or phase == "realtime",
-                    "timestamp": datetime.now().isoformat(),
-                    # Include new fields for clients that want to migrate
-                    "phase": phase,
-                    "progress": status_dict.get("progress", 0),
-                },
-            }
-        )
-    except Exception:
-        # Indexer not available - assume not backfilling
-        return jsonify(
-            {
-                "success": True,
-                "data": {
-                    "backfill_active": False,
-                    "initial_backfill_done": True,
-                    "timestamp": datetime.now().isoformat(),
-                    "phase": "unknown",
-                    "progress": 0,
-                },
-            }
-        )
+    return jsonify(
+        {
+            "success": True,
+            "data": {
+                "backfill_active": not is_ready,
+                "initial_backfill_done": is_ready,
+                "timestamp": datetime.now().isoformat(),
+                "phase": phase,
+                "progress": status.get("progress", 0),
+            },
+        }
+    )

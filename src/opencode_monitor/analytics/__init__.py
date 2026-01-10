@@ -13,7 +13,7 @@ Structure:
 - report/: HTML report generation
 """
 
-from .db import AnalyticsDB, get_analytics_db
+from .db import AnalyticsDB, get_analytics_db, get_db_access_lock
 from .loader import load_opencode_data
 from .models import PeriodStats, TokenStats
 from .queries import AnalyticsQueries
@@ -24,6 +24,7 @@ __all__ = [
     # Database
     "AnalyticsDB",
     "get_analytics_db",
+    "get_db_access_lock",
     # Data loading (legacy bulk)
     "load_opencode_data",
     # Models

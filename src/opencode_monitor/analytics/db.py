@@ -23,11 +23,31 @@ def get_db_path() -> Path:
     return config_dir / "analytics.duckdb"
 
 
-# Global singleton connection - DEPRECATED
-# WARNING: This singleton keeps a connection open indefinitely, which
-# blocks dashboard readers. Use AnalyticsDB() directly with context manager.
+# Global singleton connection
+# Used by both indexer and API to share a single DuckDB connection
+# DuckDB doesn't support multiple concurrent connections to the same file
 _db_instance: Optional["AnalyticsDB"] = None
-_db_lock = threading.Lock()
+_db_lock = threading.Lock()  # Protects singleton creation
+
+# Global access lock - ALL database access should use this lock
+# This serializes access between indexer threads and API threads
+_db_access_lock = threading.Lock()
+
+
+def get_db_access_lock() -> threading.Lock:
+    """Get the global database access lock.
+
+    ALL code that accesses the database should acquire this lock first.
+    This ensures thread-safe access to DuckDB which doesn't support
+    concurrent access from multiple threads/connections.
+
+    Usage:
+        with get_db_access_lock():
+            db = get_analytics_db()
+            conn = db.connect()
+            # ... do work ...
+    """
+    return _db_access_lock
 
 
 def get_analytics_db() -> "AnalyticsDB":

@@ -3,7 +3,7 @@ Integration tests for Tracing session selection and tabs navigation.
 
 Tests verify that:
 - Session selection updates detail panel with correct metrics
-- Tab structure is correct (6 tabs with proper types)
+- Tab structure is correct (7 tabs with proper types)
 - Tab navigation works correctly
 """
 
@@ -70,7 +70,7 @@ class TestTracingTabsNavigation:
         """Verify tabs structure, default selection, and navigation.
 
         Consolidated test verifying:
-        - Exactly 6 tabs exist (transcript, tokens, tools, files, agents, timeline)
+        - Exactly 7 tabs exist (transcript, tokens, tools, files, agents, timeline, delegations)
         - Tab widget is correct QTabWidget type
         - Default tab is transcript (index 0)
         - Navigation to each tab works correctly
@@ -84,7 +84,7 @@ class TestTracingTabsNavigation:
         )
 
         # Verify exact tab count
-        assert detail._tabs.count() == 6, f"Expected 6 tabs, got {detail._tabs.count()}"
+        assert detail._tabs.count() == 7, f"Expected 7 tabs, got {detail._tabs.count()}"
 
         # Verify default tab is transcript (index 0)
         assert detail._tabs.currentIndex() == 0, (
@@ -92,7 +92,15 @@ class TestTracingTabsNavigation:
         )
 
         # Test navigation to each tab
-        tab_names = ["transcript", "tokens", "tools", "files", "agents", "timeline"]
+        tab_names = [
+            "transcript",
+            "tokens",
+            "tools",
+            "files",
+            "agents",
+            "timeline",
+            "delegations",
+        ]
         for i, name in enumerate(tab_names):
             click_tab(detail._tabs, i)
             assert detail._tabs.currentIndex() == i, (
@@ -109,6 +117,7 @@ class TestTracingTabsNavigation:
             ("files", 3, "Files - File operations"),
             ("agents", 4, "Agents - Agent hierarchy"),
             ("timeline", 5, "Timeline - Event timeline"),
+            ("delegations", 6, "Delegations - Agent tree"),
         ],
     )
     def test_tab_widget_type_accessibility_and_tooltip(

@@ -10,6 +10,7 @@ from .ask_user import (
     OPENCODE_STORAGE_PATH,
     AskUserResult,
     check_pending_ask_user_from_disk,
+    clear_ask_user_cache,
     _find_latest_notify_ask_user,
     _has_activity_after_notify,
 )
@@ -26,6 +27,7 @@ __all__ = [
     "get_tty_for_port",
     # Ask user detection
     "check_pending_ask_user_from_disk",
+    "clear_ask_user_cache",
     "_find_latest_notify_ask_user",
     "_has_activity_after_notify",
     # Message/todo helpers

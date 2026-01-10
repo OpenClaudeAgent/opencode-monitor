@@ -47,6 +47,7 @@ from .config import (
 
 from .batch import BatchProcessor
 from .processing import FileProcessor
+from .bulk_load import is_cold_start, bulk_load_initial
 
 
 __all__ = [
@@ -65,4 +66,7 @@ __all__ = [
     # Internal components (for testing)
     "BatchProcessor",
     "FileProcessor",
+    # Bulk load (for initial indexing)
+    "is_cold_start",
+    "bulk_load_initial",
 ]

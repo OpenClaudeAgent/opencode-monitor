@@ -11,6 +11,7 @@ from flask import Blueprint, jsonify, request
 
 from ....analytics import get_analytics_db
 from ....utils.logger import error
+
 from .._context import get_db_lock
 from .builders import (
     attach_delegations_to_exchanges,

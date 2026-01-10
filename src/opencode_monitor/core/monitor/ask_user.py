@@ -2,6 +2,11 @@
 Ask user detection for OpenCode sessions.
 
 Handles detection of pending notify_ask_user notifications.
+
+Performance optimizations:
+- Cache results per session_id with mtime-based invalidation
+- Only rescans when directory mtime changes
+- TTL fallback to ensure freshness
 """
 
 import json
@@ -15,6 +20,12 @@ from ...utils.settings import get_settings
 
 # Storage path for OpenCode session files (can be overridden for testing)
 OPENCODE_STORAGE_PATH: Path = Path.home() / ".local/share/opencode/storage"
+
+# Cache TTL in seconds (should be <= refresh interval)
+_CACHE_TTL_SECONDS = 2.0
+
+# Cache structure: {session_id: (result, dir_mtime, cache_time)}
+_ask_user_cache: dict[str, tuple["AskUserResult", float, float]] = {}
 
 
 @dataclass
@@ -130,28 +141,19 @@ def _has_activity_after_notify(
     return False
 
 
-def check_pending_ask_user_from_disk(
+def _get_dir_mtime(path: Path) -> float:
+    """Get directory modification time, returns 0 if not exists."""
+    try:
+        return path.stat().st_mtime
+    except (OSError, FileNotFoundError):
+        return 0.0
+
+
+def _check_pending_ask_user_uncached(
     session_id: str,
     storage_path: Optional[Path] = None,
 ) -> AskUserResult:
-    """Check if there's a pending notify_ask_user by scanning RECENT session files.
-
-    Optimized for performance:
-    - Only scans files modified within the time threshold (using file mtime)
-    - Skips old files without reading their content
-    - Returns quickly if no recent activity
-
-    Note: Zombie sessions are filtered by the port cache mechanism in app.py,
-    not by this function. This function only checks for pending ask_user
-    notifications within the configured timeout.
-
-    Args:
-        session_id: The session ID to check
-        storage_path: Override for OPENCODE_STORAGE_PATH (useful for testing)
-
-    Returns:
-        AskUserResult with has_pending and all ask_user fields
-    """
+    """Internal uncached implementation of check_pending_ask_user_from_disk."""
     storage = storage_path or OPENCODE_STORAGE_PATH
     message_dir = storage / "message" / session_id
     part_dir = storage / "part"
@@ -192,3 +194,58 @@ def check_pending_ask_user_from_disk(
         branch=notify_input.get("branch", ""),
         urgency=notify_input.get("urgency", "normal"),
     )
+
+
+def check_pending_ask_user_from_disk(
+    session_id: str,
+    storage_path: Optional[Path] = None,
+) -> AskUserResult:
+    """Check if there's a pending notify_ask_user by scanning RECENT session files.
+
+    Optimized for performance with intelligent caching:
+    - Caches results per session_id with mtime-based invalidation
+    - Only rescans when directory mtime changes (new files added)
+    - TTL fallback to ensure freshness (2 seconds)
+    - Avoids expensive glob() calls when directory hasn't changed
+
+    Note: Zombie sessions are filtered by the port cache mechanism in app.py,
+    not by this function. This function only checks for pending ask_user
+    notifications within the configured timeout.
+
+    Args:
+        session_id: The session ID to check
+        storage_path: Override for OPENCODE_STORAGE_PATH (useful for testing)
+
+    Returns:
+        AskUserResult with has_pending and all ask_user fields
+    """
+    storage = storage_path or OPENCODE_STORAGE_PATH
+    message_dir = storage / "message" / session_id
+
+    now = time.time()
+
+    # Check cache validity
+    if session_id in _ask_user_cache:
+        cached_result, cached_mtime, cache_time = _ask_user_cache[session_id]
+
+        # Check TTL first (fast path)
+        if now - cache_time < _CACHE_TTL_SECONDS:
+            # Within TTL, check if directory mtime changed
+            current_mtime = _get_dir_mtime(message_dir)
+            if current_mtime == cached_mtime:
+                # Directory unchanged, return cached result
+                return cached_result
+
+    # Cache miss or invalid - do full scan
+    result = _check_pending_ask_user_uncached(session_id, storage_path)
+
+    # Update cache
+    current_mtime = _get_dir_mtime(message_dir)
+    _ask_user_cache[session_id] = (result, current_mtime, now)
+
+    return result
+
+
+def clear_ask_user_cache() -> None:
+    """Clear the ask_user cache. Useful for testing."""
+    _ask_user_cache.clear()

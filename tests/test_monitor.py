@@ -26,6 +26,7 @@ from opencode_monitor.core.monitor import (
     _find_latest_notify_ask_user,
     _has_activity_after_notify,
     check_pending_ask_user_from_disk,
+    clear_ask_user_cache,
 )
 from opencode_monitor.core.models import (
     Instance,
@@ -1246,6 +1247,13 @@ class TestHasActivityAfterNotify:
 class TestCheckPendingAskUserFromDisk:
     """Consolidated tests for check_pending_ask_user_from_disk()"""
 
+    @pytest.fixture(autouse=True)
+    def clear_cache(self):
+        """Clear cache before each test to ensure isolation"""
+        clear_ask_user_cache()
+        yield
+        clear_ask_user_cache()
+
     def test_returns_false_for_missing_directory_or_no_notify(self, tmp_path):
         """Return has_pending=False when directory missing or no recent notify"""
         # Missing directory
@@ -1422,6 +1430,10 @@ class TestCheckPendingAskUserFromDisk:
             )
             assert result.has_pending is False
 
+        # Clear cache before changing timeout settings
+        # (cache is session_id based, doesn't track timeout changes)
+        clear_ask_user_cache()
+
         # With 1 hour timeout: should find it
         mock_settings.ask_user_timeout = 60 * 60
 
@@ -1450,3 +1462,64 @@ class TestCheckPendingAskUserFromDisk:
             )
 
             assert result.has_pending is False
+
+    def test_cache_avoids_repeated_scans(self, tmp_path):
+        """Cache prevents repeated file scans when directory unchanged"""
+        current_time = int(time.time() * 1000)
+
+        # Create message and part structure
+        message_dir = tmp_path / "message" / "session_cache"
+        message_dir.mkdir(parents=True)
+        (message_dir / "msg_001.json").write_text(
+            json.dumps(
+                {
+                    "id": "msg_001",
+                    "time": {"created": current_time},
+                    "role": "assistant",
+                }
+            )
+        )
+
+        part_dir = tmp_path / "part"
+        part_dir.mkdir(parents=True)
+        msg_part_dir = part_dir / "msg_001"
+        msg_part_dir.mkdir(parents=True)
+        (msg_part_dir / "prt_001.json").write_text(
+            json.dumps(
+                {
+                    "type": "tool",
+                    "tool": "notify_ask_user",
+                    "state": {
+                        "status": "completed",
+                        "time": {"start": current_time},
+                        "input": {"title": "Cached question"},
+                    },
+                }
+            )
+        )
+
+        # First call - should scan files
+        result1 = check_pending_ask_user_from_disk(
+            session_id="session_cache",
+            storage_path=tmp_path,
+        )
+        assert result1.has_pending is True
+        assert result1.title == "Cached question"
+
+        # Second call - should return cached result (no rescan)
+        # We verify this indirectly by checking the result is identical
+        result2 = check_pending_ask_user_from_disk(
+            session_id="session_cache",
+            storage_path=tmp_path,
+        )
+        assert result2.has_pending is True
+        assert result2.title == "Cached question"
+
+        # After clear_cache, should rescan
+        clear_ask_user_cache()
+        result3 = check_pending_ask_user_from_disk(
+            session_id="session_cache",
+            storage_path=tmp_path,
+        )
+        assert result3.has_pending is True
+        assert result3.title == "Cached question"

@@ -3,12 +3,15 @@ Route Context - Shared dependencies for API routes.
 
 This module provides access to shared resources (db_lock, service getter)
 that are initialized by the main server.
+
+IMPORTANT: Uses the global db_access_lock from analytics.db module to ensure
+all database access (indexer + API) is properly serialized.
 """
 
 import threading
 from typing import Callable, Optional
 
-from ...analytics import TracingDataService
+from ...analytics import TracingDataService, get_db_access_lock
 
 
 class RouteContext:
@@ -18,7 +21,6 @@ class RouteContext:
     _lock = threading.Lock()
 
     def __init__(self):
-        self._db_lock: Optional[threading.Lock] = None
         self._get_service: Optional[Callable[[], TracingDataService]] = None
 
     @classmethod
@@ -32,19 +34,15 @@ class RouteContext:
 
     def configure(
         self,
-        db_lock: threading.Lock,
+        db_lock: threading.Lock,  # Kept for API compatibility but ignored
         get_service: Callable[[], TracingDataService],
     ) -> None:
-        """Configure the context with dependencies from the server."""
-        self._db_lock = db_lock
-        self._get_service = get_service
+        """Configure the context with dependencies from the server.
 
-    @property
-    def db_lock(self) -> threading.Lock:
-        """Get the database lock."""
-        if self._db_lock is None:
-            raise RuntimeError("RouteContext not configured - call configure() first")
-        return self._db_lock
+        Note: db_lock parameter is ignored - we use the global lock from analytics.db
+        """
+        # db_lock ignored - using global get_db_access_lock() instead
+        self._get_service = get_service
 
     def get_service(self) -> TracingDataService:
         """Get the tracing data service."""
@@ -60,8 +58,12 @@ def get_context() -> RouteContext:
 
 
 def get_db_lock() -> threading.Lock:
-    """Get the database lock."""
-    return get_context().db_lock
+    """Get the global database access lock.
+
+    Uses the global lock from analytics.db module to ensure ALL database access
+    (both indexer and API) is properly serialized.
+    """
+    return get_db_access_lock()
 
 
 def get_service() -> TracingDataService:
