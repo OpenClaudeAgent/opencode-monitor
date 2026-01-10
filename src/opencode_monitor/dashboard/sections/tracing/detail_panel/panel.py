@@ -10,7 +10,6 @@ Features:
 """
 
 import os
-from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 
 from PyQt6.QtWidgets import (
@@ -410,97 +409,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         self._transcript_tab.load_data(self._current_data)  # type: ignore[attr-defined]
         self._tabs.setCurrentIndex(0)
 
-    def show_turn(
-        self,
-        user_content: str,
-        assistant_content: Optional[str],
-        tokens_in: int = 0,
-        tokens_out: int = 0,
-        timestamp: Optional[str] = None,
-    ) -> None:
-        """Display a conversation turn (user prompt + assistant response)."""
-        self._prepare_display()
-
-        self._header.setText("💬 Conversation Turn")
-        self._set_header_style(muted=False)
-        self._status_badge.clear()
-
-        total_tokens = (tokens_in or 0) + (tokens_out or 0)
-        self._metrics_bar.update_all(
-            duration="-",
-            tokens=format_tokens_short(total_tokens),
-            tools="-",
-            files="-",
-            agents="-",
-        )
-
-        self._show_transcript(
-            user_content, assistant_content or "(Waiting for response...)"
-        )
-
-    def show_exchange(
-        self,
-        user_content: str,
-        assistant_content: str,
-        agent: str = "assistant",
-        tokens_in: int = 0,
-        tokens_out: int = 0,
-        parts: Optional[list] = None,
-        timestamp: Optional[str] = None,
-    ) -> None:
-        """Display an exchange (user → assistant with parts details)."""
-        self._prepare_display()
-
-        self._header.setText(f"💬 user → {agent}")
-        self._set_header_style(muted=False)
-        self._breadcrumb.hide()
-        self._status_badge.clear()
-
-        parts = parts or []
-        tool_count = sum(1 for p in parts if p.get("tool_name"))
-
-        total_tokens = (tokens_in or 0) + (tokens_out or 0)
-        self._metrics_bar.update_all(
-            duration="-",
-            tokens=format_tokens_short(total_tokens),
-            tools=str(tool_count) if tool_count else "-",
-            files="-",
-            agents="-",
-        )
-
-        # Build detailed content
-        detailed_content = self._build_parts_summary(assistant_content, parts)
-        self._show_transcript(user_content, detailed_content)
-
-    def _build_parts_summary(self, base_content: str, parts: list) -> str:
-        """Build detailed content with parts summary."""
-        if not parts:
-            return base_content or ""
-
-        detailed = base_content or ""
-        detailed += "\n\n--- Parts Summary ---\n"
-
-        for p in parts[:20]:
-            ptype = p.get("type", "")
-            tool_name = p.get("tool_name", "")
-            display_info = p.get("display_info", "")
-            status = p.get("status", "")
-
-            if tool_name:
-                status_icon = (
-                    "✓" if status == "completed" else "✗" if status == "error" else "◐"
-                )
-                info = f": {display_info[:60]}" if display_info else ""
-                detailed += f"\n{status_icon} {tool_name}{info}"
-            elif ptype == "text":
-                content_preview = p.get("content", "")[:50]
-                detailed += f"\n💭 {content_preview}..."
-
-        if len(parts) > 20:
-            detailed += f"\n... and {len(parts) - 20} more parts"
-
-        return detailed
-
     def show_message(
         self,
         role: str,
@@ -592,79 +500,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         self._show_transcript(f"Tool: {tool_name}", tool_info)
 
-    def show_trace(
-        self,
-        agent: str,
-        duration_ms: Optional[int],
-        tokens_in: Optional[int],
-        tokens_out: Optional[int],
-        status: str,
-        prompt_input: str,
-        prompt_output: Optional[str],
-        tools_used: list[str],
-    ) -> None:
-        """Display trace details (legacy method for compatibility)."""
-        self._prepare_display()
-
-        self._header.setText(f"Agent: {agent}")
-        self._set_header_style(muted=False)
-        self._status_badge.set_status(status)
-
-        total_tokens = (tokens_in or 0) + (tokens_out or 0)
-        self._metrics_bar.update_all(
-            duration=format_duration(duration_ms),
-            tokens=format_tokens_short(total_tokens),
-            tools=str(len(tools_used)),
-            files="-",
-            agents="1",
-        )
-
-        self._show_transcript(prompt_input, prompt_output or "")
-
-    def show_session(
-        self,
-        title: str,
-        agent_type: Optional[str],
-        parent_agent: Optional[str],
-        directory: str,
-        created_at: Optional[datetime],
-        trace_count: int,
-        children_count: int,
-        prompt_input: Optional[str] = None,
-    ) -> None:
-        """Display session details (legacy method for compatibility)."""
-        self._prepare_display()
-
-        is_root = parent_agent is None and agent_type is None
-
-        if agent_type and parent_agent:
-            icon = "💬" if parent_agent == "user" else "🔗"
-            header_text = f"{icon} {agent_type} ← {parent_agent}"
-        elif agent_type:
-            header_text = f"Agent: {agent_type}"
-        else:
-            project_name = os.path.basename(directory) if directory else "Session"
-            header_text = f"🌳 {project_name}"
-
-        self._header.setText(header_text)
-        self._set_header_style(muted=False)
-        self._status_badge.set_custom("📁 Session", "info")
-
-        self._metrics_bar.update_all(
-            duration="-",
-            tokens="-",
-            tools="-",
-            files=str(trace_count),
-            agents=str(children_count),
-        )
-
-        output_text = f"Directory: {directory}\n"
-        if is_root:
-            output_text += "Type: Direct user conversation\n"
-        output_text += f"Traces: {trace_count}\nSub-agents: {children_count}"
-
-        self._show_transcript(prompt_input or title or "(No prompt)", output_text)
-
     # ===== Utility Methods =====
 
     def _prepare_display(self) -> None:
@@ -744,9 +579,6 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
     def render(self, content: PanelContent) -> None:
         """Render panel content from strategy."""
-        debug("[PANEL] render() called")
-        debug(f"[PANEL] content_type={content.get('content_type')}")
-
         self._current_session_id = None
         self._clear_tabs()
 
@@ -777,13 +609,11 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         content_type = content.get("content_type", "tabs")
         if content_type == "overview":
-            debug("[PANEL] Switching to SessionOverviewPanel (index 0)")
             overview_data = content.get("overview_data")
             if overview_data:
                 self._session_overview.load_session(overview_data)
             self._content_stack.setCurrentIndex(0)
         else:
-            debug("[PANEL] Switching to Tabs (index 1)")
             transcript = content.get("transcript")
             if transcript:
                 self._current_data = {
@@ -794,7 +624,3 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
             initial_tab = content.get("initial_tab", 0)
             self._tabs.setCurrentIndex(initial_tab)
             self._content_stack.setCurrentIndex(1)
-
-        debug(
-            f"[PANEL] Current stack index is now: {self._content_stack.currentIndex()}"
-        )

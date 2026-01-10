@@ -18,7 +18,6 @@ from PyQt6.QtGui import QColor
 
 from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
-from opencode_monitor.utils.logger import debug
 
 from .detail_panel import TraceDetailPanel, PanelController
 from .tree_builder import build_session_tree
@@ -193,9 +192,7 @@ class TracingSection(QWidget):
         self, current: QTreeWidgetItem, _previous: QTreeWidgetItem
     ) -> None:
         """Handle current item change (keyboard navigation)."""
-        debug(f"[SECTION] currentItemChanged signal fired, current={current}")
         if current:
-            debug("[SECTION] Calling _on_item_clicked from currentItemChanged")
             self._on_item_clicked(current, 0)
 
     def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
@@ -210,12 +207,6 @@ class TracingSection(QWidget):
 
     def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
         """Handle click on tree item - delegate to controller."""
-        data = item.data(0, Qt.ItemDataRole.UserRole)
-        debug("[SECTION] _on_item_clicked called")
-        debug(f"[SECTION] node_type={data.get('node_type') if data else None}")
-        debug(f"[SECTION] agent_type={data.get('agent_type') if data else None}")
-        debug(f"[SECTION] parent_agent={data.get('parent_agent') if data else None}")
-        debug("[SECTION] Delegating to controller...")
         self._controller.handle_selection(item)
 
     def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:

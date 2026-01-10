@@ -52,23 +52,15 @@ class TreeNodeData:
 
     @property
     def is_root(self) -> bool:
-        from opencode_monitor.utils.logger import debug
-
         # Priority 1: Use explicit flag set by tree_builder
         if self.raw.get("_is_tree_root"):
-            debug("[TreeNodeData] is_root: True (via _is_tree_root flag)")
             return True
 
         # Priority 2: Fallback to heuristic based on agent_type/parent_agent
         agent_type = self.raw.get("agent_type")
         parent_agent = self.raw.get("parent_agent")
         # Root = pas de parent ET (pas d'agent_type OU agent_type="user")
-        result = parent_agent is None and (agent_type is None or agent_type == "user")
-        debug(
-            f"[TreeNodeData] is_root check: agent_type={agent_type}, "
-            f"parent_agent={parent_agent} => {result}"
-        )
-        return result
+        return parent_agent is None and (agent_type is None or agent_type == "user")
 
     @property
     def agent_type(self) -> str | None:

@@ -4,8 +4,6 @@ Session strategy - Handle session nodes (root and child).
 
 import os
 
-from opencode_monitor.utils.logger import debug
-
 from ...helpers import format_duration, format_tokens_short
 from .types import PanelContent, TreeNodeData, MetricsData, TranscriptData
 
@@ -16,18 +14,9 @@ class SessionStrategy:
         return ["session", "agent", "delegation"]
 
     def get_content(self, node: TreeNodeData) -> PanelContent:
-        debug("[SESSION_STRATEGY] get_content called")
-        debug(f"[SESSION_STRATEGY] node.is_root={node.is_root}")
-        debug(
-            f"[SESSION_STRATEGY] raw data: agent_type={node.raw.get('agent_type')}, "
-            f"parent_agent={node.raw.get('parent_agent')}"
-        )
-
         if node.is_root:
-            debug("[SESSION_STRATEGY] Detected as ROOT, returning overview")
             return self._get_root_content(node)
         else:
-            debug("[SESSION_STRATEGY] Detected as CHILD, returning tabs")
             return self._get_child_content(node)
 
     def _get_root_content(self, node: TreeNodeData) -> PanelContent:
