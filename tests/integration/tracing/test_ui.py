@@ -124,7 +124,7 @@ class TestTracingSessionList:
 
         # Root: project "my-project" from fixture directory "/home/dev/my-project"
         root_item = tracing._tree.topLevelItem(0)
-        assert root_item.text(0) == "🌳 my-project"
+        assert root_item.text(0) == "🌳 my-project: Implement feature X"
 
         # Fixture has 2 delegation children
         assert root_item.childCount() == 2

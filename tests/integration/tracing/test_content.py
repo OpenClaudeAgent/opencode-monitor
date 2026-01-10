@@ -20,7 +20,7 @@ TREE_COLUMNS = ["Type / Name", "Time", "Duration", "In", "Out", ""]
 TREE_COLUMN_COUNT = 6
 
 # Expected values from fixture (tracing.py)
-ROOT_SESSION_LABEL = "🌳 my-project"
+ROOT_SESSION_LABEL = "🌳 my-project: Implement feature X"
 CHILD_COUNT = 2  # executor + tester delegations
 
 
