@@ -11,7 +11,7 @@ class TestGetSessions:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"] == []
 
     def test_get_sessions_with_data(
@@ -39,7 +39,7 @@ class TestGetSessions:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["success"] is True
+        assert data["success"]
         assert len(data["data"]) == 2
         assert data["data"][0]["id"] == "sess-001"
         assert data["data"][1]["id"] == "sess-002"
@@ -63,7 +63,7 @@ class TestGetSessions:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["success"] is True
+        assert data["success"]
         assert len(data["data"]) == 5
 
     def test_get_sessions_filters_by_days(
@@ -92,7 +92,7 @@ class TestGetSessions:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["success"] is True
+        assert data["success"]
         assert len(data["data"]) == 1
         assert data["data"][0]["id"] == "sess-recent"
 
@@ -103,4 +103,4 @@ class TestGetSessionsErrorHandling:
 
         assert response.status_code == 200
         data = response.get_json()
-        assert data["success"] is True
+        assert data["success"]

@@ -123,32 +123,32 @@ class TestLooksLikePath:
 
     def test_absolute_paths(self):
         """Test absolute path detection."""
-        assert PathExtractor._looks_like_path("/etc/passwd") is True
-        assert PathExtractor._looks_like_path("/home/user/file.txt") is True
+        assert PathExtractor._looks_like_path("/etc/passwd")
+        assert PathExtractor._looks_like_path("/home/user/file.txt")
 
     def test_relative_paths(self):
         """Test relative path detection."""
-        assert PathExtractor._looks_like_path("./file.txt") is True
-        assert PathExtractor._looks_like_path("../file.txt") is True
+        assert PathExtractor._looks_like_path("./file.txt")
+        assert PathExtractor._looks_like_path("../file.txt")
 
     def test_home_paths(self):
         """Test home directory path detection."""
-        assert PathExtractor._looks_like_path("~/.bashrc") is True
-        assert PathExtractor._looks_like_path("~/Documents/file.txt") is True
+        assert PathExtractor._looks_like_path("~/.bashrc")
+        assert PathExtractor._looks_like_path("~/Documents/file.txt")
 
     def test_file_extensions(self):
         """Test file extension detection."""
-        assert PathExtractor._looks_like_path("file.txt") is True
-        assert PathExtractor._looks_like_path("script.py") is True
-        assert PathExtractor._looks_like_path("config.json") is True
+        assert PathExtractor._looks_like_path("file.txt")
+        assert PathExtractor._looks_like_path("script.py")
+        assert PathExtractor._looks_like_path("config.json")
 
     def test_urls_excluded(self):
         """Test that URLs are excluded."""
-        assert PathExtractor._looks_like_path("http://example.com/path") is False
-        assert PathExtractor._looks_like_path("https://example.com/path") is False
+        assert not PathExtractor._looks_like_path("http://example.com/path")
+        assert not PathExtractor._looks_like_path("https://example.com/path")
 
     def test_non_paths(self):
         """Test non-path strings."""
-        assert PathExtractor._looks_like_path("") is False
-        assert PathExtractor._looks_like_path("hello") is False
-        assert PathExtractor._looks_like_path("-v") is False
+        assert not PathExtractor._looks_like_path("")
+        assert not PathExtractor._looks_like_path("hello")
+        assert not PathExtractor._looks_like_path("-v")

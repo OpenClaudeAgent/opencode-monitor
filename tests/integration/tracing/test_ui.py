@@ -36,7 +36,7 @@ class TestTracingSectionStructure:
         assert isinstance(tracing._tree, QTreeWidget), (
             f"_tree should be QTreeWidget, got {type(tracing._tree).__name__}"
         )
-        assert tracing._tree.headerItem() is not None, "Tree should have headers"
+        assert tracing._tree.headerItem(), "Tree should have headers"
         assert tracing._tree.columnCount() == 6, "Tree should have 6 columns"
 
         # 3. Detail panel exists and has correct type
@@ -101,7 +101,7 @@ class TestTracingSessionList:
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
         qtbot.waitUntil(lambda: not tracing._tree.isHidden(), timeout=1000)
-        assert tracing._empty.isHidden() is True
+        assert tracing._empty.isHidden()
 
         # Fixture has exactly 1 root session
         assert tracing._tree.topLevelItemCount() == 1
@@ -178,7 +178,6 @@ class TestSessionOverviewPanelTokens:
 
         # Le widget tokens doit être visible (non caché)
         tokens_widget = overview_panel._tokens
-        assert tokens_widget is not None, "Tokens widget should exist"
         assert tokens_widget.isVisible() or not tokens_widget.isHidden(), (
             "Tokens widget should be visible"
         )
@@ -263,7 +262,6 @@ class TestSessionOverviewPanelTokens:
         agents_widget = overview_panel._agents
 
         # Le widget agents doit exister et être visible
-        assert agents_widget is not None
         assert agents_widget.isVisible() or not agents_widget.isHidden()
 
         # Vérifier le header affiche le count
@@ -331,7 +329,6 @@ class TestSessionOverviewPanelTokens:
         tools_widget = overview_panel._tools
 
         # Le widget tools doit exister et être visible
-        assert tools_widget is not None
         assert tools_widget.isVisible() or not tools_widget.isHidden()
 
         # Vérifier le header affiche le total count
@@ -412,7 +409,6 @@ class TestSessionOverviewPanelTokens:
         overview_panel = detail_panel._session_overview
         timeline_widget = overview_panel._timeline
 
-        assert timeline_widget is not None
         assert timeline_widget.isVisible() or not timeline_widget.isHidden()
 
         exchange_widgets = timeline_widget._exchange_widgets
