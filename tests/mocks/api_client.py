@@ -579,6 +579,125 @@ class MockAPIResponses:
         }
 
     @staticmethod
+    def realistic_delegation_timeline() -> dict[str, Any]:
+        """Delegation timeline with prompt, reasoning, tools, response."""
+        base_time = FIXED_TEST_DATE
+
+        return {
+            "meta": {
+                "session_id": "sess-delegation-001",
+                "title": "Explore codebase structure",
+                "count": 6,
+            },
+            "prompt_input": "Analyze the project structure and identify key modules",
+            "timeline": [
+                {
+                    "id": "part-001",
+                    "type": "reasoning",
+                    "content": "I need to understand the project layout. Let me start by reading the main configuration files.",
+                    "timestamp": (base_time + timedelta(seconds=2)).isoformat(),
+                },
+                {
+                    "id": "part-002",
+                    "type": "tool",
+                    "tool_name": "mcp_bash",
+                    "tool_status": "success",
+                    "arguments": '{"command": "ls -la src/", "description": "List source directory"}',
+                    "result": "total 24\ndrwxr-xr-x  6 user staff  192 Jan 11 10:00 .\ndrwxr-xr-x  8 user staff  256 Jan 11 09:00 ..\n-rw-r--r--  1 user staff 1234 Jan 11 10:00 main.py",
+                    "duration_ms": 150,
+                    "error": None,
+                    "timestamp": (base_time + timedelta(seconds=5)).isoformat(),
+                },
+                {
+                    "id": "part-003",
+                    "type": "reasoning",
+                    "content": "Good, I can see the source structure. Now let me check the main entry point.",
+                    "timestamp": (base_time + timedelta(seconds=8)).isoformat(),
+                },
+                {
+                    "id": "part-004",
+                    "type": "tool",
+                    "tool_name": "mcp_read",
+                    "tool_status": "success",
+                    "arguments": '{"filePath": "/project/src/main.py"}',
+                    "result": "def main():\n    app = Application()\n    app.run()",
+                    "duration_ms": 50,
+                    "error": None,
+                    "timestamp": (base_time + timedelta(seconds=10)).isoformat(),
+                },
+                {
+                    "id": "part-005",
+                    "type": "tool",
+                    "tool_name": "mcp_grep",
+                    "tool_status": "success",
+                    "arguments": '{"pattern": "class.*:", "include": "*.py"}',
+                    "result": "Found 5 matches in 3 files",
+                    "duration_ms": 200,
+                    "error": None,
+                    "timestamp": (base_time + timedelta(seconds=12)).isoformat(),
+                },
+                {
+                    "id": "part-006",
+                    "type": "text",
+                    "content": "Based on my analysis, the project has a clean modular structure with 3 main modules: core, api, and utils.",
+                    "timestamp": (base_time + timedelta(seconds=15)).isoformat(),
+                },
+            ],
+        }
+
+    @staticmethod
+    def delegation_timeline_with_error() -> dict[str, Any]:
+        """Delegation timeline with a failed tool call."""
+        base_time = FIXED_TEST_DATE
+
+        return {
+            "meta": {
+                "session_id": "sess-delegation-error",
+                "title": "Failed exploration",
+                "count": 3,
+            },
+            "prompt_input": "Run the test suite",
+            "timeline": [
+                {
+                    "id": "part-001",
+                    "type": "reasoning",
+                    "content": "Let me run the tests using pytest.",
+                    "timestamp": (base_time + timedelta(seconds=2)).isoformat(),
+                },
+                {
+                    "id": "part-002",
+                    "type": "tool",
+                    "tool_name": "mcp_bash",
+                    "tool_status": "error",
+                    "arguments": '{"command": "pytest tests/"}',
+                    "result": None,
+                    "duration_ms": 5000,
+                    "error": "Command failed with exit code 1",
+                    "timestamp": (base_time + timedelta(seconds=7)).isoformat(),
+                },
+                {
+                    "id": "part-003",
+                    "type": "text",
+                    "content": "The tests failed. There appear to be import errors in the test files.",
+                    "timestamp": (base_time + timedelta(seconds=10)).isoformat(),
+                },
+            ],
+        }
+
+    @staticmethod
+    def delegation_timeline_empty() -> dict[str, Any]:
+        """Empty delegation timeline."""
+        return {
+            "meta": {
+                "session_id": "sess-delegation-empty",
+                "title": "Empty session",
+                "count": 0,
+            },
+            "prompt_input": None,
+            "timeline": [],
+        }
+
+    @staticmethod
     def realistic_timeline_full() -> dict[str, Any]:
         """Realistic timeline full response with 2 complete exchanges.
 
@@ -883,6 +1002,14 @@ class MockAnalyticsAPIClient:
         """Return configured sync status."""
         self._log_call("get_sync_status")
         return self._responses.get("sync_status", {"status": "idle", "progress": 100})
+
+    def get_delegation_timeline(self, session_id: str) -> Optional[dict]:
+        """Return configured delegation timeline."""
+        self._log_call("get_delegation_timeline", session_id=session_id)
+        timelines = self._responses.get("delegation_timelines", {})
+        if session_id in timelines:
+            return timelines[session_id]
+        return self._responses.get("delegation_timeline")
 
     def get_security_data(
         self, row_limit: int = 100, top_limit: int = 5

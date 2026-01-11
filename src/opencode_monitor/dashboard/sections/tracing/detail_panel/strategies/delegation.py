@@ -61,7 +61,9 @@ class DelegationSpanStrategy:
 
         input_data = node.raw.get("input", {})
         if isinstance(input_data, dict):
-            return input_data.get("subagent_type")
+            subagent = input_data.get("subagent_type")
+            if subagent:
+                return subagent
 
         display_info = node.display_info
         if display_info and "→" in display_info:
