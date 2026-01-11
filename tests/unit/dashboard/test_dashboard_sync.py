@@ -72,12 +72,10 @@ class TestSyncChecker:
         # Verify constant values
         assert SyncChecker.POLL_FAST_MS == 2000
         assert SyncChecker.POLL_SLOW_MS == 5000
-        assert SyncChecker.POLL_BACKFILL_MS == 10000
         assert SyncChecker.IDLE_THRESHOLD_S == 30
 
         # Verify relationships make sense
         assert SyncChecker.POLL_FAST_MS < SyncChecker.POLL_SLOW_MS
-        assert SyncChecker.POLL_SLOW_MS < SyncChecker.POLL_BACKFILL_MS
         assert SyncChecker.IDLE_THRESHOLD_S > 0
 
     def test_initialization_and_cleanup(self, qapp, mock_api_client):
@@ -93,7 +91,6 @@ class TestSyncChecker:
             assert checker._timer.isActive() is True
             assert checker._on_sync is not None
             assert checker._known_sync is None  # No sync detected yet
-            assert checker._backfill_active is False
             assert checker._last_change_time > 0
 
             # Stop and verify cleanup
@@ -130,27 +127,6 @@ class TestSyncChecker:
             checker._check()
             assert len(callback_calls) == 2
             assert checker._known_sync == 15
-        finally:
-            checker.stop()
-
-    def test_backfill_mode_slows_polling_and_skips_refresh(self, qapp, mock_api_client):
-        """SyncChecker slows down and skips refresh during backfill."""
-        from opencode_monitor.dashboard.window import SyncChecker
-
-        callback_calls = []
-        checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
-
-        try:
-            # Enable backfill mode
-            mock_api_client.get_sync_status.return_value = {"backfill_active": True}
-            checker._check()
-
-            # Verify backfill state
-            assert checker._backfill_active is True
-            assert checker.is_backfill_active is True
-            assert checker._timer.interval() == SyncChecker.POLL_BACKFILL_MS
-            # No callback during backfill
-            assert len(callback_calls) == 0
         finally:
             checker.stop()
 

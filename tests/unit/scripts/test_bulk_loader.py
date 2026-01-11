@@ -27,7 +27,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.sync_state import SyncState, SyncPhase
 from bulk_loader import BulkLoader, BulkLoadResult
 
 
@@ -61,15 +60,9 @@ def temp_storage(tmp_path):
 
 
 @pytest.fixture
-def sync_state(temp_db):
-    """Create a SyncState instance."""
-    return SyncState(temp_db)
-
-
-@pytest.fixture
-def bulk_loader(temp_db, temp_storage, sync_state):
+def bulk_loader(temp_db, temp_storage):
     """Create a BulkLoader instance."""
-    return BulkLoader(temp_db, temp_storage, sync_state)
+    return BulkLoader(temp_db, temp_storage)
 
 
 # === Sample Data Factories ===
@@ -339,13 +332,13 @@ class TestBulkLoaderCount:
         assert counts["message"] == 5
         assert counts["part"] == 0
 
-    def test_count_files_handles_missing_directory(self, temp_db, sync_state, tmp_path):
+    def test_count_files_handles_missing_directory(self, temp_db, tmp_path):
         """Test that BulkLoader rejects non-existent paths at initialization."""
         # Create loader with non-existent path - should raise ValueError
         fake_storage = tmp_path / "nonexistent"
 
         with pytest.raises(ValueError, match="Storage path does not exist"):
-            BulkLoader(temp_db, fake_storage, sync_state)
+            BulkLoader(temp_db, fake_storage)
 
 
 # === BulkLoader Session Loading Tests ===
@@ -767,7 +760,7 @@ class TestBulkLoaderParts:
 class TestBulkLoaderLoadAll:
     """Integration tests for load_all orchestration."""
 
-    def test_load_all_processes_in_order(self, bulk_loader, temp_storage, sync_state):
+    def test_load_all_processes_in_order(self, bulk_loader, temp_storage):
         """Test load_all processes sessions, messages, parts in order."""
         # Create sample data
         write_json_file(
@@ -801,35 +794,6 @@ class TestBulkLoaderLoadAll:
         assert results["session"].files_loaded == 1
         assert results["message"].files_loaded == 1
         assert results["part"].files_loaded == 1
-
-    def test_load_all_updates_sync_state_phases(
-        self, bulk_loader, temp_storage, sync_state
-    ):
-        """Test load_all transitions through correct phases."""
-        write_json_file(
-            temp_storage,
-            "session",
-            "proj_001",
-            "ses_001",
-            create_session_json("ses_001"),
-        )
-
-        # Track phase changes
-        phase_history = []
-        original_set_phase = sync_state.set_phase
-
-        def tracking_set_phase(phase):
-            phase_history.append(phase)
-            original_set_phase(phase)
-
-        sync_state.set_phase = tracking_set_phase
-
-        bulk_loader.load_all()
-
-        # Should have transitioned through these phases
-        assert SyncPhase.BULK_SESSIONS in phase_history
-        assert SyncPhase.BULK_MESSAGES in phase_history
-        assert SyncPhase.BULK_PARTS in phase_history
 
     def test_load_all_with_cutoff_time(self, bulk_loader, temp_storage, temp_db):
         """Test load_all with cutoff time filters old files."""
@@ -933,12 +897,12 @@ class TestBulkLoaderErrorHandling:
             count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
             assert count >= 1
 
-    def test_load_from_nonexistent_directory(self, temp_db, sync_state, tmp_path):
+    def test_load_from_nonexistent_directory(self, temp_db, tmp_path):
         """Test that BulkLoader rejects non-existent directory at initialization."""
         fake_storage = tmp_path / "does_not_exist"
 
         with pytest.raises(ValueError, match="Storage path does not exist"):
-            BulkLoader(temp_db, fake_storage, sync_state)
+            BulkLoader(temp_db, fake_storage)
 
     def test_load_parts_with_text_content(self, bulk_loader, temp_storage, temp_db):
         """Test load_parts loads text parts correctly.

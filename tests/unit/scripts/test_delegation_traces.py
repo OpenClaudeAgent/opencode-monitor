@@ -24,7 +24,6 @@ import pytest
 sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.sync_state import SyncState
 from bulk_loader import BulkLoader
 
 
@@ -58,15 +57,9 @@ def temp_storage(tmp_path):
 
 
 @pytest.fixture
-def sync_state(temp_db):
-    """Create a SyncState instance."""
-    return SyncState(temp_db)
-
-
-@pytest.fixture
-def bulk_loader(temp_db, temp_storage, sync_state):
+def bulk_loader(temp_db, temp_storage):
     """Create a BulkLoader instance."""
-    return BulkLoader(temp_db, temp_storage, sync_state)
+    return BulkLoader(temp_db, temp_storage)
 
 
 # === Helper Functions ===

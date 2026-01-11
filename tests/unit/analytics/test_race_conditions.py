@@ -171,38 +171,11 @@ class TestRaceConditionScenarios:
         stats = state.get_stats()
         assert stats["total_files"] == 1
 
-    def test_handoff_timestamp(self, analytics_db):
-        """Test phase handoff timestamp tracking."""
-        from opencode_monitor.analytics.indexer.sync_state import SyncState, SyncPhase
-
-        sync_state = SyncState(analytics_db)
-
-        t0 = time.time()
-
-        # Start bulk load
-        sync_state.start_bulk(t0, total_files=100)
-        assert sync_state.phase == SyncPhase.BULK_SESSIONS
-        assert sync_state.t0 == t0
-
-        # Complete bulk load
-        sync_state.set_phase(SyncPhase.REALTIME)
-
-        # Handoff timestamp should be T0
-        # Files with mtime < T0 were processed by bulk
-        # Files with mtime >= T0 should be processed by watcher
-        assert sync_state.t0 == t0
-
-    def test_crash_recovery(self, temp_storage, analytics_db):
-        """Test recovery after crash during bulk load."""
-        from opencode_monitor.analytics.indexer.sync_state import SyncState, SyncPhase
-
+    def test_crash_recovery_file_state_persistence(self, temp_storage, analytics_db):
+        """Test file processing state persists across crashes."""
         state = FileProcessingState(analytics_db)
-        sync_state = SyncState(analytics_db)
 
         t0 = time.time()
-
-        # Start bulk load
-        sync_state.start_bulk(t0, total_files=100)
 
         # Mark some files as processed
         file1 = self.create_session_file(temp_storage, "sess1", mtime=t0 - 10)

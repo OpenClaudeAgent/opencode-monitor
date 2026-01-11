@@ -21,7 +21,6 @@ sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
 sys.path.insert(0, str(Path(__file__).parent))
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.sync_state import SyncState
 from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
 from bulk_loader import BulkLoader
 
@@ -72,8 +71,7 @@ def run_backfill() -> int:
     db = AnalyticsDB(db_path)
     db.connect()
 
-    sync_state = SyncState(db)
-    bulk_loader = BulkLoader(db, OPENCODE_STORAGE, sync_state)
+    bulk_loader = BulkLoader(db, OPENCODE_STORAGE)
     trace_builder = TraceBuilder(db)
 
     start_time = time.time()

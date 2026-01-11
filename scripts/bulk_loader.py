@@ -13,7 +13,6 @@ from pathlib import Path
 from typing import Optional, Callable
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.sync_state import SyncState, SyncPhase
 from opencode_monitor.analytics.indexer.file_processing import FileProcessingState
 from opencode_monitor.utils.logger import info, debug, error
 from bulk_queries import (
@@ -48,7 +47,7 @@ class BulkLoader:
     Python loops for massive performance gains.
 
     Usage:
-        loader = BulkLoader(db, storage_path, sync_state)
+        loader = BulkLoader(db, storage_path)
         loader.load_all(cutoff_timestamp)
     """
 
@@ -56,7 +55,6 @@ class BulkLoader:
         self,
         db: AnalyticsDB,
         storage_path: Path,
-        sync_state: SyncState,
         on_progress: Optional[Callable[[int, int], None]] = None,
     ):
         """
@@ -65,13 +63,11 @@ class BulkLoader:
         Args:
             db: Analytics database instance
             storage_path: Path to OpenCode storage
-            sync_state: Sync state manager
             on_progress: Optional callback(files_done, files_total)
         """
         self._db = db
         # Validate and resolve storage path before using in SQL
         self._storage_path = self._validate_storage_path(storage_path)
-        self._sync_state = sync_state
         self._on_progress = on_progress
 
         # Track what's loaded
@@ -154,43 +150,16 @@ class BulkLoader:
         """
         results = {}
 
-        # Count total files first
-        counts = self.count_files()
-        total = sum(counts.values())
-
-        self._sync_state.start_bulk(cutoff_time or time.time(), total)
-
         # Load in order: sessions, messages, parts
-        done = 0
-
-        # Sessions
-        self._sync_state.set_phase(SyncPhase.BULK_SESSIONS)
         results["session"] = self.load_sessions(cutoff_time)
-        done += results["session"].files_loaded
-        self._sync_state.update_progress(done)
-        self._sync_state.checkpoint()
-
-        # Messages
-        self._sync_state.set_phase(SyncPhase.BULK_MESSAGES)
         results["message"] = self.load_messages(cutoff_time)
-        done += results["message"].files_loaded
-        self._sync_state.update_progress(done)
-        self._sync_state.checkpoint()
-
-        # Parts
-        self._sync_state.set_phase(SyncPhase.BULK_PARTS)
         results["part"] = self.load_parts(cutoff_time)
-        done += results["part"].files_loaded
-        self._sync_state.update_progress(done)
-        self._sync_state.checkpoint()
 
         # Step events (from part files - step-start, step-finish)
         results["step_event"] = self.load_step_events(cutoff_time)
-        self._sync_state.checkpoint()
 
         # Patches (from part files - patch type)
         results["patch"] = self.load_patches(cutoff_time)
-        self._sync_state.checkpoint()
 
         # Mark all loaded files as processed to prevent duplicates
         if cutoff_time:
