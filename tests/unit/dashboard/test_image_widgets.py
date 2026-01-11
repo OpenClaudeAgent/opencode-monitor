@@ -132,7 +132,7 @@ class TestThumbnailCache:
         result = cache.get_thumbnail(VALID_PNG_DATA_URL)
         assert result is None
 
-    def test_cache_stores_thumbnail(self):
+    def test_cache_stores_thumbnail(self, qapp):
         """Should store and retrieve thumbnails."""
         from opencode_monitor.dashboard.sections.tracing.image_cache import (
             ThumbnailCache,
@@ -160,7 +160,7 @@ class TestThumbnailCache:
 
         assert key1 != key2
 
-    def test_clear_empties_cache(self):
+    def test_clear_empties_cache(self, qapp):
         """Clear should remove all cached items."""
         from opencode_monitor.dashboard.sections.tracing.image_cache import (
             ThumbnailCache,
