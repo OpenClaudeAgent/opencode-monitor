@@ -302,3 +302,73 @@ class TestSessionOverviewPanelTokensLoading:
         assert success, (
             f"Panel should handle missing tokens gracefully, got error: {error}"
         )
+
+
+class TestSessionOverviewPanelFilesLoading:
+    """Tests for SessionOverviewPanel files loading from API."""
+
+    def test_load_files_from_api_extracts_files_list(self, qtbot):
+        """Test that _load_files_from_api extracts files_list from API response."""
+        from unittest.mock import Mock, patch
+
+        panel = SessionOverviewPanel()
+
+        mock_client = Mock()
+        mock_client.is_available = True
+        mock_client.get_session_files.return_value = {
+            "details": {
+                "files_list": {
+                    "read": ["/path/to/file1.py", "/path/to/file2.py"],
+                    "write": ["/path/to/output.py"],
+                    "edit": [],
+                }
+            }
+        }
+
+        with patch(
+            "opencode_monitor.api.get_api_client",
+            return_value=mock_client,
+        ):
+            result = panel._load_files_from_api("ses_test")
+
+        assert result == {
+            "read": ["/path/to/file1.py", "/path/to/file2.py"],
+            "write": ["/path/to/output.py"],
+            "edit": [],
+        }
+        mock_client.get_session_files.assert_called_once_with("ses_test")
+
+    def test_load_files_from_api_returns_empty_when_unavailable(self, qtbot):
+        """Test that _load_files_from_api returns empty dict when API unavailable."""
+        from unittest.mock import Mock, patch
+
+        panel = SessionOverviewPanel()
+
+        mock_client = Mock()
+        mock_client.is_available = False
+
+        with patch(
+            "opencode_monitor.api.get_api_client",
+            return_value=mock_client,
+        ):
+            result = panel._load_files_from_api("ses_test")
+
+        assert result == {}
+
+    def test_load_files_from_api_returns_empty_on_no_data(self, qtbot):
+        """Test that _load_files_from_api returns empty dict when API returns None."""
+        from unittest.mock import Mock, patch
+
+        panel = SessionOverviewPanel()
+
+        mock_client = Mock()
+        mock_client.is_available = True
+        mock_client.get_session_files.return_value = None
+
+        with patch(
+            "opencode_monitor.api.get_api_client",
+            return_value=mock_client,
+        ):
+            result = panel._load_files_from_api("ses_test")
+
+        assert result == {}

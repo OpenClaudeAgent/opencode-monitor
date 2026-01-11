@@ -334,3 +334,36 @@ WHERE j IS NOT NULL
   AND json_extract_string(j, '$.type') = 'patch' 
   AND json_extract_string(j, '$.hash') IS NOT NULL
 """
+
+# Template for loading file operations (read/write/edit) into file_operations table
+# Extracts file path from state.input.filePath or state.input.path
+LOAD_FILE_OPERATIONS_SQL = """
+INSERT OR REPLACE INTO file_operations (
+    id, session_id, trace_id, operation, file_path, timestamp, risk_level, risk_reason
+)
+SELECT 
+    json_extract_string(j, '$.id') as id,
+    json_extract_string(j, '$.sessionID') as session_id,
+    NULL as trace_id,
+    json_extract_string(j, '$.tool') as operation,
+    COALESCE(
+        json_extract_string(j, '$.state.input.filePath'),
+        json_extract_string(j, '$.state.input.path')
+    ) as file_path,
+    COALESCE(
+        to_timestamp(CAST(json_extract(j, '$.state.time.start') AS BIGINT) / 1000.0),
+        to_timestamp(CAST(json_extract(j, '$.time.start') AS BIGINT) / 1000.0)
+    ) as timestamp,
+    'normal' as risk_level,
+    NULL as risk_reason
+FROM (
+    SELECT TRY(content::JSON) as j
+    FROM read_text('{path}/**/*.json')
+)
+WHERE j IS NOT NULL
+  AND json_extract_string(j, '$.tool') IN ('read', 'write', 'edit')
+  AND COALESCE(
+      json_extract_string(j, '$.state.input.filePath'),
+      json_extract_string(j, '$.state.input.path')
+  ) IS NOT NULL
+"""

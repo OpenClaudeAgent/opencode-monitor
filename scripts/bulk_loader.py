@@ -21,6 +21,7 @@ from bulk_queries import (
     LOAD_PARTS_SQL,
     LOAD_STEP_EVENTS_SQL,
     LOAD_PATCHES_SQL,
+    LOAD_FILE_OPERATIONS_SQL,
     CREATE_ROOT_TRACES_SQL,
     COUNT_ROOT_TRACES_SQL,
     CREATE_DELEGATION_TRACES_SQL,
@@ -76,6 +77,7 @@ class BulkLoader:
         self._parts_loaded = 0
         self._step_events_loaded = 0
         self._patches_loaded = 0
+        self._file_operations_loaded = 0
 
     # Allowed file types for bulk loading - prevents path injection
     _ALLOWED_FILE_TYPES = frozenset({"session", "message", "part"})
@@ -160,6 +162,9 @@ class BulkLoader:
 
         # Patches (from part files - patch type)
         results["patch"] = self.load_patches(cutoff_time)
+
+        # File operations (from part files - read/write/edit)
+        results["file_operation"] = self.load_file_operations(cutoff_time)
 
         # Mark all loaded files as processed to prevent duplicates
         if cutoff_time:
@@ -380,6 +385,42 @@ class BulkLoader:
             debug(f"[BulkLoader] Patch load error: {e}")
             return BulkLoadResult("patch", 0, time.time() - start, 0, 1)
 
+    def load_file_operations(
+        self, cutoff_time: Optional[float] = None
+    ) -> BulkLoadResult:
+        """Load file operations (read/write/edit) via DuckDB native JSON reading."""
+        start = time.time()
+        path = self._storage_path / "part"
+
+        if not path.exists() or not path.is_dir():
+            return BulkLoadResult("file_operation", 0, 0, 0, 0)
+
+        conn = self._db.connect()
+
+        try:
+            conn.execute("SET memory_limit='4GB'")
+            conn.execute("SET preserve_insertion_order=false")
+
+            query = LOAD_FILE_OPERATIONS_SQL.format(path=path)
+            conn.execute(query)
+
+            result = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()
+            count = result[0] if result else 0
+            self._file_operations_loaded = count
+
+            elapsed = time.time() - start
+            speed = count / elapsed if elapsed > 0 else 0
+
+            info(
+                f"[BulkLoader] File operations: {count:,} in {elapsed:.1f}s ({speed:.0f}/s)"
+            )
+
+            return BulkLoadResult("file_operation", count, elapsed, speed, 0)
+
+        except Exception as e:
+            debug(f"[BulkLoader] File operations load error: {e}")
+            return BulkLoadResult("file_operation", 0, time.time() - start, 0, 1)
+
     def _create_root_traces(self, conn) -> int:
         """Create root traces for sessions without parent."""
         try:
@@ -497,6 +538,7 @@ class BulkLoader:
             "parts_loaded": self._parts_loaded,
             "step_events_loaded": self._step_events_loaded,
             "patches_loaded": self._patches_loaded,
+            "file_operations_loaded": self._file_operations_loaded,
             "total_loaded": self._sessions_loaded
             + self._messages_loaded
             + self._parts_loaded,

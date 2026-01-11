@@ -944,3 +944,115 @@ class TestBulkLoaderErrorHandling:
         ).fetchone()
         assert part[0] == "prt_text"
         assert part[1] == "Hello world"
+
+
+# === BulkLoader File Operations Loading Tests ===
+
+
+class TestBulkLoaderFileOperations:
+    """Tests for file operations loading."""
+
+    def test_load_file_operations_extracts_read_write_edit(
+        self, bulk_loader, temp_storage, temp_db
+    ):
+        """Test load_file_operations extracts file paths from read/write/edit parts."""
+        now_ms = int(datetime.now().timestamp() * 1000)
+
+        parts_data = [
+            ("prt_read", "read", "/path/to/source.py"),
+            ("prt_write", "write", "/path/to/output.py"),
+            ("prt_edit", "edit", "/path/to/modified.py"),
+        ]
+
+        for part_id, tool_name, file_path in parts_data:
+            part = {
+                "id": part_id,
+                "sessionID": "ses_001",
+                "messageID": "msg_001",
+                "type": "tool",
+                "tool": tool_name,
+                "text": None,
+                "callID": f"call_{part_id}",
+                "state": {
+                    "status": "completed",
+                    "input": {"filePath": file_path},
+                    "time": {"start": now_ms, "end": now_ms + 100},
+                },
+            }
+            write_json_file(temp_storage, "part", "proj_001", part_id, part)
+
+        result = bulk_loader.load_file_operations()
+
+        assert result.files_loaded == 3
+        assert result.errors == 0
+
+        conn = temp_db.connect()
+        file_ops = conn.execute(
+            "SELECT id, operation, file_path FROM file_operations ORDER BY id"
+        ).fetchall()
+
+        assert len(file_ops) == 3
+        assert file_ops[0] == ("prt_edit", "edit", "/path/to/modified.py")
+        assert file_ops[1] == ("prt_read", "read", "/path/to/source.py")
+        assert file_ops[2] == ("prt_write", "write", "/path/to/output.py")
+
+    def test_load_file_operations_ignores_non_file_tools(
+        self, bulk_loader, temp_storage, temp_db
+    ):
+        """Test load_file_operations ignores bash, grep, glob and other tools."""
+        now_ms = int(datetime.now().timestamp() * 1000)
+
+        non_file_tools = ["bash", "grep", "glob", "task", "webfetch"]
+        for tool_name in non_file_tools:
+            part = {
+                "id": f"prt_{tool_name}",
+                "sessionID": "ses_001",
+                "messageID": "msg_001",
+                "type": "tool",
+                "tool": tool_name,
+                "text": None,
+                "callID": f"call_{tool_name}",
+                "state": {
+                    "status": "completed",
+                    "input": {"pattern": "test"},
+                    "time": {"start": now_ms, "end": now_ms + 100},
+                },
+            }
+            write_json_file(temp_storage, "part", "proj_001", f"prt_{tool_name}", part)
+
+        result = bulk_loader.load_file_operations()
+
+        assert result.files_loaded == 0
+
+    def test_load_file_operations_uses_path_fallback(
+        self, bulk_loader, temp_storage, temp_db
+    ):
+        """Test load_file_operations uses 'path' when 'filePath' is not present."""
+        now_ms = int(datetime.now().timestamp() * 1000)
+
+        part = {
+            "id": "prt_path_fallback",
+            "sessionID": "ses_001",
+            "messageID": "msg_001",
+            "type": "tool",
+            "tool": "read",
+            "text": None,
+            "callID": "call_path",
+            "state": {
+                "status": "completed",
+                "input": {"path": "/fallback/path.py"},
+                "time": {"start": now_ms, "end": now_ms + 100},
+            },
+        }
+        write_json_file(temp_storage, "part", "proj_001", "prt_path_fallback", part)
+
+        result = bulk_loader.load_file_operations()
+
+        assert result.files_loaded == 1
+
+        conn = temp_db.connect()
+        file_op = conn.execute(
+            "SELECT file_path FROM file_operations WHERE id = 'prt_path_fallback'"
+        ).fetchone()
+
+        assert file_op[0] == "/fallback/path.py"

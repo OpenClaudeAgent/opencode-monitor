@@ -102,6 +102,12 @@ def run_backfill() -> int:
         f"  Parts: {results['part'].files_loaded:,} in {results['part'].duration_seconds:.1f}s"
     )
 
+    print("Loading file operations...", flush=True)
+    results["file_operation"] = bulk_loader.load_file_operations()
+    print(
+        f"  File operations: {results['file_operation'].files_loaded:,} in {results['file_operation'].duration_seconds:.1f}s"
+    )
+
     total_loaded = sum(r.files_loaded for r in results.values())
     total_time = sum(r.duration_seconds for r in results.values())
 

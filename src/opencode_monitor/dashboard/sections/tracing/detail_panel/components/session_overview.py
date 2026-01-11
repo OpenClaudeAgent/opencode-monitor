@@ -1427,22 +1427,17 @@ class SessionOverviewPanel(QFrame):
 
     def load_session(self, tree_data: dict) -> None:
         """Load session data and display rich overview."""
-        # Extract structured data (exchanges, tools, files, errors)
         data = extract_session_data(tree_data)
 
-        # Get tokens directly from API response (pre-calculated server-side)
-        # Use 'or {}' to handle both missing keys and explicit None values
         tokens = tree_data.get("tokens") or {}
         tokens_in = tokens.get("input", 0) if isinstance(tokens, dict) else 0
         tokens_out = tokens.get("output", 0) if isinstance(tokens, dict) else 0
         cache_read = tokens.get("cache_read", 0) if isinstance(tokens, dict) else 0
         cache_write = tokens.get("cache_write", 0) if isinstance(tokens, dict) else 0
 
-        # Collect agents recursively from entire tree
         agents = []
         _collect_agents_recursive(tree_data, agents)
 
-        # Load timeline from API
         session_id = tree_data.get("session_id")
         logger.debug(
             f"[Timeline] load_session called, session_id={session_id}, "
@@ -1450,16 +1445,32 @@ class SessionOverviewPanel(QFrame):
         )
         if session_id:
             self._load_extended_timeline(session_id)
+            files_data = self._load_files_from_api(session_id)
         else:
             logger.warning("[Timeline] No session_id in tree_data")
             self._timeline.clear()
+            files_data = {}
 
-        # Load other widgets
         self._tools.load_tools(data.tools, data.tool_targets)
-        self._files.load_files(data.files)
+        self._files.load_files(files_data)
         self._tokens.load_tokens(tokens_in, tokens_out, cache_read, cache_write)
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
+
+    def _load_files_from_api(self, session_id: str) -> dict[str, list[str]]:
+        """Load files list from API instead of extracting from display_info."""
+        from opencode_monitor.api import get_api_client
+
+        client = get_api_client()
+        if not client.is_available:
+            return {}
+
+        data = client.get_session_files(session_id)
+        if not data:
+            return {}
+
+        details = data.get("details", {})
+        return details.get("files_list", {})
 
     def _load_extended_timeline(self, session_id: str) -> None:
         """Load full timeline from API.

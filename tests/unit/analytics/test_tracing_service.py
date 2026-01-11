@@ -193,6 +193,37 @@ def populated_db(temp_db: AnalyticsDB) -> AnalyticsDB:
         ],
     )
 
+    # Insert test file operations
+    file_ops = [
+        (
+            "fop_001",
+            "ses_001",
+            None,
+            "read",
+            "/projects/test/src/app.py",
+            datetime(2026, 1, 1, 10, 1, 0),
+            "normal",
+            None,
+        ),
+        (
+            "fop_002",
+            "ses_001",
+            None,
+            "write",
+            "/projects/test/src/output.py",
+            datetime(2026, 1, 1, 10, 2, 0),
+            "normal",
+            None,
+        ),
+    ]
+    for fop in file_ops:
+        conn.execute(
+            """INSERT INTO file_operations
+               (id, session_id, trace_id, operation, file_path, timestamp, risk_level, risk_reason)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            list(fop),
+        )
+
     return temp_db
 
 

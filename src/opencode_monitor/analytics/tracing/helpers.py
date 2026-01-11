@@ -289,7 +289,6 @@ class HelpersMixin:
     def _get_session_files_internal(self, session_id: str) -> dict:
         """Get file operation metrics for a session."""
         try:
-            # First try file_operations table
             result = self._conn.execute(
                 """
                 SELECT
@@ -304,54 +303,71 @@ class HelpersMixin:
                 [session_id],
             ).fetchone()
 
-            # If no data, estimate from parts table
-            if (
-                result is None
-                or (result[0] or 0) + (result[1] or 0) + (result[2] or 0) == 0
-            ):
-                fallback = self._conn.execute(
+            if result is not None:
+                r_reads = result[0] or 0
+                r_writes = result[1] or 0
+                r_edits = result[2] or 0
+                r_high_risk = result[3] or 0
+                r_unique_files = result[4] or 0
+                has_file_ops = r_reads + r_writes + r_edits > 0
+            else:
+                r_reads = r_writes = r_edits = r_high_risk = r_unique_files = 0
+                has_file_ops = False
+
+            if has_file_ops:
+                reads = r_reads
+                writes = r_writes
+                edits = r_edits
+                high_risk = r_high_risk
+                unique_files = r_unique_files
+
+                files_by_op = self._conn.execute(
                     """
-                    SELECT
-                        SUM(CASE WHEN tool_name = 'read' THEN 1 ELSE 0 END) as reads,
-                        SUM(CASE WHEN tool_name = 'write' THEN 1 ELSE 0 END) as writes,
-                        SUM(CASE WHEN tool_name = 'edit' THEN 1 ELSE 0 END) as edits,
-                        0 as high_risk,
-                        0 as unique_files
-                    FROM parts
-                    WHERE session_id = ? AND tool_name IN ('read', 'write', 'edit')
+                    SELECT operation, file_path
+                    FROM file_operations
+                    WHERE session_id = ?
+                    ORDER BY timestamp DESC
                     """,
                     [session_id],
-                ).fetchone()
-                # Use fallback values, defaulting to 0 if None
-                reads = (fallback[0] if fallback else 0) or 0
-                writes = (fallback[1] if fallback else 0) or 0
-                edits = (fallback[2] if fallback else 0) or 0
-                high_risk = 0
-                unique_files = 0
-            else:
-                reads = result[0] or 0
-                writes = result[1] or 0
-                edits = result[2] or 0
-                high_risk = result[3] or 0
-                unique_files = result[4] or 0
+                ).fetchall()
 
-            # Get file extension breakdown
-            ext_results = self._conn.execute(
-                """
-                SELECT
-                    CASE
-                        WHEN tool_name = 'read' THEN 'read'
-                        WHEN tool_name = 'write' THEN 'write'
-                        WHEN tool_name = 'edit' THEN 'edit'
-                        ELSE 'other'
-                    END as operation,
-                    COUNT(*) as count
-                FROM parts
-                WHERE session_id = ? AND tool_name IN ('read', 'write', 'edit', 'glob', 'grep')
-                GROUP BY operation
-                """,
-                [session_id],
-            ).fetchall()
+                files_list: dict[str, list[str]] = {"read": [], "write": [], "edit": []}
+                for row in files_by_op:
+                    op, path = row[0], row[1]
+                    if op in files_list and path not in files_list[op]:
+                        files_list[op].append(path)
+            else:
+                fallback = self._conn.execute(
+                    """
+                    SELECT tool_name, json_extract_string(arguments, '$.filePath') as file_path
+                    FROM parts
+                    WHERE session_id = ? 
+                      AND tool_name IN ('read', 'write', 'edit')
+                      AND arguments IS NOT NULL
+                    ORDER BY created_at DESC
+                    """,
+                    [session_id],
+                ).fetchall()
+
+                files_list = {"read": [], "write": [], "edit": []}
+                for row in fallback:
+                    op, path = row[0], row[1]
+                    if op and path and path not in files_list.get(op, []):
+                        if op not in files_list:
+                            files_list[op] = []
+                        files_list[op].append(path)
+
+                reads = len(files_list.get("read", []))
+                writes = len(files_list.get("write", []))
+                edits = len(files_list.get("edit", []))
+                high_risk = 0
+                unique_files = len(
+                    set(
+                        files_list.get("read", [])
+                        + files_list.get("write", [])
+                        + files_list.get("edit", [])
+                    )
+                )
 
             return {
                 "total_reads": reads,
@@ -359,8 +375,11 @@ class HelpersMixin:
                 "total_edits": edits,
                 "high_risk_count": high_risk,
                 "unique_files": unique_files,
+                "files_list": files_list,
                 "by_operation": [
-                    {"operation": row[0], "count": row[1]} for row in ext_results
+                    {"operation": "read", "count": reads},
+                    {"operation": "write", "count": writes},
+                    {"operation": "edit", "count": edits},
                 ],
             }
         except Exception as e:
@@ -371,6 +390,7 @@ class HelpersMixin:
                 "total_edits": 0,
                 "high_risk_count": 0,
                 "unique_files": 0,
+                "files_list": {"read": [], "write": [], "edit": []},
                 "by_operation": [],
             }
 

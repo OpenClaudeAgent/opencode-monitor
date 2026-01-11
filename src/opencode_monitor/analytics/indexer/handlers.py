@@ -190,6 +190,27 @@ class PartHandler(FileHandler):
             ],
         )
 
+        # Handle file operations (read/write/edit) - populate file_operations table
+        file_op = parser.parse_file_operation(raw_data)
+        if file_op:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO file_operations
+                (id, session_id, trace_id, operation, file_path, timestamp, risk_level, risk_reason)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                [
+                    file_op.id,
+                    file_op.session_id,
+                    file_op.trace_id,
+                    file_op.operation,
+                    file_op.file_path,
+                    file_op.timestamp,
+                    file_op.risk_level,
+                    file_op.risk_reason,
+                ],
+            )
+
         # Handle task delegation
         if parsed.tool_name == "task" and parsed.tool_status == "completed":
             delegation = parser.parse_delegation(raw_data)

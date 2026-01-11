@@ -196,6 +196,53 @@ class TestHybridIndexerProcessFile:
         assert session[0] == "ses_test"
         assert session[1] == "Test Session"
 
+    def test_process_part_creates_file_operation(self, temp_storage, temp_db_path):
+        """Test that processing a read/write/edit part creates a file_operation entry."""
+        from opencode_monitor.analytics.indexer.tracker import FileTracker
+        from opencode_monitor.analytics.indexer.parsers import FileParser
+        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
+        indexer._db = AnalyticsDB(temp_db_path)
+        indexer._db.connect()
+        indexer._tracker = FileTracker(indexer._db)
+        indexer._parser = FileParser()
+        indexer._trace_builder = TraceBuilder(indexer._db)
+
+        now_ms = int(datetime.now().timestamp() * 1000)
+        part_data = {
+            "id": "prt_read_test",
+            "sessionID": "ses_001",
+            "messageID": "msg_001",
+            "type": "tool",
+            "tool": "read",
+            "text": None,
+            "callID": "call_read",
+            "state": {
+                "status": "completed",
+                "input": {"filePath": "/path/to/source.py"},
+                "time": {"start": now_ms, "end": now_ms + 100},
+            },
+        }
+
+        file_path = write_json_file(
+            temp_storage, "part", "msg_001", "prt_read_test", part_data
+        )
+
+        result = indexer._process_file("part", file_path)
+
+        assert result is True
+
+        conn = indexer._db.connect()
+        file_op = conn.execute(
+            "SELECT id, operation, file_path FROM file_operations WHERE id = 'prt_read_test'"
+        ).fetchone()
+
+        assert file_op is not None
+        assert file_op[0] == "prt_read_test"
+        assert file_op[1] == "read"
+        assert file_op[2] == "/path/to/source.py"
+
 
 class TestIndexerRegistry:
     def test_registry_lifecycle(self, temp_storage, temp_db_path):
