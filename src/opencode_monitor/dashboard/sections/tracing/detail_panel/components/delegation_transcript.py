@@ -190,7 +190,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         """)
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
         inner_layout.setSpacing(SPACING["xs"])
 
@@ -248,7 +248,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         """)
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
         inner_layout.setSpacing(SPACING["xs"])
 
@@ -296,7 +296,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         """)
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
         inner_layout.setSpacing(SPACING["xs"])
 
@@ -348,7 +348,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         """)
         inner_layout = QVBoxLayout(inner)
         inner_layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
         inner_layout.setSpacing(SPACING["xs"])
 
