@@ -316,3 +316,89 @@ def pytest_configure(config):
     """Register custom markers."""
     config.addinivalue_line("markers", "integration: marks tests as integration tests")
     config.addinivalue_line("markers", "slow: marks tests as slow running")
+
+
+@pytest.fixture(scope="session")
+def duckdb_memory():
+    import duckdb
+
+    conn = duckdb.connect(":memory:")
+    yield conn
+    conn.close()
+
+
+@pytest.fixture
+def analytics_db_real(tmp_path):
+    from pathlib import Path
+    from opencode_monitor.analytics.db import AnalyticsDB
+
+    db_path = Path(tmp_path) / "test_analytics.duckdb"
+    db = AnalyticsDB(db_path=db_path, read_only=False)
+
+    with db:
+        db._create_schema()
+
+    yield db
+
+    db.close()
+    if db_path.exists():
+        db_path.unlink()
+
+
+@pytest.fixture
+def flask_app_real(analytics_db_real):
+    from flask import Flask
+    from opencode_monitor.api.routes import (
+        health_bp,
+        stats_bp,
+        sessions_bp,
+        tracing_bp,
+        delegations_bp,
+        security_bp,
+    )
+
+    app = Flask(__name__)
+    app.config.update(
+        {
+            "TESTING": True,
+        }
+    )
+
+    app.register_blueprint(health_bp)
+    app.register_blueprint(stats_bp)
+    app.register_blueprint(sessions_bp)
+    app.register_blueprint(tracing_bp)
+    app.register_blueprint(delegations_bp)
+    app.register_blueprint(security_bp)
+
+    with app.app_context():
+        yield app
+
+
+@pytest.fixture
+def api_client_real(flask_app_real):
+    return flask_app_real.test_client()
+
+
+@pytest.fixture
+def mock_aioresponse():
+    from aioresponses import aioresponses
+
+    with aioresponses() as m:
+        yield m
+
+
+@pytest.fixture
+def thread_barrier(request):
+    import threading
+
+    parties = getattr(request, "param", 2)
+    return threading.Barrier(parties=parties)
+
+
+@pytest.fixture
+def freezer():
+    from freezegun import freeze_time
+
+    with freeze_time("2026-01-11 12:00:00") as frozen:
+        yield frozen
