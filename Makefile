@@ -18,7 +18,7 @@ help:
 	@echo "  make test-integration-api   Run integration API tests"
 	@echo "  make test-integration-visible  Run integration tests (visible UI)"
 	@echo "  make test-all               Run all tests (unit + integration)"
-	@echo "  make test-migration-status  Show test migration progress"
+	@echo "  make test-stats             Show test structure statistics"
 	@echo "  make coverage               Run tests with coverage report"
 	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
@@ -77,20 +77,17 @@ test-integration-api:
 test-all:
 	@QT_QPA_PLATFORM=offscreen uv run pytest tests/ -v -n 8
 
-test-migration-status:
-	@echo "=== Test Migration Status ==="
+test-stats:
+	@echo "=== Test Structure ==="
 	@echo "Unit tests:"
-	@uv run pytest tests/unit/ --collect-only -q | tail -1
-	@echo "Integration DB:"
-	@uv run pytest tests/integration/database/ --collect-only -q | tail -1
-	@echo "Integration API:"
-	@uv run pytest tests/integration/api/ --collect-only -q | tail -1
-	@echo "Integration Async:"
-	@uv run pytest tests/integration/async/ --collect-only -q | tail -1
-	@echo "Integration Examples:"
-	@uv run pytest tests/integration/examples/ --collect-only -q | tail -1
+	@uv run pytest tests/unit/ --collect-only -q 2>/dev/null | tail -1
+	@echo "Integration tests:"
+	@uv run pytest tests/integration/ --collect-only -q 2>/dev/null | tail -1
+	@echo "Builder tests:"
+	@uv run pytest tests/builders/ --collect-only -q 2>/dev/null | tail -1
 	@echo ""
-	@echo "Total migrated: 56 tests (unit:28 + db:13 + api:5 + async:5 + examples:5)"
+	@echo "Total:"
+	@uv run pytest tests/ --collect-only -q 2>/dev/null | tail -1
 
 coverage:
 	@uv run pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=term-missing
