@@ -215,6 +215,16 @@ class SegmentedControl(QWidget):
         return self._current_index
 
 
+class ClickableLabel(QLabel):
+    """A QLabel that emits a clicked signal when pressed."""
+
+    clicked = pyqtSignal()
+
+    def mousePressEvent(self, event) -> None:
+        self.clicked.emit()
+        super().mousePressEvent(event)
+
+
 class EmptyState(QWidget):
     """Empty state placeholder with icon."""
 

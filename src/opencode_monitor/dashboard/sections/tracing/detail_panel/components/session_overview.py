@@ -38,6 +38,7 @@ from PyQt6.QtWidgets import (
 
 from opencode_monitor.dashboard.sections.tracing.helpers import format_tokens_short
 from opencode_monitor.dashboard.styles import COLORS, FONTS, RADIUS, SPACING
+from opencode_monitor.dashboard.widgets.controls import ClickableLabel
 
 
 # ============================================================
@@ -886,6 +887,8 @@ class FilesListWidget(QFrame):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._is_expanded = False
+        self._files_data: dict[str, list[str]] = {}
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -903,15 +906,25 @@ class FilesListWidget(QFrame):
         )
         layout.setSpacing(SPACING["xs"])
 
-        # Header
-        self._header = QLabel("📁 Files")
+        # Header (clickable to expand/collapse)
+        self._header = ClickableLabel("📁 Files")
         self._header.setStyleSheet(f"""
-            font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_semibold"]};
-            color: {COLORS["text_muted"]};
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
+            QLabel {{
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                color: {COLORS["text_muted"]};
+                text-transform: uppercase;
+                letter-spacing: 0.5px;
+                padding: {SPACING["xs"]}px;
+                border-radius: {RADIUS["sm"]}px;
+            }}
+            QLabel:hover {{
+                background-color: {COLORS["bg_hover"]};
+                color: {COLORS["text_secondary"]};
+            }}
         """)
+        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._header.clicked.connect(self._toggle_expand)
         layout.addWidget(self._header)
 
         # Container
@@ -921,29 +934,42 @@ class FilesListWidget(QFrame):
         self._container_layout.setSpacing(2)
 
         # Scroll area
-        scroll = QScrollArea()
-        scroll.setWidget(self._container)
-        scroll.setWidgetResizable(True)
-        scroll.setStyleSheet("""
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._container)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet("""
             QScrollArea {
                 background-color: transparent;
                 border: none;
             }
         """)
-        scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        layout.addWidget(scroll, 1)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        layout.addWidget(self._scroll, 1)
+
+    def _toggle_expand(self) -> None:
+        self._is_expanded = not self._is_expanded
+        if self._is_expanded:
+            self._scroll.setMaximumHeight(200)
+        else:
+            self._scroll.setMaximumHeight(16777215)
+        self._render_files()
+
+    def _update_header_text(self, total_files: int) -> None:
+        chevron = "▲" if self._is_expanded else "▼"
+        self._header.setText(f"📁 Files ({total_files}) {chevron}")
 
     def load_files(self, files: dict[str, list[str]]) -> None:
-        """Load files grouped by action."""
-        # Clear existing
+        self._files_data = files
+        self._render_files()
+
+    def _render_files(self) -> None:
         while self._container_layout.count():
             item = self._container_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()
 
-        # Count total unique files
         all_files: set[str] = set()
-        for paths in files.values():
+        for paths in self._files_data.values():
             all_files.update(paths)
 
         if not all_files:
@@ -955,11 +981,11 @@ class FilesListWidget(QFrame):
             """)
             self._container_layout.addWidget(label)
             self._container_layout.addStretch()
+            self._header.setText("📁 Files")
             return
 
-        self._header.setText(f"📁 Files ({len(all_files)})")
+        self._update_header_text(len(all_files))
 
-        # Action icons and colors
         action_config = {
             "read": ("📖", COLORS["type_read"]),
             "edit": ("✏️", COLORS["type_edit"]),
@@ -967,10 +993,10 @@ class FilesListWidget(QFrame):
         }
 
         files_shown = 0
-        max_files = 8
+        max_files = 8 if not self._is_expanded else len(all_files)
 
-        for action in ["edit", "write", "read"]:  # Prioritize modifications
-            paths = files.get(action, [])
+        for action in ["edit", "write", "read"]:
+            paths = self._files_data.get(action, [])
             if not paths:
                 continue
 
@@ -998,7 +1024,7 @@ class FilesListWidget(QFrame):
                 break
 
         remaining = len(all_files) - files_shown
-        if remaining > 0:
+        if remaining > 0 and not self._is_expanded:
             more = QLabel(f"  +{remaining} more...")
             more.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;

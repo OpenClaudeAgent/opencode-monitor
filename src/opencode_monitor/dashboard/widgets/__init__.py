@@ -32,6 +32,7 @@ from .tables import DataTable
 
 # Controls
 from .controls import (
+    ClickableLabel,
     PageHeader,
     SectionHeader,
     Separator,
@@ -60,6 +61,7 @@ __all__ = [
     # Tables
     "DataTable",
     # Controls
+    "ClickableLabel",
     "PageHeader",
     "SectionHeader",
     "Separator",
