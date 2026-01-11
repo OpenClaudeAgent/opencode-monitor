@@ -1,27 +1,20 @@
-"""
-Port detection for OpenCode instances.
-
-Functions to find OpenCode ports and associated TTY.
-"""
-
 import asyncio
 import subprocess  # nosec B404 - required for port/TTY detection
 
 from ..client import check_opencode_port
+from ...utils.logger import debug
 
 
 async def find_opencode_ports() -> list[int]:
-    """Find all ports with OpenCode instances running"""
-    # Get all listening ports on localhost
     try:
         result = subprocess.run(  # nosec B603 B607 - trusted system command
             ["netstat", "-an"], capture_output=True, text=True, timeout=5
         )
         lines = result.stdout.split("\n")
-    except Exception:  # Intentional catch-all: subprocess failures return empty list
+    except Exception as e:
+        debug(f"[Ports] netstat failed: {e}")
         return []
 
-    # Extract ports from netstat output
     candidate_ports = set()
     for line in lines:
         if "127.0.0.1" in line and "LISTEN" in line:
@@ -35,11 +28,16 @@ async def find_opencode_ports() -> list[int]:
                     except ValueError:
                         continue
 
-    # Check each port in parallel
+    debug(f"[Ports] Found {len(candidate_ports)} candidate ports")
+
     check_tasks = [check_opencode_port(port) for port in candidate_ports]
     results = await asyncio.gather(*check_tasks)
 
-    return [port for port, is_opencode in zip(candidate_ports, results) if is_opencode]
+    opencode_ports = [
+        port for port, is_opencode in zip(candidate_ports, results) if is_opencode
+    ]
+    debug(f"[Ports] OpenCode ports: {opencode_ports}")
+    return opencode_ports
 
 
 def get_tty_for_port(port: int) -> str:

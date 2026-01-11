@@ -731,7 +731,7 @@ class ExpandableTimelineWidget(QFrame):
             groups[num].append(event)
 
         for num in groups:
-            groups[num].sort(key=lambda e: e.get("timestamp", ""))
+            groups[num].sort(key=lambda e: e.get("timestamp") or "")
 
         return groups
 

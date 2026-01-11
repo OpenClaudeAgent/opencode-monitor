@@ -1,13 +1,10 @@
-"""
-Panel controller - Orchestrates panel updates based on tree selection.
-"""
-
 from typing import TYPE_CHECKING
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTreeWidgetItem
 
 from .strategies import TreeNodeData, get_strategy_factory
+from opencode_monitor.utils.logger import debug, error
 
 if TYPE_CHECKING:
     from .panel import TraceDetailPanel
@@ -21,9 +18,23 @@ class PanelController:
     def handle_selection(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
         if not data:
+            debug("[Tracing] handle_selection: no data in item")
             return
 
         node = TreeNodeData(raw=data)
-        strategy = self._factory.get(node.node_type)
-        content = strategy.get_content(node)
-        self._panel.render(content)
+        debug(
+            f"[Tracing] handle_selection: node_type={node.node_type} session_id={data.get('session_id', 'N/A')}"
+        )
+
+        try:
+            strategy = self._factory.get(node.node_type)
+            content = strategy.get_content(node)
+            debug(
+                f"[Tracing] handle_selection: got content type={content.get('type', 'N/A')}"
+            )
+            self._panel.render(content)
+        except Exception as e:
+            error(f"[Tracing] handle_selection error: {e}")
+            import traceback
+
+            error(traceback.format_exc())

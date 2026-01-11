@@ -52,10 +52,12 @@ class AnalyticsAPIClient:
         """
         url = f"{self._base_url}{endpoint}"
 
-        # Add query parameters
         if params:
             query_string = "&".join(f"{k}={v}" for k, v in params.items())
             url = f"{url}?{query_string}"
+
+        debug(f"[API Client] >>> {endpoint} params={params}")
+        start_time = time.time()
 
         try:
             req = urllib.request.Request(url, method="GET")
@@ -63,23 +65,40 @@ class AnalyticsAPIClient:
 
             with urllib.request.urlopen(req, timeout=self._timeout) as response:  # nosec B310
                 data = json.loads(response.read().decode("utf-8"))
+                elapsed = (time.time() - start_time) * 1000
 
                 if data.get("success"):
                     self._available = True
-                    return data.get("data")
+                    result = data.get("data")
+                    self._log_response(endpoint, elapsed, result)
+                    return result
                 else:
                     error(f"[API Client] Request failed: {data.get('error')}")
                     return None
 
         except urllib.error.URLError as e:
-            # API not available (menubar not running)
+            elapsed = (time.time() - start_time) * 1000
             if self._available is not False:
-                debug(f"[API Client] API not available: {e}")
+                debug(f"[API Client] API unavailable ({elapsed:.0f}ms): {e}")
             self._available = False
             return None
         except Exception as e:
-            error(f"[API Client] Request error: {e}")
+            elapsed = (time.time() - start_time) * 1000
+            error(f"[API Client] Error ({elapsed:.0f}ms): {e}")
             return None
+
+    def _log_response(
+        self, endpoint: str, elapsed: float, result: Optional[dict]
+    ) -> None:
+        if isinstance(result, dict):
+            keys = list(result.keys())[:5]
+            debug(f"[API Client] <<< {endpoint}: {elapsed:.0f}ms keys={keys}")
+        elif isinstance(result, list):
+            debug(f"[API Client] <<< {endpoint}: {elapsed:.0f}ms list[{len(result)}]")
+        else:
+            debug(
+                f"[API Client] <<< {endpoint}: {elapsed:.0f}ms {type(result).__name__}"
+            )
 
     @property
     def is_available(self) -> bool:
