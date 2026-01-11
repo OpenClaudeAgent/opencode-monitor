@@ -1,23 +1,19 @@
 """
-Async HTTP client using asyncio + ThreadPoolExecutor
-No external dependencies - uses stdlib only
+Async HTTP client using aiohttp
 """
 
 import asyncio
+import aiohttp
 import json
 import re
-import urllib.request
-import urllib.error
-from concurrent.futures import ThreadPoolExecutor
 from typing import Optional, Any
 
 
 # Timeout for HTTP requests (seconds)
 REQUEST_TIMEOUT = 2
 
-# Thread pool for parallel HTTP requests
-# Reduced from 20 to 4 to avoid thread contention
-_executor = ThreadPoolExecutor(max_workers=4)
+# Shared aiohttp session (created on first use)
+_session: Optional[aiohttp.ClientSession] = None
 
 
 def _clean_json(raw: str) -> str:
@@ -25,21 +21,32 @@ def _clean_json(raw: str) -> str:
     return re.sub(r"[\x00-\x08\x0b\x0c\x0e-\x1f]", " ", raw)
 
 
-def _sync_get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
-    """Synchronous HTTP GET request"""
+async def _get_session() -> aiohttp.ClientSession:
+    """Get or create the shared aiohttp session"""
+    global _session
+    if _session is None or _session.closed:
+        timeout = aiohttp.ClientTimeout(total=REQUEST_TIMEOUT)
+        _session = aiohttp.ClientSession(timeout=timeout)
+    return _session
+
+
+async def get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
+    """Async HTTP GET request"""
     try:
-        req = urllib.request.Request(url)
-        with urllib.request.urlopen(req, timeout=timeout) as response:  # nosec B310
-            return response.read().decode("utf-8")
-    except urllib.error.URLError:
+        session = await _get_session()
+        async with session.get(
+            url, timeout=aiohttp.ClientTimeout(total=timeout)
+        ) as response:
+            return await response.text()
+    except (aiohttp.ClientError, asyncio.TimeoutError):
         return None
     except Exception:  # Intentional catch-all: any network error returns None
         return None
 
 
-def _sync_get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
-    """Synchronous HTTP GET request returning parsed JSON"""
-    raw = _sync_get(url, timeout)
+async def get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
+    """Async HTTP GET request returning parsed JSON"""
+    raw = await get(url, timeout)
     if raw is None:
         return None
     try:
@@ -47,18 +54,6 @@ def _sync_get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
         return json.loads(cleaned)
     except json.JSONDecodeError:
         return None
-
-
-async def get(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[str]:
-    """Async HTTP GET request"""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _sync_get, url, timeout)
-
-
-async def get_json(url: str, timeout: float = REQUEST_TIMEOUT) -> Optional[Any]:
-    """Async HTTP GET request returning parsed JSON"""
-    loop = asyncio.get_running_loop()
-    return await loop.run_in_executor(_executor, _sync_get_json, url, timeout)
 
 
 async def check_opencode_port(port: int) -> bool:
@@ -80,6 +75,14 @@ async def parallel_requests(
     """Execute multiple HTTP requests in parallel"""
     tasks = [get_json(url, timeout) for url in urls]
     return await asyncio.gather(*tasks)
+
+
+async def close_session():
+    """Close the shared aiohttp session"""
+    global _session
+    if _session is not None and not _session.closed:
+        await _session.close()
+        _session = None
 
 
 class OpenCodeClient:

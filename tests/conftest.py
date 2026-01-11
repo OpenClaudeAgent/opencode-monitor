@@ -835,3 +835,11 @@ def reset_singletons_per_worker(request):
     _cleanup_all_singletons()
     yield
     _cleanup_all_singletons()
+
+
+@pytest.fixture
+def mock_aioresponse():
+    from aioresponses import aioresponses
+
+    with aioresponses() as m:
+        yield m
