@@ -280,7 +280,7 @@ class TestAgent:
             "next_label": "",
         }
         # ask_user fields (defaults)
-        assert result["has_pending_ask_user"] is False
+        assert not result["has_pending_ask_user"]  # Direct boolean assertion
         assert result["ask_user_title"] == ""
         assert result["ask_user_question"] == ""
         assert result["ask_user_options"] == []
@@ -421,7 +421,7 @@ class TestInstance:
             "current_label": "",
             "next_label": "",
         }
-        assert agent_dict["has_pending_ask_user"] is False
+        assert not agent_dict["has_pending_ask_user"]  # Direct boolean assertion
 
     def test_to_dict_empty_and_mixed_agents(self):
         """to_dict with no agents and with mixed busy/idle agents."""
@@ -510,7 +510,8 @@ class TestState:
         assert state.instances == []
         assert state.todos.pending == 0
         assert state.todos.in_progress == 0
-        assert state.updated >= 0  # Timestamp is a positive int
+        # Timestamp should be a reasonable value (not 0, within last year)
+        assert state.updated > 1700000000  # After Nov 2023
         assert state.connected == connected
 
     @pytest.mark.parametrize(
@@ -587,7 +588,7 @@ class TestState:
         assert result["idle_count"] == 0
         assert result["todos"] == {"pending": 5, "in_progress": 2}
         assert result["updated"] == 1234567890
-        assert result["connected"] is True
+        assert result["connected"]  # Direct boolean assertion
         assert len(result["instances"]) == 1
         assert result["instances"][0]["port"] == 3000
 
@@ -638,7 +639,8 @@ class TestUsage:
         assert usage.seven_day.utilization == 0
         assert usage.seven_day.resets_at is None
         assert usage.error is None
-        assert usage.updated >= 0  # Timestamp is a positive int
+        # Timestamp should be a reasonable value (not 0, within last year)
+        assert usage.updated > 1700000000  # After Nov 2023
 
     @pytest.mark.parametrize(
         "five_hour_util,five_hour_reset,seven_day_util,seven_day_reset,error",

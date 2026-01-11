@@ -751,7 +751,8 @@ class TestBuildUsageItems:
         items_link = menu_builder.build_usage_items(usage_link)
         assert len(items_link) == 3
         assert "Open Claude Usage" in items_link[2].title
-        assert items_link[2].callback is not None
+        # Verify callback exists and is callable
+        assert callable(items_link[2].callback)
 
         # Edge cases - invalid dates
         usage_invalid = Usage(
@@ -1066,7 +1067,8 @@ class TestEdgeCases:
         items_empty = menu_builder.build_agent_items(
             agent_empty, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
         )
-        assert len(items_empty) >= 1
+        # Should have at least the agent item itself
+        assert len(items_empty) == 1
 
         # Empty tool arg
         agent_tool = Agent(
@@ -1080,7 +1082,8 @@ class TestEdgeCases:
         items_tool = menu_builder.build_agent_items(
             agent_tool, "/dev/ttys001", 0, mock_focus_callback, mock_alert_callback
         )
-        assert len(items_tool) >= 1
+        # Should have agent item + tool item
+        assert len(items_tool) == 2
 
         # Multiple instances
         agent2 = Agent(

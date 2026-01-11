@@ -168,8 +168,11 @@ class TestExtractTraces:
         assert len(traces) == 1
         trace = traces[0]
         assert trace.duration_ms == 10000
-        assert trace.started_at is not None
-        assert trace.ended_at is not None
+        # Verify timestamps are datetime objects with correct values
+        assert isinstance(trace.started_at, datetime)
+        assert isinstance(trace.ended_at, datetime)
+        assert trace.started_at.timestamp() * 1000 == start
+        assert trace.ended_at.timestamp() * 1000 == end
 
     def test_extracts_tools_used_from_summary(self, storage_path: Path):
         """Should extract tools used from metadata.summary."""
@@ -270,7 +273,9 @@ class TestExtractTraces:
 class TestLoadTraces:
     """Tests for load_traces function."""
 
-    def test_returns_zero_when_no_traces(self, temp_db: AnalyticsDB, storage_path: Path):
+    def test_returns_zero_when_no_traces(
+        self, temp_db: AnalyticsDB, storage_path: Path
+    ):
         """Should return 0 when no traces to load."""
         count = load_traces(temp_db, storage_path, max_days=30)
         assert count == 0
@@ -294,11 +299,13 @@ class TestLoadTraces:
         # Verify in database
         conn = temp_db.connect()
         result = conn.execute(
-            "SELECT trace_id, subagent_type FROM agent_traces"
+            "SELECT trace_id, subagent_type, session_id, prompt_input, prompt_output FROM agent_traces"
         ).fetchone()
-        assert result is not None
         assert result[0] == "prt_load_001"
         assert result[1] == "tester"
+        assert result[2] == "ses_load_001"
+        assert result[3] == "Test the module"
+        assert result[4] == "Tests created"
 
     def test_creates_table_if_not_exists(self, tmp_path: Path, storage_path: Path):
         """Should create agent_traces table if it doesn't exist."""
@@ -429,12 +436,18 @@ class TestTraceQueries:
         queries = TraceQueries(populated_db)
         trace = queries.get_trace_details("trace_1")
 
-        assert trace is not None
         assert trace.trace_id == "trace_1"
+        assert trace.session_id == "ses_a"
+        assert trace.parent_trace_id is None
+        assert trace.parent_agent == "coordinator"
         assert trace.subagent_type == "executor"
         assert trace.prompt_input == "Execute task 1"
         assert trace.prompt_output == "Done 1"
         assert trace.duration_ms == 300000
+        assert trace.tokens_in == 1000
+        assert trace.tokens_out == 500
+        assert trace.status == "completed"
+        assert trace.child_session_id == "ses_child_1"
 
     def test_get_trace_details_not_found(self, queries: TraceQueries):
         """Should return None for non-existent trace."""
@@ -465,10 +478,16 @@ class TestTraceQueries:
         sessions = queries.get_sessions_with_traces()
 
         assert len(sessions) == 2
-        # Should have ses_a with 2 traces and ses_b with 1 trace
-        session_ids = {s.session_id for s in sessions}
+        # Verify session IDs
+        session_ids = [s.session_id for s in sessions]
         assert "ses_a" in session_ids
         assert "ses_b" in session_ids
+
+        # Verify trace counts
+        ses_a = next(s for s in sessions if s.session_id == "ses_a")
+        ses_b = next(s for s in sessions if s.session_id == "ses_b")
+        assert ses_a.trace_count == 2
+        assert ses_b.trace_count == 1
 
     def test_get_trace_stats(self, populated_db: AnalyticsDB):
         """Should return aggregate statistics."""
@@ -492,10 +511,16 @@ class TestTraceQueries:
         stats = queries.get_agent_type_stats(start, end)
 
         assert len(stats) == 3
-        agent_names = {s["agent"] for s in stats}
+        agent_names = [s["agent"] for s in stats]
         assert "executor" in agent_names
         assert "tester" in agent_names
         assert "refactoring" in agent_names
+
+        # Verify each agent has required fields
+        for agent_stat in stats:
+            assert "agent" in agent_stat
+            assert "count" in agent_stat
+            assert agent_stat["count"] >= 1
 
 
 class TestTraceTreeNode:

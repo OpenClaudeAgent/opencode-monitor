@@ -102,8 +102,8 @@ class TestMetricCard:
 
         # Creation basic
         card = MetricCard("42", "Sessions", parent=widget_parent)
-        assert card is not None
         assert isinstance(card, QWidget)
+        assert card._value_label.text() == "42"
 
         # Label is uppercase
         assert card._label.text() == "SESSIONS"
@@ -113,12 +113,12 @@ class TestMetricCard:
         assert card._value_label.text() == "999"
 
         # Minimum height set, width is adaptive (no fixed constraint)
-        assert card.minimumHeight() >= 80
+        assert card.minimumHeight() == 80
 
         # Shadow effect applied
         effect = card.graphicsEffect()
-        assert effect is not None
         assert isinstance(effect, QGraphicsDropShadowEffect)
+        assert effect.blurRadius() > 0
 
     def test_metric_card_with_accent(self, qapp, widget_parent):
         """MetricCard with custom accent and invalid accent fallback."""
@@ -166,15 +166,12 @@ class TestStatusBadge:
 
         # Creation basic (includes bullet prefix)
         badge = StatusBadge("BUSY", parent=widget_parent)
-        assert badge is not None
         assert badge.text() == "● BUSY"
-
-        # Is QLabel subclass
         assert isinstance(badge, QLabel)
 
         # Creation with variant
         badge_variant = StatusBadge("Active", variant="success", parent=widget_parent)
-        assert badge_variant is not None
+        assert badge_variant.text() == "● Active"
 
         # Set variant changes appearance (text preserved with bullet)
         badge_neutral = StatusBadge("Status", variant="neutral", parent=widget_parent)
@@ -183,7 +180,7 @@ class TestStatusBadge:
 
         # Invalid variant fallback (should not raise)
         badge_invalid = StatusBadge("Test", variant="nonexistent", parent=widget_parent)
-        assert badge_invalid is not None
+        assert badge_invalid.text() == "● Test"
 
     @pytest.mark.parametrize(
         "variant",
@@ -221,10 +218,7 @@ class TestRiskBadge:
 
         # Creation basic
         badge = RiskBadge("critical", parent=widget_parent)
-        assert badge is not None
         assert badge.text() == "CRITICAL"
-
-        # Is Badge subclass
         assert isinstance(badge, Badge)
 
         # Valid levels are in VARIANTS
@@ -268,10 +262,7 @@ class TestTypeBadge:
 
         # Creation basic
         badge = TypeBadge("bash", parent=widget_parent)
-        assert badge is not None
         assert badge.text() == "BASH"
-
-        # Is Badge subclass
         assert isinstance(badge, Badge)
 
         # Case insensitive handling
@@ -324,14 +315,20 @@ class TestSegmentedControl:
         # Creation basic
         options = ["Day", "Week", "Month", "Year"]
         control = SegmentedControl(options, parent=widget_parent)
-        assert control is not None
 
         # Options count
         assert len(control._buttons) == 4
+        assert control._buttons[0].text() == "Day"
+        assert control._buttons[1].text() == "Week"
+        assert control._buttons[2].text() == "Month"
+        assert control._buttons[3].text() == "Year"
 
         # Initial selection (first option)
         assert control.current_index() == 0
         assert control._buttons[0].isChecked()
+        assert not control._buttons[1].isChecked()
+        assert not control._buttons[2].isChecked()
+        assert not control._buttons[3].isChecked()
 
         # All buttons are checkable
         for btn in control._buttons:
@@ -371,7 +368,7 @@ class TestSegmentedControl:
         # Change selection - should emit signal
         with qtbot.waitSignal(control.selection_changed, timeout=1000) as blocker:
             control.set_current_index(2)
-        assert blocker.args[0] == 2
+        assert blocker.args == [2]
 
         # Click already selected button - should NOT emit signal
         # Use waitSignal with raising=False to verify signal is NOT emitted
@@ -381,7 +378,7 @@ class TestSegmentedControl:
         # Click different button - should emit signal
         with qtbot.waitSignal(control.selection_changed, timeout=1000) as blocker:
             control._on_button_clicked(0)
-        assert blocker.args[0] == 0
+        assert blocker.args == [0]
 
 
 # =============================================================================
@@ -399,10 +396,13 @@ class TestDataTable:
         # Creation basic
         headers = ["Name", "Value", "Status", "Risk"]
         table = DataTable(headers, parent=widget_parent)
-        assert table is not None
 
         # Column count
         assert table.columnCount() == 4
+        assert table.horizontalHeaderItem(0).text() == "Name"
+        assert table.horizontalHeaderItem(1).text() == "Value"
+        assert table.horizontalHeaderItem(2).text() == "Status"
+        assert table.horizontalHeaderItem(3).text() == "Risk"
 
         # Initial row count is zero
         assert table.rowCount() == 0
@@ -500,8 +500,8 @@ class TestSectionHeader:
 
         # Creation basic
         header = SectionHeader("Sessions", parent=widget_parent)
-        assert header is not None
         assert header._title.text() == "Sessions"
+        assert isinstance(header, QWidget)
 
         # No subtitle attribute when not provided
         assert not hasattr(header, "_subtitle")
@@ -518,9 +518,9 @@ class TestSectionHeader:
         header = SectionHeader(
             "Sessions", subtitle="Active monitoring", parent=widget_parent
         )
-        assert header is not None
         assert header._title.text() == "Sessions"
         assert header._subtitle.text() == "Active monitoring"
+        assert isinstance(header, QWidget)
 
         # Add action
         button = QPushButton("Action", parent=widget_parent)
@@ -542,12 +542,9 @@ class TestBadge:
 
         # Creation
         badge = Badge("test", "#ff0000", "#ffffff", parent=widget_parent)
-        assert badge is not None
 
         # Text is uppercase
         assert badge.text() == "TEST"
-
-        # Is QLabel subclass
         assert isinstance(badge, QLabel)
 
         # Another badge with different text
@@ -568,7 +565,6 @@ class TestCellBadge:
         from opencode_monitor.dashboard.widgets import CellBadge
 
         badge = CellBadge("test", "#ff0000", "#330000", parent=widget_parent)
-        assert badge is not None
         assert badge.text() == "TEST"
         assert isinstance(badge, QLabel)
 
@@ -638,12 +634,13 @@ class TestMetricsRow:
 
         # Creation
         row = MetricsRow(parent=widget_parent)
-        assert row is not None
+        assert isinstance(row, QWidget)
 
         # Add metric
         card = row.add_metric("sessions", "5", "Sessions")
         assert isinstance(card, MetricCard)
         assert "sessions" in row._cards
+        assert row._cards["sessions"] == card
 
         # Update metric
         row.update_metric("sessions", "100")
@@ -653,5 +650,6 @@ class TestMetricsRow:
         row.update_metric("nonexistent", "value")
 
         # Add stretch
+        initial_count = row._layout.count()
         row.add_stretch()
-        assert row._layout is not None
+        assert row._layout.count() == initial_count + 1

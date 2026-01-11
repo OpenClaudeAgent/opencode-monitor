@@ -55,8 +55,8 @@ class TestTruncateWithTooltip:
         call_args = MockMenuItem.call_args[0][0]
 
         # Verify MenuItem was created correctly
-        assert MockMenuItem.called
-        assert result is not None
+        MockMenuItem.assert_called_once()
+        assert isinstance(result, MagicMock)
         assert isinstance(call_args, str)
         assert len(call_args) <= max_length
         if should_truncate:
@@ -90,8 +90,8 @@ class TestTruncateWithTooltip:
         assert isinstance(call_args, str)
         # Verify tooltip contains full original text
         mock_instance._menuitem.setToolTip_.assert_called_once_with(text)
-        assert result is not None
-        assert MockMenuItem.called
+        assert isinstance(result, MagicMock)
+        MockMenuItem.assert_called_once()
 
     PREFIX_CASES = [
         ("Short", "  -> ", 40, False),
@@ -118,8 +118,8 @@ class TestTruncateWithTooltip:
 
         # Prefix always prepended
         assert call_args.startswith(prefix)
-        assert result is not None
-        assert MockMenuItem.called
+        assert isinstance(result, MagicMock)
+        MockMenuItem.assert_called_once()
         assert isinstance(call_args, str)
         if should_truncate:
             assert call_args.endswith("...")
@@ -134,9 +134,9 @@ class TestTruncateWithTooltip:
         result = _truncate_with_tooltip("Click me", 40, callback=callback)
 
         assert MockMenuItem.call_args[1]["callback"] == callback
-        assert result is not None
-        assert MockMenuItem.called
-        assert mock_instance is not None
+        assert isinstance(result, MagicMock)
+        MockMenuItem.assert_called_once()
+        assert isinstance(mock_instance, MagicMock)
 
     def test_empty_text_no_tooltip(self, mock_menu_item):
         """Empty text handled properly - no tooltip set."""
@@ -147,8 +147,7 @@ class TestTruncateWithTooltip:
 
         MockMenuItem.assert_called_once_with("", callback=None)
         mock_instance._menuitem.setToolTip_.assert_not_called()
-        assert result is not None
-        assert MockMenuItem.called
+        assert isinstance(result, MagicMock)
 
     def test_empty_prefix_works(self, mock_menu_item):
         """Empty prefix should work correctly."""
@@ -158,9 +157,8 @@ class TestTruncateWithTooltip:
         result = _truncate_with_tooltip("Some text", 40, prefix="")
 
         MockMenuItem.assert_called_once_with("Some text", callback=None)
-        assert result is not None
+        assert isinstance(result, MagicMock)
         mock_instance._menuitem.setToolTip_.assert_not_called()
-        assert MockMenuItem.called
 
     def test_unicode_text_handled_by_char_count(self, mock_menu_item):
         """Unicode characters are handled by character count, not bytes."""
@@ -174,7 +172,7 @@ class TestTruncateWithTooltip:
         # Truncated by char count
         assert len(call_args) == 15
         mock_instance._menuitem.setToolTip_.assert_called_once_with(text)
-        assert result is not None
+        assert isinstance(result, MagicMock)
         assert call_args.endswith("...")
 
 
@@ -241,8 +239,8 @@ class TestRealWorldScenarios:
         call_args = MockMenuItem.call_args[0][0]
 
         # Always valid result
-        assert result is not None
-        assert MockMenuItem.called
+        assert isinstance(result, MagicMock)
+        MockMenuItem.assert_called_once()
         assert call_args.startswith(prefix)
         assert isinstance(call_args, str)
         if should_truncate:

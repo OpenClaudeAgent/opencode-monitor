@@ -27,7 +27,10 @@ class TestImageThumbnail:
         thumb.set_image_url(VALID_PNG_DATA_URL)
 
         assert thumb.isVisible()
-        assert thumb.pixmap() is not None
+        pixmap = thumb.pixmap()
+        assert not pixmap.isNull()
+        assert pixmap.width() > 0
+        assert pixmap.height() > 0
 
     def test_invalid_url_hides_widget(self, qtbot):
         """Widget should be hidden for invalid URL."""
@@ -130,6 +133,7 @@ class TestThumbnailCache:
 
         cache = ThumbnailCache()
         result = cache.get_thumbnail(VALID_PNG_DATA_URL)
+        # Should return None for uncached images
         assert result is None
 
     def test_cache_stores_thumbnail(self, qapp):
@@ -146,7 +150,9 @@ class TestThumbnailCache:
         cache._cache[cache_key] = pixmap
         result = cache.get_thumbnail(VALID_PNG_DATA_URL)
 
-        assert result is not None
+        # Should return the cached pixmap
+        assert result == pixmap
+        assert not result.isNull()
 
     def test_make_key_includes_size(self):
         """Cache key should include size for different resolutions."""
@@ -169,9 +175,11 @@ class TestThumbnailCache:
 
         cache = ThumbnailCache()
         cache._cache["test_key"] = QPixmap(10, 10)
-        cache.clear()
+        assert "test_key" in cache._cache
 
+        cache.clear()
         assert len(cache._cache) == 0
+        assert "test_key" not in cache._cache
 
 
 class TestImagePreviewDialog:
@@ -186,7 +194,9 @@ class TestImagePreviewDialog:
         dialog = ImagePreviewDialog(VALID_PNG_DATA_URL)
         qtbot.addWidget(dialog)
 
-        assert dialog is not None
+        # Dialog should be created successfully
+        assert dialog.windowTitle() != ""
+        assert dialog.isModal()
 
     def test_escape_closes_dialog(self, qtbot):
         """ESC key should close the dialog."""
@@ -216,7 +226,7 @@ class TestImagePreviewDialog:
         qtbot.addWidget(dialog)
 
         # Dialog should still be created without crashing
-        assert dialog is not None
+        assert dialog.windowTitle() != ""
 
     def test_dialog_with_large_image(self, qtbot):
         """Dialog should scale large images to fit MAX_SIZE."""
@@ -244,8 +254,8 @@ class TestImagePreviewDialog:
         qtbot.addWidget(dialog)
 
         # Dialog should be created and scaled down
-        assert dialog is not None
-        # Dialog dimensions should be limited by MAX_SIZE
+        assert dialog.windowTitle() != ""
+        # Dialog dimensions should be limited by MAX_SIZE (800x600)
         assert dialog.width() <= 820  # 800 + margin
         assert dialog.height() <= 620  # 600 + margin
 
@@ -334,15 +344,19 @@ class TestThumbnailCacheAdvanced:
 
             assert len(cache._cache) == 3
             assert "key_0" in cache._cache
+            assert "key_1" in cache._cache
+            assert "key_2" in cache._cache
 
             # Simulate _on_decoded adding a 4th item (emits signal)
             new_pixmap = QPixmap(10, 10)
             with qtbot.waitSignal(cache.thumbnail_ready, timeout=1000):
                 cache._on_decoded("key_3", new_pixmap)
 
-            # Should have evicted oldest (key_0)
+            # Should have evicted oldest (key_0) and kept the rest
             assert len(cache._cache) == 3
             assert "key_0" not in cache._cache
+            assert "key_1" in cache._cache
+            assert "key_2" in cache._cache
             assert "key_3" in cache._cache
         finally:
             cache.MAX_CACHE_SIZE = original_max
@@ -425,9 +439,11 @@ class TestThumbnailWorker:
         )
 
         worker = ThumbnailWorker()
+        # Worker should start in running state
         assert worker._running is True
 
         worker.stop()
+        # After stop, worker should not be running
         assert worker._running is False
 
     def test_worker_add_task(self):
@@ -437,12 +453,16 @@ class TestThumbnailWorker:
         )
 
         worker = ThumbnailWorker()
+        # Initially no tasks
         assert len(worker._tasks) == 0
 
         worker.add_task("key1", VALID_PNG_DATA_URL, (48, 48))
 
+        # After adding task, should have exactly 1 task
         assert len(worker._tasks) == 1
         assert worker._tasks[0][0] == "key1"
+        assert worker._tasks[0][1] == VALID_PNG_DATA_URL
+        assert worker._tasks[0][2] == (48, 48)
 
     def test_worker_decode_thumbnail_valid(self, qtbot):
         """_decode_thumbnail should decode valid PNG (needs Qt context)."""

@@ -23,7 +23,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is True
+            assert result
             mock_run.assert_called_once()
             # Verify the script contains the normalized path
             call_args = mock_run.call_args
@@ -37,7 +37,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("/dev/ttys002")
 
-            assert result is True
+            assert result
             mock_run.assert_called_once()
             # Verify the script contains the path unchanged
             call_args = mock_run.call_args
@@ -61,7 +61,7 @@ class TestFocusIterm2:
             call_args = mock_run.call_args
             assert call_args[0][0][0] == "osascript"
             assert call_args[0][0][1] == "-e"
-            assert call_args.kwargs["capture_output"] is True
+            assert call_args.kwargs["capture_output"]
             assert call_args.kwargs["timeout"] == 5
 
     def test_focus_iterm2_returns_true_on_success(self):
@@ -71,7 +71,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is True
+            assert result
 
     # =========================================================
     # Error Handling Tests
@@ -87,7 +87,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is False
+            assert not result
             mock_error.assert_called_once()
             assert "Focus terminal failed" in mock_error.call_args[0][0]
 
@@ -101,7 +101,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is False
+            assert not result
             mock_error.assert_called_once()
             assert "Focus terminal failed" in mock_error.call_args[0][0]
 
@@ -115,7 +115,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is False
+            assert not result
             mock_error.assert_called_once()
 
     def test_focus_iterm2_returns_false_on_generic_exception(self):
@@ -128,7 +128,7 @@ class TestFocusIterm2:
 
             result = focus_iterm2("ttys001")
 
-            assert result is False
+            assert not result
             mock_error.assert_called_once()
             assert "Unexpected error" in mock_error.call_args[0][0]
 

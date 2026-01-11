@@ -153,7 +153,8 @@ class TestExtractDisplayInfo:
         long_url = "https://example.com/" + "a" * 100
         args = json.dumps({"url": long_url})
         result = extract_display_info("webfetch", args)
-        assert result is not None
+        # Verify result is a truncated string
+        assert isinstance(result, str), "result must be string"
         assert len(result) == 80
 
     def test_extract_bash_truncates_to_60(self):
@@ -163,7 +164,8 @@ class TestExtractDisplayInfo:
         long_cmd = "echo " + "a" * 100
         args = json.dumps({"command": long_cmd})
         result = extract_display_info("bash", args)
-        assert result is not None
+        # Verify result is a truncated string
+        assert isinstance(result, str), "result must be string"
         assert len(result) == 60
 
 
