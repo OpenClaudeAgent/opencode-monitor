@@ -361,8 +361,8 @@ class FileParser:
             arguments = json.dumps(tool_input) if tool_input else None
             error_message = state.get("error") if isinstance(state, dict) else None
         elif part_type == "reasoning":
-            # Reasoning content from Claude's extended thinking
-            content = data.get("reasoning")
+            # Support both 'reasoning' (Claude extended thinking) and 'text' (OpenCode format)
+            content = data.get("reasoning") or data.get("text", "")
         elif part_type in ("step-start", "step-finish"):
             # Step markers - store step name in content
             content = data.get("step")
