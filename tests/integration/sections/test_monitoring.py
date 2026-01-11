@@ -1,19 +1,21 @@
-"""
-Integration tests for the Monitoring section.
-
-Tests verify that:
-- Metrics cards show correct values
-- Agents table displays all agents with correct data
-- Tools table shows running tools
-- Waiting table shows agents awaiting user response
-- Empty states appear when appropriate
-"""
+"""Integration tests for the Monitoring section."""
 
 import pytest
 
 from ..fixtures import MockAPIResponses, process_qt_events
 
 pytestmark = pytest.mark.integration
+
+
+def wait_for_table_populated(qtbot, table, expected_rows: int, timeout: int = 1000):
+    """Wait until table has expected row count."""
+    qtbot.waitUntil(lambda: table.rowCount() == expected_rows, timeout=timeout)
+
+
+def wait_for_metric(qtbot, label, expected: str, timeout: int = 1000):
+    """Wait until metric label shows expected value."""
+    qtbot.waitUntil(lambda: label.text() == expected, timeout=timeout)
+
 
 # Expected test data values (from MockAPIResponses.realistic_monitoring)
 EXPECTED_MONITORING = {
@@ -35,230 +37,155 @@ EXPECTED_MONITORING = {
 
 
 class TestMonitoringSectionMetrics:
-    """Test that monitoring metrics display correct values."""
-
     def test_metrics_display_correct_values(self, dashboard_window, qtbot):
-        """Verify each metric card shows the injected data."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         metric_cards = dashboard_window._monitoring._metric_cards
+        wait_for_metric(qtbot, metric_cards["instances"]._value_label, "2")
 
-        # Check each metric card displays the correct value
-        assert metric_cards["instances"]._value_label.text() == "2", (
-            f"Expected instances=2, got {metric_cards['instances']._value_label.text()}"
-        )
-        assert metric_cards["agents"]._value_label.text() == "3", (
-            f"Expected agents=3, got {metric_cards['agents']._value_label.text()}"
-        )
-        assert metric_cards["busy"]._value_label.text() == "2", (
-            f"Expected busy=2, got {metric_cards['busy']._value_label.text()}"
-        )
-        assert metric_cards["waiting"]._value_label.text() == "1", (
-            f"Expected waiting=1, got {metric_cards['waiting']._value_label.text()}"
-        )
-        assert metric_cards["idle"]._value_label.text() == "1", (
-            f"Expected idle=1, got {metric_cards['idle']._value_label.text()}"
-        )
-        assert metric_cards["todos"]._value_label.text() == "7", (
-            f"Expected todos=7, got {metric_cards['todos']._value_label.text()}"
-        )
+        assert metric_cards["agents"]._value_label.text() == "3"
+        assert metric_cards["busy"]._value_label.text() == "2"
+        assert metric_cards["waiting"]._value_label.text() == "1"
+        assert metric_cards["idle"]._value_label.text() == "1"
+        assert metric_cards["todos"]._value_label.text() == "7"
 
     def test_metrics_update_when_data_changes(self, dashboard_window, qtbot):
-        """Verify metrics update when new data arrives."""
-        # Initial data
         data1 = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data1)
-        process_qt_events()
 
-        # Verify initial state
         metric_cards = dashboard_window._monitoring._metric_cards
-        assert metric_cards["agents"]._value_label.text() == "3"
+        wait_for_metric(qtbot, metric_cards["agents"]._value_label, "3")
 
-        # Updated data with more agents
         data2 = MockAPIResponses.realistic_monitoring()
         data2["agents"] = 10
         data2["busy"] = 8
         dashboard_window._signals.monitoring_updated.emit(data2)
-        process_qt_events()
 
-        # Verify updated values
-        assert metric_cards["agents"]._value_label.text() == "10"
+        wait_for_metric(qtbot, metric_cards["agents"]._value_label, "10")
         assert metric_cards["busy"]._value_label.text() == "8"
 
 
 class TestMonitoringAgentsTable:
-    """Test that agents table displays correct content."""
-
     def test_agents_table_shows_all_agents(self, dashboard_window, qtbot):
-        """Verify agents table contains all agents from data."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = dashboard_window._monitoring._agents_table
+        wait_for_table_populated(qtbot, table, 3)
 
-        # Table should have 3 rows (3 agents)
-        assert table.rowCount() == 3
-
-        # Verify first agent data
         assert table.item(0, 0).text() == "Implement User Auth"
         assert table.item(0, 1).text() == "/home/dev/auth-service"
-        assert table.item(0, 3).text() == "2"  # 2 tools
-        assert table.item(0, 4).text() == "4"  # 4 todos
+        assert table.item(0, 3).text() == "2"
+        assert table.item(0, 4).text() == "4"
 
     def test_agents_table_shows_status_badges(self, dashboard_window, qtbot):
-        """Verify status column contains StatusBadge widgets."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = dashboard_window._monitoring._agents_table
+        wait_for_table_populated(qtbot, table, 3)
 
-        # Check first agent has BUSY badge
         badge_widget = table.cellWidget(0, 2)
         assert badge_widget is not None
         assert "BUSY" in badge_widget.text()
 
-        # Check third agent has IDLE badge
         idle_badge = table.cellWidget(2, 2)
         assert idle_badge is not None
         assert "IDLE" in idle_badge.text()
 
     def test_agents_table_visible_with_data(self, dashboard_window, qtbot):
-        """Table is visible when data exists, empty state is hidden."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
+
+        table = dashboard_window._monitoring._agents_table
+        wait_for_table_populated(qtbot, table, 3)
 
         monitoring = dashboard_window._monitoring
         assert monitoring._agents_table.isVisible()
         assert not monitoring._agents_empty.isVisible()
 
     def test_agents_empty_state_when_no_agents(self, dashboard_window, qtbot):
-        """Empty state appears when no agents."""
         data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         process_qt_events()
 
         monitoring = dashboard_window._monitoring
+        qtbot.waitUntil(lambda: monitoring._agents_empty.isVisible(), timeout=1000)
         assert not monitoring._agents_table.isVisible()
-        assert monitoring._agents_empty.isVisible()
 
 
 class TestMonitoringToolsTable:
-    """Test that tools table displays running tools correctly."""
-
     def test_tools_table_shows_running_tools(self, dashboard_window, qtbot):
-        """Verify tools table contains all running tools."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = dashboard_window._monitoring._tools_table
+        wait_for_table_populated(qtbot, table, 3)
 
-        # Should have 3 tools
-        assert table.rowCount() == 3
-
-        # Check tool data - verify tool name is present (as text or badge widget)
         tool_item = table.item(0, 0)
         tool_widget = table.cellWidget(0, 0)
 
-        # Tool might be displayed as badge widget (text cleared) or as text item
         if tool_widget is not None and hasattr(tool_widget, "text"):
-            # Badge widget case - text is on the widget
             tool_text = tool_widget.text().lower()
-            assert "edit" in tool_text or "read" in tool_text, (
-                f"Expected tool name (edit/read) in badge, got: {tool_text}"
-            )
+            assert "edit" in tool_text or "read" in tool_text
         elif tool_item and tool_item.text():
-            # Text item case
             tool_text = tool_item.text().lower()
-            assert "edit" in tool_text or "read" in tool_text, (
-                f"Expected tool name (edit/read), got: {tool_text}"
-            )
+            assert "edit" in tool_text or "read" in tool_text
         else:
-            pytest.fail(
-                "Tool should have either badge widget or text item with content"
-            )
+            pytest.fail("Tool should have either badge widget or text item")
 
         assert table.item(0, 1).text() == EXPECTED_MONITORING["first_agent_title"]
         assert table.item(0, 2).text() == "src/auth/login.py"
 
     def test_tools_table_shows_duration(self, dashboard_window, qtbot):
-        """Verify duration column shows formatted time."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = dashboard_window._monitoring._tools_table
+        wait_for_table_populated(qtbot, table, 3)
 
-        # Check duration formatting (1250ms = 1s, 5400ms = 5s)
         duration_col = 3
         first_duration = table.item(0, duration_col).text()
 
-        # Duration should not be empty
         assert first_duration, "Duration should not be empty"
-        # Duration format: "Xs", "Xms", "Xm Ys", or "running"
         has_time_indicator = (
             any(c.isdigit() for c in first_duration) or first_duration == "running"
         )
-        assert has_time_indicator, f"Expected time format, got: {first_duration}"
+        assert has_time_indicator
 
     def test_tools_empty_state_when_no_tools(self, dashboard_window, qtbot):
-        """Empty state appears when no tools running."""
         data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
         process_qt_events()
 
         monitoring = dashboard_window._monitoring
+        qtbot.waitUntil(lambda: monitoring._tools_empty.isVisible(), timeout=1000)
         assert not monitoring._tools_table.isVisible()
-        assert monitoring._tools_empty.isVisible()
 
 
 class TestMonitoringWaitingTable:
-    """Test that waiting table displays agents waiting for response."""
-
     def test_waiting_table_shows_pending_questions(self, dashboard_window, qtbot):
-        """Verify waiting table contains agents waiting for user input."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = dashboard_window._monitoring._waiting_table
+        wait_for_table_populated(qtbot, table, 1)
 
-        # Should have 1 waiting agent
-        assert table.rowCount() == 1
-
-        # Verify waiting agent data
         title_text = table.item(0, 0).text()
-        assert title_text == EXPECTED_MONITORING["waiting_title"], (
-            f"Expected '{EXPECTED_MONITORING['waiting_title']}', got: {title_text}"
-        )
+        assert title_text == EXPECTED_MONITORING["waiting_title"]
 
-        # Question is truncated to 80 chars
         question_text = table.item(0, 1).text()
-        assert "deploy" in question_text.lower(), (
-            f"Expected 'deploy' in question, got: {question_text}"
-        )
+        assert "deploy" in question_text.lower()
 
-        # Options should contain response choices
         options_text = table.item(0, 2).text()
-        assert options_text, "Options should not be empty"
-        # Either has "Yes" or is the options string
-        assert "Yes" in options_text or "|" in options_text, (
-            f"Expected options text, got: {options_text}"
-        )
+        assert options_text
+        assert "Yes" in options_text or "|" in options_text
 
-        # Context
         context_text = table.item(0, 3).text()
-        assert EXPECTED_MONITORING["waiting_context"] in context_text, (
-            f"Expected '{EXPECTED_MONITORING['waiting_context']}' in context, got: {context_text}"
-        )
+        assert EXPECTED_MONITORING["waiting_context"] in context_text
 
     def test_waiting_empty_state_when_none_waiting(self, dashboard_window, qtbot):
-        """Empty state appears when no agents waiting."""
         data = MockAPIResponses.realistic_monitoring()
         data["waiting_data"] = []
         data["waiting"] = 0
@@ -266,5 +193,5 @@ class TestMonitoringWaitingTable:
         process_qt_events()
 
         monitoring = dashboard_window._monitoring
+        qtbot.waitUntil(lambda: monitoring._waiting_empty.isVisible(), timeout=1000)
         assert not monitoring._waiting_table.isVisible()
-        assert monitoring._waiting_empty.isVisible()

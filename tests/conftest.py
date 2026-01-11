@@ -309,12 +309,12 @@ def sample_idle_agent():
 
 
 @pytest.fixture
-def sample_instance(sample_agent):
+def sample_instance(sample_agent, available_port):
     """Create a sample Instance with one agent."""
     from opencode_monitor.core.models import Instance
 
     return Instance(
-        port=8080,
+        port=available_port,
         tty="/dev/ttys001",
         agents=[sample_agent],
     )
@@ -708,3 +708,107 @@ def mock_aioresponse():
 
     with aioresponses() as m:
         yield m
+
+
+# =============================================================================
+# Port Allocation Fixture (for parallel test execution)
+# =============================================================================
+
+
+@pytest.fixture
+def available_port():
+    """Get an available port for testing.
+
+    Returns a free port that can be used for test servers without collision.
+    Uses socket to find an available port dynamically.
+    """
+    import socket
+
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    sock.bind(("localhost", 0))
+    port = sock.getsockname()[1]
+    sock.close()
+    return port
+
+
+# =============================================================================
+# Global Singleton Reset Fixture (CRITICAL for parallel test execution)
+# =============================================================================
+
+
+@pytest.fixture(autouse=True)
+def reset_global_singletons():
+    """Reset all global singletons before and after each test.
+
+    This fixture prevents test pollution when running tests in parallel with pytest-xdist.
+
+    CRITICAL: Without this, tests share state through:
+    - Database singleton (_db_instance)
+    - IndexerRegistry singleton
+    - RouteContext singleton
+    - ThumbnailCache singleton
+    - SecurityAuditor singleton
+
+    The autouse=True ensures this runs for EVERY test automatically,
+    even if the test doesn't explicitly request the fixture.
+    """
+    # Import modules that have singletons
+    import sys
+
+    # Reset BEFORE test
+    if "opencode_monitor.analytics.db" in sys.modules:
+        import opencode_monitor.analytics.db as db_module
+
+        db_module._db_instance = None
+
+    if "opencode_monitor.analytics.indexer.hybrid" in sys.modules:
+        import opencode_monitor.analytics.indexer.hybrid as indexer_module
+
+        if hasattr(indexer_module, "IndexerRegistry"):
+            indexer_module.IndexerRegistry._instance = None
+
+    if "opencode_monitor.api.routes._context" in sys.modules:
+        import opencode_monitor.api.routes._context as context_module
+
+        if hasattr(context_module, "RouteContext"):
+            context_module.RouteContext._instance = None
+
+    if "opencode_monitor.dashboard.sections.tracing.image_cache" in sys.modules:
+        import opencode_monitor.dashboard.sections.tracing.image_cache as cache_module
+
+        cache_module._thumbnail_cache = None
+
+    if "opencode_monitor.security.auditor.core" in sys.modules:
+        import opencode_monitor.security.auditor.core as auditor_core
+
+        auditor_core._auditor = None
+
+    yield
+
+    # Reset AFTER test (even if test crashes)
+    if "opencode_monitor.analytics.db" in sys.modules:
+        import opencode_monitor.analytics.db as db_module
+
+        db_module._db_instance = None
+
+    if "opencode_monitor.analytics.indexer.hybrid" in sys.modules:
+        import opencode_monitor.analytics.indexer.hybrid as indexer_module
+
+        if hasattr(indexer_module, "IndexerRegistry"):
+            indexer_module.IndexerRegistry._instance = None
+
+    if "opencode_monitor.api.routes._context" in sys.modules:
+        import opencode_monitor.api.routes._context as context_module
+
+        if hasattr(context_module, "RouteContext"):
+            context_module.RouteContext._instance = None
+
+    if "opencode_monitor.dashboard.sections.tracing.image_cache" in sys.modules:
+        import opencode_monitor.dashboard.sections.tracing.image_cache as cache_module
+
+        cache_module._thumbnail_cache = None
+
+    if "opencode_monitor.security.auditor.core" in sys.modules:
+        import opencode_monitor.security.auditor.core as auditor_core
+
+        auditor_core._auditor = None

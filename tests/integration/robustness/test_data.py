@@ -9,7 +9,6 @@ Tests verify that:
 
 import pytest
 
-from ..fixtures import process_qt_events
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
@@ -46,10 +45,8 @@ class TestDataRobustness:
         }
 
         dashboard_window._signals.monitoring_updated.emit(data_with_nulls)
-        process_qt_events()
+        qtbot.waitUntil(lambda: monitoring._agents_table.rowCount() == 1, timeout=1000)
 
-        # Should have 1 agent rendered despite null fields
-        assert monitoring._agents_table.rowCount() == 1
         # Agent ID should be displayed
         assert monitoring._agents_table.item(0, 0) is not None
 
@@ -59,11 +56,11 @@ class TestDataRobustness:
 
         tracing_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(tracing_data)
-        process_qt_events()
-
-        # Tracing section should show empty state (no session hierarchy)
         tracing = dashboard_window._tracing
-        assert tracing._empty.isVisible() or len(tracing._session_hierarchy) == 0
+        qtbot.waitUntil(
+            lambda: tracing._empty.isVisible() or len(tracing._session_hierarchy) == 0,
+            timeout=1000,
+        )
 
         # --- Scenario 3: Empty lists (valid state, not null) ---
         empty_list_data = {
@@ -79,10 +76,8 @@ class TestDataRobustness:
         }
 
         dashboard_window._signals.monitoring_updated.emit(empty_list_data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: monitoring._agents_table.rowCount() == 0, timeout=1000)
 
-        # Empty lists should show empty state for agents
-        assert monitoring._agents_table.rowCount() == 0
         # Empty state visible OR table hidden (implementation-dependent)
         assert (
             monitoring._agents_empty.isVisible()
@@ -99,10 +94,11 @@ class TestDataRobustness:
         data["todos"] = 999_999_999
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
-
-        # Metrics should display formatted values (999999 or "999K" or similar)
         metric_cards = monitoring._metric_cards
+        qtbot.waitUntil(
+            lambda: "999" in metric_cards["agents"]._value_label.text(), timeout=1000
+        )
+
         agents_text = metric_cards["agents"]._value_label.text()
         todos_text = metric_cards["todos"]._value_label.text()
         assert "999" in agents_text, (
@@ -135,12 +131,10 @@ class TestDataRobustness:
         tracing_data = {"session_hierarchy": session_hierarchy}
 
         dashboard_window._signals.tracing_updated.emit(tracing_data)
-        process_qt_events()
-
-        # Tracing should render exactly 10 sessions
         tracing = dashboard_window._tracing
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() == 10, timeout=1000)
+
         assert len(tracing._session_hierarchy) == 10
-        assert tracing._tree.topLevelItemCount() == 10
         # Dashboard should remain responsive
         assert dashboard_window.isVisible()
 
@@ -150,11 +144,9 @@ class TestDataRobustness:
         data["agents_data"][0]["title"] = long_title
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
-
-        # Table should render 3 agents (long title may be truncated)
         table = monitoring._agents_table
-        assert table.rowCount() == 3
+        qtbot.waitUntil(lambda: table.rowCount() == 3, timeout=1000)
+
         # Cell should contain the long title (possibly truncated but still "A"s)
         cell_text = table.item(0, 0).text()
         assert "A" in cell_text, f"Expected long title with A's, got: {cell_text}"
@@ -168,22 +160,20 @@ class TestDataRobustness:
         data["agents_data"][0]["title"] = "🚀 Deploy émojis & spëcial çhars"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         table = monitoring._agents_table
+        qtbot.waitUntil(lambda: table.rowCount() == 3, timeout=1000)
+
         title = table.item(0, 0).text()
         # Should contain either emoji or text (font-dependent)
         assert "🚀" in title or "Deploy" in title
-        assert table.rowCount() == 3
 
         # --- Scenario 2: Unicode in directory path (CJK characters) ---
         data["agents_data"][0]["dir"] = "/home/用户/项目"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: table.rowCount() == 3, timeout=1000)
 
-        # Should render correctly
-        assert table.rowCount() == 3
         # Directory column should have the CJK path
         dir_item = table.item(0, 1)
         assert dir_item is not None
@@ -196,11 +186,10 @@ class TestDataRobustness:
         data["waiting_data"][0]["question"] = "¿Está seguro? 日本語テスト 🎉"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
 
         waiting_table = monitoring._waiting_table
-        # Should have exactly 1 waiting item (from realistic_monitoring fixture)
-        assert waiting_table.rowCount() == 1
+        qtbot.waitUntil(lambda: waiting_table.rowCount() == 1, timeout=1000)
+
         # Question should be displayed
         question_item = waiting_table.item(0, 1)
         assert question_item is not None

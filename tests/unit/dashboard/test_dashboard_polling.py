@@ -26,13 +26,14 @@ class TestDashboardPolling:
         import threading
         from opencode_monitor.dashboard.window.main import DashboardWindow
 
-        # Track fetch method calls
         monitoring_calls = []
+        call_events = []
 
         def mock_monitoring():
             monitoring_calls.append(threading.current_thread().name)
+            if call_events:
+                call_events[-1].set()
 
-        # Create window with mocked fetch methods
         with patch.object(
             DashboardWindow, "_fetch_monitoring_data", side_effect=mock_monitoring
         ):
@@ -41,17 +42,17 @@ class TestDashboardPolling:
                     with patch.object(DashboardWindow, "_fetch_tracing_data"):
                         window = DashboardWindow()
 
-                        # Reset call count after initial load
                         initial_calls = len(monitoring_calls)
                         monitoring_calls.clear()
 
-                        # Manually trigger refresh 6 times
                         for _ in range(6):
+                            event = threading.Event()
+                            call_events.append(event)
                             window._refresh_all_data()
-                            # Wait for threads to complete
-                            time.sleep(0.01)
+                            assert event.wait(timeout=2.0), (
+                                "Timeout waiting for refresh"
+                            )
 
-                        # All 6 calls should have triggered monitoring fetch
                         assert len(monitoring_calls) == 6
 
                         window.close()
@@ -61,9 +62,13 @@ class TestDashboardPolling:
         import threading
         from opencode_monitor.dashboard.window.main import DashboardWindow
 
-        # Track fetch method calls
         security_calls = []
         analytics_calls = []
+        refresh_events = []
+
+        def mock_monitoring():
+            if refresh_events:
+                refresh_events[-1].set()
 
         def mock_security():
             security_calls.append(threading.current_thread().name)
@@ -71,7 +76,9 @@ class TestDashboardPolling:
         def mock_analytics():
             analytics_calls.append(threading.current_thread().name)
 
-        with patch.object(DashboardWindow, "_fetch_monitoring_data"):
+        with patch.object(
+            DashboardWindow, "_fetch_monitoring_data", side_effect=mock_monitoring
+        ):
             with patch.object(
                 DashboardWindow, "_fetch_security_data", side_effect=mock_security
             ):
@@ -81,22 +88,20 @@ class TestDashboardPolling:
                     with patch.object(DashboardWindow, "_fetch_tracing_data"):
                         window = DashboardWindow()
 
-                        # Reset counter to 0 for clean test
                         window._refresh_count = 0
                         security_calls.clear()
                         analytics_calls.clear()
 
-                        # Trigger refresh 10 times (should trigger secondary at 0 and 5)
                         for _ in range(10):
+                            event = threading.Event()
+                            refresh_events.append(event)
                             window._refresh_all_data()
-                            # Wait for threads to complete
-                            time.sleep(0.01)
+                            assert event.wait(timeout=2.0), (
+                                "Timeout waiting for refresh"
+                            )
 
-                        # Secondary is called at _refresh_count 0, 5 (2 times in 10 cycles)
-                        # Verify SECONDARY_REFRESH_DIVISOR is 5
                         assert window.SECONDARY_REFRESH_DIVISOR == 5
 
-                        # Verify secondary data was fetched 2 times
                         assert len(security_calls) == 2
                         assert len(analytics_calls) == 2
 
@@ -104,29 +109,41 @@ class TestDashboardPolling:
 
     def test_refresh_count_increments(self, qapp):
         """_refresh_count increments after each refresh cycle."""
+        import threading
         from opencode_monitor.dashboard.window.main import DashboardWindow
 
-        with patch.object(DashboardWindow, "_fetch_monitoring_data"):
+        refresh_done = []
+
+        def mock_monitoring():
+            if refresh_done:
+                refresh_done[-1].set()
+
+        with patch.object(
+            DashboardWindow, "_fetch_monitoring_data", side_effect=mock_monitoring
+        ):
             with patch.object(DashboardWindow, "_fetch_security_data"):
                 with patch.object(DashboardWindow, "_fetch_analytics_data"):
                     with patch.object(DashboardWindow, "_fetch_tracing_data"):
                         window = DashboardWindow()
 
-                        # Reset counter
                         window._refresh_count = 0
 
-                        # Call refresh 3 times
+                        event1 = threading.Event()
+                        refresh_done.append(event1)
                         window._refresh_all_data()
-                        # Wait for threads to complete
-                        time.sleep(0.01)
+                        assert event1.wait(timeout=2.0), "Timeout on refresh 1"
                         assert window._refresh_count == 1
 
+                        event2 = threading.Event()
+                        refresh_done.append(event2)
                         window._refresh_all_data()
-                        time.sleep(0.01)
+                        assert event2.wait(timeout=2.0), "Timeout on refresh 2"
                         assert window._refresh_count == 2
 
+                        event3 = threading.Event()
+                        refresh_done.append(event3)
                         window._refresh_all_data()
-                        time.sleep(0.01)
+                        assert event3.wait(timeout=2.0), "Timeout on refresh 3"
                         assert window._refresh_count == 3
 
                         window.close()

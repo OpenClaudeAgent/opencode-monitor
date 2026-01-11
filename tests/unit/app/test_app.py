@@ -15,6 +15,8 @@ from unittest.mock import MagicMock, patch, AsyncMock
 # Import RiskLevel at module level for parametrized tests
 from opencode_monitor.security.analyzer import RiskLevel
 
+pytestmark = pytest.mark.xdist_group(name="app_tests_sequential")
+
 
 # Create comprehensive rumps mock BEFORE importing app
 class MockMenuItem:
@@ -101,34 +103,27 @@ class MockApp:
         pass
 
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(scope="function", autouse=True)
 def setup_rumps_mock():
-    """Setup rumps mock for the entire module.
+    """Setup rumps mock for each test function.
 
-    Only mocks rumps itself. Does NOT reload app module here.
-    The app module reload happens in mock_dependencies with all patches active.
+    Function-scoped to prevent test pollution in parallel execution.
+    Each test gets fresh mocks instead of sharing module-level state.
     """
-    # Save original if exists
     original_rumps = sys.modules.get("rumps", None)
 
-    # Create the module mock
     rumps_mock = MagicMock()
     rumps_mock.App = MockApp
     rumps_mock.MenuItem = MockMenuItem
     rumps_mock.timer = lambda interval: lambda f: f
     rumps_mock.quit_application = MagicMock()
 
-    # Install the mock
     sys.modules["rumps"] = rumps_mock
-
-    # DON'T reload here - let mock_dependencies do it with patches active
 
     yield rumps_mock
 
-    # Restore original after tests
     if original_rumps is not None:
         sys.modules["rumps"] = original_rumps
-        # Clean up app module
         if "opencode_monitor.app" in sys.modules:
             del sys.modules["opencode_monitor.app"]
 
@@ -846,6 +841,7 @@ class TestMain:
 # =============================================================================
 
 
+@pytest.mark.xdist_group(name="app_monitor_loop")
 class TestMonitorLoop:
     """Tests for OpenCodeApp._run_monitor_loop"""
 
@@ -879,44 +875,31 @@ class TestMonitorLoop:
             connected=True,
         )
 
-        mock_fetch = AsyncMock(return_value=state)
         mock_dependencies["fetch_usage"].return_value = Usage(
             five_hour=UsagePeriod(utilization=75)
         )
-        mock_dependencies["settings"].usage_refresh_interval = 0  # Always update
+        mock_dependencies["settings"].usage_refresh_interval = 0
 
         app = create_app_with_mocks(mock_dependencies)
         app._needs_refresh = False
         app._last_usage_update = 0
-
         call_count = [0]
 
-        def stop_after_one():
+        async def mock_fetch_with_stop(*args, **kwargs):
             call_count[0] += 1
             if call_count[0] >= 1:
                 app._running = False
+            return state
 
-        # Wrap mock_fetch to stop loop after one iteration
-        async def mock_fetch_with_stop(*args, **kwargs):
-            result = await mock_fetch(*args, **kwargs)
-            stop_after_one()
-            return result
-
-        with patch(
-            "opencode_monitor.app.core.fetch_all_instances", mock_fetch_with_stop
-        ):
+        mock_fetch = AsyncMock(side_effect=mock_fetch_with_stop)
+        with patch("opencode_monitor.app.core.fetch_all_instances", mock_fetch):
             app._running = True
             app._run_monitor_loop()
 
-        # State updated
         assert app._state is not None
         assert app._state.connected is True
-
-        # Busy agent tracked, idle not
         assert "busy-agent-1" in app._previous_busy_agents
         assert "idle-agent-1" not in app._previous_busy_agents
-
-        # Usage fetched
         mock_dependencies["fetch_usage"].assert_called()
 
     @pytest.mark.parametrize(
@@ -932,56 +915,38 @@ class TestMonitorLoop:
         """Should handle and log errors during fetch or usage update."""
         from opencode_monitor.core.models import State
 
+        app = create_app_with_mocks(mock_dependencies)
+        app._last_usage_update = 0
+        call_count = [0]
+
         if error_source == "fetch":
 
-            async def mock_fetch_error():
+            async def mock_fetch_error(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] >= 1:
+                    app._running = False
                 raise Exception(error_message)
 
-            mock_dependencies["fetch_instances"].return_value = mock_fetch_error()
+            mock_fetch = AsyncMock(side_effect=mock_fetch_error)
+            with patch("opencode_monitor.app.core.fetch_all_instances", mock_fetch):
+                app._running = True
+                app._run_monitor_loop()
         else:
 
-            async def mock_fetch():
+            async def mock_fetch_success(*args, **kwargs):
+                call_count[0] += 1
+                if call_count[0] >= 1:
+                    app._running = False
                 return State(connected=True)
 
-            mock_dependencies["fetch_instances"].return_value = mock_fetch()
             mock_dependencies["fetch_usage"].side_effect = Exception(error_message)
             mock_dependencies["settings"].usage_refresh_interval = 0
 
-        app = create_app_with_mocks(mock_dependencies)
-        app._last_usage_update = 0
+            mock_fetch = AsyncMock(side_effect=mock_fetch_success)
+            with patch("opencode_monitor.app.core.fetch_all_instances", mock_fetch):
+                app._running = True
+                app._run_monitor_loop()
 
-        call_count = [0]
-
-        def stop_after_one():
-            call_count[0] += 1
-            if call_count[0] >= 1:
-                app._running = False
-
-        # Wrap the mock to stop loop after one iteration
-        if error_source == "fetch":
-            original_mock = mock_dependencies["fetch_instances"].return_value
-
-            async def mock_with_stop():
-                try:
-                    return await original_mock
-                finally:
-                    stop_after_one()
-
-            mock_dependencies["fetch_instances"].return_value = mock_with_stop()
-        else:
-            original_mock = mock_dependencies["fetch_instances"].return_value
-
-            async def mock_with_stop():
-                result = await original_mock
-                stop_after_one()
-                return result
-
-            mock_dependencies["fetch_instances"].return_value = mock_with_stop()
-
-        app._running = True
-        app._run_monitor_loop()
-
-        # Error logged
         mock_dependencies["error"].assert_called()
 
 
