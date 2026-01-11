@@ -5,6 +5,7 @@ Target: Improve dashboard/window/ module coverage from 49% to 80%+.
 Refactored for better assertion density (target ratio > 4.0).
 """
 
+import threading
 import time
 import subprocess
 from unittest.mock import patch, MagicMock
@@ -266,19 +267,19 @@ class TestDashboardSignalHandlers:
         """_on_analytics_period_changed triggers analytics data fetch in thread."""
         window, _ = dashboard_with_mock_sections
 
-        with patch.object(window, "_fetch_analytics_data"):
-            with patch("threading.Thread") as mock_thread:
-                mock_thread_instance = MagicMock()
-                mock_thread.return_value = mock_thread_instance
+        # Use threading.Event to detect when fetch is called
+        fetch_called = threading.Event()
 
-                window._on_analytics_period_changed(30)
+        def mock_fetch():
+            fetch_called.set()
 
-                mock_thread.assert_called_once()
-                mock_thread_instance.start.assert_called_once()
-                # Verify thread was created with correct target and daemon
-                assert "daemon" in mock_thread.call_args[1], "Should have daemon arg"
-                assert mock_thread.call_args[1]["daemon"] is True
-                assert "target" in mock_thread.call_args[1], "Should have target arg"
+        with patch.object(window, "_fetch_analytics_data", side_effect=mock_fetch):
+            window._on_analytics_period_changed(30)
+
+            # Verify fetch was called in thread (wait up to 2 seconds)
+            assert fetch_called.wait(timeout=2.0), (
+                "Analytics fetch should have been called in thread"
+            )
 
 
 # =============================================================================

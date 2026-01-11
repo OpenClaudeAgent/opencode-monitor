@@ -7,6 +7,7 @@ Tests cover:
 - SyncState phase transitions and is_realtime property
 """
 
+import threading
 import time
 from unittest.mock import MagicMock, patch
 
@@ -143,26 +144,38 @@ class TestHybridIndexerResume:
 
     def test_skip_bulk_starts_realtime_processor_thread(self, temp_storage, temp_db):
         """When bulk is skipped, realtime processor thread is started correctly."""
+        import threading
+
         sync_state = SyncState(temp_db)
         sync_state.set_phase(SyncPhase.REALTIME)
 
         indexer = create_indexer(temp_storage, temp_db, sync_state)
 
-        with patch("threading.Thread") as mock_thread:
-            mock_instance = MagicMock()
-            mock_thread.return_value = mock_instance
+        # Use threading.Event to detect when thread starts
+        thread_started = threading.Event()
+        original_run_realtime = indexer._run_realtime_phase
 
-            indexer._run_bulk_phase()
+        def wrapped_run_realtime():
+            thread_started.set()
+            # Don't actually run the realtime loop, just signal that we started
+            return
 
-            # Thread created with correct parameters
-            mock_thread.assert_called_once()
-            call_kwargs = mock_thread.call_args[1]
-            assert call_kwargs.get("name") == "hybrid-realtime"
-            assert call_kwargs.get("daemon") is True
-            assert "target" in call_kwargs
+        indexer._run_realtime_phase = wrapped_run_realtime
 
-            # Thread was started
-            mock_instance.start.assert_called_once()
+        indexer._run_bulk_phase()
+
+        # Verify thread was started (wait up to 2 seconds)
+        assert thread_started.wait(timeout=2.0), "Realtime thread should have started"
+
+        # Verify the thread was created with correct properties
+        assert indexer._processor_thread is not None, "Processor thread should exist"
+        assert indexer._processor_thread.name == "hybrid-realtime", (
+            "Thread name should be hybrid-realtime"
+        )
+        assert indexer._processor_thread.daemon is True, "Thread should be daemon"
+
+        # Wait for thread to complete
+        indexer._processor_thread.join(timeout=1.0)
 
 
 # =============================================================================
