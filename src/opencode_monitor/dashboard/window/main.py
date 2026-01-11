@@ -57,9 +57,10 @@ class DashboardWindow(QMainWindow):
 
         self._signals = DataSignals()
         self._refresh_timer: Optional[QTimer] = None
-        self._agent_tty_map: dict[str, str] = {}  # agent_id -> tty mapping
+        self._agent_tty_map: dict[str, str] = {}
         self._sync_checker: Optional[SyncChecker] = None
-        self._refresh_count = 0  # Counter for adaptive polling
+        self._refresh_count = 0
+        self._monitoring_fetch_in_progress = False
 
         self._setup_window()
         self._setup_ui()
@@ -228,6 +229,9 @@ class DashboardWindow(QMainWindow):
 
     def _fetch_monitoring_data(self) -> None:
         """Fetch monitoring data from core module."""
+        if self._monitoring_fetch_in_progress:
+            return
+        self._monitoring_fetch_in_progress = True
         try:
             import asyncio
             from ...core.monitor import fetch_all_instances
@@ -236,6 +240,10 @@ class DashboardWindow(QMainWindow):
             loop = asyncio.new_event_loop()
             state = loop.run_until_complete(fetch_all_instances())
             loop.close()
+
+            debug(
+                f"[Dashboard] fetch_all_instances: connected={state.connected} instances={len(state.instances)}"
+            )
 
             # Build data dict
             agents_data = []
@@ -329,15 +337,18 @@ class DashboardWindow(QMainWindow):
             # Update TTY mapping (thread-safe assignment)
             self._agent_tty_map = agent_tty_map
 
+            debug(
+                f"[Dashboard] Emitting: instances={len(state.instances)} agents={len(agents_data)} busy={busy_count}"
+            )
             self._signals.monitoring_updated.emit(data)
 
             # Note: Sidebar status update removed - was using signals improperly
             # Could be re-implemented via self._signals if needed
 
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: dashboard fetch errors logged, UI continues
+        except Exception as e:
             error(f"[Dashboard] Monitoring fetch error: {e}")
+        finally:
+            self._monitoring_fetch_in_progress = False
 
     def _fetch_security_data(self) -> None:
         """Fetch security data via API to avoid DuckDB lock conflicts.
@@ -434,6 +445,9 @@ class DashboardWindow(QMainWindow):
 
     def _on_monitoring_data(self, data: dict) -> None:
         """Handle monitoring data update."""
+        debug(
+            f"[Dashboard] _on_monitoring_data: instances={data.get('instances', 0)} agents={data.get('agents', 0)}"
+        )
         self._monitoring.update_data(
             instances=data.get("instances", 0),
             agents=data.get("agents", 0),

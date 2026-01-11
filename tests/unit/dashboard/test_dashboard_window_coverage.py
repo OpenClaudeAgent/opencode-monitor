@@ -743,16 +743,16 @@ class TestSyncChecker:
             checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
             assert checker._timer is not None, "Timer should be created"
             try:
-                # Initial check - should be in fast mode
+                # Initial check - should be in fast mode, no callback on first check
                 checker._check()
                 assert checker._timer.interval() == SyncChecker.POLL_FAST_MS
-                assert len(callback_calls) == 1, "First callback"
+                assert len(callback_calls) == 0
 
                 # Change data - should stay fast and trigger callback
                 mock_client.get_stats.return_value = {"sessions": 6}
                 checker._check()
                 assert checker._timer.interval() == SyncChecker.POLL_FAST_MS
-                assert len(callback_calls) == 2, "Second callback"
+                assert len(callback_calls) == 1
 
                 # Simulate idle threshold exceeded
                 checker._last_change_time = (
@@ -763,19 +763,12 @@ class TestSyncChecker:
             finally:
                 checker.stop()
 
-    @pytest.mark.parametrize(
-        "api_available,should_callback",
-        [
-            pytest.param(True, True, id="api_available"),
-            pytest.param(False, False, id="api_unavailable"),
-        ],
-    )
-    def test_sync_checker_api_availability(self, qapp, api_available, should_callback):
+    def test_sync_checker_api_availability(self, qapp):
         """SyncChecker handles API availability correctly."""
         from opencode_monitor.dashboard.window import SyncChecker
 
         mock_client = MagicMock()
-        mock_client.is_available = api_available
+        mock_client.is_available = True
         mock_client.get_stats.return_value = {"sessions": 1}
         mock_client.get_sync_status.return_value = {"backfill_active": False}
 
@@ -784,8 +777,32 @@ class TestSyncChecker:
         with patch("opencode_monitor.api.get_api_client", return_value=mock_client):
             checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
             try:
+                # First check skips callback
                 checker._check()
-                assert (len(callback_calls) > 0) == should_callback
+                assert len(callback_calls) == 0
+                assert checker._known_sync == 1
+
+                # Change triggers callback
+                mock_client.get_stats.return_value = {"sessions": 5}
+                checker._check()
+                assert len(callback_calls) == 1
+            finally:
+                checker.stop()
+
+    def test_sync_checker_api_unavailable(self, qapp):
+        """SyncChecker does not callback when API unavailable."""
+        from opencode_monitor.dashboard.window import SyncChecker
+
+        mock_client = MagicMock()
+        mock_client.is_available = False
+
+        callback_calls = []
+
+        with patch("opencode_monitor.api.get_api_client", return_value=mock_client):
+            checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
+            try:
+                checker._check()
+                assert len(callback_calls) == 0
             finally:
                 checker.stop()
 

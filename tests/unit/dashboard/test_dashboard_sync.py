@@ -110,25 +110,25 @@ class TestSyncChecker:
         checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
 
         try:
-            # First check with sessions=0 triggers callback (None -> 0)
+            # First check initializes _known_sync but skips callback
             checker._check()
-            assert len(callback_calls) == 1
+            assert len(callback_calls) == 0
             assert checker._known_sync == 0
 
-            # Same count - no additional callback
+            # Same count - no callback
             checker._check()
-            assert len(callback_calls) == 1
+            assert len(callback_calls) == 0
 
             # Count changes - callback triggered
             mock_api_client.get_stats.return_value = {"sessions": 10}
             checker._check()
-            assert len(callback_calls) == 2
+            assert len(callback_calls) == 1
             assert checker._known_sync == 10
 
             # Another change
             mock_api_client.get_stats.return_value = {"sessions": 15}
             checker._check()
-            assert len(callback_calls) == 3
+            assert len(callback_calls) == 2
             assert checker._known_sync == 15
         finally:
             checker.stop()
@@ -235,18 +235,18 @@ class TestSyncCheckerIntegration:
                 checker = SyncChecker(on_sync_detected=lambda: refresh_calls.append(1))
 
                 try:
-                    # Initial check triggers refresh (None -> 0)
+                    # Initial check skips callback (avoids duplicate refresh)
                     checker._check()
-                    assert len(refresh_calls) == 1
+                    assert len(refresh_calls) == 0
 
-                    # Simulate session count change
+                    # Session count change triggers refresh
                     mock_api_client.get_stats.return_value = {"sessions": 5}
                     checker._check()
-                    assert len(refresh_calls) == 2
+                    assert len(refresh_calls) == 1
 
                     # Another change triggers another refresh
                     mock_api_client.get_stats.return_value = {"sessions": 10}
                     checker._check()
-                    assert len(refresh_calls) == 3
+                    assert len(refresh_calls) == 2
                 finally:
                     checker.stop()

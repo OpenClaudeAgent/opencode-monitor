@@ -78,10 +78,12 @@ class SyncChecker:
                     current = stats.get("sessions", 0)
 
                     if current != self._known_sync:
+                        first_check = self._known_sync is None
                         self._known_sync = current
                         self._last_change_time = time.time()
                         self._timer.setInterval(self.POLL_FAST_MS)  # Active mode
-                        self._on_sync()  # Trigger refresh
+                        if not first_check:
+                            self._on_sync()
                     elif time.time() - self._last_change_time > self.IDLE_THRESHOLD_S:
                         self._timer.setInterval(self.POLL_SLOW_MS)  # Quiet mode
         except Exception:
