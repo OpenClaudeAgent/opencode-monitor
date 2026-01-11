@@ -5,7 +5,7 @@ Contains all methods related to querying individual session data.
 
 import json
 from datetime import datetime
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Iterator
 
 from ...utils.logger import debug
 
@@ -1265,6 +1265,266 @@ class SessionQueriesMixin:
                 "error": str(e),
                 "data": None,
             }
+
+    def iter_timeline_events(
+        self, session_id: str, limit: int | None = None
+    ) -> tuple[dict | None, Iterator[dict]]:
+        """Iterate over timeline events for streaming responses.
+
+        Memory-efficient: yields events one by one instead of building a list.
+        Returns a tuple of (session_info, event_generator).
+
+        Args:
+            session_id: The session ID to query
+            limit: Max events to yield (optional)
+
+        Returns:
+            Tuple of (session_info dict or None if not found, generator of events)
+        """
+        session = self._get_session_info(session_id)
+        if not session:
+            return None, iter([])
+
+        def event_generator():
+            count = 0
+            exchanges = self._conn.execute(
+                """
+                SELECT 
+                    id, exchange_number, user_message_id, assistant_message_id,
+                    prompt_input, prompt_output,
+                    started_at, ended_at, duration_ms,
+                    tokens_in, tokens_out, tokens_reasoning, cost
+                FROM exchanges
+                WHERE session_id = ?
+                ORDER BY exchange_number ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            if not exchanges:
+                yield from self._iter_timeline_from_parts(session_id, limit)
+                return
+
+            for ex_row in exchanges:
+                if limit is not None and count >= limit:
+                    return
+
+                exchange_num = ex_row[1]
+                user_msg_id = ex_row[2]
+                tokens_out = ex_row[10] or 0
+
+                # Yield user prompt event
+                if ex_row[4]:  # prompt_input
+                    if limit is not None and count >= limit:
+                        return
+                    yield {
+                        "type": "user_prompt",
+                        "exchange_number": exchange_num,
+                        "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
+                        "content": ex_row[4],
+                        "message_id": user_msg_id,
+                    }
+                    count += 1
+
+                # Get trace events for this exchange
+                trace_events = self._conn.execute(
+                    """
+                    SELECT event_type, event_order, event_data, timestamp,
+                           duration_ms, tokens_in, tokens_out
+                    FROM exchange_traces
+                    WHERE exchange_id = ?
+                    ORDER BY event_order ASC
+                    """,
+                    [ex_row[0]],
+                ).fetchall()
+
+                for evt in trace_events:
+                    if limit is not None and count >= limit:
+                        return
+
+                    evt_type = evt[0]
+                    raw_data = evt[2]
+                    if isinstance(raw_data, str):
+                        try:
+                            evt_data = json.loads(raw_data)
+                        except (json.JSONDecodeError, TypeError):
+                            evt_data = {}
+                    elif isinstance(raw_data, dict):
+                        evt_data = raw_data
+                    else:
+                        evt_data = {}
+
+                    if evt_type == "reasoning":
+                        yield {
+                            "type": "reasoning",
+                            "exchange_number": exchange_num,
+                            "timestamp": evt[3].isoformat() if evt[3] else None,
+                            "entries": [
+                                {
+                                    "text": evt_data.get("text", ""),
+                                    "has_signature": evt_data.get(
+                                        "has_signature", False
+                                    ),
+                                    "signature": evt_data.get("signature"),
+                                }
+                            ],
+                        }
+                        count += 1
+                    elif evt_type == "tool_call":
+                        yield {
+                            "type": "tool_call",
+                            "exchange_number": exchange_num,
+                            "timestamp": evt[3].isoformat() if evt[3] else None,
+                            "tool_name": evt_data.get("tool_name", ""),
+                            "status": evt_data.get("status", "completed"),
+                            "arguments": evt_data.get("arguments"),
+                            "result_summary": evt_data.get("result_summary", ""),
+                            "duration_ms": evt[4] or 0,
+                            "child_session_id": evt_data.get("child_session_id"),
+                        }
+                        count += 1
+                    elif evt_type == "step_finish":
+                        yield {
+                            "type": "step_finish",
+                            "exchange_number": exchange_num,
+                            "timestamp": evt[3].isoformat() if evt[3] else None,
+                            "reason": evt_data.get("reason", ""),
+                            "tokens": {
+                                "input": evt[5] or 0,
+                                "output": evt[6] or 0,
+                                "reasoning": evt_data.get("tokens_reasoning", 0),
+                                "cache_read": evt_data.get("tokens_cache_read", 0),
+                                "cache_write": evt_data.get("tokens_cache_write", 0),
+                            },
+                            "cost": evt_data.get("cost", 0),
+                        }
+                        count += 1
+                    elif evt_type == "patch":
+                        yield {
+                            "type": "patch",
+                            "exchange_number": exchange_num,
+                            "timestamp": evt[3].isoformat() if evt[3] else None,
+                            "git_hash": evt_data.get("git_hash", ""),
+                            "files": evt_data.get("files", []),
+                        }
+                        count += 1
+
+                # Yield assistant response event
+                if ex_row[5]:  # prompt_output
+                    if limit is not None and count >= limit:
+                        return
+                    yield {
+                        "type": "assistant_response",
+                        "exchange_number": exchange_num,
+                        "timestamp": ex_row[7].isoformat() if ex_row[7] else None,
+                        "content": ex_row[5],
+                        "tokens_out": tokens_out,
+                    }
+                    count += 1
+
+        return session, event_generator()
+
+    def _iter_timeline_from_parts(
+        self, session_id: str, limit: int | None = None
+    ) -> Iterator[dict]:
+        """Iterate timeline events from parts table (fallback when no exchanges)."""
+        exchange_map = self._build_exchange_mapping(session_id)
+
+        cursor = self._conn.execute(
+            """
+            SELECT 
+                p.part_type,
+                p.content,
+                p.tool_name,
+                p.tool_status,
+                p.arguments,
+                p.result_summary, 
+                COALESCE(NULLIF(p.reasoning_text, ''), p.content) as reasoning_text,
+                p.anthropic_signature,
+                p.duration_ms, 
+                COALESCE(p.created_at, m.created_at) as created_at,
+                m.role,
+                p.file_name,
+                p.file_mime,
+                p.tool_title,
+                p.message_id
+            FROM parts p
+            LEFT JOIN messages m ON p.message_id = m.id
+            WHERE p.session_id = ?
+            ORDER BY COALESCE(p.created_at, m.created_at) ASC
+            """,
+            [session_id],
+        )
+
+        count = 0
+        while True:
+            parts = cursor.fetchmany(100)
+            if not parts:
+                break
+            for part in parts:
+                if limit is not None and count >= limit:
+                    return
+
+                part_type = part[0]
+                role = part[10]
+                message_id = part[14]
+                exchange_num = exchange_map.get(message_id, 1) if message_id else 1
+
+                if part_type == "text" and role == "user":
+                    yield {
+                        "type": "user_prompt",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[9].isoformat() if part[9] else None,
+                        "content": part[1] or "",
+                        "message_id": message_id,
+                    }
+                    count += 1
+                elif part_type == "reasoning":
+                    yield {
+                        "type": "reasoning",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[9].isoformat() if part[9] else None,
+                        "entries": [
+                            {
+                                "text": part[6] or "",
+                                "has_signature": part[7] is not None,
+                                "signature": part[7],
+                            }
+                        ],
+                    }
+                    count += 1
+                elif part_type == "tool":
+                    tool_event = {
+                        "type": "tool_call",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[9].isoformat() if part[9] else None,
+                        "tool_name": part[2] or "",
+                        "status": part[3] or "completed",
+                        "arguments": part[4],
+                        "result_summary": part[5] or "",
+                        "duration_ms": part[8] or 0,
+                    }
+                    if part[13]:
+                        tool_event["title"] = part[13]
+                    yield tool_event
+                    count += 1
+                elif part_type == "file":
+                    yield {
+                        "type": "file_attachment",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[9].isoformat() if part[9] else None,
+                        "filename": part[11] or "unknown",
+                        "mime_type": part[12] or "application/octet-stream",
+                    }
+                    count += 1
+                elif part_type == "text" and role == "assistant":
+                    yield {
+                        "type": "assistant_response",
+                        "exchange_number": exchange_num,
+                        "timestamp": part[9].isoformat() if part[9] else None,
+                        "content": part[1] or "",
+                    }
+                    count += 1
 
     def _build_exchange_mapping(self, session_id: str) -> dict[str, int]:
         """Build a mapping of message_id -> exchange_number.

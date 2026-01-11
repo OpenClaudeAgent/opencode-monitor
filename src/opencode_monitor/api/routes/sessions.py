@@ -2,9 +2,10 @@
 Sessions Routes - Session listing and detail endpoints.
 """
 
+import json
 from datetime import datetime, timedelta
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, Response, jsonify, request
 
 from ...analytics import get_analytics_db
 from ...utils.logger import error
@@ -268,37 +269,55 @@ def get_session_precise_cost(session_id: str):
 
 @sessions_bp.route("/api/session/<session_id>/timeline/full", methods=["GET"])
 def get_session_timeline_full(session_id: str):
-    """Get chronological timeline for a session (optionally paginated).
+    """Get chronological timeline for a session with streaming JSON response.
 
     Query params:
-        include_children: Whether to include child session timelines (default: false)
-        depth: Maximum depth for child session recursion (default: 1, max: 3)
-        limit: Max timeline events to return (optional, default: no limit, max: 5000)
+        limit: Max timeline events to return (optional, default: 500, max: 5000)
+        stream: Enable streaming response (default: true)
     """
     try:
-        include_children = (
-            request.args.get("include_children", "false").lower() == "true"
-        )
-        depth = request.args.get("depth", 1, type=int)
         limit = request.args.get("limit", type=int)
-
-        depth = min(depth, 3)
+        stream = request.args.get("stream", "true").lower() != "false"
         if limit is not None:
             limit = min(limit, 5000)
 
         with get_db_lock():
             service = get_service()
-            result = service.get_session_timeline_full(
-                session_id,
-                include_children=include_children,
-                depth=depth,
-                limit=limit,
-            )
 
-        if result.get("success"):
-            return jsonify(result)
-        else:
-            return jsonify(result), 404
+            if stream:
+                session_info, events = service.iter_timeline_events(session_id, limit)
+
+                if session_info is None:
+                    return jsonify(
+                        {"success": False, "error": f"Session {session_id} not found"}
+                    ), 404
+
+                def generate():
+                    yield '{"success":true,"data":{"meta":{"session_id":"'
+                    yield session_id
+                    yield '","title":'
+                    yield json.dumps(session_info.get("title", ""))
+                    yield '},"timeline":['
+
+                    first = True
+                    for event in events:
+                        if not first:
+                            yield ","
+                        yield json.dumps(event, separators=(",", ":"))
+                        first = False
+
+                    yield "]}}"
+
+                return Response(
+                    generate(),
+                    mimetype="application/json",
+                    headers={"X-Streaming": "true"},
+                )
+            else:
+                result = service.get_session_timeline_full(session_id, limit=limit)
+                if result.get("success"):
+                    return jsonify(result)
+                return jsonify(result), 404
 
     except Exception as e:
         error(f"[API] Error getting session timeline: {e}")
