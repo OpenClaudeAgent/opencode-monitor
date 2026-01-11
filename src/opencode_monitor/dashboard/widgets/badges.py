@@ -25,7 +25,7 @@ class Badge(QLabel):
             background-color: {bg_color};
             color: {text_color};
             border-radius: {RADIUS["sm"]}px;
-            letter-spacing: 0.3px;
+            letter-spacing: {FONTS["tracking_mid"]}px;
         """)
 
 

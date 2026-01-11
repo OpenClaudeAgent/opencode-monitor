@@ -13,7 +13,17 @@ from PyQt6.QtWidgets import (
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QColor
 
-from ..styles import COLORS, SPACING, FONTS, RADIUS, UI
+from ..styles import (
+    COLORS,
+    SPACING,
+    FONTS,
+    RADIUS,
+    UI,
+    SHADOWS,
+    COMPONENTS,
+    SHADOWS,
+    COMPONENTS,
+)
 
 
 class MetricCard(QFrame):
@@ -54,12 +64,12 @@ class MetricCard(QFrame):
         # Dimensions - adapt to content
         self.setMinimumHeight(UI["card_min_height"])
 
-        # Shadow effect - MORE SUBTLE
+        # Shadow effect
         shadow = QGraphicsDropShadowEffect(self)
-        shadow.setBlurRadius(12)  # Reduced from 16
+        shadow.setBlurRadius(SHADOWS["md"]["blur"])
         shadow.setXOffset(0)
-        shadow.setYOffset(2)  # Reduced from 4
-        shadow.setColor(QColor(0, 0, 0, 60))  # More subtle (was 80)
+        shadow.setYOffset(SHADOWS["md"]["offset_y"])
+        shadow.setColor(QColor(0, 0, 0, int(SHADOWS["md"]["opacity"] * 255)))
         self.setGraphicsEffect(shadow)
 
         # Layout
@@ -191,29 +201,31 @@ class SectionCard(QWidget):
 
     def _setup_ui(self, title: str, subtitle: str) -> None:
         # Sober styling - NO colored accents
-        self.setStyleSheet("""
-            SectionCard {
-                background-color: #151515;
-                border: 1px solid rgba(255, 255, 255, 0.08);
-                border-radius: 8px;
-            }
+        self.setStyleSheet(f"""
+            SectionCard {{
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_subtle"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
         """)
 
         layout = QVBoxLayout(self)
-        layout.setContentsMargins(20, 16, 20, 20)
-        layout.setSpacing(12)
+        layout.setContentsMargins(
+            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["lg"]
+        )
+        layout.setSpacing(SPACING["md"])
 
         # Header
         header = QWidget()
         header_layout = QVBoxLayout(header)
         header_layout.setContentsMargins(0, 0, 0, 0)
-        header_layout.setSpacing(4)
+        header_layout.setSpacing(SPACING["xs"])
 
         # Title
         title_label = QLabel(title)
         title_label.setStyleSheet(f"""
-            font-size: 15px;
-            font-weight: 600;
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_semibold"]};
             color: {COLORS["text_primary"]};
             background: transparent;
             border: none;
@@ -224,7 +236,7 @@ class SectionCard(QWidget):
         if subtitle:
             subtitle_label = QLabel(subtitle)
             subtitle_label.setStyleSheet(f"""
-                font-size: 13px;
+                font-size: {FONTS["size_base"]}px;
                 color: {COLORS["text_muted"]};
                 background: transparent;
                 border: none;

@@ -16,7 +16,19 @@ This package provides:
 """
 
 from .colors import COLORS, AGENT_COLORS
-from .dimensions import SPACING, RADIUS, FONTS, UI, COL_WIDTH, ICONS
+from .dimensions import (
+    SPACING,
+    RADIUS,
+    FONTS,
+    UI,
+    COL_WIDTH,
+    ICONS,
+    SHADOWS,
+    OPACITY,
+    Z_INDEX,
+    COMPONENTS,
+    TRANSITIONS,
+)
 from .utils import format_tokens, format_duration_ms
 from .stylesheet import get_stylesheet
 
@@ -31,6 +43,11 @@ __all__ = [
     "UI",
     "COL_WIDTH",
     "ICONS",
+    "SHADOWS",
+    "OPACITY",
+    "Z_INDEX",
+    "COMPONENTS",
+    "TRANSITIONS",
     # Utilities
     "format_tokens",
     "format_duration_ms",

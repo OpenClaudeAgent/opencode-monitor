@@ -32,41 +32,41 @@ COLORS = {
     "accent_error": "#ef4444",  # Red 500
     # Semantic colors with muted backgrounds
     "success": "#22c55e",
-    "success_muted": "rgba(34, 197, 94, 0.20)",
+    "success_muted": "rgba(34, 197, 94, 0.25)",
     "warning": "#f59e0b",
-    "warning_muted": "rgba(245, 158, 11, 0.20)",
+    "warning_muted": "rgba(245, 158, 11, 0.25)",
     "error": "#ef4444",
-    "error_muted": "rgba(239, 68, 68, 0.20)",
+    "error_muted": "rgba(239, 68, 68, 0.25)",
     "info": "#3b82f6",
-    "info_muted": "rgba(59, 130, 246, 0.20)",
+    "info_muted": "rgba(59, 130, 246, 0.25)",
     # Risk levels (semantic)
     "risk_critical": "#ef4444",  # Red 500
-    "risk_critical_bg": "rgba(239, 68, 68, 0.20)",
+    "risk_critical_bg": "rgba(239, 68, 68, 0.25)",
     "risk_high": "#f97316",  # Orange 500
-    "risk_high_bg": "rgba(249, 115, 22, 0.20)",
+    "risk_high_bg": "rgba(249, 115, 22, 0.25)",
     "risk_medium": "#eab308",  # Yellow 500
-    "risk_medium_bg": "rgba(234, 179, 8, 0.20)",
+    "risk_medium_bg": "rgba(234, 179, 8, 0.25)",
     "risk_low": "#22c55e",  # Green 500
-    "risk_low_bg": "rgba(34, 197, 94, 0.20)",
+    "risk_low_bg": "rgba(34, 197, 94, 0.25)",
     # Operation type colors (for badges)
     "type_command": "#a855f7",  # Violet 500
-    "type_command_bg": "rgba(168, 85, 247, 0.20)",
+    "type_command_bg": "rgba(168, 85, 247, 0.25)",
     "type_bash": "#a855f7",
-    "type_bash_bg": "rgba(168, 85, 247, 0.20)",
+    "type_bash_bg": "rgba(168, 85, 247, 0.25)",
     "type_read": "#3b82f6",  # Blue 500
-    "type_read_bg": "rgba(59, 130, 246, 0.20)",
+    "type_read_bg": "rgba(59, 130, 246, 0.25)",
     "type_write": "#f97316",  # Orange 500
-    "type_write_bg": "rgba(249, 115, 22, 0.20)",
+    "type_write_bg": "rgba(249, 115, 22, 0.25)",
     "type_edit": "#eab308",  # Yellow 500
-    "type_edit_bg": "rgba(234, 179, 8, 0.20)",
+    "type_edit_bg": "rgba(234, 179, 8, 0.25)",
     "type_webfetch": "#06b6d4",  # Cyan 500
-    "type_webfetch_bg": "rgba(6, 182, 212, 0.20)",
+    "type_webfetch_bg": "rgba(6, 182, 212, 0.25)",
     "type_glob": "#ec4899",  # Pink 500
-    "type_glob_bg": "rgba(236, 72, 153, 0.20)",
+    "type_glob_bg": "rgba(236, 72, 153, 0.25)",
     "type_grep": "#10b981",  # Emerald 500
-    "type_grep_bg": "rgba(16, 185, 129, 0.20)",
+    "type_grep_bg": "rgba(16, 185, 129, 0.25)",
     "type_skill": "#8b5cf6",  # Violet 500
-    "type_skill_bg": "rgba(139, 92, 246, 0.20)",
+    "type_skill_bg": "rgba(139, 92, 246, 0.25)",
     # Borders - MORE VISIBLE
     "border_subtle": "rgba(255, 255, 255, 0.08)",  # MORE VISIBLE (was 0.06)
     "border_default": "rgba(255, 255, 255, 0.12)",  # MORE VISIBLE (was 0.10)

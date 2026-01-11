@@ -8,7 +8,7 @@ for risk levels, operation types, and scores.
 from PyQt6.QtWidgets import QLabel, QWidget
 from PyQt6.QtCore import Qt
 
-from ..styles import COLORS
+from ..styles import COLORS, FONTS, RADIUS, COMPONENTS
 
 
 class CellBadge(QLabel):
@@ -27,11 +27,11 @@ class CellBadge(QLabel):
             QLabel {{
                 color: {fg_color};
                 background-color: {bg_color};
-                padding: 2px 8px;
-                border-radius: 4px;
-                font-size: 11px;
-                font-weight: 600;
-                letter-spacing: 0.3px;
+                padding: {COMPONENTS["badge"]["padding_y"]}px {COMPONENTS["badge"]["padding_x"]}px;
+                border-radius: {RADIUS["sm"]}px;
+                font-size: {FONTS["size_xs"]}px;
+                font-weight: {FONTS["weight_semibold"]};
+                letter-spacing: {FONTS["tracking_mid"]}px;
             }}
         """)
         self.setFixedHeight(22)
