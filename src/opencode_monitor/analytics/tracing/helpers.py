@@ -325,10 +325,15 @@ class HelpersMixin:
 
                 files_by_op = self._conn.execute(
                     """
-                    SELECT operation, file_path, additions, deletions
+                    SELECT operation, file_path, 
+                           COALESCE(MAX(additions), 0) as additions,
+                           COALESCE(MAX(deletions), 0) as deletions
                     FROM file_operations
                     WHERE session_id = ?
-                    ORDER BY timestamp DESC
+                    GROUP BY file_path, operation
+                    ORDER BY 
+                        CASE operation WHEN 'edit' THEN 1 WHEN 'write' THEN 2 ELSE 3 END,
+                        (COALESCE(MAX(additions), 0) + COALESCE(MAX(deletions), 0)) DESC
                     """,
                     [session_id],
                 ).fetchall()
