@@ -2,7 +2,7 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run run-debug test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean roadmap
+.PHONY: help run run-debug test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean clean-db clean-all roadmap
 
 # Default target
 help:
@@ -42,6 +42,8 @@ help:
 	@echo ""
 	@echo "Maintenance:"
 	@echo "  make clean          Remove temp/build files"
+	@echo "  make clean-db       Remove analytics database"
+	@echo "  make clean-all      Remove all artifacts and database"
 	@echo "  make roadmap        Show roadmap status"
 
 # === Application ===
@@ -221,6 +223,17 @@ clean:
 	@find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
 	@find . -type f -name "*.pyc" -delete 2>/dev/null || true
 	@echo "Build artifacts cleaned"
+
+clean-db:
+	@if [ -f ~/.config/opencode-monitor/analytics.duckdb ]; then \
+		rm -f ~/.config/opencode-monitor/analytics.duckdb && \
+		echo "Database cleaned: ~/.config/opencode-monitor/analytics.duckdb"; \
+	else \
+		echo "No database found at ~/.config/opencode-monitor/analytics.duckdb"; \
+	fi
+
+clean-all: clean clean-db
+	@echo "All artifacts and database cleaned"
 
 roadmap:
 	@cat roadmap/README.md 2>/dev/null || echo "No roadmap found"

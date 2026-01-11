@@ -155,6 +155,7 @@ def mock_dependencies():
     mock_debug = MagicMock()
     mock_start_indexer = MagicMock()
     mock_get_indexer = MagicMock()
+    mock_start_api_server = MagicMock()
 
     # Configure mocks
     mock_settings = MagicMock()
@@ -202,6 +203,7 @@ def mock_dependencies():
             mock_start_indexer,
         ),
         patch("opencode_monitor.analytics.indexer.get_indexer", mock_get_indexer),
+        patch("opencode_monitor.api.start_api_server", mock_start_api_server),
     ):
         # Remove ALL cached app modules so they get re-imported with mocks
         # The app package has: __init__, core, menu, handlers
@@ -234,6 +236,7 @@ def mock_dependencies():
             "info": mock_info,
             "error": mock_error,
             "debug": mock_debug,
+            "start_api_server": mock_start_api_server,
         }
 
         # Clean up - remove all app modules so next test gets fresh ones
