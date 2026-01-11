@@ -45,6 +45,75 @@ class TestClickableLabel:
         callback.assert_called_once()
 
 
+class TestToolsBreakdownWidget:
+    def test_shows_all_tools_without_truncation(self, qtbot):
+        from collections import Counter
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ToolsBreakdownWidget,
+        )
+
+        widget = ToolsBreakdownWidget()
+        qtbot.addWidget(widget)
+
+        tools = Counter({f"tool_{i}": i + 1 for i in range(15)})
+        widget.load_tools(tools, {})
+
+        tool_labels = []
+        for i in range(widget._container_layout.count()):
+            item = widget._container_layout.itemAt(i)
+            if item and item.widget():
+                w = item.widget()
+                if isinstance(w, QLabel) and "tool_" in w.text():
+                    tool_labels.append(w.text())
+
+        assert len(tool_labels) == 15
+
+    def test_last_tool_has_corner_prefix(self, qtbot):
+        from collections import Counter
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ToolsBreakdownWidget,
+        )
+
+        widget = ToolsBreakdownWidget()
+        qtbot.addWidget(widget)
+
+        tools = Counter({"tool_a": 3, "tool_b": 2, "tool_c": 1})
+        widget.load_tools(tools, {})
+
+        tool_labels = []
+        for i in range(widget._container_layout.count()):
+            item = widget._container_layout.itemAt(i)
+            if item and item.widget():
+                w = item.widget()
+                if isinstance(w, QLabel) and "tool_" in w.text():
+                    tool_labels.append(w.text())
+
+        assert tool_labels[-1].startswith("└─")
+
+    def test_non_last_tools_have_branch_prefix(self, qtbot):
+        from collections import Counter
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ToolsBreakdownWidget,
+        )
+
+        widget = ToolsBreakdownWidget()
+        qtbot.addWidget(widget)
+
+        tools = Counter({"tool_a": 3, "tool_b": 2, "tool_c": 1})
+        widget.load_tools(tools, {})
+
+        tool_labels = []
+        for i in range(widget._container_layout.count()):
+            item = widget._container_layout.itemAt(i)
+            if item and item.widget():
+                w = item.widget()
+                if isinstance(w, QLabel) and "tool_" in w.text():
+                    tool_labels.append(w.text())
+
+        for label in tool_labels[:-1]:
+            assert label.startswith("├─")
+
+
 def _make_files(
     files_dict: dict[str, list[str]], with_stats: bool = False
 ) -> list[dict]:
@@ -64,50 +133,10 @@ def _make_files(
 
 
 class TestFilesListWidget:
-    """Tests for FilesListWidget expand/collapse functionality."""
+    """Tests for FilesListWidget."""
 
-    def test_starts_collapsed_by_default(self, qtbot):
-        """Widget should start in collapsed state."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        assert widget._is_expanded is False
-
-    def test_header_shows_chevron_down_when_collapsed(self, qtbot):
-        """Header should show down chevron when collapsed."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": ["file1.py", "file2.py"]}))
-
-        assert "▼" in widget._header.text()
-        assert "▲" not in widget._header.text()
-
-    def test_header_shows_chevron_up_when_expanded(self, qtbot):
-        """Header should show up chevron when expanded."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": ["file1.py", "file2.py"]}))
-        widget._toggle_expand()
-
-        assert "▲" in widget._header.text()
-        assert "▼" not in widget._header.text()
-
-    def test_collapsed_shows_max_8_files(self, qtbot):
-        """Collapsed state should show max 8 files."""
+    def test_shows_all_files(self, qtbot):
+        """Widget should show all files without truncation."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -116,25 +145,6 @@ class TestFilesListWidget:
         qtbot.addWidget(widget)
 
         widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
-
-        visible_labels = []
-        for i in range(widget._container_layout.count()):
-            w = widget._container_layout.itemAt(i).widget()
-            if isinstance(w, QLabel) and "✏️" in w.text():
-                visible_labels.append(w)
-        assert len(visible_labels) == 8
-
-    def test_expanded_shows_all_files(self, qtbot):
-        """Expanded state should show all files."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
-        widget._toggle_expand()
 
         visible_labels = []
         for i in range(widget._container_layout.count()):
@@ -143,8 +153,8 @@ class TestFilesListWidget:
                 visible_labels.append(w)
         assert len(visible_labels) == 15
 
-    def test_collapsed_shows_more_indicator(self, qtbot):
-        """Collapsed state should show '+N more...' when truncated."""
+    def test_no_more_indicator(self, qtbot):
+        """Widget should not show '+N more...' indicator."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -153,26 +163,6 @@ class TestFilesListWidget:
         qtbot.addWidget(widget)
 
         widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
-
-        more_labels = []
-        for i in range(widget._container_layout.count()):
-            w = widget._container_layout.itemAt(i).widget()
-            if isinstance(w, QLabel) and "more..." in w.text():
-                more_labels.append(w)
-        assert len(more_labels) == 1
-        assert "+7 more..." in more_labels[0].text()
-
-    def test_expanded_hides_more_indicator(self, qtbot):
-        """Expanded state should not show '+N more...'."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
-        widget._toggle_expand()
 
         more_labels = []
         for i in range(widget._container_layout.count()):
@@ -180,23 +170,6 @@ class TestFilesListWidget:
             if isinstance(w, QLabel) and "more..." in w.text():
                 more_labels.append(w)
         assert len(more_labels) == 0
-
-    def test_toggle_changes_state(self, qtbot):
-        """Toggle should flip expanded state."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": ["file1.py"]}))
-
-        assert widget._is_expanded is False
-        widget._toggle_expand()
-        assert widget._is_expanded is True
-        widget._toggle_expand()
-        assert widget._is_expanded is False
 
     def test_header_shows_file_count(self, qtbot):
         """Header should display total file count."""
@@ -228,21 +201,6 @@ class TestFilesListWidget:
             if isinstance(w, QLabel) and "No files accessed" in w.text():
                 labels.append(w)
         assert len(labels) == 1
-
-    def test_header_clickable_triggers_toggle(self, qtbot):
-        """Clicking header should toggle expand/collapse."""
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            FilesListWidget,
-        )
-
-        widget = FilesListWidget()
-        qtbot.addWidget(widget)
-
-        widget.load_files(_make_files({"edit": ["file1.py"]}))
-
-        assert widget._is_expanded is False
-        qtbot.mouseClick(widget._header, Qt.MouseButton.LeftButton)
-        assert widget._is_expanded is True
 
     def test_prioritizes_edit_over_read(self, qtbot):
         """Should show edit files before read files."""

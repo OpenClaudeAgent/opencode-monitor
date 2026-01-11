@@ -839,11 +839,13 @@ class ToolsBreakdownWidget(QFrame):
         self._header.setText(f"🔧 Tools ({total})")
 
         # Sort by count descending
-        for tool_name, count in tools.most_common(10):
+        sorted_tools = tools.most_common()
+        for i, (tool_name, count) in enumerate(sorted_tools):
             short_name = shorten_tool_name(tool_name)
             targets = tool_targets.get(tool_name, [])
+            prefix = "└─" if i == len(sorted_tools) - 1 else "├─"
 
-            label = QLabel(f"├─ {short_name} ({count}×)")
+            label = QLabel(f"{prefix} {short_name} ({count}×)")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
                 font-family: {FONTS["mono"]};
@@ -864,16 +866,6 @@ class ToolsBreakdownWidget(QFrame):
 
             self._container_layout.addWidget(label)
 
-        if len(tools) > 10:
-            more = QLabel(f"└─ +{len(tools) - 10} more...")
-            more.setStyleSheet(f"""
-                font-size: {FONTS["size_xs"]}px;
-                font-family: {FONTS["mono"]};
-                color: {COLORS["text_muted"]};
-                padding: 2px {SPACING["xs"]}px;
-            """)
-            self._container_layout.addWidget(more)
-
         self._container_layout.addStretch()
 
 
@@ -889,7 +881,6 @@ class FilesListWidget(QFrame):
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
-        self._is_expanded = False
         self._files: list[dict] = []
         self._total_additions: int = 0
         self._total_deletions: int = 0
@@ -916,7 +907,7 @@ class FilesListWidget(QFrame):
         header_layout.setContentsMargins(0, 0, 0, 0)
         header_layout.setSpacing(SPACING["xs"])
 
-        self._header = ClickableLabel("📁 Files")
+        self._header = QLabel("📁 Files")
         self._header.setStyleSheet(f"""
             QLabel {{
                 font-size: {FONTS["size_xs"]}px;
@@ -925,15 +916,8 @@ class FilesListWidget(QFrame):
                 text-transform: uppercase;
                 letter-spacing: 0.5px;
                 padding: {SPACING["xs"]}px;
-                border-radius: {RADIUS["sm"]}px;
-            }}
-            QLabel:hover {{
-                background-color: {COLORS["bg_hover"]};
-                color: {COLORS["text_secondary"]};
             }}
         """)
-        self._header.setCursor(Qt.CursorShape.PointingHandCursor)
-        self._header.clicked.connect(self._toggle_expand)
         header_layout.addWidget(self._header, 1)
 
         self._export_btn = ClickableLabel("📋")
@@ -976,27 +960,18 @@ class FilesListWidget(QFrame):
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         layout.addWidget(self._scroll, 1)
 
-    def _toggle_expand(self) -> None:
-        self._is_expanded = not self._is_expanded
-        if self._is_expanded:
-            self._scroll.setMaximumHeight(200)
-        else:
-            self._scroll.setMaximumHeight(16777215)
-        self._render_files()
-
     def _on_export_clicked(self) -> None:
         if self._session_id:
             self.diff_requested.emit(self._session_id)
 
     def _update_header_text(self, total_files: int) -> None:
-        chevron = "▲" if self._is_expanded else "▼"
         base_text = f"📁 Files ({total_files})"
 
         if self._total_additions > 0 or self._total_deletions > 0:
             stats_html = f'<span style="color: {COLORS["success"]};">+{self._total_additions}</span> <span style="color: {COLORS["error"]};">-{self._total_deletions}</span>'
-            self._header.setText(f"{base_text} {stats_html} {chevron}")
+            self._header.setText(f"{base_text} {stats_html}")
         else:
-            self._header.setText(f"{base_text} {chevron}")
+            self._header.setText(base_text)
 
     def load_files(
         self,
@@ -1053,9 +1028,7 @@ class FilesListWidget(QFrame):
             ),
         )
 
-        max_files = 8 if not self._is_expanded else len(sorted_files)
-
-        for i, file_info in enumerate(sorted_files[:max_files]):
+        for file_info in sorted_files:
             path = file_info.get("path", "")
             operation = file_info.get("operation", "read")
             additions = file_info.get("additions", 0)
@@ -1078,16 +1051,6 @@ class FilesListWidget(QFrame):
             """)
             label.setToolTip(f"{operation.capitalize()}: {path}")
             self._container_layout.addWidget(label)
-
-        remaining = len(self._files) - max_files
-        if remaining > 0:
-            more = QLabel(f"  +{remaining} more...")
-            more.setStyleSheet(f"""
-                font-size: {FONTS["size_xs"]}px;
-                color: {COLORS["text_muted"]};
-                padding: 2px {SPACING["xs"]}px;
-            """)
-            self._container_layout.addWidget(more)
 
         self._container_layout.addStretch()
 
