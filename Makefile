@@ -11,11 +11,14 @@ help:
 	@echo "Usage:"
 	@echo "  make run                    Run the menu bar app"
 	@echo "  make run-debug              Run with debug logs enabled"
-	@echo "  make test                   Run unit tests (excludes integration)"
+	@echo "  make test                   Run unit + integration DB/API tests"
 	@echo "  make test-unit              Run unit tests only"
-	@echo "  make test-integration       Run integration tests (headless)"
+	@echo "  make test-integration       Run all integration tests (headless)"
+	@echo "  make test-integration-db    Run integration DB tests"
+	@echo "  make test-integration-api   Run integration API tests"
 	@echo "  make test-integration-visible  Run integration tests (visible UI)"
 	@echo "  make test-all               Run all tests (unit + integration)"
+	@echo "  make test-migration-status  Show test migration progress"
 	@echo "  make coverage               Run tests with coverage report"
 	@echo "  make coverage-html          Run tests with HTML coverage report"
 	@echo ""
@@ -52,19 +55,36 @@ run-debug:
 # === Testing ===
 
 test:
-	@uv run pytest tests/ -v -n 8 --ignore=tests/integration
+	@uv run pytest tests/unit/ tests/integration/database/ tests/integration/api/ -v -n 8
 
 test-unit:
-	@uv run pytest tests/ -v -n 8 --ignore=tests/integration -m "not integration"
+	@uv run pytest tests/unit/ -v -n 8
 
 test-integration:
-	@QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/ -v -n 8 -m integration
+	@QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/ -v -n 8
 
 test-integration-visible:
-	@uv run pytest tests/integration/ -v -n 8 -m integration
+	@uv run pytest tests/integration/ -v -n 8
+
+test-integration-db:
+	@uv run pytest tests/integration/database/ -v -n 4
+
+test-integration-api:
+	@uv run pytest tests/integration/api/ -v -n 4
 
 test-all:
 	@QT_QPA_PLATFORM=offscreen uv run pytest tests/ -v -n 8
+
+test-migration-status:
+	@echo "=== Test Migration Status ==="
+	@echo "Unit tests:"
+	@uv run pytest tests/unit/ --collect-only -q | tail -1
+	@echo "Integration DB:"
+	@uv run pytest tests/integration/database/ --collect-only -q | tail -1
+	@echo "Integration API:"
+	@uv run pytest tests/integration/api/ --collect-only -q | tail -1
+	@echo "Integration Examples:"
+	@uv run pytest tests/integration/examples/ --collect-only -q | tail -1
 
 coverage:
 	@uv run pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=term-missing
