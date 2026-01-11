@@ -63,6 +63,7 @@ class HybridIndexer:
         tracker: Optional[FileTracker] = None,
         parser: Optional[FileParser] = None,
         trace_builder: Optional[TraceBuilder] = None,
+        watcher_only: bool = True,
     ):
         """
         Initialize the hybrid indexer.
@@ -87,8 +88,8 @@ class HybridIndexer:
             indexer = HybridIndexer(db=mock_db)
         """
         self._storage_path = storage_path or OPENCODE_STORAGE
+        self._watcher_only = watcher_only
 
-        # Use injected db or create from path
         self._db = db or AnalyticsDB(db_path)
         self._db_injected = db is not None
 
@@ -152,21 +153,26 @@ class HybridIndexer:
             self._db, self._storage_path, self._sync_state
         )
 
-        # Start watcher (queue-only mode during bulk)
         self._watcher = FileWatcher(
             self._storage_path,
             self._on_file_event,
         )
         self._watcher.start()
-        info("[HybridIndexer] Watcher started (queue mode)")
 
-        # Start bulk loading in separate thread
-        self._bulk_thread = threading.Thread(
-            target=self._run_bulk_phase, daemon=True, name="hybrid-bulk"
-        )
-        self._bulk_thread.start()
-
-        info("[HybridIndexer] Bulk loading started")
+        if self._watcher_only:
+            info("[HybridIndexer] Watcher-only mode (no bulk loading)")
+            self._sync_state.set_phase(SyncPhase.REALTIME)
+            self._processor_thread = threading.Thread(
+                target=self._run_realtime_phase, daemon=True, name="hybrid-realtime"
+            )
+            self._processor_thread.start()
+        else:
+            info("[HybridIndexer] Watcher started (queue mode)")
+            self._bulk_thread = threading.Thread(
+                target=self._run_bulk_phase, daemon=True, name="hybrid-bulk"
+            )
+            self._bulk_thread.start()
+            info("[HybridIndexer] Bulk loading started")
 
     def stop(self) -> None:
         """Stop the hybrid indexer."""
@@ -492,6 +498,7 @@ class IndexerRegistry:
         cls,
         storage_path: Optional[Path] = None,
         db_path: Optional[Path] = None,
+        watcher_only: bool = True,
         **kwargs,
     ) -> HybridIndexer:
         """Get existing indexer or create a new one."""
@@ -499,6 +506,7 @@ class IndexerRegistry:
             cls._instance = HybridIndexer(
                 storage_path=storage_path,
                 db_path=db_path,
+                watcher_only=watcher_only,
                 **kwargs,
             )
         return cls._instance
@@ -526,24 +534,9 @@ class IndexerRegistry:
         db_path: Optional[Path] = None,
         db: Optional[AnalyticsDB] = None,
         sync_state: Optional[SyncState] = None,
+        watcher_only: bool = True,
         **kwargs,
     ) -> HybridIndexer:
-        """
-        Factory method to create and register an indexer.
-
-        Supports dependency injection for testability.
-
-        Args:
-            storage_path: Path to storage directory
-            db_path: Path to database file
-            db: Injected AnalyticsDB instance (for testing)
-            sync_state: Injected SyncState instance (for testing)
-            **kwargs: Additional arguments passed to HybridIndexer
-
-        Returns:
-            The created and registered HybridIndexer instance
-        """
-        # Clear existing instance if any
         cls.clear()
 
         indexer = HybridIndexer(
@@ -551,6 +544,7 @@ class IndexerRegistry:
             db_path=db_path,
             db=db,
             sync_state=sync_state,
+            watcher_only=watcher_only,
             **kwargs,
         )
         cls._instance = indexer

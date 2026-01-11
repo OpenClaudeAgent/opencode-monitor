@@ -15,7 +15,7 @@ from typing import Optional, Callable
 from ..db import AnalyticsDB
 from .sync_state import SyncState, SyncPhase
 from .file_processing import FileProcessingState
-from ...utils.logger import info, debug
+from ...utils.logger import info, debug, error
 from .queries import (
     LOAD_SESSIONS_SQL,
     LOAD_MESSAGES_SQL,
@@ -291,13 +291,14 @@ class BulkLoader:
         conn = self._db.connect()
 
         try:
-            debug(f"[BulkLoader] Starting parts load from {path}")
+            info(f"[BulkLoader] Starting parts load from {path}")
 
             # Optimize DuckDB for bulk loading large number of JSON files
             # - memory_limit: read_text loads all files, needs more RAM
             # - preserve_insertion_order=false: reduces memory usage, order not needed for analytics
-            debug("[BulkLoader] Setting DuckDB memory limit to 4GB")
-            conn.execute("SET memory_limit='4GB'")
+            info("[BulkLoader] Setting DuckDB memory limit to 8GB, threads=2")
+            conn.execute("SET memory_limit='8GB'")
+            conn.execute("SET threads=2")
             conn.execute("SET preserve_insertion_order=false")
             debug("[BulkLoader] DuckDB settings applied")
 
@@ -328,7 +329,10 @@ class BulkLoader:
             return BulkLoadResult("part", count, elapsed, speed, 0)
 
         except Exception as e:
-            debug(f"[BulkLoader] Part load error: {e}")
+            error(f"[BulkLoader] Part load error: {e}")
+            import traceback
+
+            error(f"[BulkLoader] Part load traceback: {traceback.format_exc()}")
             return BulkLoadResult("part", 0, time.time() - start, 0, 1)
 
     def load_step_events(self, cutoff_time: Optional[float] = None) -> BulkLoadResult:

@@ -2,7 +2,7 @@
 #
 # Native macOS menu bar app (rumps)
 
-.PHONY: help run run-debug test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean clean-db clean-all roadmap
+.PHONY: help run run-debug backfill test test-unit test-integration test-integration-visible coverage coverage-html mutation mutation-mini mutation-security mutation-risk mutation-browse mutation-results mutation-clean mutation-show mutation-report mutation-report-bg mutation-debug test-audit clean clean-db clean-all roadmap
 
 # Default target
 help:
@@ -11,6 +11,7 @@ help:
 	@echo "Usage:"
 	@echo "  make run                    Run the menu bar app"
 	@echo "  make run-debug              Run with debug logs enabled"
+	@echo "  make backfill               Load historical data (app must be stopped)"
 	@echo "  make test                   Run unit + integration DB/API tests"
 	@echo "  make test-unit              Run unit tests only"
 	@echo "  make test-integration       Run all integration tests (headless)"
@@ -53,6 +54,9 @@ run:
 
 run-debug:
 	@OPENCODE_DEBUG=1 OPENCODE_LOG_LEVEL=DEBUG uv run python -c "import sys; sys.path.insert(0, 'src'); from opencode_monitor.app import main; main()"
+
+backfill:
+	@uv run python scripts/backfill.py
 
 # === Testing ===
 
