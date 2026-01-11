@@ -361,30 +361,27 @@ class TestSegmentedControl:
         control.set_current_index(target_index)
         assert control.current_index() == expected_index, f"Failed for: {description}"
 
-    def test_segmented_control_signals(self, qapp, widget_parent):
+    def test_segmented_control_signals(self, qtbot, widget_parent):
         """SegmentedControl emits selection_changed signal correctly."""
         from opencode_monitor.dashboard.widgets import SegmentedControl
 
         control = SegmentedControl(["A", "B", "C"], parent=widget_parent)
-
-        # Track signal emissions
-        signal_received = []
-        control.selection_changed.connect(lambda idx: signal_received.append(idx))
+        qtbot.addWidget(control)
 
         # Change selection - should emit signal
-        control.set_current_index(2)
-        assert len(signal_received) == 1
-        assert signal_received[0] == 2
+        with qtbot.waitSignal(control.selection_changed, timeout=1000) as blocker:
+            control.set_current_index(2)
+        assert blocker.args[0] == 2
 
         # Click already selected button - should NOT emit signal
-        signal_received.clear()
-        control._on_button_clicked(2)
-        assert len(signal_received) == 0
+        # Use waitSignal with raising=False to verify signal is NOT emitted
+        with qtbot.assertNotEmitted(control.selection_changed, wait=100):
+            control._on_button_clicked(2)
 
         # Click different button - should emit signal
-        control._on_button_clicked(0)
-        assert len(signal_received) == 1
-        assert signal_received[0] == 0
+        with qtbot.waitSignal(control.selection_changed, timeout=1000) as blocker:
+            control._on_button_clicked(0)
+        assert blocker.args[0] == 0
 
 
 # =============================================================================

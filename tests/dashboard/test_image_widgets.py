@@ -294,16 +294,12 @@ class TestImageThumbnailErrorHandling:
         thumb = ImageThumbnail()
         qtbot.addWidget(thumb)
 
-        # Don't set any image
-        signals_emitted = []
-        thumb.clicked.connect(lambda url: signals_emitted.append(url))
-
-        # Simulate click (though widget is hidden)
+        # Don't set any image - verify signal is NOT emitted
         thumb.show()
-        qtbot.mouseClick(thumb, Qt.MouseButton.LeftButton)
 
-        # No signal should be emitted (no data_url set)
-        assert len(signals_emitted) == 0
+        # Use assertNotEmitted to verify signal is NOT emitted
+        with qtbot.assertNotEmitted(thumb.clicked, wait=100):
+            qtbot.mouseClick(thumb, Qt.MouseButton.LeftButton)
 
 
 class TestThumbnailCacheAdvanced:

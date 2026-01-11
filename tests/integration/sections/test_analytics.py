@@ -124,14 +124,10 @@ class TestAnalyticsPeriodSelector:
         """Changing period emits period_changed signal."""
         analytics = dashboard_window._analytics
 
-        # Track signal emissions
-        signal_received = []
-        analytics.period_changed.connect(lambda days: signal_received.append(days))
+        # Wait for signal emission when changing period
+        with qtbot.waitSignal(analytics.period_changed, timeout=1000) as blocker:
+            analytics._period_control.set_current_index(2)
+            process_qt_events()
 
-        # Click on 30d (index 2)
-        analytics._period_control.set_current_index(2)
-        process_qt_events()
-
-        assert len(signal_received) == 1
-        assert signal_received[0] == 30
+        assert blocker.args[0] == 30
         assert analytics.get_current_period() == 30
