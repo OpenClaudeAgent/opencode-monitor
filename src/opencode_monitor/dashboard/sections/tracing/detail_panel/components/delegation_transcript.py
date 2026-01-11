@@ -186,12 +186,11 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
                 border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
             }}
         """)
         inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(
-            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
-        )
+        inner_layout.setContentsMargins(0, 0, 0, 0)
         inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("📥 Prompt Input")
@@ -244,12 +243,11 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
                 border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
             }}
         """)
         inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(
-            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
-        )
+        inner_layout.setContentsMargins(0, 0, 0, 0)
         inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("🧠 Reasoning")
@@ -292,12 +290,11 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
                 border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
             }}
         """)
         inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(
-            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
-        )
+        inner_layout.setContentsMargins(0, 0, 0, 0)
         inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("💬 Response")
@@ -344,12 +341,11 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             QFrame {{
                 background-color: {COLORS["bg_surface"]};
                 border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
             }}
         """)
         inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(
-            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
-        )
+        inner_layout.setContentsMargins(0, 0, 0, 0)
         inner_layout.setSpacing(SPACING["xs"])
 
         header_layout = QHBoxLayout()
