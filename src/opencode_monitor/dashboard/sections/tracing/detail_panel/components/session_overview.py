@@ -718,10 +718,6 @@ class ExpandableTimelineWidget(QFrame):
             f"[Timeline] Created {len(self._exchange_widgets)} exchange widgets"
         )
 
-        # Auto-expand last exchange
-        if self._exchange_widgets:
-            self._exchange_widgets[-1].toggle()
-
     def _group_by_exchange(self, timeline: list[dict]) -> dict[int, list[dict]]:
         """Group events by exchange_number and sort chronologically."""
         groups: dict[int, list[dict]] = {}
