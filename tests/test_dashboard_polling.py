@@ -23,120 +23,113 @@ class TestDashboardPolling:
 
     def test_monitoring_refreshes_every_cycle(self, qapp):
         """Monitoring data fetch is called on every refresh cycle."""
-        with patch("threading.Thread") as mock_thread:
-            # Mock thread to track calls
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+        import threading
+        from opencode_monitor.dashboard.window.main import DashboardWindow
 
-            from opencode_monitor.dashboard.window.main import DashboardWindow
+        # Track fetch method calls
+        monitoring_calls = []
 
-            # Create window (will call _refresh_all_data once on init)
-            with patch.object(
-                DashboardWindow, "_fetch_monitoring_data"
-            ) as mock_monitoring:
-                with patch.object(DashboardWindow, "_fetch_security_data"):
-                    with patch.object(DashboardWindow, "_fetch_analytics_data"):
-                        with patch.object(DashboardWindow, "_fetch_tracing_data"):
-                            window = DashboardWindow()
+        def mock_monitoring():
+            monitoring_calls.append(threading.current_thread().name)
 
-                            # Reset call count after initial load
-                            mock_thread.reset_mock()
+        # Create window with mocked fetch methods
+        with patch.object(
+            DashboardWindow, "_fetch_monitoring_data", side_effect=mock_monitoring
+        ):
+            with patch.object(DashboardWindow, "_fetch_security_data"):
+                with patch.object(DashboardWindow, "_fetch_analytics_data"):
+                    with patch.object(DashboardWindow, "_fetch_tracing_data"):
+                        window = DashboardWindow()
 
-                            # Manually trigger refresh 6 times
-                            for _ in range(6):
-                                window._refresh_all_data()
+                        # Reset call count after initial load
+                        initial_calls = len(monitoring_calls)
+                        monitoring_calls.clear()
 
-                            # Count monitoring thread creations
-                            # Each _refresh_all_data creates a thread for monitoring
-                            monitoring_calls = sum(
-                                1
-                                for call in mock_thread.call_args_list
-                                if "monitoring" in str(call).lower()
-                                or call[1].get("target")
-                                == window._fetch_monitoring_data
-                            )
+                        # Manually trigger refresh 6 times
+                        for _ in range(6):
+                            window._refresh_all_data()
+                            # Wait for threads to complete
+                            time.sleep(0.01)
 
-                            # All 6 calls should create monitoring thread
-                            # (checking via Thread creation targeting _fetch_monitoring_data)
-                            thread_calls = mock_thread.call_count
-                            # At minimum, monitoring should be called each time
-                            assert thread_calls >= 6
+                        # All 6 calls should have triggered monitoring fetch
+                        assert len(monitoring_calls) == 6
 
-                            window.close()
+                        window.close()
 
     def test_secondary_data_refreshes_every_fifth_cycle(self, qapp):
         """Secondary data (security, analytics, tracing) refreshes every 5th cycle."""
-        with patch("threading.Thread") as mock_thread:
-            mock_thread_instance = MagicMock()
-            mock_thread.return_value = mock_thread_instance
+        import threading
+        from opencode_monitor.dashboard.window.main import DashboardWindow
 
-            from opencode_monitor.dashboard.window.main import DashboardWindow
+        # Track fetch method calls
+        security_calls = []
+        analytics_calls = []
 
-            with patch.object(DashboardWindow, "_fetch_monitoring_data"):
+        def mock_security():
+            security_calls.append(threading.current_thread().name)
+
+        def mock_analytics():
+            analytics_calls.append(threading.current_thread().name)
+
+        with patch.object(DashboardWindow, "_fetch_monitoring_data"):
+            with patch.object(
+                DashboardWindow, "_fetch_security_data", side_effect=mock_security
+            ):
                 with patch.object(
-                    DashboardWindow, "_fetch_security_data"
-                ) as mock_security:
-                    with patch.object(
-                        DashboardWindow, "_fetch_analytics_data"
-                    ) as mock_analytics:
-                        with patch.object(
-                            DashboardWindow, "_fetch_tracing_data"
-                        ) as mock_tracing:
-                            window = DashboardWindow()
+                    DashboardWindow, "_fetch_analytics_data", side_effect=mock_analytics
+                ):
+                    with patch.object(DashboardWindow, "_fetch_tracing_data"):
+                        window = DashboardWindow()
 
-                            # Reset counter to 0 for clean test
-                            window._refresh_count = 0
-                            mock_thread.reset_mock()
+                        # Reset counter to 0 for clean test
+                        window._refresh_count = 0
+                        security_calls.clear()
+                        analytics_calls.clear()
 
-                            # Trigger refresh 10 times (should trigger secondary at 0 and 5)
-                            for _ in range(10):
-                                window._refresh_all_data()
+                        # Trigger refresh 10 times (should trigger secondary at 0 and 5)
+                        for _ in range(10):
+                            window._refresh_all_data()
+                            # Wait for threads to complete
+                            time.sleep(0.01)
 
-                            # Count how many times secondary data threads were created
-                            # Secondary is called at _refresh_count 0, 5 (2 times in 10 cycles)
-                            # Note: The condition is _refresh_count % SECONDARY_REFRESH_DIVISOR == 0
+                        # Secondary is called at _refresh_count 0, 5 (2 times in 10 cycles)
+                        # Verify SECONDARY_REFRESH_DIVISOR is 5
+                        assert window.SECONDARY_REFRESH_DIVISOR == 5
 
-                            # Since we call 10 times starting from 0:
-                            # _refresh_count: 0, 1, 2, 3, 4, 5, 6, 7, 8, 9
-                            # Secondary triggered at: 0, 5 (2 times)
-                            # After each call, _refresh_count is incremented
+                        # Verify secondary data was fetched 2 times
+                        assert len(security_calls) == 2
+                        assert len(analytics_calls) == 2
 
-                            # Each secondary refresh creates 3 threads (security, analytics, tracing)
-                            # Plus monitoring creates 1 thread per call (10 threads)
-                            # Total expected: 10 monitoring + 6 secondary = 16 threads
-
-                            # Verify SECONDARY_REFRESH_DIVISOR is 5
-                            assert window.SECONDARY_REFRESH_DIVISOR == 5
-
-                            window.close()
+                        window.close()
 
     def test_refresh_count_increments(self, qapp):
         """_refresh_count increments after each refresh cycle."""
-        with patch("threading.Thread") as mock_thread:
-            mock_thread.return_value = MagicMock()
+        from opencode_monitor.dashboard.window.main import DashboardWindow
 
-            from opencode_monitor.dashboard.window.main import DashboardWindow
+        with patch.object(DashboardWindow, "_fetch_monitoring_data"):
+            with patch.object(DashboardWindow, "_fetch_security_data"):
+                with patch.object(DashboardWindow, "_fetch_analytics_data"):
+                    with patch.object(DashboardWindow, "_fetch_tracing_data"):
+                        window = DashboardWindow()
 
-            with patch.object(DashboardWindow, "_fetch_monitoring_data"):
-                with patch.object(DashboardWindow, "_fetch_security_data"):
-                    with patch.object(DashboardWindow, "_fetch_analytics_data"):
-                        with patch.object(DashboardWindow, "_fetch_tracing_data"):
-                            window = DashboardWindow()
+                        # Reset counter
+                        window._refresh_count = 0
 
-                            # Reset counter
-                            window._refresh_count = 0
+                        # Call refresh 3 times
+                        window._refresh_all_data()
+                        # Wait for threads to complete
+                        time.sleep(0.01)
+                        assert window._refresh_count == 1
 
-                            # Call refresh 3 times
-                            window._refresh_all_data()
-                            assert window._refresh_count == 1
+                        window._refresh_all_data()
+                        time.sleep(0.01)
+                        assert window._refresh_count == 2
 
-                            window._refresh_all_data()
-                            assert window._refresh_count == 2
+                        window._refresh_all_data()
+                        time.sleep(0.01)
+                        assert window._refresh_count == 3
 
-                            window._refresh_all_data()
-                            assert window._refresh_count == 3
-
-                            window.close()
+                        window.close()
 
 
 # =============================================================================
