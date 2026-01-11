@@ -548,53 +548,64 @@ class TestFetchInstance:
     """Consolidated tests for fetch_instance() async function"""
 
     @pytest.mark.asyncio
-    async def test_returns_instance_with_no_agents_when_no_busy_sessions(self):
+    async def test_returns_instance_with_no_agents_when_no_busy_sessions(
+        self, mock_aioresponse
+    ):
         """Return instance with empty agents when no busy sessions or status is None"""
-        mock_client = AsyncMock()
-        mock_client.get_status.return_value = {}
-        mock_client.get_all_sessions.return_value = []
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/status",
+            payload={},
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session",
+            payload=[],
+        )
 
         with patch(
-            "opencode_monitor.core.monitor.fetcher.OpenCodeClient",
-            return_value=mock_client,
+            "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
+            return_value="ttys001",
         ):
-            with patch(
-                "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
-                return_value="ttys001",
-            ):
-                (
-                    instance,
-                    pending,
-                    in_progress,
-                    idle_candidates,
-                    busy_ids,
-                ) = await fetch_instance(8080)
+            (
+                instance,
+                pending,
+                in_progress,
+                idle_candidates,
+                busy_ids,
+            ) = await fetch_instance(8080)
 
-                assert instance.port == 8080
-                assert instance.tty == "ttys001"
-                assert instance.agents == []
-                assert pending == 0
-                assert in_progress == 0
-                assert idle_candidates == []
-                assert busy_ids == set()
+            assert instance.port == 8080
+            assert instance.tty == "ttys001"
+            assert instance.agents == []
+            assert pending == 0
+            assert in_progress == 0
+            assert idle_candidates == []
+            assert busy_ids == set()
 
     @pytest.mark.asyncio
-    async def test_fetches_and_processes_busy_sessions_fully(self):
+    async def test_fetches_and_processes_busy_sessions_fully(self, mock_aioresponse):
         """Complete test of busy session fetching with tools, todos, and parent detection"""
-        mock_client = AsyncMock()
-        mock_client.get_status.return_value = {
-            "ses_main": {"type": "busy"},
-            "ses_sub": {"type": "busy"},
-        }
-        mock_client.get_all_sessions.return_value = [
-            {"id": "ses_main"},
-            {"id": "ses_sub"},
-        ]
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/status",
+            payload={
+                "ses_main": {"type": "busy"},
+                "ses_sub": {"type": "busy"},
+            },
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session",
+            payload=[
+                {"id": "ses_main"},
+                {"id": "ses_sub"},
+            ],
+        )
 
-        # First session: main agent with tool running
-        session1_data = {
-            "info": {"title": "Main Session", "directory": "/home/user/project"},
-            "messages": [
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_main",
+            payload={"title": "Main Session", "directory": "/home/user/project"},
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_main/message?limit=1",
+            payload=[
                 {
                     "parts": [
                         {
@@ -608,68 +619,67 @@ class TestFetchInstance:
                     ]
                 }
             ],
-            "todos": [
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_main/todo",
+            payload=[
                 {"status": "pending", "content": "Task 1"},
                 {"status": "in_progress", "content": "Working"},
             ],
-        }
+        )
 
-        # Second session: sub-agent
-        session2_data = {
-            "info": {
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_sub",
+            payload={
                 "title": "Sub-agent",
                 "directory": "/home/user/project",
                 "parentID": "ses_main",
             },
-            "messages": [],
-            "todos": [{"status": "pending", "content": "Sub task"}],
-        }
-
-        mock_client.fetch_session_data.side_effect = [session1_data, session2_data]
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_sub/message?limit=1",
+            payload=[],
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_sub/todo",
+            payload=[{"status": "pending", "content": "Sub task"}],
+        )
 
         with patch(
-            "opencode_monitor.core.monitor.fetcher.OpenCodeClient",
-            return_value=mock_client,
+            "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
+            return_value="ttys001",
         ):
-            with patch(
-                "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
-                return_value="ttys001",
-            ):
-                (
-                    instance,
-                    pending,
-                    in_progress,
-                    idle_candidates,
-                    busy_ids,
-                ) = await fetch_instance(8080)
+            (
+                instance,
+                pending,
+                in_progress,
+                idle_candidates,
+                busy_ids,
+            ) = await fetch_instance(8080)
 
-                # Verify instance
-                assert instance.port == 8080
-                assert instance.tty == "ttys001"
-                assert len(instance.agents) == 2
+            assert instance.port == 8080
+            assert instance.tty == "ttys001"
+            assert len(instance.agents) == 2
 
-                # Verify main agent
-                main_agent = next(a for a in instance.agents if a.id == "ses_main")
-                assert main_agent.title == "Main Session"
-                assert main_agent.dir == "project"
-                assert main_agent.status == SessionStatus.BUSY
-                assert len(main_agent.tools) == 1
-                assert main_agent.tools[0].name == "bash"
-                assert main_agent.tools[0].arg == "npm test"
-                assert main_agent.parent_id is None  # No parentID in info
-                assert main_agent.is_subagent is False
+            main_agent = next(a for a in instance.agents if a.id == "ses_main")
+            assert main_agent.title == "Main Session"
+            assert main_agent.dir == "project"
+            assert main_agent.status == SessionStatus.BUSY
+            assert len(main_agent.tools) == 1
+            assert main_agent.tools[0].name == "bash"
+            assert main_agent.tools[0].arg == "npm test"
+            assert main_agent.parent_id is None
+            assert main_agent.is_subagent is False
 
-                # Verify sub-agent
-                sub_agent = next(a for a in instance.agents if a.id == "ses_sub")
-                assert sub_agent.title == "Sub-agent"
-                assert sub_agent.parent_id == "ses_main"
-                assert sub_agent.is_subagent is True
+            sub_agent = next(a for a in instance.agents if a.id == "ses_sub")
+            assert sub_agent.title == "Sub-agent"
+            assert sub_agent.parent_id == "ses_main"
+            assert sub_agent.is_subagent is True
 
-                # Verify aggregates
-                assert pending == 2  # 1 from main + 1 from sub
-                assert in_progress == 1
-                assert "ses_main" in busy_ids
-                assert "ses_sub" in busy_ids
+            assert pending == 2
+            assert in_progress == 1
+            assert "ses_main" in busy_ids
+            assert "ses_sub" in busy_ids
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -681,73 +691,81 @@ class TestFetchInstance:
                 {"title": None, "directory": None},
                 None,
                 "global",
-            ),  # None values preserved
+            ),
             ({"title": "Test", "directory": ""}, "Test", "global"),
             ({"directory": "/project"}, "Sans titre", "project"),
         ],
     )
     async def test_handles_missing_or_empty_session_info(
-        self, info_data, expected_title, expected_dir
+        self, mock_aioresponse, info_data, expected_title, expected_dir
     ):
         """Handle sessions with missing or empty title/directory"""
-        mock_client = AsyncMock()
-        mock_client.get_status.return_value = {"ses_123": {"type": "busy"}}
-        mock_client.get_all_sessions.return_value = [{"id": "ses_123"}]
-        mock_client.fetch_session_data.return_value = {
-            "info": info_data,
-            "messages": [],
-            "todos": [],
-        }
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/status",
+            payload={"ses_123": {"type": "busy"}},
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session",
+            payload=[{"id": "ses_123"}],
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_123",
+            payload=info_data,
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_123/message?limit=1",
+            payload=[],
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/ses_123/todo",
+            payload=[],
+        )
 
         with patch(
-            "opencode_monitor.core.monitor.fetcher.OpenCodeClient",
-            return_value=mock_client,
+            "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
+            return_value="",
         ):
-            with patch(
-                "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
-                return_value="",
-            ):
-                instance, _, _, _, _ = await fetch_instance(8080)
+            instance, _, _, _, _ = await fetch_instance(8080)
 
-                assert len(instance.agents) == 1
-                assert instance.agents[0].title == expected_title
-                assert instance.agents[0].dir == expected_dir
+            assert len(instance.agents) == 1
+            assert instance.agents[0].title == expected_title
+            assert instance.agents[0].dir == expected_dir
 
     @pytest.mark.asyncio
-    async def test_returns_idle_candidates_excluding_subagents(self):
+    async def test_returns_idle_candidates_excluding_subagents(self, mock_aioresponse):
         """Return idle candidates for post-processing, excluding sub-agents"""
-        mock_client = AsyncMock()
-        mock_client.get_status.return_value = {}  # No busy sessions
-        mock_client.get_all_sessions.return_value = [
-            {"id": "parent_session", "title": "Parent", "directory": "/project"},
-            {
-                "id": "subagent",
-                "title": "Sub-agent",
-                "directory": "/project",
-                "parentID": "parent_session",
-            },
-        ]
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session/status",
+            payload={},
+        )
+        mock_aioresponse.get(
+            "http://127.0.0.1:8080/session",
+            payload=[
+                {"id": "parent_session", "title": "Parent", "directory": "/project"},
+                {
+                    "id": "subagent",
+                    "title": "Sub-agent",
+                    "directory": "/project",
+                    "parentID": "parent_session",
+                },
+            ],
+        )
 
         with patch(
-            "opencode_monitor.core.monitor.fetcher.OpenCodeClient",
-            return_value=mock_client,
+            "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
+            return_value="",
         ):
-            with patch(
-                "opencode_monitor.core.monitor.fetcher.get_tty_for_port",
-                return_value="",
-            ):
-                (
-                    instance,
-                    pending,
-                    in_progress,
-                    idle_candidates,
-                    busy_ids,
-                ) = await fetch_instance(8080)
+            (
+                instance,
+                pending,
+                in_progress,
+                idle_candidates,
+                busy_ids,
+            ) = await fetch_instance(8080)
 
-                # Sub-agents excluded from idle candidates
-                assert len(idle_candidates) == 1
-                assert idle_candidates[0]["id"] == "parent_session"
-                assert busy_ids == set()
+            assert len(idle_candidates) == 1
+            assert idle_candidates[0]["id"] == "parent_session"
+            assert busy_ids == set()
 
 
 # ===========================================================================
