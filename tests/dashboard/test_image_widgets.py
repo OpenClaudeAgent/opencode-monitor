@@ -320,7 +320,7 @@ class TestThumbnailCacheAdvanced:
 
         assert cache1 is cache2
 
-    def test_cache_evicts_oldest_when_full(self):
+    def test_cache_evicts_oldest_when_full(self, qtbot):
         """Cache should evict oldest entries when MAX_CACHE_SIZE exceeded."""
         from opencode_monitor.dashboard.sections.tracing.image_cache import (
             ThumbnailCache,
@@ -339,9 +339,10 @@ class TestThumbnailCacheAdvanced:
             assert len(cache._cache) == 3
             assert "key_0" in cache._cache
 
-            # Simulate _on_decoded adding a 4th item
+            # Simulate _on_decoded adding a 4th item (emits signal)
             new_pixmap = QPixmap(10, 10)
-            cache._on_decoded("key_3", new_pixmap)
+            with qtbot.waitSignal(cache.thumbnail_ready, timeout=1000):
+                cache._on_decoded("key_3", new_pixmap)
 
             # Should have evicted oldest (key_0)
             assert len(cache._cache) == 3
@@ -350,7 +351,7 @@ class TestThumbnailCacheAdvanced:
         finally:
             cache.MAX_CACHE_SIZE = original_max
 
-    def test_on_decoded_emits_signal(self):
+    def test_on_decoded_emits_signal(self, qtbot):
         """_on_decoded should emit thumbnail_ready signal."""
         from opencode_monitor.dashboard.sections.tracing.image_cache import (
             ThumbnailCache,
@@ -358,15 +359,13 @@ class TestThumbnailCacheAdvanced:
         from PyQt6.QtGui import QPixmap
 
         cache = ThumbnailCache()
-
-        received = []
-        cache.thumbnail_ready.connect(lambda key, pix: received.append((key, pix)))
-
         test_pixmap = QPixmap(10, 10)
-        cache._on_decoded("test_key", test_pixmap)
 
-        assert len(received) == 1
-        assert received[0][0] == "test_key"
+        with qtbot.waitSignal(cache.thumbnail_ready, timeout=1000) as blocker:
+            cache._on_decoded("test_key", test_pixmap)
+
+        assert blocker.signal_triggered
+        assert blocker.args[0] == "test_key"
 
     def test_on_decoded_handles_null_pixmap(self):
         """_on_decoded should handle null pixmap gracefully."""
@@ -398,7 +397,7 @@ class TestThumbnailCacheAdvanced:
         # Same empty URL should produce same key
         assert key1 == key2
 
-    def test_request_thumbnail_skips_if_already_cached(self):
+    def test_request_thumbnail_skips_if_already_cached(self, qtbot):
         """request_thumbnail should emit immediately if already cached."""
         from opencode_monitor.dashboard.sections.tracing.image_cache import (
             ThumbnailCache,
@@ -412,14 +411,12 @@ class TestThumbnailCacheAdvanced:
         cached_pixmap = QPixmap(48, 48)
         cache._cache[cache_key] = cached_pixmap
 
-        received = []
-        cache.thumbnail_ready.connect(lambda key, pix: received.append((key, pix)))
-
         # Request should emit immediately
-        cache.request_thumbnail(VALID_PNG_DATA_URL)
+        with qtbot.waitSignal(cache.thumbnail_ready, timeout=1000) as blocker:
+            cache.request_thumbnail(VALID_PNG_DATA_URL)
 
-        assert len(received) == 1
-        assert received[0][0] == cache_key
+        assert blocker.signal_triggered
+        assert blocker.args[0] == cache_key
 
 
 class TestThumbnailWorker:
