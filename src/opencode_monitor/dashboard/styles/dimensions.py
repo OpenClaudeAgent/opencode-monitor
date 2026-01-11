@@ -26,10 +26,11 @@ SPACING = {
 # ============================================================
 
 RADIUS = {
-    "sm": 4,  # Small radius (badges, buttons) - REDUCED (was 6)
-    "md": 6,  # Medium radius (cards, inputs) - REDUCED (was 8)
-    "lg": 8,  # Large radius (containers) - REDUCED (was 12)
-    "xl": 12,  # Extra large (modals) - REDUCED (was 16)
+    "xs": 2,  # Extra small (timeline, separators, progress bars)
+    "sm": 4,  # Small radius (badges, buttons)
+    "md": 6,  # Medium radius (cards, inputs)
+    "lg": 8,  # Large radius (containers)
+    "xl": 12,  # Extra large (modals)
     "full": 9999,  # Fully rounded (pills)
 }
 
@@ -40,28 +41,35 @@ RADIUS = {
 FONTS = {
     "family": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif",
     "mono": "ui-monospace, 'SF Mono', Menlo, Monaco, 'Courier New', monospace",
-    # Sizes - IMPROVED HIERARCHY
+    # Sizes
+    "size_xxs": 10,  # Micro text (status dots, timeline markers)
     "size_xs": 11,  # Labels, badges
     "size_sm": 12,  # Secondary text
     "size_base": 13,  # Body text
     "size_md": 14,  # Emphasized body
     "size_lg": 16,  # Subtitles
     "size_xl": 18,  # Section headers
-    "size_2xl": 28,  # Page titles - INCREASED (was 24)
-    "size_3xl": 36,  # Large values in cards - INCREASED (was 32)
-    "size_4xl": 48,  # Hero numbers - INCREASED (was 40)
-    # Weights - MORE VARIATION
+    "size_2xl": 28,  # Page titles
+    "size_3xl": 36,  # Large values in cards
+    "size_4xl": 48,  # Hero numbers
+    # Weights
     "weight_normal": 400,
     "weight_medium": 500,
     "weight_semibold": 600,
     "weight_bold": 700,
-    "weight_extrabold": 800,  # NEW: for important numbers
-    # Letter spacing - REFINED
-    "tracking_tighter": -0.8,  # NEW: for large numbers
+    "weight_extrabold": 800,
+    # Letter spacing
+    "tracking_tighter": -0.8,
     "tracking_tight": -0.5,
     "tracking_normal": 0,
+    "tracking_mid": 0.3,
     "tracking_wide": 0.5,
-    "tracking_wider": 1.0,  # NEW: for uppercase labels
+    "tracking_wider": 1.0,
+    # Line heights
+    "line_height_tight": 1.2,
+    "line_height_normal": 1.5,
+    "line_height_relaxed": 1.6,
+    "line_height_mono": 1.4,
 }
 
 # ============================================================
@@ -81,8 +89,8 @@ UI = {
     "card_min_height": 80,  # REDUCED (was 90)
     "card_max_width": 140,  # REDUCED (was 160)
     # Tables - MORE DENSE
-    "row_height": 40,  # REDUCED (was 48)
-    "header_height": 36,  # REDUCED (was 44)
+    "row_height": 36,  # REDUCED for better data density (was 40)
+    "header_height": 32,  # REDUCED to align with row height (was 36)
     # NEW: Grid layout gaps
     "grid_gap_sm": 12,
     "grid_gap_md": 16,
@@ -147,4 +155,68 @@ ICONS = {
     "webfetch": "⬡",
     "glob": "⊕",
     "grep": "⊗",
+}
+
+# ============================================================
+# SHADOWS (elevation system)
+# ============================================================
+
+SHADOWS = {
+    "none": {"blur": 0, "offset_y": 0, "opacity": 0.0},
+    "sm": {"blur": 8, "offset_y": 2, "opacity": 0.3},
+    "md": {"blur": 12, "offset_y": 4, "opacity": 0.4},
+    "lg": {"blur": 16, "offset_y": 8, "opacity": 0.5},
+}
+
+# ============================================================
+# OPACITY (semantic transparency levels)
+# ============================================================
+
+OPACITY = {
+    "invisible": 0.0,
+    "subtle": 0.06,
+    "hover": 0.08,
+    "active": 0.12,
+    "focus": 0.15,
+    "badge": 0.25,
+    "disabled": 0.4,
+    "overlay": 0.6,
+}
+
+# ============================================================
+# Z-INDEX (layering system)
+# ============================================================
+
+Z_INDEX = {
+    "base": 0,
+    "dropdown": 1000,
+    "sticky": 1050,
+    "fixed": 1100,
+    "modal_backdrop": 2000,
+    "modal": 2010,
+    "tooltip": 3000,
+}
+
+# ============================================================
+# COMPONENTS (component-specific dimensions)
+# ============================================================
+
+COMPONENTS = {
+    "button": {"height": 32, "padding_x": 12, "padding_y": 8},
+    "badge": {"height": 20, "padding_x": 8, "padding_y": 2},
+    "input": {"height": 32, "padding_x": 12},
+    "separator": {"height": 1},
+    "scrollbar": {"width": 8},
+    "avatar": {"size_sm": 24, "size_md": 32, "size_lg": 48},
+}
+
+# ============================================================
+# TRANSITIONS (animation durations in milliseconds)
+# ============================================================
+
+TRANSITIONS = {
+    "fast": 150,
+    "normal": 200,
+    "slow": 300,
+    "slowest": 400,
 }

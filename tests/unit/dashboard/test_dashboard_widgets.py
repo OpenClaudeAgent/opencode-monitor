@@ -409,9 +409,9 @@ class TestDataTable:
 
         # Class constants
         assert hasattr(DataTable, "ROW_HEIGHT")
-        assert DataTable.ROW_HEIGHT == 40  # Updated: more compact tables
+        assert DataTable.ROW_HEIGHT == 36  # Updated: more compact tables
         assert hasattr(DataTable, "HEADER_HEIGHT")
-        assert DataTable.HEADER_HEIGHT == 36  # Updated: more compact tables
+        assert DataTable.HEADER_HEIGHT == 32  # Updated: more compact tables
 
         # Sorting enabled
         assert table.isSortingEnabled()

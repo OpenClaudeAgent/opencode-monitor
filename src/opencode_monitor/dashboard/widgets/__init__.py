@@ -40,6 +40,12 @@ from .controls import (
     EmptyState,
 )
 
+# Expandable
+from .expandable import ExpandableSection
+
+# Factories
+from .factories import create_header_label, create_value_label, create_content_label
+
 __all__ = [
     # Navigation
     "NavItem",
@@ -67,4 +73,10 @@ __all__ = [
     "Separator",
     "SegmentedControl",
     "EmptyState",
+    # Expandable
+    "ExpandableSection",
+    # Label Factories
+    "create_header_label",
+    "create_value_label",
+    "create_content_label",
 ]

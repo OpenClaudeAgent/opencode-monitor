@@ -12,7 +12,7 @@ from PyQt6.QtWidgets import (
 )
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from ..styles import COLORS, SPACING, FONTS, RADIUS
+from ..styles import COLORS, SPACING, FONTS, RADIUS, COMPONENTS
 
 
 class PageHeader(QWidget):
@@ -146,14 +146,16 @@ class SegmentedControl(QWidget):
         """)
 
         layout = QHBoxLayout(self)
-        layout.setContentsMargins(3, 3, 3, 3)
-        layout.setSpacing(2)
+        layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        )
+        layout.setSpacing(SPACING["xs"])
 
         for i, option in enumerate(options):
             btn = QPushButton(option)
             btn.setCursor(Qt.CursorShape.PointingHandCursor)
             btn.setCheckable(True)
-            btn.setMinimumHeight(28)
+            btn.setMinimumHeight(COMPONENTS["button"]["height"])
             btn.setMinimumWidth(80)
             btn.clicked.connect(lambda _checked, idx=i: self._on_button_clicked(idx))
             self._buttons.append(btn)

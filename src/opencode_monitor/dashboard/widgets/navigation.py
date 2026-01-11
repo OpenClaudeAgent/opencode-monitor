@@ -60,7 +60,7 @@ class NavItem(QPushButton):
                 }}
             """)
             self._icon.setStyleSheet(
-                f"color: {COLORS['accent_primary']}; font-size: 14px;"
+                f"color: {COLORS['accent_primary']}; font-size: {FONTS['size_md']}px;"
             )
             self._text.setStyleSheet(f"""
                 color: {COLORS["text_primary"]};
@@ -80,7 +80,9 @@ class NavItem(QPushButton):
                     background-color: {COLORS["sidebar_hover"]};
                 }}
             """)
-            self._icon.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 14px;")
+            self._icon.setStyleSheet(
+                f"color: {COLORS['text_muted']}; font-size: {FONTS['size_md']}px;"
+            )
             self._text.setStyleSheet(f"""
                 color: {COLORS["text_secondary"]};
                 font-size: {FONTS["size_md"]}px;
@@ -116,7 +118,9 @@ class Sidebar(QFrame):
         logo_layout.setSpacing(SPACING["sm"])
 
         logo_icon = QLabel("⬡")
-        logo_icon.setStyleSheet(f"font-size: 24px; color: {COLORS['accent_primary']};")
+        logo_icon.setStyleSheet(
+            f"font-size: {FONTS['size_2xl']}px; color: {COLORS['accent_primary']};"
+        )
         logo_layout.addWidget(logo_icon)
 
         logo_text = QLabel("OpenCode")
@@ -165,7 +169,9 @@ class Sidebar(QFrame):
         status_layout.setSpacing(SPACING["sm"])
 
         self._status_dot = QLabel("●")
-        self._status_dot.setStyleSheet(f"font-size: 10px; color: {COLORS['success']};")
+        self._status_dot.setStyleSheet(
+            f"font-size: {FONTS['size_xxs']}px; color: {COLORS['success']};"
+        )
         status_layout.addWidget(self._status_dot)
 
         self._status_text = QLabel("Live")
@@ -188,6 +194,8 @@ class Sidebar(QFrame):
 
     def set_status(self, active: bool, text: str = "") -> None:
         color = COLORS["success"] if active else COLORS["text_muted"]
-        self._status_dot.setStyleSheet(f"font-size: 10px; color: {color};")
+        self._status_dot.setStyleSheet(
+            f"font-size: {FONTS['size_xxs']}px; color: {color};"
+        )
         if text:
             self._status_text.setText(text)
