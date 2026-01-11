@@ -176,11 +176,23 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
 
     def _add_prompt_input_widget(self, prompt: str) -> None:
         frame = self._create_item_frame(COLORS["type_read_bg"])
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(
-            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
         )
-        layout.setSpacing(SPACING["xs"])
+
+        inner = QFrame()
+        inner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+        """)
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(
+            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+        )
+        inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("📥 Prompt Input")
         header.setStyleSheet(f"""
@@ -188,14 +200,22 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             color: {COLORS["type_read"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
-            padding: 0;
-            margin: 0;
         """)
-        layout.addWidget(header)
+        inner_layout.addWidget(header)
 
-        text_widget = self._create_text_widget(prompt)
-        layout.addWidget(text_widget)
+        content = QLabel(prompt)
+        content.setWordWrap(True)
+        content.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        content.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
+        """)
+        inner_layout.addWidget(content)
 
+        frame_layout.addWidget(inner)
         self._content_layout.addWidget(frame)
 
     def _add_timeline_item(self, item: dict) -> None:
@@ -214,11 +234,23 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             return
 
         frame = self._create_item_frame(COLORS["type_skill_bg"])
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(
-            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
         )
-        layout.setSpacing(SPACING["xs"])
+
+        inner = QFrame()
+        inner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+        """)
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(
+            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+        )
+        inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("🧠 Reasoning")
         header.setStyleSheet(f"""
@@ -226,14 +258,22 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             color: {COLORS["type_skill"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
-            padding: 0;
-            margin: 0;
         """)
-        layout.addWidget(header)
+        inner_layout.addWidget(header)
 
-        text_widget = self._create_text_widget(content)
-        layout.addWidget(text_widget)
+        text = QLabel(content)
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        text.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
+        """)
+        inner_layout.addWidget(text)
 
+        frame_layout.addWidget(inner)
         self._content_layout.addWidget(frame)
 
     def _add_text_widget(self, item: dict) -> None:
@@ -242,11 +282,23 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             return
 
         frame = self._create_item_frame(COLORS["success_muted"])
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(
-            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
         )
-        layout.setSpacing(SPACING["xs"])
+
+        inner = QFrame()
+        inner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+        """)
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(
+            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+        )
+        inner_layout.setSpacing(SPACING["xs"])
 
         header = QLabel("💬 Response")
         header.setStyleSheet(f"""
@@ -254,14 +306,22 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             color: {COLORS["success"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
-            padding: 0;
-            margin: 0;
         """)
-        layout.addWidget(header)
+        inner_layout.addWidget(header)
 
-        text_widget = self._create_text_widget(content)
-        layout.addWidget(text_widget)
+        text = QLabel(content)
+        text.setWordWrap(True)
+        text.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        text.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
+        """)
+        inner_layout.addWidget(text)
 
+        frame_layout.addWidget(inner)
         self._content_layout.addWidget(frame)
 
     def _add_tool_widget(self, item: dict) -> None:
@@ -274,11 +334,23 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
 
         bg_color = COLORS["error_muted"] if error else COLORS["type_command_bg"]
         frame = self._create_item_frame(bg_color)
-        layout = QVBoxLayout(frame)
-        layout.setContentsMargins(
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        )
+
+        inner = QFrame()
+        inner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border-radius: {RADIUS["md"]}px;
+            }}
+        """)
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(
             SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
         )
-        layout.setSpacing(SPACING["xs"])
+        inner_layout.setSpacing(SPACING["xs"])
 
         header_layout = QHBoxLayout()
         header_layout.setSpacing(SPACING["xs"])
@@ -286,6 +358,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         status_icon = "✓" if tool_status == "success" else "✗" if error else "◐"
         tool_label = QLabel(f"🔧 {tool_name}")
         tool_label.setStyleSheet(f"""
+            background: transparent;
             color: {COLORS["warning"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
@@ -299,37 +372,38 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
                 f"{status_icon} {self._format_duration(duration_ms)}"
             )
             duration_label.setStyleSheet(f"""
+                background: transparent;
                 color: {COLORS["text_secondary"]};
                 font-size: {FONTS["size_md"]}px;
             """)
             header_layout.addWidget(duration_label)
 
-        layout.addLayout(header_layout)
+        inner_layout.addLayout(header_layout)
 
         if arguments:
-            self._add_tool_section(layout, "Input", arguments, COLORS["bg_elevated"])
+            self._add_tool_section(inner_layout, "Input", arguments)
 
         if result:
-            result_color = COLORS["bg_elevated"] if not error else COLORS["error_muted"]
-            self._add_tool_section(layout, "Output", result, result_color)
+            self._add_tool_section(inner_layout, "Output", result)
 
         if error:
             error_label = QLabel(f"⚠️ Error: {error}")
             error_label.setStyleSheet(f"""
+                background: transparent;
                 color: {COLORS["error"]};
                 font-size: {FONTS["size_md"]}px;
                 font-weight: {FONTS["weight_semibold"]};
             """)
             error_label.setWordWrap(True)
-            layout.addWidget(error_label)
+            inner_layout.addWidget(error_label)
 
+        frame_layout.addWidget(inner)
         self._content_layout.addWidget(frame)
 
-    def _add_tool_section(
-        self, layout: QVBoxLayout, title: str, content: str, bg_color: str
-    ) -> None:
+    def _add_tool_section(self, layout: QVBoxLayout, title: str, content: str) -> None:
         section_label = QLabel(title)
         section_label.setStyleSheet(f"""
+            background: transparent;
             color: {COLORS["text_secondary"]};
             font-size: {FONTS["size_md"]}px;
             font-weight: {FONTS["weight_semibold"]};
@@ -352,17 +426,28 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         if len(display_content) > 500:
             display_content = display_content[:500] + "..."
 
-        content_widget = self._create_text_widget(display_content, bg_color=bg_color)
-        layout.addWidget(content_widget)
+        content_label = QLabel(display_content)
+        content_label.setWordWrap(True)
+        content_label.setTextInteractionFlags(
+            Qt.TextInteractionFlag.TextSelectableByMouse
+            | Qt.TextInteractionFlag.TextSelectableByKeyboard
+        )
+        content_label.setStyleSheet(f"""
+            background-color: {COLORS["bg_elevated"]};
+            color: {COLORS["text_primary"]};
+            border-radius: {RADIUS["sm"]}px;
+            padding: {SPACING["xs"]}px;
+            font-size: {FONTS["size_md"]}px;
+        """)
+        layout.addWidget(content_label)
 
-    def _create_item_frame(self, accent_color: str) -> QFrame:
+    def _create_item_frame(self, bg_color: str) -> QFrame:
         frame = QFrame()
         frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {COLORS["bg_surface"]};
+                background-color: {bg_color};
                 border: 1px solid {COLORS["border_strong"]};
-                border-left: 3px solid {accent_color};
-                border-radius: {RADIUS["md"]}px;
+                border-radius: {RADIUS["lg"]}px;
             }}
         """)
         return frame
