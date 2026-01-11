@@ -213,15 +213,18 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         frame = self._create_item_frame(COLORS["type_skill_bg"])
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
         )
         layout.setSpacing(SPACING["xs"])
 
         header = QLabel("🧠 Reasoning")
         header.setStyleSheet(f"""
+            background: transparent;
             color: {COLORS["type_skill"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
+            padding: 0;
+            margin: 0;
         """)
         layout.addWidget(header)
 
@@ -238,15 +241,18 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         frame = self._create_item_frame(COLORS["success_muted"])
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
         )
         layout.setSpacing(SPACING["xs"])
 
         header = QLabel("💬 Response")
         header.setStyleSheet(f"""
+            background: transparent;
             color: {COLORS["success"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
+            padding: 0;
+            margin: 0;
         """)
         layout.addWidget(header)
 

@@ -2091,8 +2091,10 @@ class SessionQueriesMixin:
                     p.reasoning_text,
                     p.duration_ms,
                     p.created_at,
-                    p.error_message
+                    p.error_message,
+                    m.role
                 FROM parts p
+                LEFT JOIN messages m ON p.message_id = m.id
                 WHERE p.session_id = ?
                   AND p.part_type IN ('reasoning', 'text', 'tool', 'step-start', 'step-finish')
                 ORDER BY p.created_at ASC
@@ -2103,6 +2105,10 @@ class SessionQueriesMixin:
             timeline = []
             for row in parts:
                 part_type = row[1]
+                role = row[11]
+
+                if part_type == "text" and role == "user":
+                    continue
 
                 item = {
                     "id": row[0],
