@@ -45,7 +45,6 @@ timeout_method = "thread"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
-    "legacy: old test style (to be migrated)",
     "unit: unit tests",
     "e2e: end-to-end tests",
 ]

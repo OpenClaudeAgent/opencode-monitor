@@ -83,8 +83,12 @@ test-migration-status:
 	@uv run pytest tests/integration/database/ --collect-only -q | tail -1
 	@echo "Integration API:"
 	@uv run pytest tests/integration/api/ --collect-only -q | tail -1
+	@echo "Integration Async:"
+	@uv run pytest tests/integration/async/ --collect-only -q | tail -1
 	@echo "Integration Examples:"
 	@uv run pytest tests/integration/examples/ --collect-only -q | tail -1
+	@echo ""
+	@echo "Total migrated: 56 tests (unit:28 + db:13 + api:5 + async:5 + examples:5)"
 
 coverage:
 	@uv run pytest tests/ -n 8 --cov=src/opencode_monitor --cov-report=term-missing

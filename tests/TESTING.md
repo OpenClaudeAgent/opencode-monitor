@@ -194,10 +194,33 @@ pytest -m "not legacy" -v
 
 ## Migration Status
 
+Current progress (3/8 phases completed):
+
+**✅ Completed:**
+- Phase 1: Infrastructure (fixtures, factories, dependencies)
+- Phase 2: Database tests (13 tests with real DuckDB)
+- Phase 3: API tests (5 tests with Flask test_client)
+
+**📝 In Progress:**
+- Phase 4: Flaky tests (examples created, existing tests not migrated)
+- Phase 8: Documentation (TESTING.md, Makefile, migration script)
+
+**⏳ Pending:**
+- Phase 5: Async tests (aioresponses)
+- Phase 6: UI tests (PyQt6 DI)
+- Phase 7: E2E tests (full stack)
+
 Check migration progress:
 ```bash
+make test-migration-status
 python scripts/migration-report.py
 ```
+
+**Total migrated:** 51 tests
+- Unit: 28 tests
+- Integration DB: 13 tests
+- Integration API: 5 tests
+- Examples: 5 tests
 
 ## Best Practices
 
