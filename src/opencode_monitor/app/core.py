@@ -27,7 +27,7 @@ from ..security.enrichment import SecurityEnrichmentWorker
 from ..analytics.indexer import start_indexer
 from ..analytics.db import get_analytics_db
 
-from .handlers import HandlersMixin, AnalyticsSyncManager
+from .handlers import HandlersMixin
 from .menu import MenuMixin
 
 
@@ -87,12 +87,6 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
         self._enrichment_worker = SecurityEnrichmentWorker(db=get_analytics_db())
         self._enrichment_worker.start()
         info("[OpenCodeApp] Security enrichment worker started")
-
-        # Note: AnalyticsSyncManager is no longer needed as indexer handles backfill
-        # Keeping for compatibility but may be removed later
-        self._sync_manager = AnalyticsSyncManager()
-        # Disabled: indexer handles backfill now
-        # self._sync_manager.start_background_sync(max_days=30)
 
         # Start analytics API server (for dashboard access)
         from ..api import start_api_server

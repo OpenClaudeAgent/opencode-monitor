@@ -253,27 +253,6 @@ class TestSyncStatePhaseTransitions:
             sync_state.set_phase(expected_phase)
             assert sync_state.phase == expected_phase
 
-    def test_is_bulk_complete_property(self, temp_db):
-        """Test is_bulk_complete returns correct values."""
-        sync_state = SyncState(temp_db)
-
-        # During bulk phases
-        sync_state.set_phase(SyncPhase.BULK_SESSIONS)
-        assert sync_state.is_bulk_complete is False
-
-        sync_state.set_phase(SyncPhase.BULK_MESSAGES)
-        assert sync_state.is_bulk_complete is False
-
-        sync_state.set_phase(SyncPhase.BULK_PARTS)
-        assert sync_state.is_bulk_complete is False
-
-        # After bulk
-        sync_state.set_phase(SyncPhase.PROCESSING_QUEUE)
-        assert sync_state.is_bulk_complete is True
-
-        sync_state.set_phase(SyncPhase.REALTIME)
-        assert sync_state.is_bulk_complete is True
-
     def test_is_realtime_property(self, temp_db):
         """Test is_realtime returns correct values."""
         sync_state = SyncState(temp_db)
@@ -548,19 +527,18 @@ class TestSyncStateIsReady:
         status = sync_state.get_status()
         assert status.is_ready is False
 
-    def test_ready_after_sessions_loaded(self, temp_db):
-        """Test is_ready is True once past BULK_SESSIONS."""
+    def test_ready_only_in_realtime(self, temp_db):
+        """Test is_ready is True only in REALTIME phase."""
         sync_state = SyncState(temp_db)
 
-        # After sessions are loaded
         sync_state.set_phase(SyncPhase.BULK_MESSAGES)
-        assert sync_state.get_status().is_ready is True
+        assert sync_state.get_status().is_ready is False
 
         sync_state.set_phase(SyncPhase.BULK_PARTS)
-        assert sync_state.get_status().is_ready is True
+        assert sync_state.get_status().is_ready is False
 
         sync_state.set_phase(SyncPhase.PROCESSING_QUEUE)
-        assert sync_state.get_status().is_ready is True
+        assert sync_state.get_status().is_ready is False
 
         sync_state.set_phase(SyncPhase.REALTIME)
         assert sync_state.get_status().is_ready is True

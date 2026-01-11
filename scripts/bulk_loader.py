@@ -12,11 +12,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional, Callable
 
-from ..db import AnalyticsDB
-from .sync_state import SyncState, SyncPhase
-from .file_processing import FileProcessingState
-from ...utils.logger import info, debug, error
-from .queries import (
+from opencode_monitor.analytics.db import AnalyticsDB
+from opencode_monitor.analytics.indexer.sync_state import SyncState, SyncPhase
+from opencode_monitor.analytics.indexer.file_processing import FileProcessingState
+from opencode_monitor.utils.logger import info, debug, error
+from bulk_queries import (
     LOAD_SESSIONS_SQL,
     LOAD_MESSAGES_SQL,
     LOAD_PARTS_SQL,

@@ -187,7 +187,7 @@ WHERE j IS NOT NULL
 # Tokens are initially 0 but will be backfilled by backfill_missing_tokens()
 # after messages are indexed
 CREATE_ROOT_TRACES_SQL = """
-INSERT OR IGNORE INTO agent_traces (
+INSERT OR REPLACE INTO agent_traces (
     trace_id, session_id, parent_trace_id, parent_agent, subagent_type,
     prompt_input, prompt_output, started_at, ended_at, duration_ms,
     tokens_in, tokens_out, status, child_session_id
@@ -202,7 +202,11 @@ SELECT
     NULL as prompt_output,
     s.created_at as started_at,
     s.updated_at as ended_at,
-    NULL as duration_ms,
+    CASE 
+        WHEN s.updated_at IS NOT NULL AND s.created_at IS NOT NULL 
+        THEN CAST(EXTRACT(EPOCH FROM (s.updated_at - s.created_at)) * 1000 AS INTEGER)
+        ELSE NULL 
+    END as duration_ms,
     COALESCE(token_agg.total_in, 0) as tokens_in,
     COALESCE(token_agg.total_out, 0) as tokens_out,
     'completed' as status,

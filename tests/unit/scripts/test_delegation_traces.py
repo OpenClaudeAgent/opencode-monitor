@@ -15,11 +15,17 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 
+import sys
+from pathlib import Path
+
 import pytest
+
+# Add scripts to path for bulk_loader import
+sys.path.insert(0, str(Path(__file__).parent.parent.parent.parent / "scripts"))
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer.sync_state import SyncState
-from opencode_monitor.analytics.indexer.bulk_loader import BulkLoader
+from bulk_loader import BulkLoader
 
 
 # === Fixtures ===

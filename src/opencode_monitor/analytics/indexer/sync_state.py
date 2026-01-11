@@ -202,8 +202,7 @@ class SyncState:
             if self._files_total > 0:
                 progress = (self._files_done / self._files_total) * 100
 
-            # Is ready for queries? (at least sessions are loaded)
-            is_ready = self._phase not in (SyncPhase.INIT, SyncPhase.BULK_SESSIONS)
+            is_ready = self._phase == SyncPhase.REALTIME
 
             return SyncStatus(
                 phase=self._phase,
@@ -238,11 +237,6 @@ class SyncState:
     def t0(self) -> Optional[float]:
         """Cutoff timestamp."""
         return self._t0
-
-    @property
-    def is_bulk_complete(self) -> bool:
-        """True if bulk loading is complete."""
-        return self._phase in (SyncPhase.PROCESSING_QUEUE, SyncPhase.REALTIME)
 
     @property
     def is_realtime(self) -> bool:

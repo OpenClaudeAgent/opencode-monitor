@@ -491,31 +491,16 @@ class DashboardWindow(QMainWindow):
         )
 
     def _fetch_tracing_data(self) -> None:
-        """Fetch tracing data from API (menubar serves data).
-
-        Uses the new /api/tracing/tree endpoint which returns a pre-built
-        hierarchy. No client-side aggregation needed anymore.
-
-        Performance optimization: Skips fetching during backfill to avoid
-        heavy queries while indexing is in progress.
-        """
+        """Fetch tracing data from API."""
         try:
             from ...api import get_api_client
 
             client = get_api_client()
 
-            # Check if API is available
             if not client.is_available:
                 debug("[Dashboard] API not available, menubar may not be running")
                 return
 
-            # Skip heavy tracing fetch during backfill
-            sync_status = client.get_sync_status()
-            if sync_status and sync_status.get("backfill_active", False):
-                debug("[Dashboard] Skipping tracing fetch - backfill in progress")
-                return
-
-            # Get hierarchical tree directly from API - no client-side aggregation
             session_hierarchy: list[dict] = client.get_tracing_tree(days=30) or []  # type: ignore[assignment]
 
             debug(

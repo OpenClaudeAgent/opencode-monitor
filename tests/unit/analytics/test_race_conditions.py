@@ -136,57 +136,6 @@ class TestRaceConditionScenarios:
 
         return session_file
 
-    def test_bulk_load_marks_files(self, temp_storage, analytics_db):
-        """Test that bulk loading marks files as processed."""
-        from opencode_monitor.analytics.indexer.bulk_loader import BulkLoader
-        from opencode_monitor.analytics.indexer.sync_state import SyncState
-
-        # Create files before T0
-        t0 = time.time()
-        file1 = self.create_session_file(temp_storage, "sess1", mtime=t0 - 10)
-        file2 = self.create_session_file(temp_storage, "sess2", mtime=t0 - 5)
-
-        # Create file after T0 (should not be loaded by bulk)
-        file3 = self.create_session_file(temp_storage, "sess3", mtime=t0 + 5)
-
-        # Run bulk load
-        sync_state = SyncState(analytics_db)
-        state = FileProcessingState(analytics_db)
-        loader = BulkLoader(analytics_db, temp_storage, sync_state)
-
-        loader.load_all(cutoff_time=t0)
-
-        # Verify files are marked automatically by bulk loader
-        assert state.is_already_processed(str(file1))
-        assert state.is_already_processed(str(file2))
-        # File after T0 should NOT be marked
-        assert not state.is_already_processed(str(file3))
-
-    def test_mark_bulk_files_processed(self, temp_storage, analytics_db):
-        """Test mark_bulk_files_processed method directly."""
-        from opencode_monitor.analytics.indexer.bulk_loader import BulkLoader
-        from opencode_monitor.analytics.indexer.sync_state import SyncState
-
-        # Create test files
-        t0 = time.time()
-        file1 = self.create_session_file(temp_storage, "sess1", mtime=t0 - 20)
-        file2 = self.create_session_file(temp_storage, "sess2", mtime=t0 - 10)
-        file3 = self.create_session_file(temp_storage, "sess3", mtime=t0 + 10)
-
-        # Create loader
-        sync_state = SyncState(analytics_db)
-        loader = BulkLoader(analytics_db, temp_storage, sync_state)
-
-        # Mark files processed
-        marked = loader.mark_bulk_files_processed(t0)
-        assert marked == 2  # Only file1 and file2 should be marked
-
-        # Verify via FileProcessingState
-        state = FileProcessingState(analytics_db)
-        assert state.is_already_processed(str(file1))
-        assert state.is_already_processed(str(file2))
-        assert not state.is_already_processed(str(file3))
-
     def test_concurrent_file_creation(self, temp_storage, analytics_db):
         """Test file created during bulk load is handled correctly."""
         state = FileProcessingState(analytics_db)

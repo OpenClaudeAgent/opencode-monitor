@@ -188,12 +188,9 @@ class TestHybridIndexerLifecycle:
         hybrid_indexer.start()
 
         try:
-            # Verify running state
             assert hybrid_indexer._running is True, "Should be running"
             assert hybrid_indexer._t0 is not None, "t0 should be set"
-            # Verify all components initialized
             assert hybrid_indexer._sync_state is not None, "sync_state should exist"
-            assert hybrid_indexer._bulk_loader is not None, "bulk_loader should exist"
             assert hybrid_indexer._watcher is not None, "watcher should exist"
             assert hybrid_indexer._tracker is not None, "tracker should exist"
             assert hybrid_indexer._parser is not None, "parser should exist"
@@ -248,11 +245,9 @@ class TestHybridIndexerLifecycle:
         hybrid_indexer.stop()
         assert hybrid_indexer._running is False, "Should not be running"
 
-    def test_watcher_only_mode_skips_bulk_loading(self, temp_storage, temp_db_path):
-        """Test watcher_only=True skips bulk loading and goes directly to realtime."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage, db_path=temp_db_path, watcher_only=True
-        )
+    def test_starts_in_realtime_mode(self, temp_storage, temp_db_path):
+        """Test indexer starts directly in realtime mode."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer.start()
 
         try:
@@ -261,24 +256,10 @@ class TestHybridIndexerLifecycle:
                 "Should be in REALTIME immediately"
             )
             assert status.is_ready is True, "Should be ready immediately"
-            assert indexer._bulk_thread is None, "Bulk thread should not be started"
             assert indexer._watcher is not None, "Watcher should be started"
             assert indexer._processor_thread is not None, (
                 "Processor thread should exist"
             )
-        finally:
-            indexer.stop()
-
-    def test_watcher_only_false_starts_bulk_loading(self, temp_storage, temp_db_path):
-        """Test watcher_only=False starts bulk loading."""
-        indexer = HybridIndexer(
-            storage_path=temp_storage, db_path=temp_db_path, watcher_only=False
-        )
-        indexer.start()
-
-        try:
-            assert indexer._bulk_thread is not None, "Bulk thread should be started"
-            assert indexer._watcher is not None, "Watcher should be started"
         finally:
             indexer.stop()
 
@@ -313,10 +294,8 @@ class TestHybridIndexerQueue:
         assert queued[1] == test_path, "Queued item should have correct path"
         assert len(queued) == 2, "Queued item should be a tuple of 2"
 
-    def test_files_processed_immediately_in_realtime(
-        self, setup_indexer_for_processing, temp_storage
-    ):
-        """Test that files are processed immediately in realtime mode."""
+    def test_files_queued_in_realtime(self, setup_indexer_for_processing, temp_storage):
+        """Test that files are queued for processing in realtime mode."""
         indexer = setup_indexer_for_processing
         indexer._sync_state = SyncState(indexer._db)
         indexer._sync_state.set_phase(SyncPhase.REALTIME)
@@ -333,31 +312,24 @@ class TestHybridIndexerQueue:
 
         indexer._on_file_event("session", file_path)
 
-        # Queue should be empty (processed directly)
-        assert indexer._event_queue.empty(), "Queue should be empty"
-        assert indexer._event_queue.qsize() == 0, "Queue size should be 0"
-        # Verify file was processed into DB
-        conn = indexer._db.connect()
-        result = conn.execute("SELECT id FROM sessions WHERE id = 'ses_001'").fetchone()
-        assert result is not None, "Session should be in database"
-        assert result[0] == "ses_001", "Session ID should match"
+        assert not indexer._event_queue.empty(), "File should be queued"
+        assert indexer._event_queue.qsize() == 1, "Queue size should be 1"
 
-    def test_queue_size_tracked_in_status(self, hybrid_indexer, temp_storage):
-        """Test queue size is reflected in sync status."""
+    def test_queue_size_in_stats(self, hybrid_indexer, temp_storage):
+        """Test queue size is reflected in stats."""
         hybrid_indexer._db = AnalyticsDB(hybrid_indexer._db._db_path)
         hybrid_indexer._db.connect()
         hybrid_indexer._sync_state = SyncState(hybrid_indexer._db)
-        hybrid_indexer._sync_state.set_phase(SyncPhase.BULK_SESSIONS)
+        hybrid_indexer._sync_state.set_phase(SyncPhase.REALTIME)
 
-        # Queue multiple files
         for i in range(5):
             test_path = temp_storage / "session" / f"test_{i}.json"
             test_path.parent.mkdir(parents=True, exist_ok=True)
             test_path.write_text("{}")
             hybrid_indexer._on_file_event("session", test_path)
 
-        status = hybrid_indexer.get_status()
-        assert status.queue_size == 5, "Queue size should be 5"
+        stats = hybrid_indexer.get_stats()
+        assert stats["queue_size"] == 5, "Queue size should be 5"
 
 
 # =============================================================================
@@ -402,13 +374,13 @@ class TestHybridIndexerStatus:
     @pytest.mark.parametrize(
         "phase,is_ready",
         [
+            pytest.param(SyncPhase.INIT, False, id="init_not_ready"),
             pytest.param(SyncPhase.BULK_SESSIONS, False, id="bulk_sessions_not_ready"),
-            pytest.param(SyncPhase.BULK_MESSAGES, True, id="bulk_messages_ready"),
             pytest.param(SyncPhase.REALTIME, True, id="realtime_ready"),
         ],
     )
     def test_is_ready_based_on_phase(self, temp_storage, temp_db_path, phase, is_ready):
-        """Test is_ready changes based on sync phase."""
+        """Test is_ready is True only in REALTIME phase."""
         indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer._db = AnalyticsDB(temp_db_path)
         indexer._db.connect()
@@ -523,48 +495,19 @@ class TestHybridIndexerProcessFile:
 
 
 class TestHybridIndexerIntegration:
-    """Integration tests for full workflow."""
+    """Integration tests for realtime workflow."""
 
-    def test_bulk_then_realtime_workflow(self, temp_storage, temp_db_path):
-        """Test complete workflow: bulk -> queue -> realtime."""
-        # Create initial data for bulk load
-        for i in range(3):
-            write_json_file(
-                temp_storage,
-                "session",
-                "proj_001",
-                f"ses_{i:03d}",
-                create_session_json(f"ses_{i:03d}"),
-            )
-
-        indexer = HybridIndexer(
-            storage_path=temp_storage, db_path=temp_db_path, watcher_only=False
-        )
+    def test_realtime_workflow(self, temp_storage, temp_db_path):
+        """Test realtime indexer starts immediately ready."""
+        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer.start()
-
-        timeout = 10
-        start = time.time()
-        realtime_reached = False
-
-        while time.time() - start < timeout:
-            status = indexer.get_status()
-            if status.phase == SyncPhase.REALTIME:
-                realtime_reached = True
-                break
-            time.sleep(0.05)
-
-        assert realtime_reached, (
-            f"Indexer did not reach REALTIME phase within {timeout}s"
-        )
 
         try:
             status = indexer.get_status()
             assert status.phase == SyncPhase.REALTIME, "Should be in realtime"
-            assert status.is_ready is True, "Should be ready"
-
-            conn = indexer._db.connect()
-            count = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()[0]
-            assert count >= 3, f"Should have at least 3 sessions, got {count}"
+            assert status.is_ready is True, "Should be ready immediately"
+            assert indexer._watcher is not None, "Watcher should be running"
+            assert indexer._processor_thread is not None, "Processor should be running"
         finally:
             indexer.stop()
 

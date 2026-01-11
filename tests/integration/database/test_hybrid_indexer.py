@@ -365,7 +365,7 @@ class TestHybridIndexerStatus:
         "phase,is_ready",
         [
             pytest.param(SyncPhase.BULK_SESSIONS, False, id="bulk_sessions_not_ready"),
-            pytest.param(SyncPhase.BULK_MESSAGES, True, id="bulk_messages_ready"),
+            pytest.param(SyncPhase.BULK_MESSAGES, False, id="bulk_messages_not_ready"),
             pytest.param(SyncPhase.REALTIME, True, id="realtime_ready"),
         ],
     )

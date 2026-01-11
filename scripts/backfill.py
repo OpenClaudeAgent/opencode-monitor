@@ -15,12 +15,15 @@ import sys
 import time
 from pathlib import Path
 
+# Add src to path for opencode_monitor imports
 sys.path.insert(0, str(Path(__file__).parent.parent / "src"))
+# Add scripts to path for local bulk_loader import
+sys.path.insert(0, str(Path(__file__).parent))
 
 from opencode_monitor.analytics.db import AnalyticsDB
-from opencode_monitor.analytics.indexer.bulk_loader import BulkLoader
 from opencode_monitor.analytics.indexer.sync_state import SyncState
 from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+from bulk_loader import BulkLoader
 
 
 OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
@@ -76,10 +79,30 @@ def run_backfill() -> int:
     start_time = time.time()
     cutoff_time = time.time()
 
-    print("Loading data...")
+    counts = bulk_loader.count_files()
+    total = sum(counts.values())
+    print(
+        f"Files to load: {total:,} ({counts['session']:,} sessions, {counts['message']:,} messages, {counts['part']:,} parts)"
+    )
     print("-" * 40)
 
-    results = bulk_loader.load_all(cutoff_time)
+    print("Loading sessions...", flush=True)
+    results = {"session": bulk_loader.load_sessions()}
+    print(
+        f"  Sessions: {results['session'].files_loaded:,} in {results['session'].duration_seconds:.1f}s"
+    )
+
+    print("Loading messages...", flush=True)
+    results["message"] = bulk_loader.load_messages()
+    print(
+        f"  Messages: {results['message'].files_loaded:,} in {results['message'].duration_seconds:.1f}s"
+    )
+
+    print("Loading parts (this may take a while)...", flush=True)
+    results["part"] = bulk_loader.load_parts()
+    print(
+        f"  Parts: {results['part'].files_loaded:,} in {results['part'].duration_seconds:.1f}s"
+    )
 
     total_loaded = sum(r.files_loaded for r in results.values())
     total_time = sum(r.duration_seconds for r in results.values())
