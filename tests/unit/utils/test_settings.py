@@ -109,8 +109,8 @@ class TestSettingsPersistence:
             )
             s1.save()
 
-            assert config_dir.is_dir() == True
-            assert config_file.is_file() == True
+            assert config_dir.is_dir()
+            assert config_file.is_file()
             with open(config_file) as f:
                 data1 = json.load(f)
             assert data1 == {

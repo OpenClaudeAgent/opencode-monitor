@@ -26,7 +26,7 @@ class TestRunInBackground:
         done.wait(timeout=1)
 
         assert results["thread_id"] != main_thread_id
-        assert results["daemon"] == True
+        assert results["daemon"]
 
     @pytest.mark.parametrize(
         "args,kwargs,expected",
@@ -85,12 +85,12 @@ class TestStartBackgroundTask:
         thread = start_background_task(task_function)
 
         assert type(thread).__name__ == "Thread"
-        assert thread.daemon == True
+        assert thread.daemon
 
         wait_result = started_event.wait(timeout=1)
-        assert wait_result == True
+        assert wait_result
 
         thread.join(timeout=1)
 
         assert results["thread_id"] != main_thread_id
-        assert results["started"] == True
+        assert results["started"]

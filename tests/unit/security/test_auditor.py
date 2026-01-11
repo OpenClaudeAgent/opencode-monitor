@@ -250,8 +250,8 @@ class TestSecurityAuditorInit:
     def test_init_creates_auditor(self, auditor_db):
         """Auditor initializes without errors."""
         auditor = SecurityAuditor(db=auditor_db)
-        assert auditor is not None
-        assert auditor._running is False
+        assert isinstance(auditor, SecurityAuditor)
+        assert not auditor._running
 
     def test_init_loads_stats(self, auditor):
         """Auditor loads stats from parts table."""
@@ -266,19 +266,19 @@ class TestSecurityAuditorInit:
 
     def test_start_stop_lifecycle(self, auditor):
         """Start and stop are idempotent no-ops in query-only mode."""
-        assert auditor._running is False
+        assert not auditor._running
 
         auditor.start()
-        assert auditor._running is True
+        assert auditor._running
 
         auditor.start()  # Idempotent
-        assert auditor._running is True
+        assert auditor._running
 
         auditor.stop()
-        assert auditor._running is False
+        assert not auditor._running
 
         auditor.stop()  # Idempotent
-        assert auditor._running is False
+        assert not auditor._running
 
 
 # =====================================================
@@ -504,7 +504,7 @@ class TestGlobalFunctions:
             mock_cls.return_value = mock_inst
 
             get_auditor()
-            assert auditor_core._auditor is not None
+            assert auditor_core._auditor is mock_inst
 
             stop_auditor()
             mock_inst.stop.assert_called_once()

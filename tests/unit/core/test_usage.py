@@ -47,7 +47,6 @@ class TestReadAuthToken:
         with patch("builtins.open", mock_open(read_data=json.dumps(auth_data))):
             result = read_auth_token()
 
-        assert result is not None, "Token should not be None"
         assert result == "test-token-123", "Token should match"
         assert isinstance(result, str), "Token should be a string"
 
@@ -118,7 +117,6 @@ class TestFetchUsage:
             result = fetch_usage()
 
         # Verify error state
-        assert result.error is not None, "Error should be set"
         assert result.error == "No auth token found", "Error message should match"
         # Verify five_hour defaults
         assert result.five_hour.utilization == 0, "five_hour utilization should be 0"
@@ -154,7 +152,6 @@ class TestFetchUsage:
                 result = fetch_usage()
 
         # Verify error handling
-        assert result.error is not None, "Error should be set"
         assert result.error == expected_error, f"Error should be '{expected_error}'"
         # Verify usage is zeroed on error
         assert result.five_hour.utilization == 0, "five_hour should be 0 on error"
@@ -190,7 +187,6 @@ class TestFetchUsage:
                 result = fetch_usage()
 
         # Verify error handling
-        assert result.error is not None, "Error should be set"
         assert result.error == expected_error, f"Error should be '{expected_error}'"
         # Verify structure is valid even on error
         assert hasattr(result, "five_hour"), "Should have five_hour attribute"

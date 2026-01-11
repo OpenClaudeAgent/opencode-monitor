@@ -513,7 +513,6 @@ class TestProjectsAndCodeStats:
         # Test get_project_stats
         stats = queries.get_project_stats(days=1)
         project_stat = next((s for s in stats if s.project_id == project_id), None)
-        assert project_stat is not None
         assert project_stat.sessions == 1
 
         # Test get_code_stats
@@ -917,7 +916,6 @@ class TestAgents:
         roles = queries._get_agent_roles(start_date, end_date)
         agent_role = next((r for r in roles if r.agent == role_type), None)
 
-        assert agent_role is not None
         assert agent_role.role == expected_role
 
     def test_agent_delegation_stats_with_fan_out(self, analytics_db, queries):
@@ -948,7 +946,6 @@ class TestAgents:
         roles = queries._get_agent_roles(start_date, end_date)
         hub_role = next((r for r in roles if r.agent == "hub"), None)
 
-        assert hub_role is not None
         assert hub_role.fan_out == 2.0
 
 
@@ -976,7 +973,6 @@ class TestDimensionStats:
         stats = queries._get_directory_stats(start_date, end_date)
         dir_stat = next((s for s in stats if s.directory == "/project/a"), None)
 
-        assert dir_stat is not None
         assert dir_stat.sessions == 2
 
     def test_model_stats_with_percentage(self, analytics_db, queries):

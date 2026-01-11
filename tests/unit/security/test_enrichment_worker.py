@@ -305,9 +305,8 @@ class TestEnrichmentResults:
             SELECT security_enriched_at FROM parts WHERE id = 'prt_001'
         """).fetchone()
 
-        assert result[0] is not None
-        # Timestamp should be between before and after
         enriched_at = result[0]
+        assert isinstance(enriched_at, datetime)
         assert before <= enriched_at <= after
 
     def test_only_security_tools_are_enriched(
@@ -337,7 +336,7 @@ class TestEnrichmentResults:
         """).fetchall()
 
         for part_id, enriched_at in result:
-            assert enriched_at is not None, f"{part_id} should be enriched"
+            assert isinstance(enriched_at, datetime), f"{part_id} should be enriched"
 
 
 # =============================================================================
@@ -423,7 +422,7 @@ class TestIncrementalEnrichment:
             SELECT security_enriched_at FROM parts WHERE id = 'prt_new_001'
         """).fetchone()
 
-        assert result[0] is not None
+        assert isinstance(result[0], datetime)
 
 
 # =============================================================================
@@ -540,7 +539,7 @@ class TestErrorHandling:
             SELECT security_enriched_at FROM parts WHERE id = 'prt_no_cmd'
         """).fetchone()
 
-        assert result[0] is not None  # Was processed
+        assert isinstance(result[0], datetime)
 
 
 # =============================================================================
