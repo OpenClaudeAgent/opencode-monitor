@@ -6,6 +6,8 @@ Covers:
 - Invalid inputs / boundary values
 - Error response format
 - Database error handling
+
+LEGACY: These tests use mocks. Migrated to tests/integration/api/ with real Flask app.
 """
 
 from datetime import datetime, timedelta
@@ -15,6 +17,8 @@ import pytest
 from flask import Flask
 
 from opencode_monitor.api.routes.sessions import sessions_bp
+
+pytestmark = pytest.mark.legacy
 
 
 # =============================================================================

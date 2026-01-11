@@ -347,6 +347,7 @@ def analytics_db_real(tmp_path):
 
 @pytest.fixture
 def flask_app_real(analytics_db_real):
+    import threading
     from flask import Flask
     from opencode_monitor.api.routes import (
         health_bp,
@@ -356,6 +357,9 @@ def flask_app_real(analytics_db_real):
         delegations_bp,
         security_bp,
     )
+    from opencode_monitor.api.routes._context import RouteContext
+    from opencode_monitor.analytics import TracingDataService
+    from unittest.mock import patch
 
     app = Flask(__name__)
     app.config.update(
@@ -364,15 +368,27 @@ def flask_app_real(analytics_db_real):
         }
     )
 
-    app.register_blueprint(health_bp)
-    app.register_blueprint(stats_bp)
-    app.register_blueprint(sessions_bp)
-    app.register_blueprint(tracing_bp)
-    app.register_blueprint(delegations_bp)
-    app.register_blueprint(security_bp)
+    context = RouteContext.get_instance()
+    service = TracingDataService(db=analytics_db_real)
+    context.configure(db_lock=threading.Lock(), get_service=lambda: service)
 
-    with app.app_context():
-        yield app
+    with patch(
+        "opencode_monitor.api.routes.sessions.get_analytics_db",
+        return_value=analytics_db_real,
+    ):
+        with patch(
+            "opencode_monitor.api.routes.stats.get_analytics_db",
+            return_value=analytics_db_real,
+        ):
+            app.register_blueprint(health_bp)
+            app.register_blueprint(stats_bp)
+            app.register_blueprint(sessions_bp)
+            app.register_blueprint(tracing_bp)
+            app.register_blueprint(delegations_bp)
+            app.register_blueprint(security_bp)
+
+            with app.app_context():
+                yield app
 
 
 @pytest.fixture
