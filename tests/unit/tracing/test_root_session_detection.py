@@ -37,7 +37,7 @@ class TestRootSessionDetection:
         node = TreeNodeData(raw=root_session_data)
 
         # Verify is_root is True
-        assert node.is_root is True, (
+        assert node.is_root, (
             f"Expected is_root=True for root session, got is_root={node.is_root}"
         )
 
@@ -80,7 +80,7 @@ class TestRootSessionDetection:
 
         # This should NOT be considered root - it's a delegation
         # The BUG: current code considers this root because parent_agent="user"
-        assert node.is_root is False, (
+        assert not node.is_root, (
             f"Expected is_root=False for child session with agent_type='executor', "
             f"got is_root={node.is_root}. "
             f"BUG: parent_agent='user' should not make this a root session."
@@ -119,9 +119,7 @@ class TestRootSessionDetection:
 
         node = TreeNodeData(raw=delegation_data)
 
-        assert node.is_root is False, (
-            f"Expected is_root=False for delegation between agents"
-        )
+        assert not node.is_root, f"Expected is_root=False for delegation between agents"
 
         factory = get_strategy_factory()
         strategy = factory.get(node.node_type)
@@ -154,7 +152,7 @@ class TestRootSessionDetection:
 
         node = TreeNodeData(raw=root_data)
 
-        assert node.is_root is True
+        assert node.is_root
 
         factory = get_strategy_factory()
         strategy = factory.get(node.node_type)
@@ -176,4 +174,4 @@ class TestRootSessionDetection:
             "agent_type": "tester",  # Normalement = NOT root
         }
         node = TreeNodeData(raw=data)
-        assert node.is_root is True, "Flag _is_tree_root should take priority"
+        assert node.is_root, "Flag _is_tree_root should take priority"

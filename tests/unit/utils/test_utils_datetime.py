@@ -14,7 +14,6 @@ class TestMsToDatetime:
         ts_ms = 1705320000000
         result = ms_to_datetime(ts_ms)
 
-        assert result is not None
         assert isinstance(result, datetime)
         assert result.year == 2024
         assert result.month == 1
@@ -38,7 +37,7 @@ class TestMsToDatetime:
 
         result = ms_to_datetime(ts_ms)
 
-        assert result is not None
+        assert isinstance(result, datetime)
         assert result.year == known_dt.year
         assert result.month == known_dt.month
         assert result.day == known_dt.day
@@ -51,8 +50,7 @@ class TestMsToDatetime:
         ts_ms = 1705320000500  # +500ms
         result = ms_to_datetime(ts_ms)
 
-        assert result is not None
-        # The microsecond should be 500000 (500ms = 500000us)
+        assert isinstance(result, datetime)
         assert result.microsecond == 500000
 
     def test_negative_timestamp(self):
@@ -61,7 +59,7 @@ class TestMsToDatetime:
         ts_ms = -86400000  # -1 day from epoch
         result = ms_to_datetime(ts_ms)
 
-        assert result is not None
+        assert isinstance(result, datetime)
         assert result.year == 1969
         assert result.month == 12
         assert result.day == 31
