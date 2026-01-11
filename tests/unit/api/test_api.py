@@ -168,7 +168,7 @@ class TestPaginate:
         data = list(range(100))
         result = service._paginate(data, page=1, per_page=10)
 
-        assert result["success"] is True
+        assert result["success"]  # Direct boolean assertion
         assert len(result["data"]) == 10
         assert result["data"] == list(range(10))
         assert result["meta"]["page"] == 1
@@ -233,7 +233,7 @@ class TestGetSessionsList:
         """Test sessions list with default pagination."""
         result = populated_service.get_sessions_list()
 
-        assert result["success"] is True
+        assert result["success"]  # Direct boolean assertion
         assert "data" in result
         assert "meta" in result
         assert result["meta"]["page"] == 1
@@ -250,7 +250,7 @@ class TestGetSessionsList:
         """Test sessions list with search filter."""
         result = populated_service.get_sessions_list(search="test1")
 
-        assert result["success"] is True
+        assert result["success"]  # Direct boolean assertion
         # Should match sessions with "test1" in title or directory
         for session in result["data"]:
             assert (
@@ -264,11 +264,13 @@ class TestGetSessionsList:
         """Test session items have all required fields."""
         result = populated_service.get_sessions_list()
 
-        assert len(result["data"]) > 0
+        # Verify we have exactly 25 sessions (from populated_db fixture)
+        assert len(result["data"]) == 25
         session = result["data"][0]
-        assert "id" in session
-        assert "title" in session
-        assert "directory" in session
+        # Verify specific field values for first session
+        assert session["id"] == "ses_000"
+        assert session["title"] == "Test Session 0"
+        assert session["directory"] == "/projects/test0"
         assert "created_at" in session
         assert "updated_at" in session
 
@@ -287,7 +289,7 @@ class TestGetTracesList:
         """Test traces list with default pagination."""
         result = populated_service.get_traces_list()
 
-        assert result["success"] is True
+        assert result["success"]  # Direct boolean assertion
         assert "data" in result
         assert "meta" in result
         assert result["meta"]["page"] == 1
@@ -305,12 +307,45 @@ class TestGetTracesList:
         """Test trace items have all required fields."""
         result = populated_service.get_traces_list()
 
-        assert len(result["data"]) > 0
+        # Verify we have exactly 30 traces (from populated_db fixture)
+        assert len(result["data"]) == 30
         trace = result["data"][0]
-        assert "trace_id" in trace
+        # Verify specific field values
+        assert trace["trace_id"] in [
+            "root_trace_000",
+            "root_trace_001",
+            "root_trace_002",
+            "root_trace_003",
+            "root_trace_004",
+            "root_trace_005",
+            "root_trace_006",
+            "root_trace_007",
+            "root_trace_008",
+            "root_trace_009",
+            "trace_010",
+            "trace_011",
+            "trace_012",
+            "trace_013",
+            "trace_014",
+            "trace_015",
+            "trace_016",
+            "trace_017",
+            "trace_018",
+            "trace_019",
+            "trace_020",
+            "trace_021",
+            "trace_022",
+            "trace_023",
+            "trace_024",
+            "trace_025",
+            "trace_026",
+            "trace_027",
+            "trace_028",
+            "trace_029",
+        ]
         assert "session_id" in trace
         assert "started_at" in trace
-        assert "status" in trace
+        assert trace["status"] in ["completed", "error"]
 
 
 # =============================================================================
@@ -325,7 +360,7 @@ class TestGetDelegationsList:
         """Test delegations list with default settings."""
         result = populated_service.get_delegations_list()
 
-        assert result["success"] is True
+        assert result["success"]  # Direct boolean assertion
         assert "data" in result
         assert "meta" in result
 
@@ -335,13 +370,15 @@ class TestGetDelegationsList:
         """Test delegation items have all required fields."""
         result = populated_service.get_delegations_list()
 
-        assert len(result["data"]) > 0
+        # Verify we have exactly 20 delegations (from populated_db fixture)
+        assert len(result["data"]) == 20
         delegation = result["data"][0]
-        assert "id" in delegation
-        assert "parent_session_id" in delegation
-        assert "parent_agent" in delegation
-        assert "child_agent" in delegation
-        assert "child_session_id" in delegation
+        # Verify specific field values for first delegation (id is returned as string)
+        assert delegation["id"] == "1"
+        assert delegation["parent_session_id"] == "ses_000"
+        assert delegation["parent_agent"] == "coordinator"
+        assert delegation["child_agent"] == "executor_0"
+        assert delegation["child_session_id"] == "child_ses_000"
         assert "created_at" in delegation
 
 
@@ -357,9 +394,12 @@ class TestGetTraceDetails:
         """Test getting details for existing trace."""
         result = populated_service.get_trace_details("root_trace_000")
 
-        assert result is not None
+        # Verify specific trace details
         assert result["trace_id"] == "root_trace_000"
-        assert "session_id" in result
+        assert result["session_id"] == "ses_000"
+        assert result["subagent_type"] == "executor"
+        # Status is "error" for traces where i % 5 == 0 (from populated_db fixture)
+        assert result["status"] in ["completed", "error"]
         assert "children" in result
         assert "tools" in result
 

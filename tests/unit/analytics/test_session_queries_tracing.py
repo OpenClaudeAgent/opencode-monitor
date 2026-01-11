@@ -184,8 +184,11 @@ class TestGetSessionFileParts:
         result = tracing_service.get_session_file_parts(session_id)
 
         file_with_url = next((f for f in result["files"] if f.get("data_url")), None)
-        assert file_with_url is not None
+        # Verify file exists and has all required fields
+        assert file_with_url["id"] in ["part-file-001", "part-file-002"]
         assert file_with_url["size_bytes"] > 0
+        assert "data_url" in file_with_url
+        assert file_with_url["data_url"].startswith("data:image/")
 
     def test_handles_missing_file_url(self, tracing_test_data, tracing_service):
         """Should handle files without data URLs gracefully."""
@@ -195,8 +198,11 @@ class TestGetSessionFileParts:
         file_without_url = next(
             (f for f in result["files"] if f.get("filename") == "unknown"), None
         )
-        assert file_without_url is not None
+        # Verify file exists with expected structure
+        assert file_without_url["id"] == "part-file-003"
+        assert file_without_url["filename"] == "unknown"
         assert "data_url" not in file_without_url
+        assert file_without_url["mime_type"] == "application/octet-stream"
 
     def test_summary_contains_mime_type_counts(
         self, tracing_test_data, tracing_service
@@ -243,7 +249,10 @@ class TestGetSessionMessagesEnhanced:
         messages = tracing_service.get_session_messages(session_id)
 
         error_msg = next((m for m in messages if m.get("error")), None)
-        assert error_msg is not None
+        # Verify error message structure
+        assert error_msg["message_id"] == "msg-003"
+        assert error_msg["role"] == "assistant"
+        assert error_msg["agent"] == "executor"
         assert error_msg["error"]["name"] == "RateLimitError"
         assert error_msg["error"]["data"] == '{"retry_after": 60}'
 
@@ -253,8 +262,11 @@ class TestGetSessionMessagesEnhanced:
         messages = tracing_service.get_session_messages(session_id)
 
         msg_with_root = next((m for m in messages if m.get("root_path")), None)
-        assert msg_with_root is not None
+        # Verify message with root_path
+        assert msg_with_root["message_id"] in ["msg-001", "msg-002", "msg-003"]
         assert msg_with_root["root_path"] == "/home/user/project"
+        assert msg_with_root["role"] in ["user", "assistant"]
+        assert msg_with_root["agent"] in ["main", "executor"]
 
     def test_returns_summary_title_when_present(
         self, tracing_test_data, tracing_service
@@ -264,8 +276,13 @@ class TestGetSessionMessagesEnhanced:
         messages = tracing_service.get_session_messages(session_id)
 
         msg_with_title = next((m for m in messages if m.get("summary_title")), None)
-        assert msg_with_title is not None
-        assert "summary_title" in msg_with_title
+        # Verify message with summary_title
+        assert msg_with_title["message_id"] in ["msg-001", "msg-002"]
+        assert msg_with_title["summary_title"] in [
+            "User asks about feature",
+            "Implementing feature",
+        ]
+        assert msg_with_title["role"] in ["user", "assistant"]
 
     def test_omits_error_when_not_present(self, tracing_test_data, tracing_service):
         """Should not include error key when no error occurred."""
@@ -273,8 +290,12 @@ class TestGetSessionMessagesEnhanced:
         messages = tracing_service.get_session_messages(session_id)
 
         normal_msg = next((m for m in messages if m["role"] == "user"), None)
-        assert normal_msg is not None
+        # Verify normal user message structure
+        assert normal_msg["message_id"] == "msg-001"
+        assert normal_msg["role"] == "user"
+        assert normal_msg["agent"] == "main"
         assert "error" not in normal_msg
+        assert normal_msg["tokens_in"] == 100
 
 
 # =============================================================================
@@ -291,8 +312,11 @@ class TestGetSessionToolOperationsEnhanced:
         operations = tracing_service.get_session_tool_operations(session_id)
 
         tool_with_title = next((op for op in operations if op.get("title")), None)
-        assert tool_with_title is not None
+        # Verify tool with title
+        assert tool_with_title["id"] == "part-tool-001"
+        assert tool_with_title["tool_name"] == "bash"
         assert tool_with_title["title"] == "List directory contents"
+        assert tool_with_title["status"] == "completed"
 
     def test_returns_result_summary_when_present(
         self, tracing_test_data, tracing_service
@@ -304,8 +328,11 @@ class TestGetSessionToolOperationsEnhanced:
         tool_with_summary = next(
             (op for op in operations if op.get("result_summary")), None
         )
-        assert tool_with_summary is not None
+        # Verify tool with result_summary
+        assert tool_with_summary["id"] == "part-tool-001"
+        assert tool_with_summary["tool_name"] == "bash"
         assert tool_with_summary["result_summary"] == "Found 15 files in directory"
+        assert tool_with_summary["status"] == "completed"
 
     def test_returns_cost_when_present(self, tracing_test_data, tracing_service):
         """Should include cost when present."""
@@ -313,8 +340,11 @@ class TestGetSessionToolOperationsEnhanced:
         operations = tracing_service.get_session_tool_operations(session_id)
 
         tool_with_cost = next((op for op in operations if op.get("cost")), None)
-        assert tool_with_cost is not None
+        # Verify tool with cost
+        assert tool_with_cost["id"] == "part-tool-001"
+        assert tool_with_cost["tool_name"] == "bash"
         assert tool_with_cost["cost"] == 0.0025
+        assert tool_with_cost["status"] == "completed"
 
     def test_returns_tokens_when_present(self, tracing_test_data, tracing_service):
         """Should include tokens object when present."""
@@ -322,9 +352,12 @@ class TestGetSessionToolOperationsEnhanced:
         operations = tracing_service.get_session_tool_operations(session_id)
 
         tool_with_tokens = next((op for op in operations if op.get("tokens")), None)
-        assert tool_with_tokens is not None
+        # Verify tool with tokens
+        assert tool_with_tokens["id"] == "part-tool-001"
+        assert tool_with_tokens["tool_name"] == "bash"
         assert tool_with_tokens["tokens"]["input"] == 50
         assert tool_with_tokens["tokens"]["output"] == 100
+        assert tool_with_tokens["status"] == "completed"
 
     def test_omits_optional_fields_when_not_present(
         self, tracing_test_data, tracing_service
@@ -334,7 +367,10 @@ class TestGetSessionToolOperationsEnhanced:
         operations = tracing_service.get_session_tool_operations(session_id)
 
         basic_tool = next((op for op in operations if op["tool_name"] == "read"), None)
-        assert basic_tool is not None
+        # Verify basic tool structure
+        assert basic_tool["id"] == "part-tool-002"
+        assert basic_tool["tool_name"] == "read"
+        assert basic_tool["status"] == "completed"
         assert "title" not in basic_tool
         assert "result_summary" not in basic_tool
         assert "cost" not in basic_tool
@@ -389,8 +425,13 @@ class TestSessionQueriesEdgeCases:
         ).as_text("Hello").insert()
 
         messages = tracing_service.get_session_messages(session_id)
-        assert len(messages) >= 1
+        # Verify exact message count and structure
+        assert len(messages) == 1
+        assert messages[0]["message_id"] == "msg-null"
+        assert messages[0]["role"] == "user"
+        assert messages[0]["agent"] == "main"
         assert "error" not in messages[0]
+        assert messages[0]["tokens_in"] == 100
 
     def test_tool_operations_order_by_created_at(self, analytics_db, tracing_service):
         """Should return tool operations ordered by created_at ASC."""

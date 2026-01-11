@@ -762,7 +762,9 @@ class TestLoadOpencodeData:
         assert result.get("skills", 0) == 0
         assert result.get("delegations", 0) == 0
 
-    def test_clear_vs_preserve_data_behavior(self, temp_db: AnalyticsDB, storage_path: Path):
+    def test_clear_vs_preserve_data_behavior(
+        self, temp_db: AnalyticsDB, storage_path: Path
+    ):
         """Tests clear_first=True vs False behavior."""
         # Pre-populate database
         conn = temp_db.connect()
@@ -822,7 +824,9 @@ class TestLoadOpencodeData:
         )
 
         # Test with skip_parts=True (default)
-        result1 = load_opencode_data(db=temp_db, storage_path=storage_path, clear_first=True)
+        result1 = load_opencode_data(
+            db=temp_db, storage_path=storage_path, clear_first=True
+        )
 
         assert result1["sessions"] == 1
         assert result1["messages"] == 1
@@ -839,7 +843,9 @@ class TestLoadOpencodeData:
         # All tool-type parts loaded (bash + skill + task = 3 parts)
         assert result2["parts"] == 3
 
-    def test_uses_defaults_when_not_provided(self, temp_db: AnalyticsDB, storage_path: Path):
+    def test_uses_defaults_when_not_provided(
+        self, temp_db: AnalyticsDB, storage_path: Path
+    ):
         """Uses default storage path and creates DB when not provided."""
         (storage_path / "session").mkdir()
 
@@ -1098,9 +1104,11 @@ class TestGetFirstUserMessage:
             )
         )
         result_full = get_first_user_message(message_dir, "ses_full")
-        assert result_full is not None
+        # Verify complete message content
         assert "Implement feature X" in result_full
         assert "Please add tests" in result_full
+        # Verify exact format (title + blank line + body)
+        assert result_full == "Implement feature X\n\nPlease add tests"
 
         # Scenario 4: Title only (empty body)
         ses_title_dir = message_dir / "ses_title"
@@ -1145,8 +1153,8 @@ class TestGetFirstUserMessage:
             )
         )
         result_multi = get_first_user_message(message_dir, "ses_multi")
-        assert result_multi is not None
-        assert "First message" in result_multi
+        # Verify first message is returned (chronologically)
+        assert result_multi == "First message"
         assert "Second message" not in result_multi
 
 
@@ -1350,14 +1358,19 @@ class TestLoadTracesWithRootSessions:
 
         # Verify root traces
         root_traces = conn.execute(
-            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id LIKE 'root_%'"
+            "SELECT trace_id, subagent_type, session_id FROM agent_traces WHERE trace_id LIKE 'root_%'"
         ).fetchall()
-        assert len(root_traces) >= 1
+        assert len(root_traces) == 1
+        assert root_traces[0][0].startswith("root_")
         assert root_traces[0][1] == ROOT_AGENT_TYPE
+        assert root_traces[0][2] == "ses_root"
 
         # Verify delegation traces
         delegation_traces = conn.execute(
-            "SELECT trace_id, subagent_type FROM agent_traces WHERE trace_id NOT LIKE 'root_%'"
+            "SELECT trace_id, subagent_type, session_id, child_session_id FROM agent_traces WHERE trace_id NOT LIKE 'root_%'"
         ).fetchall()
-        assert len(delegation_traces) >= 1
+        assert len(delegation_traces) == 1
+        assert delegation_traces[0][0] == "prt_del"
         assert delegation_traces[0][1] == "tester"
+        assert delegation_traces[0][2] == "ses_root"
+        assert delegation_traces[0][3] == "ses_child"

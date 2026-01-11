@@ -307,45 +307,35 @@ class TestSessionOverviewPanelTokensLoading:
 class TestSessionOverviewPanelFilesLoading:
     """Tests for SessionOverviewPanel files loading from API."""
 
-    def test_load_files_from_api_extracts_files_with_stats(self, qtbot):
+    def test_load_files_from_api_extracts_files_list(self, qtbot):
         """Test that _load_files_from_api extracts files_with_stats from API response."""
         from unittest.mock import Mock, patch
 
         panel = SessionOverviewPanel()
 
-        mock_files = [
-            {
-                "path": "/path/to/file1.py",
-                "operation": "read",
-                "additions": 0,
-                "deletions": 0,
-            },
-            {
-                "path": "/path/to/file2.py",
-                "operation": "read",
-                "additions": 0,
-                "deletions": 0,
-            },
-            {
-                "path": "/path/to/output.py",
-                "operation": "write",
-                "additions": 5,
-                "deletions": 2,
-            },
-        ]
         mock_client = Mock()
         mock_client.is_available = True
         mock_client.get_session_files.return_value = {
-            "details": {"files_with_stats": mock_files}
+            "details": {
+                "files_with_stats": [
+                    {"file": "/path/to/file1.py", "type": "read"},
+                    {"file": "/path/to/file2.py", "type": "read"},
+                    {"file": "/path/to/output.py", "type": "write"},
+                ]
+            }
         }
 
         with patch(
             "opencode_monitor.api.get_api_client",
             return_value=mock_client,
         ):
-            result = panel._load_files_from_api("ses_test")
+            files_list = panel._load_files_from_api("ses_test")
 
-        assert result == mock_files
+        assert files_list == [
+            {"file": "/path/to/file1.py", "type": "read"},
+            {"file": "/path/to/file2.py", "type": "read"},
+            {"file": "/path/to/output.py", "type": "write"},
+        ]
         mock_client.get_session_files.assert_called_once_with("ses_test")
 
     def test_load_files_from_api_returns_empty_when_unavailable(self, qtbot):
@@ -361,9 +351,9 @@ class TestSessionOverviewPanelFilesLoading:
             "opencode_monitor.api.get_api_client",
             return_value=mock_client,
         ):
-            result = panel._load_files_from_api("ses_test")
+            files_list = panel._load_files_from_api("ses_test")
 
-        assert result == []
+        assert files_list == []
 
     def test_load_files_from_api_returns_empty_on_no_data(self, qtbot):
         """Test that _load_files_from_api returns empty list when API returns None."""
@@ -379,6 +369,6 @@ class TestSessionOverviewPanelFilesLoading:
             "opencode_monitor.api.get_api_client",
             return_value=mock_client,
         ):
-            result = panel._load_files_from_api("ses_test")
+            files_list = panel._load_files_from_api("ses_test")
 
-        assert result == []
+        assert files_list == []

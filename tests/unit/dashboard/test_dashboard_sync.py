@@ -87,15 +87,15 @@ class TestSyncChecker:
 
         try:
             # Verify initial state
-            assert checker._timer is not None
-            assert checker._timer.isActive() is True
-            assert checker._on_sync is not None
+            assert checker._timer.interval() == SyncChecker.POLL_FAST_MS
+            assert checker._timer.isActive()
+            assert callable(checker._on_sync)
             assert checker._known_sync is None  # No sync detected yet
             assert checker._last_change_time > 0
 
             # Stop and verify cleanup
             checker.stop()
-            assert checker._timer.isActive() is False
+            assert not checker._timer.isActive()
         finally:
             checker.stop()
 
@@ -109,23 +109,23 @@ class TestSyncChecker:
         try:
             # First check initializes _known_sync but skips callback
             checker._check()
-            assert len(callback_calls) == 0
+            assert callback_calls == []
             assert checker._known_sync == 0
 
             # Same count - no callback
             checker._check()
-            assert len(callback_calls) == 0
+            assert callback_calls == []
 
             # Count changes - callback triggered
             mock_api_client.get_stats.return_value = {"sessions": 10}
             checker._check()
-            assert len(callback_calls) == 1
+            assert callback_calls == [True]
             assert checker._known_sync == 10
 
             # Another change
             mock_api_client.get_stats.return_value = {"sessions": 15}
             checker._check()
-            assert len(callback_calls) == 2
+            assert callback_calls == [True, True]
             assert checker._known_sync == 15
         finally:
             checker.stop()
@@ -143,7 +143,9 @@ class TestDashboardReadOnly:
         """DashboardWindow uses SyncChecker, not legacy sync attributes."""
         # New architecture: has SyncChecker
         assert hasattr(dashboard_window, "_sync_checker")
-        assert dashboard_window._sync_checker is not None
+        from opencode_monitor.dashboard.window import SyncChecker
+
+        assert isinstance(dashboard_window._sync_checker, SyncChecker)
 
         # Legacy attributes removed
         assert not hasattr(dashboard_window, "_sync_config")
@@ -154,11 +156,11 @@ class TestDashboardReadOnly:
         sync_checker = dashboard_window._sync_checker
 
         # Timer active before close
-        assert sync_checker._timer.isActive() is True
+        assert sync_checker._timer.isActive()
 
         # Close triggers timer stop
         dashboard_window.close()
-        assert sync_checker._timer.isActive() is False
+        assert not sync_checker._timer.isActive()
 
 
 # =============================================================================
@@ -213,16 +215,16 @@ class TestSyncCheckerIntegration:
                 try:
                     # Initial check skips callback (avoids duplicate refresh)
                     checker._check()
-                    assert len(refresh_calls) == 0
+                    assert refresh_calls == []
 
                     # Session count change triggers refresh
                     mock_api_client.get_stats.return_value = {"sessions": 5}
                     checker._check()
-                    assert len(refresh_calls) == 1
+                    assert refresh_calls == [1]
 
                     # Another change triggers another refresh
                     mock_api_client.get_stats.return_value = {"sessions": 10}
                     checker._check()
-                    assert len(refresh_calls) == 2
+                    assert refresh_calls == [1, 1]
                 finally:
                     checker.stop()

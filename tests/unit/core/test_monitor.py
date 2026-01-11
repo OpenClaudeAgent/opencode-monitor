@@ -669,12 +669,12 @@ class TestFetchInstance:
             assert main_agent.tools[0].name == "bash"
             assert main_agent.tools[0].arg == "npm test"
             assert main_agent.parent_id is None
-            assert main_agent.is_subagent is False
+            assert not main_agent.is_subagent
 
             sub_agent = next(a for a in instance.agents if a.id == "ses_sub")
             assert sub_agent.title == "Sub-agent"
             assert sub_agent.parent_id == "ses_main"
-            assert sub_agent.is_subagent is True
+            assert sub_agent.is_subagent
 
             assert pending == 2
             assert in_progress == 1
@@ -784,7 +784,7 @@ class TestFetchAllInstances:
         ):
             state = await fetch_all_instances()
 
-            assert state.connected is False
+            assert not state.connected
             assert state.instances == []
 
     @pytest.mark.asyncio
@@ -826,7 +826,7 @@ class TestFetchAllInstances:
             ):
                 state = await fetch_all_instances()
 
-                assert state.connected is True
+                assert state.connected
                 assert len(state.instances) == 2
                 assert state.instances[0].port == 8080
                 assert state.todos.pending == 5  # 2 + 3
@@ -856,7 +856,7 @@ class TestFetchAllInstances:
             ):
                 state = await fetch_all_instances()
 
-                assert state.connected is True
+                assert state.connected
                 assert len(state.instances) == 1
                 assert state.instances[0].port == 8080
 
@@ -897,7 +897,7 @@ class TestFetchAllInstances:
 
                     assert len(state.instances[0].agents) == 1
                     assert state.instances[0].agents[0].id == "known_session"
-                    assert state.instances[0].agents[0].has_pending_ask_user is True
+                    assert state.instances[0].agents[0].has_pending_ask_user
                     assert state.instances[0].agents[0].status == SessionStatus.IDLE
 
     @pytest.mark.asyncio
@@ -993,12 +993,12 @@ class TestAskUserResult:
         """Test default values and custom title"""
         # Default
         result_default = AskUserResult(has_pending=False)
-        assert result_default.has_pending is False
+        assert not result_default.has_pending
         assert result_default.title == ""
 
         # Custom
         result_custom = AskUserResult(has_pending=True, title="User input needed")
-        assert result_custom.has_pending is True
+        assert result_custom.has_pending
         assert result_custom.title == "User input needed"
 
 
@@ -1241,7 +1241,7 @@ class TestHasActivityAfterNotify:
             recent_messages=[(2500, "msg_missing", "assistant")],
             part_dir=part_dir,
         )
-        assert result is False
+        assert not result
 
         # Create malformed part file
         msg_part_dir = part_dir / "msg_malformed"
@@ -1253,7 +1253,7 @@ class TestHasActivityAfterNotify:
             recent_messages=[(2500, "msg_malformed", "assistant")],
             part_dir=part_dir,
         )
-        assert result is False
+        assert not result
 
 
 # ===========================================================================
@@ -1271,7 +1271,7 @@ class TestCheckPendingAskUserFromDisk:
             session_id="nonexistent",
             storage_path=tmp_path,
         )
-        assert result.has_pending is False
+        assert not result.has_pending
         assert result.title == ""
 
         # Empty directory
@@ -1283,7 +1283,7 @@ class TestCheckPendingAskUserFromDisk:
             session_id="empty_session",
             storage_path=tmp_path,
         )
-        assert result.has_pending is False
+        assert not result.has_pending
 
     def test_returns_true_when_pending_notify_found(self, tmp_path):
         """Return has_pending=True when pending notify_ask_user found"""
@@ -1325,7 +1325,7 @@ class TestCheckPendingAskUserFromDisk:
             storage_path=tmp_path,
         )
 
-        assert result.has_pending is True
+        assert result.has_pending
         assert result.title == "Waiting for user"
 
     def test_returns_false_when_user_responded(self, tmp_path):
@@ -1382,7 +1382,7 @@ class TestCheckPendingAskUserFromDisk:
             storage_path=tmp_path,
         )
 
-        assert result.has_pending is False
+        assert not result.has_pending
 
     def test_respects_timeout_setting(self, tmp_path):
         """Notifications older than timeout are ignored"""
@@ -1438,7 +1438,7 @@ class TestCheckPendingAskUserFromDisk:
                 session_id="session_1",
                 storage_path=tmp_path,
             )
-            assert result.has_pending is False
+            assert not result.has_pending
 
         # With 1 hour timeout: should find it
         mock_settings.ask_user_timeout = 60 * 60
@@ -1451,7 +1451,7 @@ class TestCheckPendingAskUserFromDisk:
                 session_id="session_1",
                 storage_path=tmp_path,
             )
-            assert result.has_pending is True
+        assert result.has_pending
 
     def test_handles_exception_gracefully(self, tmp_path):
         """Handle exceptions during file scanning gracefully"""
@@ -1467,4 +1467,4 @@ class TestCheckPendingAskUserFromDisk:
                 storage_path=tmp_path,
             )
 
-            assert result.has_pending is False
+            assert not result.has_pending

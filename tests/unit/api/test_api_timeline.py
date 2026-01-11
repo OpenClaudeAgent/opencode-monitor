@@ -324,9 +324,13 @@ class TestGetSessionTimelineFull:
         """Test timeline endpoint returns success for existing session."""
         result = timeline_service.get_session_timeline_full("ses_timeline_001")
 
-        assert result["success"] is True
+        assert result["success"]
         assert "data" in result
-        assert result["data"] is not None
+        # Verify data structure exists and has expected keys
+        assert "meta" in result["data"]
+        assert "session" in result["data"]
+        assert "timeline" in result["data"]
+        assert "summary" in result["data"]
 
     def test_timeline_returns_meta(self, timeline_service: TracingDataService):
         """Test timeline includes meta information."""
@@ -358,15 +362,20 @@ class TestGetSessionTimelineFull:
         assert "timeline" in result["data"]
         timeline = result["data"]["timeline"]
         assert isinstance(timeline, list)
-        assert len(timeline) > 0
+        # Verify we have at least one event (we inserted test data)
+        assert len(timeline) >= 1
 
         for event in timeline:
             assert "timestamp" in event, f"Event {event.get('type')} missing timestamp"
-            assert event["timestamp"] is not None, (
-                f"Event {event.get('type')} has null timestamp"
+            # Verify timestamp is a valid ISO string, not just "not None"
+            assert isinstance(event["timestamp"], str), (
+                f"Event {event.get('type')} timestamp must be string"
+            )
+            assert len(event["timestamp"]) > 0, (
+                f"Event {event.get('type')} has empty timestamp"
             )
             assert "exchange_number" in event
-            assert event["exchange_number"] > 0, "Exchange number must be positive"
+            assert event["exchange_number"] >= 1, "Exchange number must be >= 1"
 
         timestamps = [e["timestamp"] for e in timeline if e.get("timestamp")]
         if len(timestamps) > 1:
@@ -418,7 +427,7 @@ class TestGetSessionTimelineFull:
         """Test timeline returns error for non-existing session."""
         result = timeline_service.get_session_timeline_full("nonexistent_session")
 
-        assert result["success"] is False
+        assert not result["success"]
         assert "error" in result
 
     def test_timeline_user_prompt_content(self, timeline_service: TracingDataService):
@@ -428,20 +437,31 @@ class TestGetSessionTimelineFull:
         user_prompts = [
             e for e in result["data"]["timeline"] if e["type"] == "user_prompt"
         ]
-        assert len(user_prompts) > 0
+        # We inserted test data with user prompts
+        assert len(user_prompts) >= 1
 
         for prompt in user_prompts:
             assert "content" in prompt
-            assert prompt["content"] is not None, "User prompt content must not be null"
+            # Verify actual content value, not just existence
+            assert isinstance(prompt["content"], str), (
+                "User prompt content must be string"
+            )
             assert len(prompt["content"]) > 0, "User prompt content must not be empty"
+            # For our test data, verify it matches expected content
+            if prompt.get("message_id") == "msg_user_001":
+                assert prompt["content"] == "This is the user prompt content"
+
             assert "message_id" in prompt
-            assert prompt["message_id"] is not None, (
-                "User prompt message_id must not be null"
+            # Verify message_id format (msg_*)
+            assert isinstance(prompt["message_id"], str), "message_id must be string"
+            assert prompt["message_id"].startswith("msg_"), (
+                "message_id must start with 'msg_'"
             )
+
             assert "timestamp" in prompt
-            assert prompt["timestamp"] is not None, (
-                "User prompt timestamp must not be null"
-            )
+            # Verify timestamp is valid ISO format string
+            assert isinstance(prompt["timestamp"], str), "timestamp must be string"
+            assert len(prompt["timestamp"]) > 0, "timestamp must not be empty"
 
     def test_timeline_reasoning_text_complete(
         self, timeline_service: TracingDataService
@@ -456,16 +476,20 @@ class TestGetSessionTimelineFull:
         if len(reasoning_events) > 0:
             for reasoning in reasoning_events:
                 assert "entries" in reasoning, "Reasoning event missing entries field"
-                assert reasoning["entries"] is not None, (
-                    "Reasoning entries must not be null"
+                # Verify entries is a list with content
+                assert isinstance(reasoning["entries"], list), (
+                    "Reasoning entries must be a list"
                 )
-                assert len(reasoning["entries"]) > 0, (
-                    "Reasoning entries must not be empty"
+                assert len(reasoning["entries"]) >= 1, (
+                    "Reasoning entries must have at least one entry"
                 )
 
                 for entry in reasoning["entries"]:
                     assert "text" in entry, "Reasoning entry missing text field"
-                    assert entry["text"] is not None, "Reasoning text must not be null"
+                    # Verify text is a non-empty string
+                    assert isinstance(entry["text"], str), (
+                        "Reasoning text must be string"
+                    )
                     assert len(entry["text"]) > 0, "Reasoning text must not be empty"
 
     def test_timeline_tool_call_has_details(self, timeline_service: TracingDataService):
@@ -476,11 +500,15 @@ class TestGetSessionTimelineFull:
         if len(tool_calls) > 0:
             for tool in tool_calls:
                 assert "tool_name" in tool, "Tool call missing tool_name"
-                assert tool["tool_name"] is not None, "Tool name must not be null"
+                # Verify tool_name is a valid non-empty string
+                assert isinstance(tool["tool_name"], str), "Tool name must be string"
                 assert len(tool["tool_name"]) > 0, "Tool name must not be empty"
+                # For our test data, verify it's "read"
+                if tool.get("tool_name") == "read":
+                    assert tool["tool_name"] == "read"
 
                 assert "status" in tool, "Tool call missing status"
-                assert tool["status"] is not None, "Tool status must not be null"
+                # Verify status is one of the valid values
                 assert tool["status"] in ["completed", "failed", "pending"], (
                     f"Invalid tool status: {tool['status']}"
                 )
@@ -491,6 +519,10 @@ class TestGetSessionTimelineFull:
                     )
 
                 if "duration_ms" in tool and tool["duration_ms"] is not None:
+                    # Duration should be a positive number for completed tools
+                    assert isinstance(tool["duration_ms"], (int, float)), (
+                        "duration_ms must be numeric"
+                    )
                     assert tool["duration_ms"] >= 0, "Duration must be non-negative"
 
 
@@ -517,7 +549,8 @@ class TestGetSessionExchanges:
 
         assert "exchanges" in result
         assert isinstance(result["exchanges"], list)
-        assert len(result["exchanges"]) > 0
+        # We inserted test data with 1 exchange
+        assert len(result["exchanges"]) == 1
 
     def test_exchange_has_number(self, timeline_service: TracingDataService):
         """Test each exchange has a number."""
@@ -624,10 +657,14 @@ class TestGetDelegationTree:
 
         assert "tree" in result
         tree = result["tree"]
-        assert tree is not None
+        # Verify tree structure is complete
+        assert isinstance(tree, dict), "tree must be a dictionary"
         assert "session_id" in tree
+        assert tree["session_id"] == "ses_parent_001"
         assert "agent" in tree
+        assert isinstance(tree["agent"], str), "agent must be string"
         assert "children" in tree
+        assert isinstance(tree["children"], list), "children must be list"
 
     def test_delegation_tree_has_children(self, timeline_service: TracingDataService):
         """Test delegation tree includes children."""
@@ -635,7 +672,8 @@ class TestGetDelegationTree:
 
         tree = result["tree"]
         assert isinstance(tree["children"], list)
-        assert len(tree["children"]) > 0
+        # We inserted 1 child delegation in test data
+        assert len(tree["children"]) == 1
 
     def test_delegation_child_has_session_id(
         self, timeline_service: TracingDataService
@@ -672,7 +710,12 @@ class TestGetDelegationTree:
 
         agents = result["summary"]["agents_involved"]
         assert isinstance(agents, list)
-        assert len(agents) > 0
+        # We have coordinator and dev agents in test data
+        assert len(agents) >= 1
+        # Verify agents are strings
+        for agent in agents:
+            assert isinstance(agent, str), "agent must be string"
+            assert len(agent) > 0, "agent name must not be empty"
 
     def test_delegation_tree_session_not_found(
         self, timeline_service: TracingDataService

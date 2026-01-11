@@ -628,8 +628,10 @@ class TestDelegations:
 
         # Test chains
         chains = queries._get_agent_chains(start_date, end_date)
-        assert len(chains) >= 1
-        assert any("executor -> tester" in c.chain for c in chains)
+        assert len(chains) == 2
+        chain_strs = [c.chain for c in chains]
+        assert "executor -> tester" in chain_strs
+        assert "executor -> quality" in chain_strs
 
     def test_delegation_sessions_requires_multiple(self, analytics_db, queries):
         """_get_delegation_sessions only returns sessions with 2+ delegations."""
@@ -1140,16 +1142,16 @@ class TestTimeSeries:
 
         # Test hourly usage
         hourly = queries._get_hourly_usage(start_date, end_date)
-        assert len(hourly) >= 1
+        assert len(hourly) == 1
         assert hourly[0].hour == now.hour
 
         # Test hourly delegations
         hourly_del = queries._get_hourly_delegations(start_date, end_date)
-        assert len(hourly_del) >= 1
+        assert len(hourly_del) == 1
 
         # Test daily stats
         daily = queries._get_daily_stats(start_date, end_date)
-        assert len(daily) >= 1
+        assert len(daily) == 1
 
 
 # =============================================================================

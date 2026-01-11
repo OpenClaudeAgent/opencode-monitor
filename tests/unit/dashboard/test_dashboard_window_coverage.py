@@ -198,7 +198,7 @@ class TestLauncherShowDashboard:
             assert "opencode_monitor.dashboard" in call_args[0][0], (
                 "Should launch dashboard module"
             )
-            assert call_args[1]["start_new_session"] is True, "Should start new session"
+            assert call_args[1]["start_new_session"] == True, "Should start new session"
 
             # Verify process management
             if mock_existing and should_terminate:
@@ -328,7 +328,9 @@ class TestDashboardDataHandlers:
         assert "agents" in call_kwargs, "Should have agents"
         assert call_kwargs["agents"] == agents
         assert call_kwargs["busy"] == agents
-        assert "waiting" in call_kwargs, "Should have waiting"
+        assert call_kwargs["waiting"] == 0
+        assert call_kwargs["idle"] == 0
+        assert call_kwargs["todos"] == 0
 
         # Verify sidebar status
         window._sidebar.set_status.assert_called_once()
@@ -355,9 +357,11 @@ class TestDashboardDataHandlers:
         assert call_kwargs["stats"]["critical"] == 2
         assert call_kwargs["stats"]["high"] == 3
         assert "commands" in call_kwargs, "Should have commands"
-        assert len(call_kwargs["commands"]) == 2
-        assert len(call_kwargs["files"]) == 1
-        assert len(call_kwargs["critical_items"]) == 1
+        assert call_kwargs["commands"] == [{"command": "ls"}, {"command": "rm"}]
+        assert call_kwargs["files"] == [{"path": "/etc/passwd"}]
+        assert call_kwargs["critical_items"] == [
+            {"type": "COMMAND", "details": "rm -rf"}
+        ]
 
     def test_on_analytics_data(self, dashboard_with_mock_sections):
         """_on_analytics_data updates analytics section with all fields."""
@@ -383,9 +387,9 @@ class TestDashboardDataHandlers:
         assert call_kwargs["tokens"] == "5K"
         assert call_kwargs["cache_hit"] == "60%"
         assert "agents" in call_kwargs, "Should have agents"
-        assert len(call_kwargs["agents"]) == 1
-        assert len(call_kwargs["tools"]) == 1
-        assert len(call_kwargs["skills"]) == 1
+        assert call_kwargs["agents"] == [{"name": "agent1"}]
+        assert call_kwargs["tools"] == [{"tool": "bash"}]
+        assert call_kwargs["skills"] == [{"skill": "testing"}]
 
     def test_on_tracing_data(self, dashboard_with_mock_sections):
         """_on_tracing_data updates tracing section."""
@@ -398,9 +402,10 @@ class TestDashboardDataHandlers:
         sections["tracing"].update_data.assert_called_once()
         call_kwargs = sections["tracing"].update_data.call_args[1]
         assert "session_hierarchy" in call_kwargs, "Should have session_hierarchy"
-        assert len(call_kwargs["session_hierarchy"]) == 2
-        assert call_kwargs["session_hierarchy"][0]["session_id"] == "s1"
-        assert call_kwargs["session_hierarchy"][1]["session_id"] == "s2"
+        assert call_kwargs["session_hierarchy"] == [
+            {"session_id": "s1"},
+            {"session_id": "s2"},
+        ]
 
 
 # =============================================================================
@@ -476,7 +481,7 @@ class TestFetchApiUnavailable:
                         lambda d: received_data.append(d)
                     )
                     getattr(window, method_name)()
-                    assert len(received_data) == 0, (
+                    assert received_data == [], (
                         f"{method_name} should not emit when API unavailable"
                     )
                 finally:
@@ -513,11 +518,19 @@ class TestFetchApiUnavailable:
                     assert data["instances"] == 1
                     assert data["agents"] == 1
                     assert data["busy"] == 1
+                    assert data["waiting"] == 0
+                    assert data["idle"] == 0
+                    assert data["todos"] == 0  # Agent doesn't have todos in mock
+                    # Verify agents_data structure
                     assert len(data["agents_data"]) == 1
+                    assert data["agents_data"][0]["agent_id"] == "agent-1"
+                    assert data["agents_data"][0]["status"] == "busy"
+                    # Verify tools_data contains name, arg, elapsed_ms from Tool model
                     assert len(data["tools_data"]) == 1
-                    # tools_data contains name, arg, elapsed_ms from Tool model
                     assert data["tools_data"][0]["name"] == "bash"
                     assert data["tools_data"][0]["arg"] == "ls -la"
+                    assert data["tools_data"][0]["elapsed_ms"] == 100
+                    assert data["waiting_data"] == []
                 finally:
                     window.close()
                     window.deleteLater()
@@ -539,10 +552,18 @@ class TestFetchApiUnavailable:
                 assert len(received_data) == 1
                 data = received_data[0]
                 assert "stats" in data
-                assert data["stats"]["critical"] == 0
-                assert data["stats"]["high"] == 1
+                assert data["stats"] == {"critical": 0, "high": 1}
                 assert "commands" in data
-                assert len(data["commands"]) == 1
+                assert data["commands"] == [
+                    {
+                        "command": "rm -rf",
+                        "risk": "high",
+                        "score": 80,
+                        "reason": "dangerous",
+                    }
+                ]
+                assert data["files"] == []
+                assert data["critical_items"] == []
             finally:
                 window.close()
                 window.deleteLater()
@@ -587,9 +608,11 @@ class TestFetchApiUnavailable:
                     window._fetch_analytics_data()
 
                     assert len(received_data) == 1
-                    assert received_data[0]["tokens"] == expected_str
-                    assert received_data[0]["sessions"] == 1
-                    assert received_data[0]["messages"] == 1
+                    data = received_data[0]
+                    assert data["tokens"] == expected_str
+                    assert data["sessions"] == 1
+                    assert data["messages"] == 1
+                    assert data["cache_hit"] == "0%"  # cache_read is 0 in mock
                 finally:
                     window.close()
                     window.deleteLater()
@@ -606,9 +629,9 @@ class TestFetchApiUnavailable:
         assert len(received_data) == 1, "Should emit exactly one signal"
         data = received_data[0]
         assert "session_hierarchy" in data, "Should have session_hierarchy"
-        assert len(data["session_hierarchy"]) == 1, "Should have one session"
-        assert data["session_hierarchy"][0]["session_id"] == "sess-1"
-        assert "title" in data["session_hierarchy"][0], "Should have title"
+        assert data["session_hierarchy"] == [
+            {"session_id": "sess-1", "title": "Test Session"}
+        ]
 
     def test_fetch_tracing_data_handles_exception(self, qapp):
         """_fetch_tracing_data logs error with traceback on exception."""
@@ -627,6 +650,11 @@ class TestFetchApiUnavailable:
                         window._fetch_tracing_data()
                         # Called twice: once for message, once for traceback
                         assert mock_error.call_count == 2
+                        # Verify error messages contain expected content
+                        error_calls = [str(call) for call in mock_error.call_args_list]
+                        assert any(
+                            "Tracing fetch error" in call for call in error_calls
+                        )
                 finally:
                     window.close()
                     window.deleteLater()
@@ -673,12 +701,11 @@ class TestMonitoringDataProcessing:
                     data = received_data[0]
                     assert data["waiting"] == 1
                     assert len(data["waiting_data"]) == 1
-
                     waiting = data["waiting_data"][0]
+                    assert waiting["agent_id"] == "agent-wait"
                     assert waiting["title"] == "Need Input"
                     assert waiting["question"] == "What next?"
-                    assert "Option A" in waiting["options"]
-                    assert "Option B" in waiting["options"]
+                    assert waiting["options"] == "Option A | Option B"
                     assert waiting["context"] == "my-agent @ main"
                 finally:
                     window.close()
@@ -713,7 +740,13 @@ class TestMonitoringDataProcessing:
 
                     window._fetch_monitoring_data()
 
-                    waiting = received_data[0]["waiting_data"][0]
+                    data = received_data[0]
+                    assert data["waiting"] == 1
+                    assert len(data["waiting_data"]) == 1
+                    waiting = data["waiting_data"][0]
+                    assert waiting["title"] == "Input needed"
+                    assert waiting["question"] == "Question?"
+                    assert waiting["options"] == ""  # Empty list becomes empty string
                     assert waiting["context"] == "my-repo @ feature"
                 finally:
                     window.close()
@@ -746,13 +779,13 @@ class TestSyncChecker:
                 # Initial check - should be in fast mode, no callback on first check
                 checker._check()
                 assert checker._timer.interval() == SyncChecker.POLL_FAST_MS
-                assert len(callback_calls) == 0
+                assert callback_calls == []
 
                 # Change data - should stay fast and trigger callback
                 mock_client.get_stats.return_value = {"sessions": 6}
                 checker._check()
                 assert checker._timer.interval() == SyncChecker.POLL_FAST_MS
-                assert len(callback_calls) == 1
+                assert callback_calls == [True]
 
                 # Simulate idle threshold exceeded
                 checker._last_change_time = (
@@ -779,13 +812,14 @@ class TestSyncChecker:
             try:
                 # First check skips callback
                 checker._check()
-                assert len(callback_calls) == 0
+                assert callback_calls == []
                 assert checker._known_sync == 1
 
                 # Change triggers callback
                 mock_client.get_stats.return_value = {"sessions": 5}
                 checker._check()
-                assert len(callback_calls) == 1
+                assert callback_calls == [True]
+                assert checker._known_sync == 5
             finally:
                 checker.stop()
 
@@ -802,7 +836,8 @@ class TestSyncChecker:
             checker = SyncChecker(on_sync_detected=lambda: callback_calls.append(True))
             try:
                 checker._check()
-                assert len(callback_calls) == 0
+                assert callback_calls == []
+                assert checker._known_sync is None
             finally:
                 checker.stop()
 
@@ -820,9 +855,10 @@ class TestSyncChecker:
             try:
                 # Should not crash
                 checker._check()
-                assert len(callback_calls) == 0, "No callbacks on error"
+                assert callback_calls == [], "No callbacks on error"
                 # Verify checker is still functional
                 assert checker._timer is not None, "Timer should exist"
+                assert checker._timer.isActive(), "Timer should still be active"
             finally:
                 checker.stop()
 
@@ -874,6 +910,11 @@ class TestAnalyticsSectionKeyFormats:
 
         assert analytics_section._tools_table.rowCount() == 1
         assert analytics_section._tools_table.item(0, 0).text() == key_value
+        assert analytics_section._tools_table.item(0, 1).text() == "10"  # invocations
+        assert analytics_section._tools_table.item(0, 2).text() == "1"  # failures
+        assert (
+            analytics_section._tools_table.item(0, 3).text() == "10.0%"
+        )  # failure_rate
 
     @pytest.mark.parametrize(
         "key_name,key_value",
@@ -898,6 +939,7 @@ class TestAnalyticsSectionKeyFormats:
 
         assert analytics_section._skills_table.rowCount() == 1
         assert analytics_section._skills_table.item(0, 0).text() == key_value
+        assert analytics_section._skills_table.item(0, 1).text() == "5"  # load_count
 
     def test_update_data_all_fields(self, analytics_section):
         """AnalyticsSection updates all tables correctly."""
@@ -922,10 +964,17 @@ class TestAnalyticsSectionKeyFormats:
         assert analytics_section._agents_table.rowCount() == 1
         assert analytics_section._agents_table.item(0, 0).text() == "agent1"
         assert analytics_section._agents_table.item(0, 1).text() == "50"  # messages
+        assert (
+            analytics_section._agents_table.item(0, 2).text() == "1K"
+        )  # tokens (formatted)
 
         assert analytics_section._tools_table.rowCount() == 1
         assert analytics_section._tools_table.item(0, 0).text() == "bash"
         assert analytics_section._tools_table.item(0, 1).text() == "100"  # invocations
+        assert analytics_section._tools_table.item(0, 2).text() == "5"  # failures
+        assert (
+            analytics_section._tools_table.item(0, 3).text() == "5.0%"
+        )  # failure_rate
 
         assert analytics_section._skills_table.rowCount() == 1
         assert analytics_section._skills_table.item(0, 0).text() == "testing"

@@ -178,7 +178,6 @@ class TestFileParser:
         """Test parsing a valid session."""
         result = FileParser.parse_session(sample_session_data)
 
-        assert result is not None
         assert isinstance(result, ParsedSession)
         assert result.id == "ses_123"
         assert result.project_id == "proj_abc"
@@ -196,7 +195,6 @@ class TestFileParser:
         """Test parsing a valid message."""
         result = FileParser.parse_message(sample_message_data)
 
-        assert result is not None
         assert isinstance(result, ParsedMessage)
         assert result.id == "msg_456"
         assert result.session_id == "ses_123"
@@ -208,7 +206,6 @@ class TestFileParser:
         """Test parsing a tool part."""
         result = FileParser.parse_part(sample_part_data)
 
-        assert result is not None
         assert isinstance(result, ParsedPart)
         assert result.id == "part_789"
         assert result.tool_name == "read"
@@ -227,7 +224,6 @@ class TestFileParser:
         }
         result = FileParser.parse_part(data)
 
-        assert result is not None
         assert result.content == "Hello, world!"
         assert result.tool_name is None
 
@@ -235,7 +231,6 @@ class TestFileParser:
         """Test parsing a delegation from task tool."""
         result = FileParser.parse_delegation(sample_task_part_data)
 
-        assert result is not None
         assert isinstance(result, ParsedDelegation)
         assert result.child_agent == "tester"
         assert result.child_session_id == "ses_child_001"
@@ -252,14 +247,12 @@ class TestFileParser:
         }
         result = FileParser.parse_skill(data)
 
-        assert result is not None
         assert result.skill_name == "clean-code"
 
     def test_parse_file_operation(self, sample_part_data):
         """Test parsing a file operation."""
         result = FileParser.parse_file_operation(sample_part_data)
 
-        assert result is not None
         assert result.operation == "read"
         assert result.file_path == "/path/to/file.py"
 
@@ -292,7 +285,7 @@ class TestFileTracker:
         test_file.parent.mkdir(parents=True, exist_ok=True)
         test_file.write_text('{"id": "ses_001"}')
 
-        assert tracker.needs_indexing(test_file) is True
+        assert tracker.needs_indexing(test_file)
 
     def test_needs_indexing_after_mark(self, temp_db, temp_storage):
         """Test that indexed files don't need re-indexing."""
@@ -306,7 +299,7 @@ class TestFileTracker:
         tracker.mark_indexed(test_file, "session", "ses_001")
 
         # Should not need indexing now
-        assert tracker.needs_indexing(test_file) is False
+        assert not tracker.needs_indexing(test_file)
 
     def test_needs_indexing_after_modification(self, temp_db, temp_storage):
         """Test that modified files need re-indexing."""
@@ -323,7 +316,7 @@ class TestFileTracker:
         os.utime(test_file, (future_mtime, future_mtime))
 
         # Should need indexing again
-        assert tracker.needs_indexing(test_file) is True
+        assert tracker.needs_indexing(test_file)
 
     def test_get_unindexed_files(self, temp_db, temp_storage):
         """Test getting unindexed files."""
@@ -381,13 +374,13 @@ class TestFileTracker:
         string_path = str(test_file)
         result = tracker.needs_indexing(string_path)
 
-        assert result is True  # New file needs indexing
+        assert result  # New file needs indexing
 
         # Mark as indexed and test again with string
         tracker.mark_indexed(test_file, "session", "ses_str")
         result = tracker.needs_indexing(string_path)
 
-        assert result is False  # Already indexed
+        assert not result  # Already indexed
 
 
 # === ProcessingQueue Tests ===
@@ -406,7 +399,7 @@ class TestProcessingQueue:
         test_file.write_text('{"id": "ses_001"}')
 
         # Put and get
-        assert queue.put("session", test_file) is True
+        assert queue.put("session", test_file)
         batch = queue.get_batch(max_items=10, timeout=0.1)
 
         assert len(batch) == 1
@@ -421,9 +414,9 @@ class TestProcessingQueue:
         test_file.write_text('{"id": "ses_001"}')
 
         # First put succeeds
-        assert queue.put("session", test_file) is True
+        assert queue.put("session", test_file)
         # Duplicate rejected
-        assert queue.put("session", test_file) is False
+        assert not queue.put("session", test_file)
 
         assert queue.size == 1
 
@@ -460,7 +453,6 @@ class TestTraceBuilder:
             updated_at=datetime.now(),
         )
 
-        assert trace_id is not None
         assert trace_id.startswith("root_")
 
         # Verify in database
@@ -470,7 +462,6 @@ class TestTraceBuilder:
             [trace_id],
         ).fetchone()
 
-        assert result is not None
         assert result[0] == "executor"
 
     def test_get_stats(self, temp_db):

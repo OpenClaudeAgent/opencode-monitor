@@ -87,7 +87,7 @@ class TestHybridIndexerInit:
         indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
 
         assert indexer._storage_path == temp_storage
-        assert indexer._running is False
+        assert not indexer._running
         assert indexer._t0 is None
 
     def test_init_with_injected_db(self, temp_storage, temp_db_path):
@@ -97,7 +97,7 @@ class TestHybridIndexerInit:
         indexer = HybridIndexer(storage_path=temp_storage, db=mock_db)
 
         assert indexer._db is mock_db
-        assert indexer._running is False
+        assert not indexer._running
 
 
 class TestHybridIndexerLifecycle:
@@ -105,7 +105,7 @@ class TestHybridIndexerLifecycle:
         indexer.start()
 
         try:
-            assert indexer._running is True
+            assert indexer._running
             assert indexer._t0 is not None
             assert indexer._watcher is not None
             assert indexer._tracker is not None
@@ -122,7 +122,7 @@ class TestHybridIndexerLifecycle:
 
         try:
             assert indexer._t0 == t0_first
-            assert indexer._running is True
+            assert indexer._running
         finally:
             indexer.stop()
 
@@ -132,19 +132,19 @@ class TestHybridIndexerLifecycle:
 
         indexer.stop()
 
-        assert indexer._running is False
+        assert not indexer._running
         assert not watcher.is_running
 
     def test_stop_without_start(self, indexer):
         indexer.stop()
-        assert indexer._running is False
+        assert not indexer._running
 
     def test_is_ready_after_start(self, temp_storage, temp_db_path):
         indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer.start()
 
         try:
-            assert indexer.is_ready() is True
+            assert indexer.is_ready()
         finally:
             indexer.stop()
 
@@ -158,7 +158,7 @@ class TestHybridIndexerStats:
             stats = indexer.get_stats()
             assert "running" in stats
             assert "files_processed" in stats
-            assert stats["running"] is True
+            assert stats["running"]
             assert stats["files_processed"] == 0
         finally:
             indexer.stop()
@@ -187,12 +187,11 @@ class TestHybridIndexerProcessFile:
 
         result = indexer._process_file("session", file_path)
 
-        assert result is True
+        assert result
         conn = indexer._db.connect()
         session = conn.execute(
             "SELECT id, title FROM sessions WHERE id = 'ses_test'"
         ).fetchone()
-        assert session is not None
         assert session[0] == "ses_test"
         assert session[1] == "Test Session"
 
@@ -231,14 +230,13 @@ class TestHybridIndexerProcessFile:
 
         result = indexer._process_file("part", file_path)
 
-        assert result is True
+        assert result
 
         conn = indexer._db.connect()
         file_op = conn.execute(
             "SELECT id, operation, file_path FROM file_operations WHERE id = 'prt_read_test'"
         ).fetchone()
 
-        assert file_op is not None
         assert file_op[0] == "prt_read_test"
         assert file_op[1] == "read"
         assert file_op[2] == "/path/to/source.py"
@@ -347,12 +345,11 @@ class TestMessageHandlerProcess:
 
         result = indexer._process_file("message", file_path)
 
-        assert result is True
+        assert result
         conn = indexer._db.connect()
         message = conn.execute(
             "SELECT id, session_id, role, agent FROM messages WHERE id = 'msg_test_001'"
         ).fetchone()
-        assert message is not None
         assert message[0] == "msg_test_001"
         assert message[1] == "ses_msg_test"
         assert message[2] == "assistant"
@@ -407,14 +404,13 @@ class TestMessageHandlerProcess:
 
         result = indexer._process_file("message", file_path)
 
-        assert result is True
+        assert result
         conn = indexer._db.connect()
         msg = conn.execute(
             """SELECT tokens_input, tokens_output, tokens_reasoning, 
                       tokens_cache_read, tokens_cache_write 
                FROM messages WHERE id = 'msg_token_test'"""
         ).fetchone()
-        assert msg is not None
         assert msg[0] == 5000
         assert msg[1] == 2000
         assert msg[2] == 500
@@ -432,7 +428,7 @@ class TestIndexerRegistry:
             storage_path=temp_storage,
             db_path=temp_db_path,
         )
-        assert indexer is not None
+        assert indexer is not None  # OK - checking object creation
         assert IndexerRegistry.get() is indexer
 
         IndexerRegistry.clear()

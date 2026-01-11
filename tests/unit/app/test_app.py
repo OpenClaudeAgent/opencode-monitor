@@ -275,11 +275,11 @@ class TestOpenCodeAppInit:
         # State initialization
         assert app._state is None
         assert app._usage is None
-        assert app._running is True
-        assert app._needs_refresh is True
+        assert app._running  # Direct boolean assertion
+        assert app._needs_refresh  # Direct boolean assertion
         assert app._previous_busy_agents == set()
         assert app._security_alerts == []
-        assert app._has_critical_alert is False
+        assert not app._has_critical_alert  # Direct boolean assertion
 
         # Class constants
         assert OpenCodeApp.POLL_INTERVAL == 2
@@ -289,8 +289,9 @@ class TestOpenCodeAppInit:
         # Services started
         mock_dependencies["start_auditor"].assert_called_once()
         mock_dependencies["menu_builder"].assert_called_once()
-        assert app._monitor_thread is not None
-        assert app._monitor_thread.daemon is True
+        # Verify thread exists and is configured correctly
+        assert hasattr(app, "_monitor_thread")
+        assert app._monitor_thread.daemon  # Direct boolean assertion
 
 
 # =============================================================================
@@ -428,7 +429,7 @@ class TestUIRefresh:
         if should_rebuild:
             app._build_menu.assert_called_once()
             app._update_title.assert_called_once()
-            assert app._needs_refresh is False
+            assert not app._needs_refresh  # Direct boolean assertion
         else:
             app._build_menu.assert_not_called()
             app._update_title.assert_not_called()
@@ -475,12 +476,13 @@ class TestBuildMenu:
 
         # Menu cleared and items added (cast to MockMenu for test access)
         menu = cast(MockMenu, app.menu)
-        assert menu._clear_called is True
-        assert len(menu._add_calls) >= 2
+        assert menu._clear_called  # Direct boolean assertion
+        # Verify specific items were added (dynamic items + security + analytics + separators + refresh + quit)
+        assert len(menu._add_calls) >= 6
         assert None in menu._add_calls  # Separators
 
         # Critical flag updated
-        assert app._has_critical_alert is expected_flag
+        assert app._has_critical_alert == expected_flag
 
 
 # =============================================================================
@@ -896,8 +898,13 @@ class TestMonitorLoop:
             app._running = True
             app._run_monitor_loop()
 
-        assert app._state is not None
-        assert app._state.connected is True
+        # Verify state was updated with specific values
+        assert app._state.connected
+        assert app._state.instance_count == 1
+        assert app._state.agent_count == 2
+        assert app._state.busy_count == 1
+        assert app._state.idle_count == 1
+        # Verify busy agent tracking
         assert "busy-agent-1" in app._previous_busy_agents
         assert "idle-agent-1" not in app._previous_busy_agents
         mock_dependencies["fetch_usage"].assert_called()
@@ -971,7 +978,7 @@ class TestThreadSafetyAndRefresh:
             app._state = State(connected=True)
             state = app._state
 
-        assert state.connected is True
+        assert state.connected  # Direct boolean assertion
 
         with app._state_lock:
             app._usage = Usage(five_hour=UsagePeriod(utilization=75))
@@ -984,7 +991,7 @@ class TestThreadSafetyAndRefresh:
         app._on_refresh(None)
 
         mock_dependencies["info"].assert_called()
-        assert app._needs_refresh is True
+        assert app._needs_refresh  # Direct boolean assertion
 
 
 # =============================================================================

@@ -184,7 +184,6 @@ class TestDBSchema:
             ["step_001"],
         ).fetchone()
 
-        assert result is not None
         assert result[0] == "step_001"
         assert result[1] == "finish"
         assert float(result[2]) == pytest.approx(0.00123, abs=0.0001)
@@ -214,7 +213,6 @@ class TestDBSchema:
             ["patch_001"],
         ).fetchone()
 
-        assert result is not None
         assert result[0] == "patch_001"
         assert result[1] == "abc123def456"
         assert list(result[2]) == files
@@ -530,7 +528,7 @@ class TestProcessCompactionPart:
         row = batch[0]
         assert row[0] == "prt_004"  # id
         assert row[3] == "compaction"  # part_type
-        assert row[15] is True  # compaction_auto
+        assert row[15]  # compaction_auto
 
     def test_handles_manual_compaction(self):
         """Should handle manual compaction (auto=False)."""
@@ -542,7 +540,7 @@ class TestProcessCompactionPart:
             data, "prt_004", "ses_001", "msg_001", None, batch, stats
         )
 
-        assert batch[0][15] is False
+        assert not batch[0][15]
 
     def test_defaults_to_false(self):
         """Should default to auto=False when missing."""
@@ -554,7 +552,7 @@ class TestProcessCompactionPart:
             data, "prt_004", "ses_001", "msg_001", None, batch, stats
         )
 
-        assert batch[0][15] is False
+        assert not batch[0][15]
 
 
 class TestProcessFilePart:
@@ -645,7 +643,6 @@ class TestLoadPartsFast:
             ["prt_reason_001"],
         ).fetchone()
 
-        assert result is not None
         assert result[0] == "Analyzing the problem..."
         assert result[1] == "sig_test"
 
@@ -727,7 +724,6 @@ class TestLoadPartsFast:
             "SELECT git_hash, files FROM patches WHERE id = ?", ["prt_patch_001"]
         ).fetchone()
 
-        assert result is not None
         assert result[0] == "abc123def"
         assert list(result[1]) == ["file1.py", "file2.py"]
 
@@ -1079,7 +1075,7 @@ class TestGetSessionPreciseCost:
         assert result["estimated"]["cost_usd"] == pytest.approx(0.05, abs=0.001)
 
         # Comparison
-        assert result["comparison"]["has_precise_data"] is True
+        assert result["comparison"]["has_precise_data"]
         assert result["comparison"]["difference_usd"] == pytest.approx(0.01, abs=0.001)
 
     def test_returns_zeros_for_no_data(self, analytics_db: AnalyticsDB):
@@ -1094,7 +1090,7 @@ class TestGetSessionPreciseCost:
         result = service.get_session_precise_cost("ses_empty")
 
         assert result["precise"]["cost_usd"] == 0
-        assert result["comparison"]["has_precise_data"] is False
+        assert not result["comparison"]["has_precise_data"]
 
 
 # =============================================================================
@@ -1189,10 +1185,10 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["meta"]["session_id"] == "ses_api"
-        assert data["data"]["summary"]["total_entries"] >= 1
-        assert len(data["data"]["details"]) >= 1
+        assert data["data"]["summary"]["total_entries"] == 1
+        assert len(data["data"]["details"]) == 1
 
     def test_steps_endpoint(self, client, populated_db):
         """GET /api/session/<id>/steps should return step events."""
@@ -1200,10 +1196,10 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["meta"]["session_id"] == "ses_api"
-        assert data["data"]["summary"]["total_steps"] >= 1
-        assert data["data"]["summary"]["total_cost"] > 0
+        assert data["data"]["summary"]["total_steps"] == 1
+        assert data["data"]["summary"]["total_cost"] == pytest.approx(0.01, abs=0.001)
 
     def test_git_history_endpoint(self, client, populated_db):
         """GET /api/session/<id>/git-history should return patches."""
@@ -1211,9 +1207,9 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["meta"]["session_id"] == "ses_api"
-        assert data["data"]["summary"]["total_commits"] >= 1
+        assert data["data"]["summary"]["total_commits"] == 1
 
     def test_precise_cost_endpoint(self, client, populated_db):
         """GET /api/session/<id>/precise-cost should return cost data."""
@@ -1221,11 +1217,11 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["meta"]["session_id"] == "ses_api"
-        assert "precise" in data["data"]
-        assert "estimated" in data["data"]
-        assert "comparison" in data["data"]
+        assert data["data"]["precise"]["cost_usd"] == pytest.approx(0.01, abs=0.001)
+        assert data["data"]["estimated"]["cost_usd"] == 0.0
+        assert data["data"]["comparison"]["has_precise_data"]
 
     def test_reasoning_endpoint_nonexistent_session(self, client, analytics_db):
         """Reasoning endpoint should handle non-existent session."""
@@ -1233,7 +1229,7 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["meta"]["count"] == 0
 
     def test_steps_endpoint_nonexistent_session(self, client, analytics_db):
@@ -1242,5 +1238,5 @@ class TestAPIEndpoints:
 
         assert response.status_code == 200
         data = response.json
-        assert data["success"] is True
+        assert data["success"]
         assert data["data"]["summary"]["total_steps"] == 0
