@@ -201,6 +201,8 @@ class SessionQueriesMixin:
             Dict with file operations breakdown
         """
         files = self._get_session_files_internal(session_id)
+        session = self._get_session_info(session_id)
+
         return {
             "meta": {
                 "session_id": session_id,
@@ -211,6 +213,8 @@ class SessionQueriesMixin:
                 "total_writes": files["total_writes"],
                 "total_edits": files["total_edits"],
                 "high_risk_count": files["high_risk_count"],
+                "additions": session.get("additions") if session else None,
+                "deletions": session.get("deletions") if session else None,
             },
             "details": files,
             "charts": {

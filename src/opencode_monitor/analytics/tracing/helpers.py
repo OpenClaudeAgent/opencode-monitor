@@ -126,7 +126,7 @@ class HelpersMixin:
         try:
             result = self._conn.execute(
                 """
-                SELECT id, title, directory, created_at, updated_at, parent_id
+                SELECT id, title, directory, created_at, updated_at, parent_id, additions, deletions
                 FROM sessions
                 WHERE id = ?
                 """,
@@ -141,6 +141,8 @@ class HelpersMixin:
                     "created_at": result[3],
                     "updated_at": result[4],
                     "parent_id": result[5],
+                    "additions": result[6],
+                    "deletions": result[7],
                     "status": "completed" if result[4] else "running",
                 }
             return None

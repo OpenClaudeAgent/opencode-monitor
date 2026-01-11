@@ -17,15 +17,19 @@ Layout:
 └─────────────────────────────────────────────────────────────────────────┘
 """
 
+import difflib
+import json
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from opencode_monitor.utils.logger import logger
 
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
+    QApplication,
     QFrame,
     QHBoxLayout,
     QLabel,
@@ -881,10 +885,15 @@ class ToolsBreakdownWidget(QFrame):
 class FilesListWidget(QFrame):
     """List of files touched by actions."""
 
+    diff_requested = pyqtSignal(str)  # Emits session_id when diff export is requested
+
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._is_expanded = False
         self._files_data: dict[str, list[str]] = {}
+        self._additions: int | None = None
+        self._deletions: int | None = None
+        self._session_id: str | None = None
         self._setup_ui()
 
     def _setup_ui(self) -> None:
@@ -902,7 +911,11 @@ class FilesListWidget(QFrame):
         )
         layout.setSpacing(SPACING["xs"])
 
-        # Header (clickable to expand/collapse)
+        header_container = QWidget()
+        header_layout = QHBoxLayout(header_container)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(SPACING["xs"])
+
         self._header = ClickableLabel("📁 Files")
         self._header.setStyleSheet(f"""
             QLabel {{
@@ -921,7 +934,28 @@ class FilesListWidget(QFrame):
         """)
         self._header.setCursor(Qt.CursorShape.PointingHandCursor)
         self._header.clicked.connect(self._toggle_expand)
-        layout.addWidget(self._header)
+        header_layout.addWidget(self._header, 1)
+
+        self._export_btn = ClickableLabel("📋")
+        self._export_btn.setStyleSheet(f"""
+            QLabel {{
+                font-size: {FONTS["size_sm"]}px;
+                color: {COLORS["text_muted"]};
+                padding: {SPACING["xs"]}px {SPACING["sm"]}px;
+                border-radius: {RADIUS["sm"]}px;
+            }}
+            QLabel:hover {{
+                background-color: {COLORS["bg_hover"]};
+                color: {COLORS["text_primary"]};
+            }}
+        """)
+        self._export_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self._export_btn.setToolTip("Export diff")
+        self._export_btn.clicked.connect(self._on_export_clicked)
+        self._export_btn.hide()
+        header_layout.addWidget(self._export_btn)
+
+        layout.addWidget(header_container)
 
         # Container
         self._container = QWidget()
@@ -950,12 +984,42 @@ class FilesListWidget(QFrame):
             self._scroll.setMaximumHeight(16777215)
         self._render_files()
 
+    def _on_export_clicked(self) -> None:
+        if self._session_id:
+            self.diff_requested.emit(self._session_id)
+
     def _update_header_text(self, total_files: int) -> None:
         chevron = "▲" if self._is_expanded else "▼"
-        self._header.setText(f"📁 Files ({total_files}) {chevron}")
 
-    def load_files(self, files: dict[str, list[str]]) -> None:
+        base_text = f"📁 Files ({total_files})"
+
+        if self._additions is not None or self._deletions is not None:
+            additions = self._additions or 0
+            deletions = self._deletions or 0
+
+            stats_html = f'<span style="color: {COLORS["success"]};">+{additions}</span> <span style="color: {COLORS["error"]};">-{deletions}</span>'
+            header_html = f"{base_text} {stats_html} {chevron}"
+            self._header.setText(header_html)
+        else:
+            self._header.setText(f"{base_text} {chevron}")
+
+    def load_files(
+        self,
+        files: dict[str, list[str]],
+        additions: int | None = None,
+        deletions: int | None = None,
+        session_id: str | None = None,
+    ) -> None:
         self._files_data = files
+        self._additions = additions
+        self._deletions = deletions
+        self._session_id = session_id
+
+        if additions is not None or deletions is not None:
+            self._export_btn.show()
+        else:
+            self._export_btn.hide()
+
         self._render_files()
 
     def _render_files(self) -> None:
@@ -1423,6 +1487,7 @@ class SessionOverviewPanel(QFrame):
         right_layout.addWidget(self._tools, 1)
 
         self._files = FilesListWidget()
+        self._files.diff_requested.connect(self._on_diff_requested)
         right_layout.addWidget(self._files, 1)
 
         self._tokens = TokensWidget()
@@ -1467,32 +1532,43 @@ class SessionOverviewPanel(QFrame):
         )
         if session_id:
             self._load_extended_timeline(session_id)
-            files_data = self._load_files_from_api(session_id)
+            files_data, additions, deletions = self._load_files_from_api(session_id)
         else:
             logger.warning("[Timeline] No session_id in tree_data")
             self._timeline.clear()
-            files_data = {}
+            files_data, additions, deletions = {}, None, None
 
         self._tools.load_tools(data.tools, data.tool_targets)
-        self._files.load_files(files_data)
+        self._files.load_files(files_data, additions, deletions, session_id)
         self._tokens.load_tokens(tokens_in, tokens_out, cache_read, cache_write)
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
 
-    def _load_files_from_api(self, session_id: str) -> dict[str, list[str]]:
-        """Load files list from API instead of extracting from display_info."""
+    def _load_files_from_api(
+        self, session_id: str
+    ) -> tuple[dict[str, list[str]], int | None, int | None]:
+        """Load files list from API instead of extracting from display_info.
+
+        Returns:
+            Tuple of (files_list, additions, deletions)
+        """
         from opencode_monitor.api import get_api_client
 
         client = get_api_client()
         if not client.is_available:
-            return {}
+            return {}, None, None
 
         data = client.get_session_files(session_id)
         if not data:
-            return {}
+            return {}, None, None
 
         details = data.get("details", {})
-        return details.get("files_list", {})
+        summary = data.get("summary", {})
+        files_list = details.get("files_list", {})
+        additions = summary.get("additions")
+        deletions = summary.get("deletions")
+
+        return files_list, additions, deletions
 
     def _load_extended_timeline(self, session_id: str) -> None:
         """Load full timeline from API.
@@ -1524,3 +1600,59 @@ class SessionOverviewPanel(QFrame):
         self._tokens.load_tokens()
         self._agents.load_agents([])
         self._errors.load_errors([])
+
+    def _on_diff_requested(self, session_id: str) -> None:
+        """Handle diff export request - load diff and copy to clipboard as git patch."""
+        OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
+        diff_file = OPENCODE_STORAGE / "session_diff" / f"{session_id}.json"
+
+        if not diff_file.exists():
+            logger.warning(f"[Diff] No diff file found: {diff_file}")
+            return
+
+        try:
+            with open(diff_file) as f:
+                diff_data = json.load(f)
+        except (json.JSONDecodeError, OSError) as e:
+            logger.error(f"[Diff] Failed to load diff file: {e}")
+            return
+
+        if not diff_data:
+            logger.info("[Diff] No changes in session")
+            return
+
+        patch_lines: list[str] = []
+        for entry in diff_data:
+            file_path = entry.get("file", "unknown")
+            before = entry.get("before", "")
+            after = entry.get("after", "")
+
+            before_lines = before.splitlines(keepends=True)
+            after_lines = after.splitlines(keepends=True)
+
+            if before_lines and not before_lines[-1].endswith("\n"):
+                before_lines[-1] += "\n"
+            if after_lines and not after_lines[-1].endswith("\n"):
+                after_lines[-1] += "\n"
+
+            patch_lines.append(f"diff --git a/{file_path} b/{file_path}\n")
+
+            diff = difflib.unified_diff(
+                before_lines,
+                after_lines,
+                fromfile=f"a/{file_path}",
+                tofile=f"b/{file_path}",
+            )
+            patch_lines.extend(diff)
+
+        if not patch_lines:
+            logger.info("[Diff] No differences found")
+            return
+
+        patch_text = "".join(patch_lines)
+
+        # Copy to clipboard
+        clipboard = QApplication.clipboard()
+        if clipboard:
+            clipboard.setText(patch_text)
+            logger.info(f"[Diff] Copied {len(patch_lines)} lines to clipboard")

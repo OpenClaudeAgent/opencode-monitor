@@ -257,3 +257,360 @@ class TestFilesListWidget:
 
         assert labels[0].startswith("✏️")
         assert labels[1].startswith("📖")
+
+
+class TestFilesListWidgetDiffExport:
+    """Tests for diff export functionality (additions/deletions stats and signal)."""
+
+    def test_load_files_accepts_additions_deletions(self, qtbot):
+        """load_files should accept additions and deletions parameters."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=10,
+            deletions=5,
+            session_id="ses_test",
+        )
+
+        assert widget._additions == 10
+        assert widget._deletions == 5
+        assert widget._session_id == "ses_test"
+
+    def test_header_shows_green_additions(self, qtbot):
+        """Header should display additions in green color."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=15,
+            deletions=0,
+            session_id="ses_test",
+        )
+
+        header_text = widget._header.text()
+        assert "+15" in header_text
+
+    def test_header_shows_red_deletions(self, qtbot):
+        """Header should display deletions in red color."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=0,
+            deletions=8,
+            session_id="ses_test",
+        )
+
+        header_text = widget._header.text()
+        assert "-8" in header_text
+
+    def test_export_button_not_hidden_with_stats(self, qtbot):
+        """Export button should not be hidden when stats are provided."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=5,
+            deletions=3,
+            session_id="ses_test",
+        )
+
+        assert not widget._export_btn.isHidden()
+
+    def test_export_button_hidden_without_stats(self, qtbot):
+        """Export button should be hidden when no stats provided."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files({"edit": ["file.py"]})
+
+        assert widget._export_btn.isHidden()
+
+    def test_diff_requested_signal_emitted_on_export_click(self, qtbot):
+        """Clicking export button should emit diff_requested signal."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=1,
+            deletions=1,
+            session_id="ses_signal_test",
+        )
+
+        with qtbot.waitSignal(widget.diff_requested, timeout=1000) as blocker:
+            qtbot.mouseClick(widget._export_btn, Qt.MouseButton.LeftButton)
+
+        assert blocker.args == ["ses_signal_test"]
+
+    def test_signal_not_emitted_without_session_id(self, qtbot):
+        """Signal should not be emitted if session_id is None."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        widget.load_files(
+            {"edit": ["file.py"]},
+            additions=1,
+            deletions=1,
+            session_id=None,
+        )
+
+        signal_received = False
+
+        def on_signal(sid):
+            nonlocal signal_received
+            signal_received = True
+
+        widget.diff_requested.connect(on_signal)
+        widget._on_export_clicked()
+
+        assert not signal_received
+
+
+class TestSessionOverviewPanelDiffHandler:
+    """Tests for SessionOverviewPanel._on_diff_requested handler."""
+
+    def test_handler_loads_diff_file(self, qtbot, tmp_path):
+        """Handler should load diff from session_diff directory."""
+        import json
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        diff_data = [
+            {
+                "file": "src/test.py",
+                "before": "old\n",
+                "after": "new\n",
+                "additions": 1,
+                "deletions": 1,
+            }
+        ]
+        diff_file = mock_diff_dir / "ses_handler_test.json"
+        diff_file.write_text(json.dumps(diff_data))
+
+        from PyQt6.QtWidgets import QApplication
+
+        mock_clipboard = MagicMock()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch.object(QApplication, "clipboard", return_value=mock_clipboard):
+                panel._on_diff_requested("ses_handler_test")
+
+        mock_clipboard.setText.assert_called_once()
+
+    def test_handler_generates_unified_diff_format(self, qtbot, tmp_path):
+        """Handler should generate proper unified diff format."""
+        import json
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        diff_data = [
+            {
+                "file": "src/module.py",
+                "before": "line1\nline2\nline3\n",
+                "after": "line1\nmodified\nline3\nnew_line\n",
+                "additions": 2,
+                "deletions": 1,
+            }
+        ]
+        diff_file = mock_diff_dir / "ses_format_test.json"
+        diff_file.write_text(json.dumps(diff_data))
+
+        from PyQt6.QtWidgets import QApplication
+
+        mock_clipboard = MagicMock()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch.object(QApplication, "clipboard", return_value=mock_clipboard):
+                panel._on_diff_requested("ses_format_test")
+
+        clipboard_content = mock_clipboard.setText.call_args[0][0]
+
+        assert "diff --git a/src/module.py b/src/module.py" in clipboard_content
+        assert "--- a/src/module.py" in clipboard_content
+        assert "+++ b/src/module.py" in clipboard_content
+        assert "@@" in clipboard_content
+        assert "-line2" in clipboard_content
+        assert "+modified" in clipboard_content
+        assert "+new_line" in clipboard_content
+
+    def test_handler_handles_missing_file(self, qtbot, tmp_path):
+        """Handler should not crash when diff file doesn't exist."""
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        error_raised = False
+        try:
+            with patch.object(Path, "home", return_value=tmp_path):
+                panel._on_diff_requested("ses_nonexistent")
+        except Exception:
+            error_raised = True
+
+        assert not error_raised
+
+    def test_handler_handles_invalid_json(self, qtbot, tmp_path):
+        """Handler should not crash on invalid JSON."""
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        diff_file = mock_diff_dir / "ses_invalid.json"
+        diff_file.write_text("not valid json {{{")
+
+        error_raised = False
+        try:
+            with patch.object(Path, "home", return_value=tmp_path):
+                panel._on_diff_requested("ses_invalid")
+        except Exception:
+            error_raised = True
+
+        assert not error_raised
+
+    def test_handler_handles_empty_diff(self, qtbot, tmp_path):
+        """Handler should not copy anything for empty diff."""
+        import json
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        diff_file = mock_diff_dir / "ses_empty.json"
+        diff_file.write_text("[]")
+
+        from PyQt6.QtWidgets import QApplication
+
+        mock_clipboard = MagicMock()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch.object(QApplication, "clipboard", return_value=mock_clipboard):
+                panel._on_diff_requested("ses_empty")
+
+        mock_clipboard.setText.assert_not_called()
+
+    def test_handler_processes_multiple_files(self, qtbot, tmp_path):
+        """Handler should generate diff for multiple files."""
+        import json
+        from unittest.mock import patch
+        from pathlib import Path
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            SessionOverviewPanel,
+        )
+
+        panel = SessionOverviewPanel()
+        qtbot.addWidget(panel)
+
+        mock_storage = tmp_path / ".local" / "share" / "opencode" / "storage"
+        mock_diff_dir = mock_storage / "session_diff"
+        mock_diff_dir.mkdir(parents=True)
+
+        diff_data = [
+            {
+                "file": "src/file1.py",
+                "before": "old1\n",
+                "after": "new1\n",
+                "additions": 1,
+                "deletions": 1,
+            },
+            {
+                "file": "src/file2.py",
+                "before": "old2\n",
+                "after": "new2\n",
+                "additions": 1,
+                "deletions": 1,
+            },
+        ]
+        diff_file = mock_diff_dir / "ses_multi.json"
+        diff_file.write_text(json.dumps(diff_data))
+
+        from PyQt6.QtWidgets import QApplication
+
+        mock_clipboard = MagicMock()
+
+        with patch.object(Path, "home", return_value=tmp_path):
+            with patch.object(QApplication, "clipboard", return_value=mock_clipboard):
+                panel._on_diff_requested("ses_multi")
+
+        clipboard_content = mock_clipboard.setText.call_args[0][0]
+
+        assert "diff --git a/src/file1.py" in clipboard_content
+        assert "diff --git a/src/file2.py" in clipboard_content
