@@ -248,6 +248,40 @@ class TestHybridIndexerLifecycle:
         hybrid_indexer.stop()
         assert hybrid_indexer._running is False, "Should not be running"
 
+    def test_watcher_only_mode_skips_bulk_loading(self, temp_storage, temp_db_path):
+        """Test watcher_only=True skips bulk loading and goes directly to realtime."""
+        indexer = HybridIndexer(
+            storage_path=temp_storage, db_path=temp_db_path, watcher_only=True
+        )
+        indexer.start()
+
+        try:
+            status = indexer.get_status()
+            assert status.phase == SyncPhase.REALTIME, (
+                "Should be in REALTIME immediately"
+            )
+            assert status.is_ready is True, "Should be ready immediately"
+            assert indexer._bulk_thread is None, "Bulk thread should not be started"
+            assert indexer._watcher is not None, "Watcher should be started"
+            assert indexer._processor_thread is not None, (
+                "Processor thread should exist"
+            )
+        finally:
+            indexer.stop()
+
+    def test_watcher_only_false_starts_bulk_loading(self, temp_storage, temp_db_path):
+        """Test watcher_only=False starts bulk loading."""
+        indexer = HybridIndexer(
+            storage_path=temp_storage, db_path=temp_db_path, watcher_only=False
+        )
+        indexer.start()
+
+        try:
+            assert indexer._bulk_thread is not None, "Bulk thread should be started"
+            assert indexer._watcher is not None, "Watcher should be started"
+        finally:
+            indexer.stop()
+
 
 # =============================================================================
 # Queue Behavior Tests
@@ -503,7 +537,9 @@ class TestHybridIndexerIntegration:
                 create_session_json(f"ses_{i:03d}"),
             )
 
-        indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
+        indexer = HybridIndexer(
+            storage_path=temp_storage, db_path=temp_db_path, watcher_only=False
+        )
         indexer.start()
 
         timeout = 10
