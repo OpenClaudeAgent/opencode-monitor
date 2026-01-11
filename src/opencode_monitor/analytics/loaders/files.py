@@ -188,7 +188,18 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
             ).fetchall()
 
             for op_id, file_path in file_ops:
+                # Try exact match first
                 stats = diff_by_file.get(file_path)
+
+                # If no match, try suffix match (diff has relative, DB has absolute)
+                if not stats:
+                    for diff_path, diff_stats in diff_by_file.items():
+                        if file_path.endswith(diff_path) or diff_path.endswith(
+                            file_path
+                        ):
+                            stats = diff_stats
+                            break
+
                 if stats:
                     conn.execute(
                         """UPDATE file_operations 
