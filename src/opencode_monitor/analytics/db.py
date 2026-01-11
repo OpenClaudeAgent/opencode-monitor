@@ -360,7 +360,9 @@ class AnalyticsDB:
                 file_path VARCHAR,
                 timestamp TIMESTAMP,
                 risk_level VARCHAR,
-                risk_reason VARCHAR
+                risk_reason VARCHAR,
+                additions INTEGER DEFAULT 0,
+                deletions INTEGER DEFAULT 0
             )
         """)
 
@@ -768,6 +770,10 @@ class AnalyticsDB:
         # Parts - scope-aware security columns (Plan 44)
         add_column("parts", "scope_verdict", "VARCHAR")
         add_column("parts", "scope_resolved_path", "VARCHAR")
+
+        # File operations - per-file diff stats
+        add_column("file_operations", "additions", "INTEGER", "0")
+        add_column("file_operations", "deletions", "INTEGER", "0")
 
         # NOTE: security_scanned table migration removed in Plan 42
         # Security tracking now uses parts.security_enriched_at column

@@ -8,7 +8,7 @@ improves testability by allowing handlers to be mocked independently.
 
 from abc import ABC, abstractmethod
 from pathlib import Path
-from typing import Optional, TYPE_CHECKING
+from typing import Any, Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from .parsers import FileParser
@@ -26,24 +26,11 @@ class FileHandler(ABC):
     def process(
         self,
         file_path: Path,
-        raw_data: dict,
+        raw_data: Any,
         conn,
         parser: "FileParser",
         trace_builder: "TraceBuilder",
     ) -> Optional[str]:
-        """
-        Process a file and return the entity ID or None on error.
-
-        Args:
-            file_path: Path to the file being processed
-            raw_data: Parsed JSON data from the file
-            conn: Database connection
-            parser: FileParser instance for parsing raw data
-            trace_builder: TraceBuilder for creating traces
-
-        Returns:
-            The record ID if successful, None otherwise
-        """
         pass
 
 
@@ -218,3 +205,50 @@ class PartHandler(FileHandler):
                 trace_builder.create_trace_from_delegation(delegation, parsed)
 
         return parsed.id
+
+
+class SessionDiffHandler(FileHandler):
+    """Handler for session_diff files - enriches file_operations with diff stats."""
+
+    def process(
+        self,
+        file_path: Path,
+        raw_data: Any,
+        conn,
+        parser: "FileParser",
+        trace_builder: "TraceBuilder",
+    ) -> Optional[str]:
+        session_id = file_path.stem
+
+        if not isinstance(raw_data, list):
+            return None
+
+        diff_by_file = {
+            item.get("file"): {
+                "additions": item.get("additions", 0),
+                "deletions": item.get("deletions", 0),
+            }
+            for item in raw_data
+            if isinstance(item, dict) and item.get("file")
+        }
+
+        if not diff_by_file:
+            return session_id
+
+        file_ops = conn.execute(
+            """SELECT id, file_path FROM file_operations 
+               WHERE session_id = ? AND operation IN ('write', 'edit')""",
+            [session_id],
+        ).fetchall()
+
+        for op_id, op_file_path in file_ops:
+            stats = diff_by_file.get(op_file_path)
+            if stats:
+                conn.execute(
+                    """UPDATE file_operations 
+                       SET additions = ?, deletions = ? 
+                       WHERE id = ?""",
+                    [stats["additions"], stats["deletions"], op_id],
+                )
+
+        return session_id

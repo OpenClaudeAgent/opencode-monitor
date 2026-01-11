@@ -45,6 +45,24 @@ class TestClickableLabel:
         callback.assert_called_once()
 
 
+def _make_files(
+    files_dict: dict[str, list[str]], with_stats: bool = False
+) -> list[dict]:
+    """Helper to convert old format to new format for tests."""
+    result = []
+    for op, paths in files_dict.items():
+        for path in paths:
+            result.append(
+                {
+                    "path": path,
+                    "operation": op,
+                    "additions": 5 if with_stats else 0,
+                    "deletions": 2 if with_stats else 0,
+                }
+            )
+    return result
+
+
 class TestFilesListWidget:
     """Tests for FilesListWidget expand/collapse functionality."""
 
@@ -68,8 +86,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": ["file1.py", "file2.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": ["file1.py", "file2.py"]}))
 
         assert "▼" in widget._header.text()
         assert "▲" not in widget._header.text()
@@ -83,8 +100,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": ["file1.py", "file2.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": ["file1.py", "file2.py"]}))
         widget._toggle_expand()
 
         assert "▲" in widget._header.text()
@@ -99,13 +115,12 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": [f"file{i}.py" for i in range(15)]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
 
         visible_labels = []
         for i in range(widget._container_layout.count()):
             w = widget._container_layout.itemAt(i).widget()
-            if isinstance(w, QLabel) and w.text().startswith("✏️"):
+            if isinstance(w, QLabel) and "✏️" in w.text():
                 visible_labels.append(w)
         assert len(visible_labels) == 8
 
@@ -118,14 +133,13 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": [f"file{i}.py" for i in range(15)]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
         widget._toggle_expand()
 
         visible_labels = []
         for i in range(widget._container_layout.count()):
             w = widget._container_layout.itemAt(i).widget()
-            if isinstance(w, QLabel) and w.text().startswith("✏️"):
+            if isinstance(w, QLabel) and "✏️" in w.text():
                 visible_labels.append(w)
         assert len(visible_labels) == 15
 
@@ -138,8 +152,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": [f"file{i}.py" for i in range(15)]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
 
         more_labels = []
         for i in range(widget._container_layout.count()):
@@ -158,8 +171,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": [f"file{i}.py" for i in range(15)]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": [f"file{i}.py" for i in range(15)]}))
         widget._toggle_expand()
 
         more_labels = []
@@ -178,8 +190,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": ["file1.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": ["file1.py"]}))
 
         assert widget._is_expanded is False
         widget._toggle_expand()
@@ -196,13 +207,12 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": ["a.py", "b.py"], "read": ["c.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": ["a.py", "b.py"], "read": ["c.py"]}))
 
         assert "(3)" in widget._header.text()
 
     def test_empty_files_shows_no_files_message(self, qtbot):
-        """Empty files dict should show 'No files accessed'."""
+        """Empty files list should show 'No files accessed'."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -210,7 +220,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files({})
+        widget.load_files([])
 
         labels = []
         for i in range(widget._container_layout.count()):
@@ -228,8 +238,7 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"edit": ["file1.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"edit": ["file1.py"]}))
 
         assert widget._is_expanded is False
         qtbot.mouseClick(widget._header, Qt.MouseButton.LeftButton)
@@ -244,26 +253,25 @@ class TestFilesListWidget:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        files = {"read": ["read.py"], "edit": ["edit.py"]}
-        widget.load_files(files)
+        widget.load_files(_make_files({"read": ["read.py"], "edit": ["edit.py"]}))
 
         labels: list[str] = []
         for i in range(widget._container_layout.count()):
             w = widget._container_layout.itemAt(i).widget()
             if isinstance(w, QLabel):
                 text = w.text()
-                if text.startswith("✏️") or text.startswith("📖"):
+                if "✏️" in text or "📖" in text:
                     labels.append(text)
 
-        assert labels[0].startswith("✏️")
-        assert labels[1].startswith("📖")
+        assert "✏️" in labels[0]
+        assert "📖" in labels[1]
 
 
 class TestFilesListWidgetDiffExport:
     """Tests for diff export functionality (additions/deletions stats and signal)."""
 
-    def test_load_files_accepts_additions_deletions(self, qtbot):
-        """load_files should accept additions and deletions parameters."""
+    def test_load_files_computes_totals_from_per_file_stats(self, qtbot):
+        """load_files should compute totals from per-file additions/deletions."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -271,15 +279,14 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=10,
-            deletions=5,
-            session_id="ses_test",
-        )
+        files = [
+            {"path": "file1.py", "operation": "edit", "additions": 10, "deletions": 3},
+            {"path": "file2.py", "operation": "edit", "additions": 5, "deletions": 2},
+        ]
+        widget.load_files(files, session_id="ses_test")
 
-        assert widget._additions == 10
-        assert widget._deletions == 5
+        assert widget._total_additions == 15
+        assert widget._total_deletions == 5
         assert widget._session_id == "ses_test"
 
     def test_header_shows_green_additions(self, qtbot):
@@ -291,12 +298,10 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=15,
-            deletions=0,
-            session_id="ses_test",
-        )
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 15, "deletions": 0}
+        ]
+        widget.load_files(files, session_id="ses_test")
 
         header_text = widget._header.text()
         assert "+15" in header_text
@@ -310,18 +315,16 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=0,
-            deletions=8,
-            session_id="ses_test",
-        )
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 0, "deletions": 8}
+        ]
+        widget.load_files(files, session_id="ses_test")
 
         header_text = widget._header.text()
         assert "-8" in header_text
 
-    def test_export_button_not_hidden_with_stats(self, qtbot):
-        """Export button should not be hidden when stats are provided."""
+    def test_export_button_visible_with_stats(self, qtbot):
+        """Export button should be visible when files have diff stats."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -329,17 +332,15 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=5,
-            deletions=3,
-            session_id="ses_test",
-        )
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 5, "deletions": 3}
+        ]
+        widget.load_files(files, session_id="ses_test")
 
         assert not widget._export_btn.isHidden()
 
     def test_export_button_hidden_without_stats(self, qtbot):
-        """Export button should be hidden when no stats provided."""
+        """Export button should be hidden when files have no diff stats."""
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             FilesListWidget,
         )
@@ -347,7 +348,10 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files({"edit": ["file.py"]})
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 0, "deletions": 0}
+        ]
+        widget.load_files(files)
 
         assert widget._export_btn.isHidden()
 
@@ -360,12 +364,10 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=1,
-            deletions=1,
-            session_id="ses_signal_test",
-        )
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 1, "deletions": 1}
+        ]
+        widget.load_files(files, session_id="ses_signal_test")
 
         with qtbot.waitSignal(widget.diff_requested, timeout=1000) as blocker:
             qtbot.mouseClick(widget._export_btn, Qt.MouseButton.LeftButton)
@@ -381,12 +383,10 @@ class TestFilesListWidgetDiffExport:
         widget = FilesListWidget()
         qtbot.addWidget(widget)
 
-        widget.load_files(
-            {"edit": ["file.py"]},
-            additions=1,
-            deletions=1,
-            session_id=None,
-        )
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 1, "deletions": 1}
+        ]
+        widget.load_files(files, session_id=None)
 
         signal_received = False
 
@@ -398,6 +398,30 @@ class TestFilesListWidgetDiffExport:
         widget._on_export_clicked()
 
         assert not signal_received
+
+    def test_per_file_stats_displayed(self, qtbot):
+        """Per-file additions/deletions should be displayed in file list."""
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            FilesListWidget,
+        )
+
+        widget = FilesListWidget()
+        qtbot.addWidget(widget)
+
+        files = [
+            {"path": "file.py", "operation": "edit", "additions": 10, "deletions": 3}
+        ]
+        widget.load_files(files, session_id="ses_test")
+
+        file_labels = []
+        for i in range(widget._container_layout.count()):
+            w = widget._container_layout.itemAt(i).widget()
+            if isinstance(w, QLabel) and "file.py" in w.text():
+                file_labels.append(w.text())
+
+        assert len(file_labels) == 1
+        assert "+10" in file_labels[0]
+        assert "-3" in file_labels[0]
 
 
 class TestSessionOverviewPanelDiffHandler:

@@ -36,6 +36,7 @@ FILE_TYPE_MAP = {
     "part": "part",
     "todo": "todo",
     "project": "project",
+    "session_diff": "session_diff",
 }
 
 

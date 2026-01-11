@@ -16,7 +16,13 @@ from .parsers import FileParser
 from .tracker import FileTracker
 from .trace_builder import TraceBuilder
 from .file_processing import FileProcessingState
-from .handlers import FileHandler, SessionHandler, MessageHandler, PartHandler
+from .handlers import (
+    FileHandler,
+    SessionHandler,
+    MessageHandler,
+    PartHandler,
+    SessionDiffHandler,
+)
 from ...utils.logger import info, debug
 
 
@@ -66,6 +72,7 @@ class HybridIndexer:
             "session": SessionHandler(),
             "message": MessageHandler(),
             "part": PartHandler(),
+            "session_diff": SessionDiffHandler(),
         }
 
         self._running = False

@@ -45,9 +45,14 @@ class TestFilesListWidgetDiffStats:
         files_widget = overview_panel._files
 
         files_widget.load_files(
-            {"edit": ["file1.py"]},
-            additions=15,
-            deletions=4,
+            [
+                {
+                    "path": "file1.py",
+                    "operation": "edit",
+                    "additions": 15,
+                    "deletions": 4,
+                }
+            ],
             session_id="ses_test",
         )
         process_qt_events()
@@ -77,9 +82,14 @@ class TestFilesListWidgetDiffStats:
         files_widget = overview_panel._files
 
         files_widget.load_files(
-            {"edit": ["file1.py"]},
-            additions=10,
-            deletions=5,
+            [
+                {
+                    "path": "file1.py",
+                    "operation": "edit",
+                    "additions": 10,
+                    "deletions": 5,
+                }
+            ],
             session_id="ses_test",
         )
         process_qt_events()
@@ -106,7 +116,9 @@ class TestFilesListWidgetDiffStats:
         overview_panel = detail_panel._session_overview
         files_widget = overview_panel._files
 
-        files_widget.load_files({"edit": ["file1.py"]})
+        files_widget.load_files(
+            [{"path": "file1.py", "operation": "edit", "additions": 0, "deletions": 0}]
+        )
         process_qt_events()
 
         assert not files_widget._export_btn.isVisible(), (
@@ -139,9 +151,7 @@ class TestDiffExportSignal:
 
         test_session_id = "ses_signal_test"
         files_widget.load_files(
-            {"edit": ["file1.py"]},
-            additions=5,
-            deletions=2,
+            [{"path": "file1.py", "operation": "edit", "additions": 5, "deletions": 2}],
             session_id=test_session_id,
         )
         process_qt_events()
@@ -211,9 +221,20 @@ class TestDiffExportToClipboard:
         diff_file.write_text(json.dumps(diff_data))
 
         files_widget.load_files(
-            {"edit": ["src/auth/login.py", "tests/test_auth.py"]},
-            additions=7,
-            deletions=2,
+            [
+                {
+                    "path": "src/auth/login.py",
+                    "operation": "edit",
+                    "additions": 3,
+                    "deletions": 2,
+                },
+                {
+                    "path": "tests/test_auth.py",
+                    "operation": "edit",
+                    "additions": 4,
+                    "deletions": 0,
+                },
+            ],
             session_id=test_session_id,
         )
         process_qt_events()
@@ -286,9 +307,7 @@ class TestDiffExportToClipboard:
         files_widget = overview_panel._files
 
         files_widget.load_files(
-            {"edit": ["file.py"]},
-            additions=1,
-            deletions=1,
+            [{"path": "file.py", "operation": "edit", "additions": 1, "deletions": 1}],
             session_id="ses_nonexistent",
         )
         process_qt_events()
@@ -339,9 +358,7 @@ class TestDiffExportToClipboard:
         diff_file.write_text("[]")
 
         files_widget.load_files(
-            {"edit": ["file.py"]},
-            additions=0,
-            deletions=0,
+            [{"path": "file.py", "operation": "edit", "additions": 1, "deletions": 1}],
             session_id=test_session_id,
         )
         process_qt_events()
@@ -394,9 +411,14 @@ class TestDiffExportToClipboard:
         diff_file.write_text(json.dumps(diff_data))
 
         files_widget.load_files(
-            {"edit": ["src/module.py"]},
-            additions=2,
-            deletions=1,
+            [
+                {
+                    "path": "src/module.py",
+                    "operation": "edit",
+                    "additions": 2,
+                    "deletions": 1,
+                }
+            ],
             session_id=test_session_id,
         )
         process_qt_events()
@@ -467,9 +489,14 @@ class TestDiffExportToClipboard:
         diff_file.write_text(json.dumps(diff_data, ensure_ascii=False))
 
         files_widget.load_files(
-            {"edit": ["src/i18n/messages.py"]},
-            additions=2,
-            deletions=1,
+            [
+                {
+                    "path": "src/i18n/messages.py",
+                    "operation": "edit",
+                    "additions": 2,
+                    "deletions": 1,
+                }
+            ],
             session_id=test_session_id,
         )
         process_qt_events()

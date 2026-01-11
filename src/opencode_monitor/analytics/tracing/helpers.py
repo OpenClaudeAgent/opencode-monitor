@@ -325,7 +325,7 @@ class HelpersMixin:
 
                 files_by_op = self._conn.execute(
                     """
-                    SELECT operation, file_path
+                    SELECT operation, file_path, additions, deletions
                     FROM file_operations
                     WHERE session_id = ?
                     ORDER BY timestamp DESC
@@ -334,10 +334,22 @@ class HelpersMixin:
                 ).fetchall()
 
                 files_list: dict[str, list[str]] = {"read": [], "write": [], "edit": []}
+                files_with_stats: list[dict] = []
+                seen_paths: set[str] = set()
                 for row in files_by_op:
-                    op, path = row[0], row[1]
+                    op, path, additions, deletions = row[0], row[1], row[2], row[3]
                     if op in files_list and path not in files_list[op]:
                         files_list[op].append(path)
+                    if path not in seen_paths:
+                        seen_paths.add(path)
+                        files_with_stats.append(
+                            {
+                                "path": path,
+                                "operation": op,
+                                "additions": additions or 0,
+                                "deletions": deletions or 0,
+                            }
+                        )
             else:
                 fallback = self._conn.execute(
                     """
@@ -352,12 +364,24 @@ class HelpersMixin:
                 ).fetchall()
 
                 files_list = {"read": [], "write": [], "edit": []}
+                files_with_stats = []
+                seen_paths: set[str] = set()
                 for row in fallback:
                     op, path = row[0], row[1]
                     if op and path and path not in files_list.get(op, []):
                         if op not in files_list:
                             files_list[op] = []
                         files_list[op].append(path)
+                    if path and path not in seen_paths:
+                        seen_paths.add(path)
+                        files_with_stats.append(
+                            {
+                                "path": path,
+                                "operation": op,
+                                "additions": 0,
+                                "deletions": 0,
+                            }
+                        )
 
                 reads = len(files_list.get("read", []))
                 writes = len(files_list.get("write", []))
@@ -378,6 +402,7 @@ class HelpersMixin:
                 "high_risk_count": high_risk,
                 "unique_files": unique_files,
                 "files_list": files_list,
+                "files_with_stats": files_with_stats,
                 "by_operation": [
                     {"operation": "read", "count": reads},
                     {"operation": "write", "count": writes},
@@ -393,6 +418,7 @@ class HelpersMixin:
                 "high_risk_count": 0,
                 "unique_files": 0,
                 "files_list": {"read": [], "write": [], "edit": []},
+                "files_with_stats": [],
                 "by_operation": [],
             }
 

@@ -890,9 +890,9 @@ class FilesListWidget(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._is_expanded = False
-        self._files_data: dict[str, list[str]] = {}
-        self._additions: int | None = None
-        self._deletions: int | None = None
+        self._files: list[dict] = []
+        self._total_additions: int = 0
+        self._total_deletions: int = 0
         self._session_id: str | None = None
         self._setup_ui()
 
@@ -990,32 +990,26 @@ class FilesListWidget(QFrame):
 
     def _update_header_text(self, total_files: int) -> None:
         chevron = "▲" if self._is_expanded else "▼"
-
         base_text = f"📁 Files ({total_files})"
 
-        if self._additions is not None or self._deletions is not None:
-            additions = self._additions or 0
-            deletions = self._deletions or 0
-
-            stats_html = f'<span style="color: {COLORS["success"]};">+{additions}</span> <span style="color: {COLORS["error"]};">-{deletions}</span>'
-            header_html = f"{base_text} {stats_html} {chevron}"
-            self._header.setText(header_html)
+        if self._total_additions > 0 or self._total_deletions > 0:
+            stats_html = f'<span style="color: {COLORS["success"]};">+{self._total_additions}</span> <span style="color: {COLORS["error"]};">-{self._total_deletions}</span>'
+            self._header.setText(f"{base_text} {stats_html} {chevron}")
         else:
             self._header.setText(f"{base_text} {chevron}")
 
     def load_files(
         self,
-        files: dict[str, list[str]],
-        additions: int | None = None,
-        deletions: int | None = None,
+        files: list[dict],
         session_id: str | None = None,
     ) -> None:
-        self._files_data = files
-        self._additions = additions
-        self._deletions = deletions
+        self._files = files
         self._session_id = session_id
+        self._total_additions = sum(f.get("additions", 0) for f in files)
+        self._total_deletions = sum(f.get("deletions", 0) for f in files)
 
-        if additions is not None or deletions is not None:
+        has_diff_stats = self._total_additions > 0 or self._total_deletions > 0
+        if has_diff_stats:
             self._export_btn.show()
         else:
             self._export_btn.hide()
@@ -1028,11 +1022,7 @@ class FilesListWidget(QFrame):
             if item.widget():
                 item.widget().deleteLater()
 
-        all_files: set[str] = set()
-        for paths in self._files_data.values():
-            all_files.update(paths)
-
-        if not all_files:
+        if not self._files:
             label = QLabel("No files accessed")
             label.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
@@ -1044,7 +1034,7 @@ class FilesListWidget(QFrame):
             self._header.setText("📁 Files")
             return
 
-        self._update_header_text(len(all_files))
+        self._update_header_text(len(self._files))
 
         action_config = {
             "read": ("📖", COLORS["type_read"]),
@@ -1052,39 +1042,45 @@ class FilesListWidget(QFrame):
             "write": ("📝", COLORS["type_write"]),
         }
 
-        files_shown = 0
-        max_files = 8 if not self._is_expanded else len(all_files)
+        sorted_files = sorted(
+            self._files,
+            key=lambda f: (
+                0
+                if f.get("operation") == "edit"
+                else 1
+                if f.get("operation") == "write"
+                else 2
+            ),
+        )
 
-        for action in ["edit", "write", "read"]:
-            paths = self._files_data.get(action, [])
-            if not paths:
-                continue
+        max_files = 8 if not self._is_expanded else len(sorted_files)
 
-            icon, color = action_config.get(action, ("📄", COLORS["text_secondary"]))
+        for i, file_info in enumerate(sorted_files[:max_files]):
+            path = file_info.get("path", "")
+            operation = file_info.get("operation", "read")
+            additions = file_info.get("additions", 0)
+            deletions = file_info.get("deletions", 0)
 
-            for path in paths[: max_files - files_shown]:
-                # Get just the filename or last 2 segments
-                short_path = "/".join(path.split("/")[-2:]) if "/" in path else path
+            icon, color = action_config.get(operation, ("📄", COLORS["text_secondary"]))
+            short_path = "/".join(path.split("/")[-2:]) if "/" in path else path
 
+            if additions > 0 or deletions > 0:
+                stats_text = f'<span style="color: {COLORS["success"]};">+{additions}</span> <span style="color: {COLORS["error"]};">-{deletions}</span>'
+                label = QLabel(f"{icon} {short_path}  {stats_text}")
+            else:
                 label = QLabel(f"{icon} {short_path}")
-                label.setStyleSheet(f"""
-                    font-size: {FONTS["size_xs"]}px;
-                    font-family: {FONTS["mono"]};
-                    color: {color};
-                    padding: 2px {SPACING["xs"]}px;
-                """)
-                label.setToolTip(f"{action.capitalize()}: {path}")
-                self._container_layout.addWidget(label)
-                files_shown += 1
 
-                if files_shown >= max_files:
-                    break
+            label.setStyleSheet(f"""
+                font-size: {FONTS["size_xs"]}px;
+                font-family: {FONTS["mono"]};
+                color: {color};
+                padding: 2px {SPACING["xs"]}px;
+            """)
+            label.setToolTip(f"{operation.capitalize()}: {path}")
+            self._container_layout.addWidget(label)
 
-            if files_shown >= max_files:
-                break
-
-        remaining = len(all_files) - files_shown
-        if remaining > 0 and not self._is_expanded:
+        remaining = len(self._files) - max_files
+        if remaining > 0:
             more = QLabel(f"  +{remaining} more...")
             more.setStyleSheet(f"""
                 font-size: {FONTS["size_xs"]}px;
@@ -1532,43 +1528,31 @@ class SessionOverviewPanel(QFrame):
         )
         if session_id:
             self._load_extended_timeline(session_id)
-            files_data, additions, deletions = self._load_files_from_api(session_id)
+            files_with_stats = self._load_files_from_api(session_id)
         else:
             logger.warning("[Timeline] No session_id in tree_data")
             self._timeline.clear()
-            files_data, additions, deletions = {}, None, None
+            files_with_stats = []
 
         self._tools.load_tools(data.tools, data.tool_targets)
-        self._files.load_files(files_data, additions, deletions, session_id)
+        self._files.load_files(files_with_stats, session_id)
         self._tokens.load_tokens(tokens_in, tokens_out, cache_read, cache_write)
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
 
-    def _load_files_from_api(
-        self, session_id: str
-    ) -> tuple[dict[str, list[str]], int | None, int | None]:
-        """Load files list from API instead of extracting from display_info.
-
-        Returns:
-            Tuple of (files_list, additions, deletions)
-        """
+    def _load_files_from_api(self, session_id: str) -> list[dict]:
         from opencode_monitor.api import get_api_client
 
         client = get_api_client()
         if not client.is_available:
-            return {}, None, None
+            return []
 
         data = client.get_session_files(session_id)
         if not data:
-            return {}, None, None
+            return []
 
         details = data.get("details", {})
-        summary = data.get("summary", {})
-        files_list = details.get("files_list", {})
-        additions = summary.get("additions")
-        deletions = summary.get("deletions")
-
-        return files_list, additions, deletions
+        return details.get("files_with_stats", [])
 
     def _load_extended_timeline(self, session_id: str) -> None:
         """Load full timeline from API.
@@ -1596,7 +1580,7 @@ class SessionOverviewPanel(QFrame):
         """Reset the panel to empty state."""
         self._timeline.clear()
         self._tools.load_tools(Counter(), {})
-        self._files.load_files({})
+        self._files.load_files([])
         self._tokens.load_tokens()
         self._agents.load_agents([])
         self._errors.load_errors([])

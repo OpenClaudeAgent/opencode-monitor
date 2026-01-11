@@ -120,4 +120,86 @@ def load_file_operations(
     row = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()
     count = row[0] if row else 0
     info(f"Loaded {count} file operations")
+
+    enriched = enrich_file_operations_with_diff_stats(db, storage_path)
+    if enriched > 0:
+        info(f"Enriched {enriched} file operations with diff stats")
+
     return count
+
+
+def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) -> int:
+    """Enrich file_operations with per-file additions/deletions from session_diff JSON.
+
+    Reads session_diff/{session_id}.json files and updates file_operations
+    with additions/deletions counts for each file.
+
+    Args:
+        db: Analytics database instance
+        storage_path: Path to OpenCode storage
+
+    Returns:
+        Number of file operations enriched
+    """
+    conn = db.connect()
+    diff_dir = storage_path / "session_diff"
+
+    if not diff_dir.exists():
+        return 0
+
+    sessions_with_ops = conn.execute(
+        "SELECT DISTINCT session_id FROM file_operations WHERE session_id IS NOT NULL"
+    ).fetchall()
+    session_ids = {row[0] for row in sessions_with_ops}
+
+    if not session_ids:
+        return 0
+
+    enriched_count = 0
+
+    for session_id in session_ids:
+        diff_file = diff_dir / f"{session_id}.json"
+        if not diff_file.exists():
+            continue
+
+        try:
+            with open(diff_file, "r") as f:
+                diff_data = json.load(f)
+
+            if not isinstance(diff_data, list):
+                continue
+
+            diff_by_file = {
+                item.get("file"): {
+                    "additions": item.get("additions", 0),
+                    "deletions": item.get("deletions", 0),
+                }
+                for item in diff_data
+                if isinstance(item, dict) and item.get("file")
+            }
+
+            if not diff_by_file:
+                continue
+
+            file_ops = conn.execute(
+                """SELECT id, file_path FROM file_operations 
+                   WHERE session_id = ? AND operation IN ('write', 'edit')""",
+                [session_id],
+            ).fetchall()
+
+            for op_id, file_path in file_ops:
+                stats = diff_by_file.get(file_path)
+                if stats:
+                    conn.execute(
+                        """UPDATE file_operations 
+                           SET additions = ?, deletions = ? 
+                           WHERE id = ?""",
+                        [stats["additions"], stats["deletions"], op_id],
+                    )
+                    enriched_count += 1
+
+        except (json.JSONDecodeError, OSError) as e:
+            debug(f"Failed to read diff file for session {session_id}: {e}")
+            continue
+
+    return enriched_count
