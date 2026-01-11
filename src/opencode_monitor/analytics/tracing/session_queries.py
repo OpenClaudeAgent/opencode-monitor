@@ -2072,3 +2072,96 @@ class SessionQueriesMixin:
         }
 
         return node, stats
+
+    def get_delegation_timeline(self, session_id: str) -> dict:
+        """Get complete timeline of a delegated agent session."""
+        try:
+            session = self._get_session_info(session_id)
+
+            parts = self._conn.execute(
+                """
+                SELECT 
+                    p.id,
+                    p.part_type,
+                    p.content,
+                    p.tool_name,
+                    p.tool_status,
+                    p.arguments,
+                    p.result_summary,
+                    p.reasoning_text,
+                    p.duration_ms,
+                    p.created_at,
+                    p.error_message,
+                    m.role
+                FROM parts p
+                LEFT JOIN messages m ON p.message_id = m.id
+                WHERE p.session_id = ?
+                  AND p.part_type IN ('reasoning', 'text', 'tool', 'step-start', 'step-finish')
+                ORDER BY p.created_at ASC
+                """,
+                [session_id],
+            ).fetchall()
+
+            timeline = []
+            for row in parts:
+                part_type = row[1]
+                role = row[11]
+
+                if part_type == "text" and role == "user":
+                    continue
+
+                item = {
+                    "id": row[0],
+                    "type": part_type,
+                    "timestamp": row[9].isoformat() if row[9] else None,
+                }
+
+                if part_type == "reasoning":
+                    item["content"] = row[7] or row[2] or ""
+                elif part_type == "text":
+                    item["content"] = row[2] or ""
+                elif part_type == "tool":
+                    item["tool_name"] = row[3]
+                    item["tool_status"] = row[4]
+                    item["arguments"] = row[5]
+                    item["result"] = row[6]
+                    item["duration_ms"] = row[8]
+                    item["error"] = row[10]
+                elif part_type in ("step-start", "step-finish"):
+                    item["content"] = row[2]
+
+                timeline.append(item)
+
+            prompt_input = None
+            first_text = self._conn.execute(
+                """
+                SELECT p.content
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE p.session_id = ? 
+                  AND m.role = 'user' 
+                  AND p.part_type = 'text'
+                ORDER BY p.created_at ASC
+                LIMIT 1
+                """,
+                [session_id],
+            ).fetchone()
+            if first_text:
+                prompt_input = first_text[0]
+
+            return {
+                "meta": {
+                    "session_id": session_id,
+                    "title": session.get("title") if session else None,
+                    "count": len(timeline),
+                },
+                "prompt_input": prompt_input,
+                "timeline": timeline,
+            }
+        except Exception as e:
+            debug(f"get_delegation_timeline failed: {e}")
+            return {
+                "meta": {"session_id": session_id, "error": str(e)},
+                "prompt_input": None,
+                "timeline": [],
+            }

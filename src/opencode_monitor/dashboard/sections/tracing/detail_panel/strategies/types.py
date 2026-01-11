@@ -11,13 +11,25 @@ class TranscriptData(TypedDict, total=False):
     assistant_content: str
 
 
+class DelegationData(TypedDict, total=False):
+    """Data for delegation span panel."""
+
+    child_session_id: str | None
+    subagent_type: str | None
+    status: str
+    duration_ms: int
+    display_info: str
+    tool_name: str
+
+
 class PanelContent(TypedDict, total=False):
     breadcrumb: list[str]
-    content_type: Literal["overview", "tabs"]
+    content_type: Literal["overview", "tabs", "delegation_transcript"]
     overview_data: dict | None
     transcript: TranscriptData | None
     available_tabs: list[int]
     initial_tab: int
+    delegation_data: DelegationData | None
 
 
 @dataclass

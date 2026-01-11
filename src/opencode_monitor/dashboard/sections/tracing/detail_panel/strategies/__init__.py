@@ -2,12 +2,13 @@
 Panel strategies package - Strategy pattern for panel content generation.
 """
 
-from .types import PanelContent, TreeNodeData, TranscriptData
+from .types import PanelContent, TreeNodeData, TranscriptData, DelegationData
 from .protocol import PanelStrategy
 from .session import SessionStrategy
 from .exchange import ExchangeStrategy
 from .tool import ToolStrategy
 from .text import TextContentStrategy
+from .delegation import DelegationSpanStrategy, is_delegation_span
 
 
 class StrategyFactory:
@@ -38,6 +39,7 @@ def create_default_factory() -> StrategyFactory:
     factory.register(SessionStrategy())
     factory.register(ExchangeStrategy())
     factory.register(ToolStrategy())
+    factory.register(DelegationSpanStrategy())
     factory.set_default(TextContentStrategy())
     return factory
 
@@ -53,11 +55,14 @@ __all__ = [
     "PanelContent",
     "TreeNodeData",
     "TranscriptData",
+    "DelegationData",
     "PanelStrategy",
     "SessionStrategy",
     "ExchangeStrategy",
     "ToolStrategy",
     "TextContentStrategy",
+    "DelegationSpanStrategy",
+    "is_delegation_span",
     "StrategyFactory",
     "create_default_factory",
     "get_strategy_factory",
