@@ -181,6 +181,14 @@ class AnalyticsAPIClient:
         """
         return self._request(f"/api/session/{session_id}/messages")
 
+    def get_session_exchanges(self, session_id: str) -> Optional[dict]:
+        """Get conversation exchanges (user→assistant pairs) for a session."""
+        return self._request(f"/api/session/{session_id}/exchanges")
+
+    def get_delegation_timeline(self, session_id: str) -> Optional[dict]:
+        """Get complete timeline of a delegated agent session (reasoning, text, tools)."""
+        return self._request(f"/api/session/{session_id}/delegation-timeline")
+
     def get_session_timeline_full(
         self, session_id: str, include_children: bool = True, depth: int = 3
     ) -> Optional[dict]:

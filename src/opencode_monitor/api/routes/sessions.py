@@ -362,3 +362,20 @@ def get_session_delegations(session_id: str):
     except Exception as e:
         error(f"[API] Error getting session delegations: {e}")
         return jsonify({"success": False, "error": str(e)}), 500
+
+
+@sessions_bp.route("/api/session/<session_id>/delegation-timeline", methods=["GET"])
+def get_delegation_timeline(session_id: str):
+    """Get complete timeline of a delegated agent session.
+
+    Returns all parts (reasoning, text, tools) ordered chronologically.
+    Used to display full activity of a sub-agent.
+    """
+    try:
+        with get_db_lock():
+            service = get_service()
+            data = service.get_delegation_timeline(session_id)
+        return jsonify({"success": True, "data": data})
+    except Exception as e:
+        error(f"[API] Error getting delegation timeline: {e}")
+        return jsonify({"success": False, "error": str(e)}), 500

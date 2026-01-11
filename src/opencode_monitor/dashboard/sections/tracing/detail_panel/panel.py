@@ -34,7 +34,7 @@ from ..tabs import (
     TranscriptTab,
     DelegationsTab,
 )
-from .components import SessionOverviewPanel
+from .components import SessionOverviewPanel, DelegationTranscriptPanel
 from .handlers import DataLoaderMixin
 from .strategies import PanelContent
 
@@ -111,6 +111,10 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         tabs_layout.setSpacing(0)
         self._setup_tabs(tabs_layout)
         self._content_stack.addWidget(self._tabs_container)
+
+        # Page 2: Delegation transcript (for delegation spans)
+        self._delegation_panel = DelegationTranscriptPanel()
+        self._content_stack.addWidget(self._delegation_panel)
 
         layout.addWidget(self._content_stack)
 
@@ -449,6 +453,11 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
             if overview_data:
                 self._session_overview.load_session(overview_data)
             self._content_stack.setCurrentIndex(0)
+        elif content_type == "delegation_transcript":
+            delegation_data = content.get("delegation_data")
+            if delegation_data:
+                self._delegation_panel.load_delegation(delegation_data)
+            self._content_stack.setCurrentIndex(2)
         else:
             transcript = content.get("transcript")
             if transcript:
