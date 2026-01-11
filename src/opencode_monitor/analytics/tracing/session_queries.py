@@ -291,46 +291,59 @@ class SessionQueriesMixin:
                 "prompt_output": None,
             }
 
-    def get_session_messages(self, session_id: str) -> list[dict]:
-        """Get all messages with content for a session.
-
-        Returns the full conversation history including:
-        - User prompts
-        - Assistant responses
-        - Tool calls (without content, just metadata)
-        - Error information (if message failed)
-
-        Args:
-            session_id: The session ID to query
-
-        Returns:
-            List of message dicts with role, content, timestamp, etc.
-        """
+    def get_session_messages(
+        self, session_id: str, offset: int = 0, limit: int | None = None
+    ) -> list[dict]:
         try:
-            results = self._conn.execute(
-                """
-                SELECT 
-                    m.id as message_id,
-                    m.role,
-                    m.agent,
-                    p.part_type,
-                    p.content,
-                    p.tool_name,
-                    p.tool_status,
-                    COALESCE(p.created_at, m.created_at) as created_at,
-                    m.tokens_input,
-                    m.tokens_output,
-                    m.error_name,
-                    m.error_data,
-                    m.root_path,
-                    m.summary_title
-                FROM messages m
-                LEFT JOIN parts p ON p.message_id = m.id
-                WHERE m.session_id = ?
-                ORDER BY COALESCE(p.created_at, m.created_at) ASC
-                """,
-                [session_id],
-            ).fetchall()
+            if limit is None:
+                query = """
+                    SELECT 
+                        m.id as message_id,
+                        m.role,
+                        m.agent,
+                        p.part_type,
+                        p.content,
+                        p.tool_name,
+                        p.tool_status,
+                        COALESCE(p.created_at, m.created_at) as created_at,
+                        m.tokens_input,
+                        m.tokens_output,
+                        m.error_name,
+                        m.error_data,
+                        m.root_path,
+                        m.summary_title
+                    FROM messages m
+                    LEFT JOIN parts p ON p.message_id = m.id
+                    WHERE m.session_id = ?
+                    ORDER BY COALESCE(p.created_at, m.created_at) ASC
+                    """
+                results = self._conn.execute(query, [session_id]).fetchall()
+            else:
+                query = """
+                    SELECT 
+                        m.id as message_id,
+                        m.role,
+                        m.agent,
+                        p.part_type,
+                        p.content,
+                        p.tool_name,
+                        p.tool_status,
+                        COALESCE(p.created_at, m.created_at) as created_at,
+                        m.tokens_input,
+                        m.tokens_output,
+                        m.error_name,
+                        m.error_data,
+                        m.root_path,
+                        m.summary_title
+                    FROM messages m
+                    LEFT JOIN parts p ON p.message_id = m.id
+                    WHERE m.session_id = ?
+                    ORDER BY COALESCE(p.created_at, m.created_at) ASC
+                    LIMIT ? OFFSET ?
+                    """
+                results = self._conn.execute(
+                    query, [session_id, limit, offset]
+                ).fetchall()
 
             messages = []
             seen_messages = set()
@@ -993,7 +1006,11 @@ class SessionQueriesMixin:
     # ===== Plan 45: Timeline & Aggregation Methods =====
 
     def get_session_timeline_full(
-        self, session_id: str, include_children: bool = False, depth: int = 1
+        self,
+        session_id: str,
+        include_children: bool = False,
+        depth: int = 1,
+        limit: int | None = None,
     ) -> dict:
         """Get complete chronological timeline for a session.
 
@@ -1191,7 +1208,7 @@ class SessionQueriesMixin:
                 for child_row in child_sessions:
                     child_id = child_row[0]
                     child_timeline = self.get_session_timeline_full(
-                        child_id, include_children=True, depth=depth - 1
+                        child_id, include_children=True, depth=depth - 1, limit=limit
                     )
                     if child_timeline.get("success", True):
                         delegations.append(
@@ -1224,7 +1241,11 @@ class SessionQueriesMixin:
                         "parent_session_id": session.get("parent_id"),
                         "depth": 0,
                     },
-                    "timeline": timeline,
+                    "timeline": timeline if limit is None else timeline[:limit],
+                    "timeline_total": len(timeline),
+                    "timeline_truncated": False
+                    if limit is None
+                    else len(timeline) > limit,
                     "delegations": delegations,
                     "summary": {
                         "total_exchanges": len(exchanges_result),
@@ -1458,7 +1479,9 @@ class SessionQueriesMixin:
             "total_reasoning": reasoning_result[0] if reasoning_result else 0,
         }
 
-    def get_session_exchanges(self, session_id: str) -> dict:
+    def get_session_exchanges(
+        self, session_id: str, offset: int = 0, limit: int | None = None
+    ) -> dict:
         """Get conversation turns (user->assistant pairs) for a session.
 
         Returns all exchanges with full prompt_input and prompt_output content.
@@ -1472,22 +1495,41 @@ class SessionQueriesMixin:
         try:
             # First try exchanges table
             # Join with messages to get summary_title (the "hook" - auto-generated title)
-            exchanges = self._conn.execute(
-                """
-                SELECT 
-                    e.id, e.exchange_number, e.user_message_id, e.assistant_message_id,
-                    e.prompt_input, e.prompt_output,
-                    e.started_at, e.ended_at, e.duration_ms,
-                    e.tokens_in, e.tokens_out, e.tokens_reasoning, e.cost,
-                    e.tool_count, e.reasoning_count, e.agent, e.model_id,
-                    m.summary_title
-                FROM exchanges e
-                LEFT JOIN messages m ON e.user_message_id = m.id
-                WHERE e.session_id = ?
-                ORDER BY e.exchange_number ASC
-                """,
-                [session_id],
-            ).fetchall()
+            if limit is None:
+                exchanges = self._conn.execute(
+                    """
+                    SELECT 
+                        e.id, e.exchange_number, e.user_message_id, e.assistant_message_id,
+                        e.prompt_input, e.prompt_output,
+                        e.started_at, e.ended_at, e.duration_ms,
+                        e.tokens_in, e.tokens_out, e.tokens_reasoning, e.cost,
+                        e.tool_count, e.reasoning_count, e.agent, e.model_id,
+                        m.summary_title
+                    FROM exchanges e
+                    LEFT JOIN messages m ON e.user_message_id = m.id
+                    WHERE e.session_id = ?
+                    ORDER BY e.exchange_number ASC
+                    """,
+                    [session_id],
+                ).fetchall()
+            else:
+                exchanges = self._conn.execute(
+                    """
+                    SELECT 
+                        e.id, e.exchange_number, e.user_message_id, e.assistant_message_id,
+                        e.prompt_input, e.prompt_output,
+                        e.started_at, e.ended_at, e.duration_ms,
+                        e.tokens_in, e.tokens_out, e.tokens_reasoning, e.cost,
+                        e.tool_count, e.reasoning_count, e.agent, e.model_id,
+                        m.summary_title
+                    FROM exchanges e
+                    LEFT JOIN messages m ON e.user_message_id = m.id
+                    WHERE e.session_id = ?
+                    ORDER BY e.exchange_number ASC
+                    LIMIT ? OFFSET ?
+                    """,
+                    [session_id, limit, offset],
+                ).fetchall()
 
             if exchanges:
                 exchange_list = []

@@ -63,14 +63,16 @@ def get_tracing_tree():
     try:
         days = request.args.get("days", 30, type=int)
         include_tools = request.args.get("include_tools", "true").lower() == "true"
+        limit = request.args.get("limit", 50, type=int)
+
+        limit = min(limit, 500)
 
         with get_db_lock():
             db = get_analytics_db()
             conn = db.connect()
             start_date = datetime.now() - timedelta(days=days)
 
-            # Step 1: Fetch all trace data
-            root_rows = fetch_root_traces(conn, start_date)
+            root_rows = fetch_root_traces(conn, start_date, limit=limit)
             segments_by_session = fetch_segment_traces(conn, start_date)
             child_rows = fetch_child_traces(conn, start_date)
 

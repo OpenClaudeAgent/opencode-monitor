@@ -11,16 +11,7 @@ from typing import Any
 # =============================================================================
 
 
-def fetch_root_traces(conn: Any, start_date: Any) -> list:
-    """Fetch root traces (user-initiated sessions) from database.
-
-    Args:
-        conn: Database connection
-        start_date: Start date filter for traces
-
-    Returns:
-        List of root trace rows
-    """
+def fetch_root_traces(conn: Any, start_date: Any, limit: int = 50) -> list:
     return conn.execute(
         """
         SELECT 
@@ -45,8 +36,9 @@ def fetch_root_traces(conn: Any, start_date: Any) -> list:
           AND t.trace_id NOT LIKE '%_seg%'
           AND t.started_at >= ?
         ORDER BY t.started_at DESC
+        LIMIT ?
         """,
-        [start_date],
+        [start_date, limit],
     ).fetchall()
 
 

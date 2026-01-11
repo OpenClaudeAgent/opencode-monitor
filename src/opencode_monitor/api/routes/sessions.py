@@ -153,11 +153,22 @@ def get_session_prompts(session_id: str):
 
 @sessions_bp.route("/api/session/<session_id>/messages", methods=["GET"])
 def get_session_messages(session_id: str):
-    """Get all messages with content for a session."""
+    """Get messages with content for a session (optionally paginated).
+
+    Query params:
+        offset: Starting index (default: 0)
+        limit: Max messages to return (optional, default: no limit, max: 5000)
+    """
     try:
+        offset = request.args.get("offset", 0, type=int)
+        limit = request.args.get("limit", type=int)
+
+        if limit is not None:
+            limit = min(limit, 5000)
+
         with get_db_lock():
             service = get_service()
-            data = service.get_session_messages(session_id)
+            data = service.get_session_messages(session_id, offset=offset, limit=limit)
         return jsonify({"success": True, "data": data})
     except Exception as e:
         error(f"[API] Error getting session messages: {e}")
@@ -257,20 +268,23 @@ def get_session_precise_cost(session_id: str):
 
 @sessions_bp.route("/api/session/<session_id>/timeline/full", methods=["GET"])
 def get_session_timeline_full(session_id: str):
-    """Get complete chronological timeline for a session.
-
-    Returns all events (prompts, reasoning, tool calls, responses) in order,
-    with full content (no truncation).
+    """Get chronological timeline for a session (optionally paginated).
 
     Query params:
         include_children: Whether to include child session timelines (default: false)
-        depth: Maximum depth for child session recursion (default: 1)
+        depth: Maximum depth for child session recursion (default: 1, max: 3)
+        limit: Max timeline events to return (optional, default: no limit, max: 5000)
     """
     try:
         include_children = (
             request.args.get("include_children", "false").lower() == "true"
         )
         depth = request.args.get("depth", 1, type=int)
+        limit = request.args.get("limit", type=int)
+
+        depth = min(depth, 3)
+        if limit is not None:
+            limit = min(limit, 5000)
 
         with get_db_lock():
             service = get_service()
@@ -278,6 +292,7 @@ def get_session_timeline_full(session_id: str):
                 session_id,
                 include_children=include_children,
                 depth=depth,
+                limit=limit,
             )
 
         if result.get("success"):
@@ -292,14 +307,22 @@ def get_session_timeline_full(session_id: str):
 
 @sessions_bp.route("/api/session/<session_id>/exchanges", methods=["GET"])
 def get_session_exchanges(session_id: str):
-    """Get conversation turns (user->assistant pairs) for a session.
+    """Get conversation turns (user->assistant pairs) for a session (optionally paginated).
 
-    Returns all exchanges with full prompt_input and prompt_output content.
+    Query params:
+        offset: Starting exchange index (default: 0)
+        limit: Max exchanges to return (optional, default: no limit, max: 1000)
     """
     try:
+        offset = request.args.get("offset", 0, type=int)
+        limit = request.args.get("limit", type=int)
+
+        if limit is not None:
+            limit = min(limit, 1000)
+
         with get_db_lock():
             service = get_service()
-            data = service.get_session_exchanges(session_id)
+            data = service.get_session_exchanges(session_id, offset=offset, limit=limit)
         return jsonify({"success": True, "data": data})
     except Exception as e:
         error(f"[API] Error getting session exchanges: {e}")
