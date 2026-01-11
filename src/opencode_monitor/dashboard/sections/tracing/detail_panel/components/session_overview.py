@@ -340,7 +340,7 @@ class TimelineEventWidget(QFrame):
                 color: {COLORS["text_muted"]};
             """)
             expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            expand_btn.mousePressEvent = lambda ev: self._toggle_child()
+            expand_btn.mousePressEvent = lambda _ev: self._toggle_child()
             self._expand_btn = expand_btn
             row_layout.addWidget(expand_btn)
 

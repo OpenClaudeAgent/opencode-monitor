@@ -171,7 +171,7 @@ class QueryProfiler:
         self.start_time = time.perf_counter()
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, _exc_val, _exc_tb):
         duration_ms = (time.perf_counter() - self.start_time) * 1000
 
         if exc_type is None:
@@ -217,7 +217,7 @@ class MemoryProfiler:
         self.peak_memory = self.start_memory
         return self
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
+    def __exit__(self, exc_type, _exc_val, _exc_tb):
         end_memory = _get_memory_usage()
         delta_mb = (end_memory - self.start_memory) / (1024 * 1024)
         peak_mb = self.peak_memory / (1024 * 1024)
