@@ -106,7 +106,8 @@ class TestHybridIndexerLifecycle:
 
         try:
             assert indexer._running
-            assert indexer._t0 is not None
+            assert isinstance(indexer._t0, (int, float))
+            assert indexer._t0 > 0
             assert indexer._watcher is not None
             assert indexer._tracker is not None
             assert indexer._parser is not None
@@ -428,7 +429,7 @@ class TestIndexerRegistry:
             storage_path=temp_storage,
             db_path=temp_db_path,
         )
-        assert indexer is not None  # OK - checking object creation
+        assert isinstance(indexer, HybridIndexer)
         assert IndexerRegistry.get() is indexer
 
         IndexerRegistry.clear()

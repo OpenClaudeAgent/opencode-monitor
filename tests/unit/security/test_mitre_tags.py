@@ -40,7 +40,14 @@ class TestCommandMitreTags:
         assert "T1485" in result.mitre_techniques
         assert result.score > 0
         assert result.reason
-        assert result.level is not None
+        assert (
+            result.level.value if hasattr(result.level, "value") else result.level
+        ) in [
+            "critical",
+            "high",
+            "medium",
+            "low",
+        ]
 
     @pytest.mark.parametrize("command,expected_tags", RCE_COMMANDS)
     def test_rce_commands(self, command, expected_tags):
@@ -67,9 +74,8 @@ class TestCommandMitreTags:
         """Safe commands have no MITRE tags and zero risk."""
         result = analyze_command(command)
         assert result.mitre_techniques == []
-        assert isinstance(result.mitre_techniques, list)
         assert result.score == 0
-        assert result.reason is not None
+        assert result.reason
 
     def test_empty_command_safe(self):
         """Empty command returns valid structure with no risk."""
@@ -109,7 +115,14 @@ class TestFilePathMitreTags:
         assert expected_tag in result.mitre_techniques
         assert result.score > 0
         assert result.reason
-        assert result.level is not None
+        assert (
+            result.level.value if hasattr(result.level, "value") else result.level
+        ) in [
+            "critical",
+            "high",
+            "medium",
+            "low",
+        ]
 
     @pytest.mark.parametrize("file_path,expected_tag", OTHER_SENSITIVE)
     def test_other_sensitive_files_tagged(self, analyzer, file_path, expected_tag):
@@ -125,9 +138,8 @@ class TestFilePathMitreTags:
         """Normal files have no MITRE tags and zero risk."""
         result = analyzer.analyze_file_path(file_path)
         assert result.mitre_techniques == []
-        assert isinstance(result.mitre_techniques, list)
         assert result.score == 0
-        assert result.reason is not None
+        assert result.reason
 
 
 class TestUrlMitreTags:
@@ -155,7 +167,7 @@ class TestUrlMitreTags:
         for tag in expected_tags:
             assert tag in result.mitre_techniques
         assert result.score > 0
-        assert result.reason is not None
+        assert result.reason
 
     @pytest.mark.parametrize("url,expected_tag", PASTE_SITES)
     def test_paste_site_urls_tagged(self, analyzer, url, expected_tag):
@@ -164,16 +176,15 @@ class TestUrlMitreTags:
         assert isinstance(result.mitre_techniques, list)
         assert expected_tag in result.mitre_techniques
         assert result.score > 0
-        assert result.reason is not None
+        assert result.reason
 
     @pytest.mark.parametrize("url", NORMAL_URLS)
     def test_normal_url_no_tags(self, analyzer, url):
         """Normal URLs have no MITRE tags and zero risk."""
         result = analyzer.analyze_url(url)
         assert result.mitre_techniques == []
-        assert isinstance(result.mitre_techniques, list)
         assert result.score == 0
-        assert result.reason is not None
+        assert result.reason
 
 
 class TestMitrePatternStructure:
@@ -246,6 +257,5 @@ class TestCombinedMitreBehavior:
         """Normal file in write mode has no MITRE tags."""
         result = analyzer.analyze_file_path("/tmp/normal.txt", write_mode=True)
         assert result.mitre_techniques == []
-        assert isinstance(result.mitre_techniques, list)
         assert result.score == 0
-        assert result.reason is not None
+        assert result.reason

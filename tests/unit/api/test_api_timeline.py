@@ -371,9 +371,7 @@ class TestGetSessionTimelineFull:
             assert isinstance(event["timestamp"], str), (
                 f"Event {event.get('type')} timestamp must be string"
             )
-            assert len(event["timestamp"]) > 0, (
-                f"Event {event.get('type')} has empty timestamp"
-            )
+            assert event["timestamp"], f"Event {event.get('type')} has empty timestamp"
             assert "exchange_number" in event
             assert event["exchange_number"] >= 1, "Exchange number must be >= 1"
 
@@ -446,7 +444,7 @@ class TestGetSessionTimelineFull:
             assert isinstance(prompt["content"], str), (
                 "User prompt content must be string"
             )
-            assert len(prompt["content"]) > 0, "User prompt content must not be empty"
+            assert prompt["content"], "User prompt content must not be empty"
             # For our test data, verify it matches expected content
             if prompt.get("message_id") == "msg_user_001":
                 assert prompt["content"] == "This is the user prompt content"
@@ -461,7 +459,7 @@ class TestGetSessionTimelineFull:
             assert "timestamp" in prompt
             # Verify timestamp is valid ISO format string
             assert isinstance(prompt["timestamp"], str), "timestamp must be string"
-            assert len(prompt["timestamp"]) > 0, "timestamp must not be empty"
+            assert prompt["timestamp"], "timestamp must not be empty"
 
     def test_timeline_reasoning_text_complete(
         self, timeline_service: TracingDataService
@@ -490,7 +488,7 @@ class TestGetSessionTimelineFull:
                     assert isinstance(entry["text"], str), (
                         "Reasoning text must be string"
                     )
-                    assert len(entry["text"]) > 0, "Reasoning text must not be empty"
+                    assert entry["text"], "Reasoning text must not be empty"
 
     def test_timeline_tool_call_has_details(self, timeline_service: TracingDataService):
         """Test tool call events have necessary details."""
@@ -502,7 +500,7 @@ class TestGetSessionTimelineFull:
                 assert "tool_name" in tool, "Tool call missing tool_name"
                 # Verify tool_name is a valid non-empty string
                 assert isinstance(tool["tool_name"], str), "Tool name must be string"
-                assert len(tool["tool_name"]) > 0, "Tool name must not be empty"
+                assert tool["tool_name"], "Tool name must not be empty"
                 # For our test data, verify it's "read"
                 if tool.get("tool_name") == "read":
                     assert tool["tool_name"] == "read"
@@ -715,7 +713,7 @@ class TestGetDelegationTree:
         # Verify agents are strings
         for agent in agents:
             assert isinstance(agent, str), "agent must be string"
-            assert len(agent) > 0, "agent name must not be empty"
+            assert agent, "agent name must not be empty"
 
     def test_delegation_tree_session_not_found(
         self, timeline_service: TracingDataService

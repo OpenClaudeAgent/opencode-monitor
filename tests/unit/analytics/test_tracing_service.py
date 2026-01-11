@@ -523,8 +523,7 @@ class TestGetSessionTimeline:
         service = TracingDataService(db=populated_db)
         result = service.get_session_timeline("ses_001")
 
-        assert len(result) > 0
-        # Check all events have required fields
+        assert result
         for event in result:
             assert "type" in event
             assert "id" in event
@@ -549,7 +548,7 @@ class TestGetSessionAgents:
         service = TracingDataService(db=populated_db)
         result = service.get_session_agents("ses_001")
 
-        assert len(result) > 0
+        assert result
         for agent in result:
             assert "agent" in agent
             assert "message_count" in agent
@@ -580,8 +579,8 @@ class TestGetSessionPrompts:
 
         assert result["meta"]["session_id"] == "nonexistent"
         # Returns fallback message instead of None for better UX
-        assert result["prompt_input"] is not None
         assert isinstance(result["prompt_input"], str)
+        assert result["prompt_input"]
 
 
 # =============================================================================
@@ -615,8 +614,8 @@ class TestGetGlobalStats:
         assert "period" in result["meta"]
         # Period should span 30 days
         period = result["meta"]["period"]
-        assert period["start"] is not None
-        assert period["end"] is not None
+        assert period["start"]
+        assert period["end"]
 
     def test_returns_agents_tools_skills_lists(
         self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
@@ -757,7 +756,6 @@ class TestUpdateSessionStats:
             ["ses_001"],
         ).fetchone()
 
-        assert result is not None
         assert result[0] == 3  # 3 messages
         assert result[1] == 380  # total input tokens
 
@@ -784,7 +782,6 @@ class TestUpdateDailyStats:
             ["2026-01-01"],
         ).fetchone()
 
-        assert result is not None
         assert result[0] >= 1
 
 

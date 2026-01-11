@@ -195,7 +195,4 @@ class TestRaceConditionScenarios:
 class TestIntegration:
     """Integration tests for the complete flow."""
 
-    def test_full_indexer_workflow(self, temp_storage, analytics_db):
-        """Test complete workflow: bulk load, queue, realtime."""
-        # This test will be implemented after the main functionality is in place
-        pytest.skip("Integration test - implement after main functionality")
+    pass
