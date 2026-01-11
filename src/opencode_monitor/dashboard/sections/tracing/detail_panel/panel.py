@@ -72,54 +72,41 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
     def _setup_ui(self) -> None:
         """Setup the main UI structure."""
         main_layout = QVBoxLayout(self)
-        main_layout.setContentsMargins(0, 0, 0, 0)
-        main_layout.setSpacing(0)
-
-        # Scroll area for content
-        scroll = self._create_scroll_area()
-        content = QWidget()
-        content.setStyleSheet("background-color: transparent;")
-
-        layout = QVBoxLayout(content)
-        layout.setContentsMargins(
-            SPACING["lg"], SPACING["lg"], SPACING["lg"], SPACING["lg"]
+        main_layout.setContentsMargins(
+            SPACING["md"], SPACING["sm"], SPACING["md"], SPACING["sm"]
         )
-        layout.setSpacing(SPACING["md"])
+        main_layout.setSpacing(SPACING["xs"])
 
-        # Setup sections
-        self._setup_breadcrumb(layout)
+        self._setup_breadcrumb(main_layout)
 
-        # Stacked widget for contextual content
         self._content_stack = QStackedWidget()
 
-        # Page 0: Session overview (for root sessions) - wrapped for top alignment
-        overview_wrapper = QWidget()
-        overview_wrapper.setStyleSheet("background-color: transparent;")
-        overview_layout = QVBoxLayout(overview_wrapper)
+        self._overview_scroll = self._create_scroll_area()
+        overview_content = QWidget()
+        overview_content.setStyleSheet("background-color: transparent;")
+        overview_layout = QVBoxLayout(overview_content)
         overview_layout.setContentsMargins(0, 0, 0, 0)
         overview_layout.setSpacing(0)
         overview_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
         self._session_overview = SessionOverviewPanel()
         overview_layout.addWidget(self._session_overview)
-        self._content_stack.addWidget(overview_wrapper)
+        self._overview_scroll.setWidget(overview_content)
+        self._content_stack.addWidget(self._overview_scroll)
 
-        # Page 1: Tabs container (for child elements)
-        self._tabs_container = QWidget()
-        self._tabs_container.setStyleSheet("background-color: transparent;")
-        tabs_layout = QVBoxLayout(self._tabs_container)
+        self._tabs_scroll = self._create_scroll_area()
+        tabs_content = QWidget()
+        tabs_content.setStyleSheet("background-color: transparent;")
+        tabs_layout = QVBoxLayout(tabs_content)
         tabs_layout.setContentsMargins(0, 0, 0, 0)
         tabs_layout.setSpacing(0)
         self._setup_tabs(tabs_layout)
-        self._content_stack.addWidget(self._tabs_container)
+        self._tabs_scroll.setWidget(tabs_content)
+        self._content_stack.addWidget(self._tabs_scroll)
 
-        # Page 2: Delegation transcript (for delegation spans)
         self._delegation_panel = DelegationTranscriptPanel()
         self._content_stack.addWidget(self._delegation_panel)
 
-        layout.addWidget(self._content_stack)
-
-        scroll.setWidget(content)
-        main_layout.addWidget(scroll)
+        main_layout.addWidget(self._content_stack, stretch=1)
 
     def _create_scroll_area(self) -> QScrollArea:
         """Create styled scroll area."""
@@ -456,6 +443,15 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
         elif content_type == "delegation_transcript":
             delegation_data = content.get("delegation_data")
             if delegation_data:
+                status = delegation_data.get("status", "")
+                duration_ms = delegation_data.get("duration_ms", 0)
+                status_icon = (
+                    "✓" if status == "completed" else "✗" if status == "error" else "◐"
+                )
+                status_text = f"{status_icon} {status} • {format_duration(duration_ms)}"
+                if breadcrumb:
+                    breadcrumb = breadcrumb + [status_text]
+                    self._update_breadcrumb(breadcrumb)
                 self._delegation_panel.load_delegation(delegation_data)
             self._content_stack.setCurrentIndex(2)
         else:

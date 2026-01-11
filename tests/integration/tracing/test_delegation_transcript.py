@@ -389,61 +389,6 @@ class TestDelegationTranscriptPanelEdgeCases:
         message_found = any("no" in t and "session" in t for t in all_texts)
         assert message_found or panel._content_layout.count() <= 1
 
-    def test_panel_displays_agent_type_in_header(self, panel, qapp, qtbot):
-        """GIVEN delegation data with subagent_type
-        WHEN panel loads the delegation
-        THEN header shows agent type
-        """
-        responses = {
-            "delegation_timeline": create_delegation_timeline_data(),
-            "health": True,
-        }
-        mock_client = MockAnalyticsAPIClient(responses)
-
-        with patch(
-            "opencode_monitor.api.get_api_client",
-            return_value=mock_client,
-        ):
-            delegation_data = {
-                "child_session_id": "sess-delegation-test",
-                "subagent_type": "librarian",
-                "status": "completed",
-                "duration_ms": 15000,
-            }
-            panel.load_delegation(delegation_data)
-            qtbot.wait(50)
-
-        header_text = panel._agent_label.text()
-        assert "librarian" in header_text
-
-    def test_panel_displays_status_and_duration(self, panel, qapp, qtbot):
-        """GIVEN delegation data with status and duration
-        WHEN panel loads the delegation
-        THEN status and duration are shown in header
-        """
-        responses = {
-            "delegation_timeline": create_delegation_timeline_data(),
-            "health": True,
-        }
-        mock_client = MockAnalyticsAPIClient(responses)
-
-        with patch(
-            "opencode_monitor.api.get_api_client",
-            return_value=mock_client,
-        ):
-            delegation_data = {
-                "child_session_id": "sess-delegation-test",
-                "subagent_type": "explore",
-                "status": "completed",
-                "duration_ms": 15000,
-            }
-            panel.load_delegation(delegation_data)
-            qtbot.wait(50)
-
-        status_text = panel._status_label.text()
-        assert "completed" in status_text
-        assert "15" in status_text or "s" in status_text
-
 
 class TestDelegationTranscriptPanelUserTextFiltering:
     """Tests to verify user text parts are NOT shown as response (prevents duplicate prompt)."""

@@ -18,6 +18,7 @@ from PyQt6.QtCore import Qt
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 from ..handlers import DataLoaderMixin
 from ..strategies.types import DelegationData
+from ...helpers import format_duration
 
 
 class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
@@ -44,55 +45,19 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         main_layout.setContentsMargins(0, 0, 0, 0)
         main_layout.setSpacing(0)
 
-        self._header = self._create_header()
-        main_layout.addWidget(self._header)
-
         scroll = self._create_scroll_area()
         self._content = QWidget()
         self._content.setStyleSheet("background-color: transparent;")
 
         self._content_layout = QVBoxLayout(self._content)
         self._content_layout.setContentsMargins(
-            SPACING["md"], SPACING["md"], SPACING["md"], SPACING["md"]
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
         )
         self._content_layout.setSpacing(SPACING["sm"])
         self._content_layout.setAlignment(Qt.AlignmentFlag.AlignTop)
 
         scroll.setWidget(self._content)
         main_layout.addWidget(scroll, stretch=1)
-
-    def _create_header(self) -> QFrame:
-        header = QFrame()
-        header.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS["bg_elevated"]};
-                border-bottom: 1px solid {COLORS["border_default"]};
-            }}
-        """)
-
-        layout = QHBoxLayout(header)
-        layout.setContentsMargins(
-            SPACING["lg"], SPACING["md"], SPACING["lg"], SPACING["md"]
-        )
-
-        self._agent_label = QLabel("🤖 Agent")
-        self._agent_label.setStyleSheet(f"""
-            color: {COLORS["text_primary"]};
-            font-size: {FONTS["size_xl"]}px;
-            font-weight: {FONTS["weight_bold"]};
-        """)
-        layout.addWidget(self._agent_label)
-
-        layout.addStretch()
-
-        self._status_label = QLabel("")
-        self._status_label.setStyleSheet(f"""
-            color: {COLORS["text_secondary"]};
-            font-size: {FONTS["size_md"]}px;
-        """)
-        layout.addWidget(self._status_label)
-
-        return header
 
     def _create_scroll_area(self) -> QScrollArea:
         scroll = QScrollArea()
@@ -126,17 +91,6 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
     def load_delegation(self, delegation_data: DelegationData) -> None:
         self._child_session_id = delegation_data.get("child_session_id")
         self._subagent_type = delegation_data.get("subagent_type")
-        status = delegation_data.get("status", "completed")
-        duration_ms = delegation_data.get("duration_ms", 0)
-
-        agent_text = f"🤖 {self._subagent_type}" if self._subagent_type else "🤖 Agent"
-        self._agent_label.setText(agent_text)
-
-        status_icon = (
-            "✓" if status == "completed" else "✗" if status == "error" else "◐"
-        )
-        duration_str = self._format_duration(duration_ms)
-        self._status_label.setText(f"{status_icon} {status} • {duration_str}")
 
         self._clear_content()
 
@@ -175,47 +129,14 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         self._content_layout.addStretch()
 
     def _add_prompt_input_widget(self, prompt: str) -> None:
-        frame = self._create_item_frame(COLORS["type_read_bg"])
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(
-            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        card = self._create_content_card(
+            bg_color=COLORS["type_read_bg"],
+            emoji="📥",
+            title="Prompt Input",
+            title_color=COLORS["type_read"],
+            content=prompt,
         )
-
-        inner = QFrame()
-        inner.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS["bg_surface"]};
-                border-radius: {RADIUS["md"]}px;
-                padding: {SPACING["sm"]}px;
-            }}
-        """)
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(SPACING["xs"])
-
-        header = QLabel("📥 Prompt Input")
-        header.setStyleSheet(f"""
-            background: transparent;
-            color: {COLORS["type_read"]};
-            font-size: {FONTS["size_lg"]}px;
-            font-weight: {FONTS["weight_bold"]};
-        """)
-        inner_layout.addWidget(header)
-
-        content = QLabel(prompt)
-        content.setWordWrap(True)
-        content.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        content.setStyleSheet(f"""
-            color: {COLORS["text_primary"]};
-            font-size: {FONTS["size_md"]}px;
-        """)
-        inner_layout.addWidget(content)
-
-        frame_layout.addWidget(inner)
-        self._content_layout.addWidget(frame)
+        self._content_layout.addWidget(card)
 
     def _add_timeline_item(self, item: dict) -> None:
         item_type = item.get("type")
@@ -232,94 +153,28 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         if not content:
             return
 
-        frame = self._create_item_frame(COLORS["type_skill_bg"])
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(
-            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        card = self._create_content_card(
+            bg_color=COLORS["type_skill_bg"],
+            emoji="🧠",
+            title="Reasoning",
+            title_color=COLORS["type_skill"],
+            content=content,
         )
-
-        inner = QFrame()
-        inner.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS["bg_surface"]};
-                border-radius: {RADIUS["md"]}px;
-                padding: {SPACING["sm"]}px;
-            }}
-        """)
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(SPACING["xs"])
-
-        header = QLabel("🧠 Reasoning")
-        header.setStyleSheet(f"""
-            background: transparent;
-            color: {COLORS["type_skill"]};
-            font-size: {FONTS["size_lg"]}px;
-            font-weight: {FONTS["weight_bold"]};
-        """)
-        inner_layout.addWidget(header)
-
-        text = QLabel(content)
-        text.setWordWrap(True)
-        text.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        text.setStyleSheet(f"""
-            color: {COLORS["text_primary"]};
-            font-size: {FONTS["size_md"]}px;
-        """)
-        inner_layout.addWidget(text)
-
-        frame_layout.addWidget(inner)
-        self._content_layout.addWidget(frame)
+        self._content_layout.addWidget(card)
 
     def _add_text_widget(self, item: dict) -> None:
         content = item.get("content", "")
         if not content:
             return
 
-        frame = self._create_item_frame(COLORS["success_muted"])
-        frame_layout = QVBoxLayout(frame)
-        frame_layout.setContentsMargins(
-            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        card = self._create_content_card(
+            bg_color=COLORS["success_muted"],
+            emoji="💬",
+            title="Response",
+            title_color=COLORS["success"],
+            content=content,
         )
-
-        inner = QFrame()
-        inner.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS["bg_surface"]};
-                border-radius: {RADIUS["md"]}px;
-                padding: {SPACING["sm"]}px;
-            }}
-        """)
-        inner_layout = QVBoxLayout(inner)
-        inner_layout.setContentsMargins(0, 0, 0, 0)
-        inner_layout.setSpacing(SPACING["xs"])
-
-        header = QLabel("💬 Response")
-        header.setStyleSheet(f"""
-            background: transparent;
-            color: {COLORS["success"]};
-            font-size: {FONTS["size_lg"]}px;
-            font-weight: {FONTS["weight_bold"]};
-        """)
-        inner_layout.addWidget(header)
-
-        text = QLabel(content)
-        text.setWordWrap(True)
-        text.setTextInteractionFlags(
-            Qt.TextInteractionFlag.TextSelectableByMouse
-            | Qt.TextInteractionFlag.TextSelectableByKeyboard
-        )
-        text.setStyleSheet(f"""
-            color: {COLORS["text_primary"]};
-            font-size: {FONTS["size_md"]}px;
-        """)
-        inner_layout.addWidget(text)
-
-        frame_layout.addWidget(inner)
-        self._content_layout.addWidget(frame)
+        self._content_layout.addWidget(card)
 
     def _add_tool_widget(self, item: dict) -> None:
         tool_name = item.get("tool_name", "unknown")
@@ -364,9 +219,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         header_layout.addStretch()
 
         if duration_ms:
-            duration_label = QLabel(
-                f"{status_icon} {self._format_duration(duration_ms)}"
-            )
+            duration_label = QLabel(f"{status_icon} {format_duration(duration_ms)}")
             duration_label.setStyleSheet(f"""
                 background: transparent;
                 color: {COLORS["text_secondary"]};
@@ -448,28 +301,50 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         """)
         return frame
 
-    def _create_text_widget(self, text: str, bg_color: str | None = None) -> QLabel:
-        widget = QLabel(text)
-        widget.setWordWrap(True)
-        widget.setTextInteractionFlags(
+    def _create_content_card(
+        self, bg_color: str, emoji: str, title: str, title_color: str, content: str
+    ) -> QFrame:
+        frame = self._create_item_frame(bg_color)
+        frame_layout = QVBoxLayout(frame)
+        frame_layout.setContentsMargins(
+            SPACING["xs"], SPACING["xs"], SPACING["xs"], SPACING["xs"]
+        )
+
+        inner = QFrame()
+        inner.setStyleSheet(f"""
+            QFrame {{
+                background-color: {COLORS["bg_surface"]};
+                border-radius: {RADIUS["md"]}px;
+                padding: {SPACING["sm"]}px;
+            }}
+        """)
+        inner_layout = QVBoxLayout(inner)
+        inner_layout.setContentsMargins(0, 0, 0, 0)
+        inner_layout.setSpacing(SPACING["xs"])
+
+        header = QLabel(f"{emoji} {title}")
+        header.setStyleSheet(f"""
+            background: transparent;
+            color: {title_color};
+            font-size: {FONTS["size_lg"]}px;
+            font-weight: {FONTS["weight_bold"]};
+        """)
+        inner_layout.addWidget(header)
+
+        text_label = QLabel(content)
+        text_label.setWordWrap(True)
+        text_label.setTextInteractionFlags(
             Qt.TextInteractionFlag.TextSelectableByMouse
             | Qt.TextInteractionFlag.TextSelectableByKeyboard
         )
-
-        bg = bg_color or COLORS["bg_surface"]
-        widget.setStyleSheet(f"""
-            QLabel {{
-                background-color: {bg};
-                color: {COLORS["text_primary"]};
-                border: none;
-                border-radius: {RADIUS["md"]}px;
-                padding: {SPACING["sm"]}px;
-                font-family: {FONTS["family"]};
-                font-size: {FONTS["size_md"]}px;
-                line-height: 1.5;
-            }}
+        text_label.setStyleSheet(f"""
+            color: {COLORS["text_primary"]};
+            font-size: {FONTS["size_md"]}px;
         """)
-        return widget
+        inner_layout.addWidget(text_label)
+
+        frame_layout.addWidget(inner)
+        return frame
 
     def _show_message(self, message: str, color: str) -> None:
         label = QLabel(message)
@@ -489,23 +364,7 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
             if widget:
                 widget.deleteLater()
 
-    def _format_duration(self, ms: int) -> str:
-        if ms < 1000:
-            return f"{ms}ms"
-        seconds = ms / 1000
-        if seconds < 60:
-            return f"{seconds:.1f}s"
-        minutes = seconds / 60
-        if minutes < 60:
-            secs = int(seconds % 60)
-            return f"{int(minutes)}m {secs}s"
-        hours = minutes / 60
-        mins = int(minutes % 60)
-        return f"{int(hours)}h {mins}m"
-
     def clear(self) -> None:
         self._child_session_id = None
         self._subagent_type = None
-        self._agent_label.setText("🤖 Agent")
-        self._status_label.setText("")
         self._clear_content()
