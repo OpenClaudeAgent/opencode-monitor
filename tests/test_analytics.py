@@ -7,6 +7,8 @@ Query tests verify analytics queries work correctly.
 
 Note: Data loading tests are in test_bulk_loader.py and test_hybrid_indexer.py.
 The former collector insert tests have been migrated there.
+
+LEGACY: These tests use mocks. Migrated to tests/integration/database/ with real DuckDB.
 """
 
 import time
@@ -17,6 +19,8 @@ import pytest
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.models import Todo, Project
 from opencode_monitor.analytics.queries import AnalyticsQueries
+
+pytestmark = pytest.mark.legacy
 
 
 # Note: 'temp_db' fixture is provided by conftest.py (analytics_db)
