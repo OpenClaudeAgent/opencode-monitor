@@ -178,15 +178,18 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         frame = self._create_item_frame(COLORS["type_read_bg"])
         layout = QVBoxLayout(frame)
         layout.setContentsMargins(
-            SPACING["sm"], SPACING["sm"], SPACING["sm"], SPACING["sm"]
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
         )
         layout.setSpacing(SPACING["xs"])
 
         header = QLabel("📥 Prompt Input")
         header.setStyleSheet(f"""
+            background: transparent;
             color: {COLORS["type_read"]};
             font-size: {FONTS["size_lg"]}px;
             font-weight: {FONTS["weight_bold"]};
+            padding: 0;
+            margin: 0;
         """)
         layout.addWidget(header)
 
@@ -352,13 +355,14 @@ class DelegationTranscriptPanel(DataLoaderMixin, QFrame):
         content_widget = self._create_text_widget(display_content, bg_color=bg_color)
         layout.addWidget(content_widget)
 
-    def _create_item_frame(self, bg_color: str) -> QFrame:
+    def _create_item_frame(self, accent_color: str) -> QFrame:
         frame = QFrame()
         frame.setStyleSheet(f"""
             QFrame {{
-                background-color: {bg_color};
+                background-color: {COLORS["bg_surface"]};
                 border: 1px solid {COLORS["border_strong"]};
-                border-radius: {RADIUS["lg"]}px;
+                border-left: 3px solid {accent_color};
+                border-radius: {RADIUS["md"]}px;
             }}
         """)
         return frame
