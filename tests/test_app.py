@@ -888,15 +888,19 @@ class TestMonitorLoop:
 
         call_count = [0]
 
-        def stop_after_one(*args):
+        def stop_after_one():
             call_count[0] += 1
             if call_count[0] >= 1:
                 app._running = False
-            return 0
 
-        with (
-            patch("opencode_monitor.app.core.fetch_all_instances", mock_fetch),
-            patch("time.sleep", side_effect=stop_after_one),
+        # Wrap mock_fetch to stop loop after one iteration
+        async def mock_fetch_with_stop(*args, **kwargs):
+            result = await mock_fetch(*args, **kwargs)
+            stop_after_one()
+            return result
+
+        with patch(
+            "opencode_monitor.app.core.fetch_all_instances", mock_fetch_with_stop
         ):
             app._running = True
             app._run_monitor_loop()
@@ -945,15 +949,34 @@ class TestMonitorLoop:
 
         call_count = [0]
 
-        def stop_after_one(*args):
+        def stop_after_one():
             call_count[0] += 1
             if call_count[0] >= 1:
                 app._running = False
-            return 0
 
-        with patch("time.sleep", side_effect=stop_after_one):
-            app._running = True
-            app._run_monitor_loop()
+        # Wrap the mock to stop loop after one iteration
+        if error_source == "fetch":
+            original_mock = mock_dependencies["fetch_instances"].return_value
+
+            async def mock_with_stop():
+                try:
+                    return await original_mock
+                finally:
+                    stop_after_one()
+
+            mock_dependencies["fetch_instances"].return_value = mock_with_stop()
+        else:
+            original_mock = mock_dependencies["fetch_instances"].return_value
+
+            async def mock_with_stop():
+                result = await original_mock
+                stop_after_one()
+                return result
+
+            mock_dependencies["fetch_instances"].return_value = mock_with_stop()
+
+        app._running = True
+        app._run_monitor_loop()
 
         # Error logged
         mock_dependencies["error"].assert_called()
