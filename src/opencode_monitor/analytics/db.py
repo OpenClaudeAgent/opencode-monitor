@@ -106,7 +106,7 @@ class AnalyticsDB:
                 # Performance settings: reduce CPU/memory usage for background loading
                 self._conn.execute("PRAGMA disable_progress_bar")
                 self._conn.execute("SET threads = 2")
-                self._conn.execute("SET memory_limit = '512MB'")
+                self._conn.execute("SET memory_limit = '2GB'")
                 if not read_only:
                     self._create_schema()
             return self._conn

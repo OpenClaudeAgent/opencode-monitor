@@ -15,7 +15,8 @@ from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.sections.tracing import TracingSection
 from opencode_monitor.dashboard.sections.tracing.detail_panel import TraceDetailPanel
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -69,7 +70,7 @@ class TestTracingEmptyState:
         # Emit empty tracing data
         empty_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(empty_data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # 1. Tree should be hidden
         assert tracing._tree.isHidden(), "Tree should be hidden with empty data"
@@ -104,7 +105,7 @@ class TestTracingSessionList:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Tree visible, empty state hidden
         assert tracing._tree.isHidden() is False
@@ -120,7 +121,7 @@ class TestTracingSessionList:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Root: project "my-project" from fixture directory "/home/dev/my-project"
         root_item = tracing._tree.topLevelItem(0)
@@ -166,12 +167,12 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Then: Vérifier que le panel overview contient un widget tokens
         detail_panel = tracing._detail_panel
@@ -253,12 +254,12 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Then: Vérifier que le panel overview affiche les agents
         detail_panel = tracing._detail_panel
@@ -318,12 +319,12 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Then: Vérifier que le panel overview affiche les tools
         detail_panel = tracing._detail_panel
@@ -397,39 +398,35 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Then: Vérifier que le panel overview affiche la timeline
         detail_panel = tracing._detail_panel
         overview_panel = detail_panel._session_overview
         timeline_widget = overview_panel._timeline
 
-        # Le widget timeline doit exister et être visible
         assert timeline_widget is not None
         assert timeline_widget.isVisible() or not timeline_widget.isHidden()
 
-        # Vérifier que la liste contient les 3 exchanges
-        list_widget = timeline_widget._list
-        assert list_widget.count() == 3, (
-            f"Should have 3 exchanges, got {list_widget.count()}"
+        exchange_widgets = timeline_widget._exchange_widgets
+        assert len(exchange_widgets) == 2, (
+            f"Should have 2 exchanges (from mock realistic_timeline_full), got {len(exchange_widgets)}"
         )
 
-        # Vérifier le contenu des exchanges
-        exchange_texts = [
-            list_widget.item(i).text() for i in range(list_widget.count())
-        ]
+        all_prompts = []
+        for widget in exchange_widgets:
+            for event in widget._events:
+                if event.get("type") == "user_prompt":
+                    all_prompts.append(event.get("content", ""))
 
-        assert any("Fix the auth bug" in text for text in exchange_texts), (
-            f"Should display first exchange, got: {exchange_texts}"
+        assert any("refactor" in p.lower() for p in all_prompts), (
+            f"Should display first exchange about refactoring, got: {all_prompts}"
         )
-        assert any("Now update the tests" in text for text in exchange_texts), (
-            f"Should display second exchange, got: {exchange_texts}"
-        )
-        assert any("Run the full test suite" in text for text in exchange_texts), (
-            f"Should display third exchange, got: {exchange_texts}"
+        assert any("implement" in p.lower() for p in all_prompts), (
+            f"Should display second exchange about implementing, got: {all_prompts}"
         )

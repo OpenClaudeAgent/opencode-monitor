@@ -22,13 +22,13 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Any
 
+from opencode_monitor.utils.logger import logger
+
 from PyQt6.QtCore import Qt, pyqtSignal
 from PyQt6.QtWidgets import (
     QFrame,
     QHBoxLayout,
     QLabel,
-    QListWidget,
-    QListWidgetItem,
     QScrollArea,
     QSizePolicy,
     QSplitter,
@@ -111,8 +111,10 @@ def format_time(datetime_str: str | None) -> str:
         return ""
 
 
-def truncate_text(text: str, max_length: int = 50) -> str:
+def truncate_text(text: str | None, max_length: int = 50) -> str:
     """Truncate text with ellipsis."""
+    if not text:
+        return ""
     if len(text) <= max_length:
         return text
     return text[: max_length - 1] + "…"
@@ -241,101 +243,7 @@ def _extract_from_node(node: dict, data: SessionData) -> None:
 
 
 # ============================================================
-# TIMELINE WIDGET
-# ============================================================
-
-
-class TimelineWidget(QFrame):
-    """Timeline of user exchanges."""
-
-    exchange_clicked = pyqtSignal(int)  # Emit index when clicked
-
-    def __init__(self, parent: QWidget | None = None):
-        super().__init__(parent)
-        self._setup_ui()
-
-    def _setup_ui(self) -> None:
-        self.setStyleSheet(f"""
-            QFrame {{
-                background-color: {COLORS["bg_surface"]};
-                border: 1px solid {COLORS["border_subtle"]};
-                border-radius: {RADIUS["md"]}px;
-            }}
-        """)
-
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(
-            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
-        )
-        layout.setSpacing(SPACING["xs"])
-
-        # Header
-        header = QLabel("💬 Timeline")
-        header.setStyleSheet(f"""
-            font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_semibold"]};
-            color: {COLORS["text_muted"]};
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        """)
-        layout.addWidget(header)
-
-        # List
-        self._list = QListWidget()
-        self._list.setStyleSheet(f"""
-            QListWidget {{
-                background-color: transparent;
-                border: none;
-                outline: none;
-            }}
-            QListWidget::item {{
-                padding: {SPACING["xs"]}px;
-                border-radius: {RADIUS["sm"]}px;
-                margin-bottom: 2px;
-            }}
-            QListWidget::item:hover {{
-                background-color: {COLORS["bg_hover"]};
-            }}
-            QListWidget::item:selected {{
-                background-color: {COLORS["accent_primary_muted"]};
-            }}
-        """)
-        self._list.setSpacing(0)
-        self._list.setWordWrap(True)  # Enable word wrap
-        self._list.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._list.itemClicked.connect(self._on_item_clicked)
-        layout.addWidget(self._list, 1)
-
-    def load_exchanges(self, exchanges: list[Exchange]) -> None:
-        """Load exchanges into the timeline."""
-        self._list.clear()
-
-        if not exchanges:
-            item = QListWidgetItem("No exchanges yet")
-            item.setForeground(Qt.GlobalColor.darkGray)
-            item.setFlags(item.flags() & ~Qt.ItemFlag.ItemIsSelectable)
-            self._list.addItem(item)
-            return
-
-        for exchange in exchanges:
-            time_str = format_time(exchange.timestamp)
-            # Display full prompt with word wrap (no truncation)
-            text = f"{time_str}  {exchange.prompt}" if time_str else exchange.prompt
-
-            item = QListWidgetItem(text)
-            item.setTextAlignment(
-                Qt.AlignmentFlag.AlignLeft | Qt.AlignmentFlag.AlignTop
-            )
-            item.setForeground(Qt.GlobalColor.white)
-            self._list.addItem(item)
-
-    def _on_item_clicked(self, item: QListWidgetItem) -> None:
-        row = self._list.row(item)
-        self.exchange_clicked.emit(row)
-
-
-# ============================================================
-# EXPANDABLE TIMELINE WIDGET (NEW)
+# EXPANDABLE TIMELINE WIDGET
 # ============================================================
 
 
@@ -485,15 +393,19 @@ class TimelineEventWidget(QFrame):
                 self._expand_btn.setText("▼" if self._is_child_expanded else "▶")
 
     def _get_content_text(self, event_type: str) -> str:
-        """Get display text based on event type."""
+        """Get display text based on event type.
+
+        Note: No truncation here - this content is shown in expanded view
+        where users want to see the full content. Word wrap handles display.
+        """
         if event_type == "user_prompt":
-            return truncate_text(self._event.get("content", ""), 80)
+            return self._event.get("content", "") or ""
 
         elif event_type == "reasoning":
             entries = self._event.get("entries", [])
             if entries:
-                first_entry = entries[0].get("text", "")
-                return truncate_text(first_entry, 60)
+                # Show all reasoning entries, not just the first one
+                return "\n\n".join(e.get("text", "") for e in entries if e.get("text"))
             return "Thinking..."
 
         elif event_type == "tool_call":
@@ -502,7 +414,6 @@ class TimelineEventWidget(QFrame):
                 "arguments", ""
             )
             if display:
-                display = truncate_text(str(display), 40)
                 return f"{tool_name}: {display}"
             return tool_name
 
@@ -521,17 +432,18 @@ class TimelineEventWidget(QFrame):
             return "step complete"
 
         elif event_type == "assistant_response":
-            content = self._event.get("content", "")
-            return truncate_text(content, 60)
+            return self._event.get("content", "") or ""
 
-        return str(self._event)[:50]
+        return str(self._event)
 
     def _set_tooltip(self, event_type: str) -> None:
         """Set tooltip with full details."""
         if event_type == "reasoning":
             entries = self._event.get("entries", [])
             if entries:
-                full_text = "\n\n".join(e.get("text", "")[:500] for e in entries[:3])
+                full_text = "\n\n".join(
+                    (e.get("text") or "")[:500] for e in entries[:3]
+                )
                 self.setToolTip(full_text)
 
         elif event_type in ["tool_call", "delegation"]:
@@ -650,23 +562,27 @@ class ExchangeGroupWidget(QFrame):
         )
         content_layout.setSpacing(0)
 
-        # Add event widgets (skip user_prompt - it's in header)
+        # Add ALL event widgets including user_prompt (show full content in expanded view)
+        event_count = 0
         for event in self._events:
-            if event.get("type") != "user_prompt":
-                # Check for delegation with child timeline
-                child_timeline = None
-                child_session_id = event.get("child_session_id")
-                if child_session_id and child_session_id in self._delegations:
-                    child_timeline = self._delegations[child_session_id].get(
-                        "timeline", []
-                    )
+            # Check for delegation with child timeline
+            child_timeline = None
+            child_session_id = event.get("child_session_id")
+            if child_session_id and child_session_id in self._delegations:
+                child_timeline = self._delegations[child_session_id].get("timeline", [])
 
-                event_widget = TimelineEventWidget(
-                    event=event,
-                    parent=self,
-                    child_timeline=child_timeline,
-                )
-                content_layout.addWidget(event_widget)
+            event_widget = TimelineEventWidget(
+                event=event,
+                parent=self,
+                child_timeline=child_timeline,
+            )
+            content_layout.addWidget(event_widget)
+            event_count += 1
+
+        logger.debug(
+            f"[Timeline] Exchange #{self._exchange_number}: "
+            f"total={len(self._events)}, displayed={event_count}"
+        )
 
         main_layout.addWidget(self._content)
 
@@ -750,6 +666,7 @@ class ExpandableTimelineWidget(QFrame):
 
     def load_timeline_full(self, data: dict) -> None:
         """Load from /timeline/full API response."""
+        logger.debug("[Timeline] load_timeline_full called")
         # Clear existing
         self._clear_content()
 
@@ -759,17 +676,30 @@ class ExpandableTimelineWidget(QFrame):
             for d in data.get("delegations", [])
             if d.get("child_session_id")
         }
+        logger.debug(
+            f"[Timeline] timeline={len(timeline)} events, "
+            f"delegations={len(self._delegations)}"
+        )
 
         if not timeline:
+            logger.debug("[Timeline] Empty timeline - showing empty state")
             self._show_empty_state()
             return
 
         # Group events by exchange_number
         groups = self._group_by_exchange(timeline)
+        logger.debug(
+            f"[Timeline] Grouped into {len(groups)} exchanges: "
+            f"{[(num, len(evts)) for num, evts in sorted(groups.items())]}"
+        )
 
         # Create exchange widgets
         for exchange_num in sorted(groups.keys()):
             events = groups[exchange_num]
+            logger.debug(
+                f"[Timeline] Creating ExchangeGroupWidget for exchange #{exchange_num} "
+                f"with {len(events)} events"
+            )
             widget = ExchangeGroupWidget(
                 exchange_number=exchange_num,
                 events=events,
@@ -783,18 +713,26 @@ class ExpandableTimelineWidget(QFrame):
             )
             self._exchange_widgets.append(widget)
 
+        logger.debug(
+            f"[Timeline] Created {len(self._exchange_widgets)} exchange widgets"
+        )
+
         # Auto-expand last exchange
         if self._exchange_widgets:
             self._exchange_widgets[-1].toggle()
 
     def _group_by_exchange(self, timeline: list[dict]) -> dict[int, list[dict]]:
-        """Group events by exchange_number."""
+        """Group events by exchange_number and sort chronologically."""
         groups: dict[int, list[dict]] = {}
         for event in timeline:
             num = event.get("exchange_number", 0)
             if num not in groups:
                 groups[num] = []
             groups[num].append(event)
+
+        for num in groups:
+            groups[num].sort(key=lambda e: e.get("timestamp", ""))
+
         return groups
 
     def _clear_content(self) -> None:
@@ -814,37 +752,10 @@ class ExpandableTimelineWidget(QFrame):
         label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self._container_layout.insertWidget(0, label)
 
-    def load_exchanges(self, exchanges: list[Exchange]) -> None:
-        """Fallback: Load from legacy Exchange format.
-
-        This maintains compatibility with the old TimelineWidget API.
-        """
+    def clear(self) -> None:
+        """Clear the timeline and show empty state."""
         self._clear_content()
-
-        if not exchanges:
-            self._show_empty_state()
-            return
-
-        # Convert to timeline format
-        for i, exchange in enumerate(exchanges, 1):
-            events = [
-                {
-                    "type": "user_prompt",
-                    "exchange_number": i,
-                    "content": exchange.prompt,
-                    "timestamp": exchange.timestamp,
-                }
-            ]
-            widget = ExchangeGroupWidget(
-                exchange_number=i,
-                events=events,
-                parent=self._container,
-                is_expanded=False,
-            )
-            self._container_layout.insertWidget(
-                self._container_layout.count() - 1, widget
-            )
-            self._exchange_widgets.append(widget)
+        self._show_empty_state()
 
 
 # ============================================================
@@ -1531,15 +1442,17 @@ class SessionOverviewPanel(QFrame):
         agents = []
         _collect_agents_recursive(tree_data, agents)
 
-        # Try to load extended timeline from API
+        # Load timeline from API
         session_id = tree_data.get("session_id")
-        timeline_loaded = False
+        logger.debug(
+            f"[Timeline] load_session called, session_id={session_id}, "
+            f"tree_data keys={list(tree_data.keys())}"
+        )
         if session_id:
-            timeline_loaded = self._load_extended_timeline(session_id)
-
-        # Fallback to legacy format if API failed
-        if not timeline_loaded:
-            self._timeline.load_exchanges(data.exchanges)
+            self._load_extended_timeline(session_id)
+        else:
+            logger.warning("[Timeline] No session_id in tree_data")
+            self._timeline.clear()
 
         # Load other widgets
         self._tools.load_tools(data.tools, data.tool_targets)
@@ -1548,30 +1461,31 @@ class SessionOverviewPanel(QFrame):
         self._agents.load_agents(agents)
         self._errors.load_errors(data.errors)
 
-    def _load_extended_timeline(self, session_id: str) -> bool:
+    def _load_extended_timeline(self, session_id: str) -> None:
         """Load full timeline from API.
 
         Args:
             session_id: Session ID to load
-
-        Returns:
-            True if timeline was loaded successfully, False otherwise
         """
         from opencode_monitor.api import get_api_client
 
+        logger.debug(f"[Timeline] Loading timeline for session {session_id}")
+
         client = get_api_client()
         if not client.is_available:
-            return False
+            logger.warning("[Timeline] API not available")
+            return
 
         data = client.get_session_timeline_full(session_id)
-        if data:
-            self._timeline.load_timeline_full(data)
-            return True
-        return False
+        if not data:
+            logger.warning(f"[Timeline] No data returned for session {session_id}")
+            return
+
+        self._timeline.load_timeline_full(data)
 
     def clear(self) -> None:
         """Reset the panel to empty state."""
-        self._timeline.load_exchanges([])
+        self._timeline.clear()
         self._tools.load_tools(Counter(), {})
         self._files.load_files({})
         self._tokens.load_tokens()

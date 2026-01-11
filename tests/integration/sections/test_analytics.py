@@ -10,7 +10,8 @@ Tests verify that:
 
 import pytest
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_ANALYTICS
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_ANALYTICS
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -33,7 +34,7 @@ class TestAnalyticsSectionMetrics:
         """Verify each analytics metric card shows the injected data."""
         data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         metrics = dashboard_window._analytics._metrics
 
@@ -50,7 +51,7 @@ class TestAnalyticsAgentsTable:
         """Verify agents table shows token usage per agent."""
         data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._analytics._agents_table
 
@@ -73,7 +74,7 @@ class TestAnalyticsAgentsTable:
         data = MockAPIResponses.realistic_analytics()
         data["agents"] = []
         dashboard_window._signals.analytics_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         analytics = dashboard_window._analytics
         # Table should be hidden (not visible in hierarchy)
@@ -89,7 +90,7 @@ class TestAnalyticsToolsTable:
         """Verify tools table shows invocation stats."""
         data = MockAPIResponses.realistic_analytics()
         dashboard_window._signals.analytics_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._analytics._tools_table
 
@@ -129,7 +130,7 @@ class TestAnalyticsPeriodSelector:
 
         # Click on 30d (index 2)
         analytics._period_control.set_current_index(2)
-        qtbot.wait(50)
+        process_qt_events()
 
         assert len(signal_received) == 1
         assert signal_received[0] == 30

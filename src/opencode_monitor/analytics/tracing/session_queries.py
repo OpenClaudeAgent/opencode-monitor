@@ -1043,7 +1043,6 @@ class SessionQueriesMixin:
             for ex_row in exchanges_result:
                 exchange_num = ex_row[1]
                 user_msg_id = ex_row[2]
-                assistant_msg_id = ex_row[3]
                 tokens_in = ex_row[9] or 0
                 tokens_out = ex_row[10] or 0
                 tokens_reasoning = ex_row[11] or 0
@@ -1246,44 +1245,99 @@ class SessionQueriesMixin:
                 "data": None,
             }
 
-    def _build_timeline_from_parts(self, session_id: str) -> list[dict]:
-        """Build timeline directly from parts table when exchanges not available."""
-        timeline = []
+    def _build_exchange_mapping(self, session_id: str) -> dict[str, int]:
+        """Build a mapping of message_id -> exchange_number.
 
-        # Get all parts for this session
-        parts = self._conn.execute(
+        Exchange numbers are assigned based on chronological pairing:
+        - User messages define exchange boundaries (user msg N = exchange N)
+        - Assistant messages inherit the exchange number of the most recent
+          user message that preceded them (or exchange 1 if none)
+        - Parts inherit exchange number from their parent message
+
+        This ensures that:
+        - All events in an exchange belong together
+        - Exchange 1 always exists if there's any user prompt
+        - No gaps in exchange numbering
+        """
+        mapping: dict[str, int] = {}
+
+        # Step 1: Get all messages chronologically with their role
+        all_msgs = self._conn.execute(
             """
-            SELECT 
-                p.id, p.part_type, p.content, p.tool_name, p.tool_status,
-                p.arguments, p.result_summary, p.reasoning_text,
-                p.anthropic_signature, p.duration_ms, p.created_at,
-                m.role,
-                p.file_name, p.file_mime, p.file_url, p.tool_title
-            FROM parts p
-            LEFT JOIN messages m ON p.message_id = m.id
-            WHERE p.session_id = ?
-            ORDER BY p.created_at ASC
+            SELECT id, role, created_at
+            FROM messages
+            WHERE session_id = ?
+            ORDER BY created_at ASC
             """,
             [session_id],
         ).fetchall()
 
-        exchange_num = 0
-        last_role = None
+        # Step 2: Assign exchange numbers
+        # User messages get incrementing numbers, assistant messages inherit from last user
+        current_exchange = 0
+        user_count = 0
+
+        for msg_id, role, _ in all_msgs:
+            if role == "user":
+                user_count += 1
+                current_exchange = user_count
+                mapping[msg_id] = current_exchange
+            elif role == "assistant":
+                # Assign to current exchange (from last user message)
+                # If no user message yet, assign to exchange 1
+                mapping[msg_id] = current_exchange if current_exchange > 0 else 1
+
+        return mapping
+
+    def _build_timeline_from_parts(self, session_id: str) -> list[dict]:
+        """Build timeline directly from parts table when exchanges not available."""
+        timeline = []
+
+        # Build message_id -> exchange_number mapping FIRST
+        exchange_map = self._build_exchange_mapping(session_id)
+
+        # Get all parts for this session
+        # Use COALESCE with NULLIF for reasoning_text to fall back to content
+        # NULLIF converts empty strings to NULL so COALESCE can fall back properly
+        parts = self._conn.execute(
+            """
+            SELECT 
+                p.id, p.part_type, p.content, p.tool_name, p.tool_status,
+                p.arguments, p.result_summary, 
+                COALESCE(NULLIF(p.reasoning_text, ''), p.content) as reasoning_text,
+                p.anthropic_signature, p.duration_ms, 
+                COALESCE(p.created_at, m.created_at) as created_at,
+                m.role,
+                p.file_name, p.file_mime, p.file_url, p.tool_title,
+                p.message_id
+            FROM parts p
+            LEFT JOIN messages m ON p.message_id = m.id
+            WHERE p.session_id = ?
+            ORDER BY COALESCE(p.created_at, m.created_at) ASC
+            """,
+            [session_id],
+        ).fetchall()
+
+        # Track which exchange numbers have user_prompts
+        exchanges_with_user_prompt: set[int] = set()
 
         for part in parts:
             part_type = part[1]
             role = part[11]
+            message_id = part[16]
 
-            # Increment exchange number on user prompts
+            # Get exchange number from mapping, default to 1 if not found
+            exchange_num = exchange_map.get(message_id, 1) if message_id else 1
+
             if part_type == "text" and role == "user":
-                exchange_num += 1
+                exchanges_with_user_prompt.add(exchange_num)
                 timeline.append(
                     {
                         "type": "user_prompt",
                         "exchange_number": exchange_num,
                         "timestamp": part[10].isoformat() if part[10] else None,
                         "content": part[2] or "",
-                        "message_id": None,
+                        "message_id": message_id,
                     }
                 )
             elif part_type == "reasoning":
@@ -1294,7 +1348,7 @@ class SessionQueriesMixin:
                         "timestamp": part[10].isoformat() if part[10] else None,
                         "entries": [
                             {
-                                "text": part[7] or "",
+                                "text": part[7] or "",  # Now uses COALESCE result
                                 "has_signature": part[8] is not None,
                                 "signature": part[8],
                             }
@@ -1340,9 +1394,21 @@ class SessionQueriesMixin:
                     }
                 )
 
-            last_role = role
+        # Find the first valid exchange number (with user_prompt)
+        first_valid_exchange = (
+            min(exchanges_with_user_prompt) if exchanges_with_user_prompt else 1
+        )
 
-        return timeline
+        # Reassign orphan events (exchange numbers without user_prompt) to first valid exchange
+        result = []
+        for event in timeline:
+            exchange_num = event.get("exchange_number", 1)
+            if exchange_num not in exchanges_with_user_prompt:
+                # Reassign to first valid exchange
+                event["exchange_number"] = first_valid_exchange
+            result.append(event)
+
+        return result
 
     def _calculate_timeline_stats(self, session_id: str) -> dict:
         """Calculate timeline stats from raw tables."""
@@ -1673,7 +1739,6 @@ class SessionQueriesMixin:
         children = []
         for child_row in children_result:
             child_session_id = child_row[2]
-            child_agent = child_row[1]
 
             if child_session_id:
                 child_node, child_stats = self._build_delegation_tree_node(

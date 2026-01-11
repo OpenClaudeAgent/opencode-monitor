@@ -11,8 +11,7 @@ Tests verify that:
 
 import pytest
 
-from ..conftest import SIGNAL_WAIT_MS
-from ..fixtures import MockAPIResponses
+from ..fixtures import MockAPIResponses, process_qt_events
 
 pytestmark = pytest.mark.integration
 
@@ -42,7 +41,7 @@ class TestMonitoringSectionMetrics:
         """Verify each metric card shows the injected data."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         metric_cards = dashboard_window._monitoring._metric_cards
 
@@ -71,7 +70,7 @@ class TestMonitoringSectionMetrics:
         # Initial data
         data1 = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data1)
-        qtbot.wait(50)
+        process_qt_events()
 
         # Verify initial state
         metric_cards = dashboard_window._monitoring._metric_cards
@@ -82,7 +81,7 @@ class TestMonitoringSectionMetrics:
         data2["agents"] = 10
         data2["busy"] = 8
         dashboard_window._signals.monitoring_updated.emit(data2)
-        qtbot.wait(50)
+        process_qt_events()
 
         # Verify updated values
         assert metric_cards["agents"]._value_label.text() == "10"
@@ -96,7 +95,7 @@ class TestMonitoringAgentsTable:
         """Verify agents table contains all agents from data."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._monitoring._agents_table
 
@@ -113,7 +112,7 @@ class TestMonitoringAgentsTable:
         """Verify status column contains StatusBadge widgets."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._monitoring._agents_table
 
@@ -131,7 +130,7 @@ class TestMonitoringAgentsTable:
         """Table is visible when data exists, empty state is hidden."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
         assert monitoring._agents_table.isVisible()
@@ -141,7 +140,7 @@ class TestMonitoringAgentsTable:
         """Empty state appears when no agents."""
         data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
         assert not monitoring._agents_table.isVisible()
@@ -155,7 +154,7 @@ class TestMonitoringToolsTable:
         """Verify tools table contains all running tools."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._monitoring._tools_table
 
@@ -191,7 +190,7 @@ class TestMonitoringToolsTable:
         """Verify duration column shows formatted time."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._monitoring._tools_table
 
@@ -211,7 +210,7 @@ class TestMonitoringToolsTable:
         """Empty state appears when no tools running."""
         data = MockAPIResponses.empty_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
         assert not monitoring._tools_table.isVisible()
@@ -225,7 +224,7 @@ class TestMonitoringWaitingTable:
         """Verify waiting table contains agents waiting for user input."""
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = dashboard_window._monitoring._waiting_table
 
@@ -264,7 +263,7 @@ class TestMonitoringWaitingTable:
         data["waiting_data"] = []
         data["waiting"] = 0
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
         assert not monitoring._waiting_table.isVisible()

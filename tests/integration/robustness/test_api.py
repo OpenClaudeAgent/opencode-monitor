@@ -8,12 +8,8 @@ Tests verify that:
 
 import pytest
 
-from ..conftest import (
-    SIGNAL_WAIT_MS,
-    SECTION_MONITORING,
-    SECTION_TRACING,
-)
-from ..fixtures import MockAPIResponses
+from ..conftest import SECTION_MONITORING, SECTION_TRACING
+from ..fixtures import MockAPIResponses, process_qt_events
 
 pytestmark = pytest.mark.integration
 
@@ -55,7 +51,7 @@ class TestAPIErrorHandling:
 
         signal = getattr(dashboard_window._signals, signal_name)
         signal.emit(malformed_data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Verify resilience: window visible and responsive
         assert dashboard_window.isVisible(), "Window should remain visible"
@@ -70,7 +66,7 @@ class TestAPIErrorHandling:
         assert was_visible, "Window should start visible"
 
         dashboard_window.close()
-        qtbot.wait(100)
+        process_qt_events()
 
         # Verify closed state
         assert not dashboard_window.isVisible(), "Window should be closed"
@@ -91,7 +87,7 @@ class TestMonitoringStateVariants:
         """All agents idle displays correctly."""
         data = MockAPIResponses.realistic_monitoring_all_idle()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
 
@@ -110,7 +106,7 @@ class TestMonitoringStateVariants:
         """All agents waiting displays correctly."""
         data = MockAPIResponses.realistic_monitoring_all_waiting()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
 
@@ -125,7 +121,7 @@ class TestMonitoringStateVariants:
         """Agents in error state are handled gracefully."""
         data = MockAPIResponses.realistic_monitoring_error()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         monitoring = dashboard_window._monitoring
 

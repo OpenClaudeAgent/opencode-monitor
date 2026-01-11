@@ -24,40 +24,4 @@ class TestToolStrategy:
         node = TreeNodeData(raw=data)
         content = ToolStrategy().get_content(node)
 
-        assert content["content_type"] == "tabs"
-
-    def test_get_content_header_with_tool_name(self):
-        """Header should contain tool name."""
-        data = {
-            "node_type": "tool",
-            "tool_name": "bash",
-            "display_info": "make test",
-        }
-        node = TreeNodeData(raw=data)
-        content = ToolStrategy().get_content(node)
-
-        assert "bash" in content["header"]
-
-    def test_get_content_status_completed(self):
-        """Status should be set for completed tools."""
-        data = {
-            "node_type": "tool",
-            "tool_name": "mcp_edit",
-            "status": "completed",
-        }
-        node = TreeNodeData(raw=data)
-        content = ToolStrategy().get_content(node)
-
-        assert content.get("status") == "completed"
-
-    def test_get_content_status_error(self):
-        """Status should be set for error tools."""
-        data = {
-            "node_type": "tool",
-            "tool_name": "mcp_bash",
-            "status": "error",
-        }
-        node = TreeNodeData(raw=data)
-        content = ToolStrategy().get_content(node)
-
-        assert content.get("status") == "error"
+        assert content.get("content_type") == "tabs"

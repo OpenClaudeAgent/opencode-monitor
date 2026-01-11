@@ -11,6 +11,8 @@ Tests:
 import pytest
 from PyQt6.QtCore import Qt
 
+from .fixtures import process_qt_events
+
 pytestmark = pytest.mark.integration
 
 
@@ -73,7 +75,7 @@ class TestSidebarWidget:
         # Test nav items are clickable
         security_item = sidebar._nav_items[1]
         qtbot.mouseClick(security_item, Qt.MouseButton.LeftButton)
-        qtbot.wait(100)
+        process_qt_events()
 
 
 class TestPageSwitchingPerformance:
@@ -91,7 +93,7 @@ class TestPageSwitchingPerformance:
         for _ in range(3):
             for i in range(4):
                 dashboard_window._on_section_changed(i)
-                qtbot.wait(50)
+                process_qt_events()
 
         # Should end up on last page
         assert dashboard_window._pages.currentIndex() == 3

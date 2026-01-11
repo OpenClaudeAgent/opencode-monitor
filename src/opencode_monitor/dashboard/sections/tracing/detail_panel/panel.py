@@ -278,8 +278,8 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         self._update_breadcrumb([f"🌳 {project_name}"])
 
-        # Pass tree_data directly to preserve 'tokens' object structure
-        # session_overview.load_session() expects tokens as an object with input/output/cache_read/cache_write
+        # Ensure session_id is in tree_data for timeline loading
+        tree_data["session_id"] = session_id
         self._session_overview.load_session(tree_data)
         self._content_stack.setCurrentIndex(0)
 

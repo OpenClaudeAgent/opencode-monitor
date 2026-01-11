@@ -9,7 +9,8 @@ Tests verify that:
 
 import pytest
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -45,7 +46,7 @@ class TestDataRobustness:
         }
 
         dashboard_window._signals.monitoring_updated.emit(data_with_nulls)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Should have 1 agent rendered despite null fields
         assert monitoring._agents_table.rowCount() == 1
@@ -58,7 +59,7 @@ class TestDataRobustness:
 
         tracing_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(tracing_data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Tracing section should show empty state (no session hierarchy)
         tracing = dashboard_window._tracing
@@ -78,7 +79,7 @@ class TestDataRobustness:
         }
 
         dashboard_window._signals.monitoring_updated.emit(empty_list_data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Empty lists should show empty state for agents
         assert monitoring._agents_table.rowCount() == 0
@@ -98,7 +99,7 @@ class TestDataRobustness:
         data["todos"] = 999_999_999
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Metrics should display formatted values (999999 or "999K" or similar)
         metric_cards = monitoring._metric_cards
@@ -134,7 +135,7 @@ class TestDataRobustness:
         tracing_data = {"session_hierarchy": session_hierarchy}
 
         dashboard_window._signals.tracing_updated.emit(tracing_data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Tracing should render exactly 10 sessions
         tracing = dashboard_window._tracing
@@ -149,7 +150,7 @@ class TestDataRobustness:
         data["agents_data"][0]["title"] = long_title
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Table should render 3 agents (long title may be truncated)
         table = monitoring._agents_table
@@ -167,7 +168,7 @@ class TestDataRobustness:
         data["agents_data"][0]["title"] = "🚀 Deploy émojis & spëcial çhars"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         table = monitoring._agents_table
         title = table.item(0, 0).text()
@@ -179,7 +180,7 @@ class TestDataRobustness:
         data["agents_data"][0]["dir"] = "/home/用户/项目"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Should render correctly
         assert table.rowCount() == 3
@@ -195,7 +196,7 @@ class TestDataRobustness:
         data["waiting_data"][0]["question"] = "¿Está seguro? 日本語テスト 🎉"
 
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         waiting_table = monitoring._waiting_table
         # Should have exactly 1 waiting item (from realistic_monitoring fixture)

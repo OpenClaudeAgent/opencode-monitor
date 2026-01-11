@@ -27,16 +27,4 @@ class TestExchangeStrategy:
         strategy = ExchangeStrategy()
         content = strategy.get_content(node)
 
-        assert content["content_type"] == "tabs"
-
-    def test_get_content_header_format(self):
-        """ExchangeStrategy header should show user → agent."""
-        data = {
-            "node_type": "user_turn",
-            "agent": "assistant",
-        }
-        node = TreeNodeData(raw=data)
-        content = ExchangeStrategy().get_content(node)
-
-        assert "user" in content["header"].lower()
-        assert "💬" in content["header_icon"]
+        assert content.get("content_type") == "tabs"

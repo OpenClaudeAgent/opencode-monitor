@@ -384,7 +384,8 @@ def _process_reasoning_part(
     stats: LoaderStats,
 ) -> None:
     """Process a reasoning part (agent thought process)."""
-    reasoning_text = data.get("text", "")
+    # Support both 'reasoning' (Claude extended thinking) and 'text' (OpenCode format)
+    reasoning_text = data.get("reasoning") or data.get("text", "")
     metadata = data.get("metadata", {})
     anthropic_data = metadata.get("anthropic", {}) if isinstance(metadata, dict) else {}
     anthropic_signature = (

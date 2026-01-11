@@ -578,6 +578,172 @@ class MockAPIResponses:
             ],
         }
 
+    @staticmethod
+    def realistic_timeline_full() -> dict[str, Any]:
+        """Realistic timeline full response with 2 complete exchanges.
+
+        Includes all event types:
+        - user_prompt
+        - reasoning (2 entries in exchange 1, 1 in exchange 2)
+        - tool_call
+        - assistant_response
+        - file_attachment (in exchange 1)
+
+        Includes delegation in exchange 2 (tool_call with child session).
+        All timestamps present, reasoning text non-empty, complete metadata.
+        """
+        base_time = FIXED_TEST_DATE
+
+        return {
+            "success": True,
+            "data": {
+                "meta": {
+                    "session_id": "sess-timeline-mock",
+                    "generated_at": (base_time + timedelta(hours=1)).isoformat(),
+                    "title": "Mock Timeline Session",
+                    "directory": "/home/user/project",
+                },
+                "session": {
+                    "id": "sess-timeline-mock",
+                    "title": "Mock Timeline Session",
+                    "directory": "/home/user/project",
+                    "started_at": base_time.isoformat(),
+                    "ended_at": (base_time + timedelta(hours=1)).isoformat(),
+                },
+                "timeline": [
+                    # Exchange 1: user_prompt
+                    {
+                        "type": "user_prompt",
+                        "exchange_number": 1,
+                        "content": "Can you help me refactor this function?",
+                        "message_id": "msg_001",
+                        "timestamp": base_time.isoformat(),
+                    },
+                    # Exchange 1: reasoning 1
+                    {
+                        "type": "reasoning",
+                        "exchange_number": 1,
+                        "text": "Let me analyze the function structure first to understand the current implementation pattern...",
+                        "has_signature": True,
+                        "signature": "sig_abc_001",
+                        "timestamp": (base_time + timedelta(seconds=5)).isoformat(),
+                        "duration_ms": 2000,
+                    },
+                    # Exchange 1: reasoning 2
+                    {
+                        "type": "reasoning",
+                        "exchange_number": 1,
+                        "text": "Based on the code structure, I'll extract the repeated logic into separate helper functions for better maintainability...",
+                        "has_signature": True,
+                        "signature": "sig_abc_002",
+                        "timestamp": (base_time + timedelta(seconds=7)).isoformat(),
+                        "duration_ms": 1500,
+                    },
+                    # Exchange 1: tool_call (read file)
+                    {
+                        "type": "tool_call",
+                        "exchange_number": 1,
+                        "tool_name": "read",
+                        "status": "completed",
+                        "arguments": {"filePath": "/src/utils/parser.py"},
+                        "result_summary": "File content retrieved (245 lines)",
+                        "timestamp": (base_time + timedelta(seconds=9)).isoformat(),
+                        "duration_ms": 150,
+                    },
+                    # Exchange 1: file_attachment
+                    {
+                        "type": "file_attachment",
+                        "exchange_number": 1,
+                        "file_path": "/src/utils/parser.py",
+                        "operation": "READ",
+                        "timestamp": (base_time + timedelta(seconds=9)).isoformat(),
+                    },
+                    # Exchange 1: assistant_response
+                    {
+                        "type": "assistant_response",
+                        "exchange_number": 1,
+                        "content": "I've analyzed the function and here's my refactoring proposal...",
+                        "message_id": "msg_002",
+                        "timestamp": (base_time + timedelta(seconds=15)).isoformat(),
+                    },
+                    # Exchange 2: user_prompt
+                    {
+                        "type": "user_prompt",
+                        "exchange_number": 2,
+                        "content": "Looks good, please implement it and run the tests",
+                        "message_id": "msg_003",
+                        "timestamp": (base_time + timedelta(minutes=2)).isoformat(),
+                    },
+                    # Exchange 2: reasoning
+                    {
+                        "type": "reasoning",
+                        "exchange_number": 2,
+                        "text": "I'll edit the file with the refactored code, then delegate to the test runner agent to verify everything works...",
+                        "has_signature": True,
+                        "signature": "sig_def_001",
+                        "timestamp": (
+                            base_time + timedelta(minutes=2, seconds=3)
+                        ).isoformat(),
+                        "duration_ms": 1800,
+                    },
+                    # Exchange 2: tool_call (edit file)
+                    {
+                        "type": "tool_call",
+                        "exchange_number": 2,
+                        "tool_name": "edit",
+                        "status": "completed",
+                        "arguments": {
+                            "filePath": "/src/utils/parser.py",
+                            "oldString": "def parse_data(data):",
+                            "newString": "def parse_data(data):\n    return _validate_and_parse(data)",
+                        },
+                        "result_summary": "File edited successfully",
+                        "timestamp": (
+                            base_time + timedelta(minutes=2, seconds=5)
+                        ).isoformat(),
+                        "duration_ms": 200,
+                    },
+                    # Exchange 2: tool_call (delegation - task agent)
+                    {
+                        "type": "tool_call",
+                        "exchange_number": 2,
+                        "tool_name": "task",
+                        "status": "completed",
+                        "arguments": {
+                            "subagent_type": "test-runner",
+                            "prompt": "Run pytest tests/test_parser.py",
+                        },
+                        "result_summary": "All tests passed (12/12)",
+                        "delegation": {
+                            "child_session_id": "sess-child-test-001",
+                            "child_agent": "test-runner",
+                        },
+                        "timestamp": (
+                            base_time + timedelta(minutes=2, seconds=10)
+                        ).isoformat(),
+                        "duration_ms": 8500,
+                    },
+                    # Exchange 2: assistant_response
+                    {
+                        "type": "assistant_response",
+                        "exchange_number": 2,
+                        "content": "Done! I've refactored the function and all 12 tests pass.",
+                        "message_id": "msg_004",
+                        "timestamp": (
+                            base_time + timedelta(minutes=2, seconds=20)
+                        ).isoformat(),
+                    },
+                ],
+                "summary": {
+                    "total_exchanges": 2,
+                    "total_tokens": 3500,
+                    "total_cost_usd": 0.042,
+                    "total_tool_calls": 3,
+                    "total_reasoning_entries": 3,
+                },
+            },
+        }
+
 
 # =============================================================================
 # MockAnalyticsAPIClient
@@ -680,6 +846,16 @@ class MockAnalyticsAPIClient:
         self._log_call("get_session_timeline", session_id=session_id)
         timeline = self._responses.get("session_timeline", {})
         return timeline.get(session_id)
+
+    def get_session_timeline_full(self, session_id: str) -> Optional[dict]:
+        """Return configured full session timeline with all event types."""
+        self._log_call("get_session_timeline_full", session_id=session_id)
+        full_response = self._responses.get(
+            "timeline_full", MockAPIResponses.realistic_timeline_full()
+        )
+        if full_response and "data" in full_response:
+            return full_response["data"]
+        return full_response
 
     def get_session_prompts(self, session_id: str) -> Optional[dict]:
         """Return configured session prompts."""

@@ -145,9 +145,11 @@ SELECT
     -- Extract child_session_id from state.metadata.sessionId for task delegations
     json_extract_string(j, '$.state.metadata.sessionId') as child_session_id,
     -- Plan 34: Enriched columns
-    -- reasoning_text: extract text when type='reasoning'
+    -- reasoning_text: extract from 'reasoning' (Claude extended thinking) or 'text' (OpenCode format)
+    -- NULLIF handles empty strings so COALESCE can fall back properly
     CASE WHEN json_extract_string(j, '$.type') = 'reasoning' 
-         THEN json_extract_string(j, '$.text') ELSE NULL END as reasoning_text,
+         THEN COALESCE(NULLIF(json_extract_string(j, '$.reasoning'), ''), json_extract_string(j, '$.text')) 
+         ELSE NULL END as reasoning_text,
     -- anthropic_signature: extract from metadata.anthropic.signature
     json_extract_string(j, '$.metadata.anthropic.signature') as anthropic_signature,
     -- compaction_auto: extract auto flag when type='compaction'

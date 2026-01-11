@@ -27,6 +27,7 @@ class SessionStrategy:
             breadcrumb=[f"🌳 {project_name}"],
             content_type="overview",
             overview_data={
+                "session_id": node.session_id,
                 "project": project_name,
                 "title": node.title,
                 "directory": directory,

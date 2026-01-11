@@ -90,15 +90,10 @@ def find_items_by_tool_name(
     return result
 
 
-def expand_all_items(tree_widget: QTreeWidget, qtbot, wait_ms: int = 50) -> None:
-    """Expand all items in the tree.
+def expand_all_items(tree_widget: QTreeWidget) -> None:
+    from PyQt6.QtWidgets import QApplication
 
-    Args:
-        tree_widget: The QTreeWidget to expand
-        qtbot: pytest-qt's qtbot fixture
-        wait_ms: Time to wait after expanding (default 50ms)
-    """
     for item in get_all_tree_items(tree_widget):
         if item.childCount() > 0:
             item.setExpanded(True)
-    qtbot.wait(wait_ms)
+    QApplication.processEvents()

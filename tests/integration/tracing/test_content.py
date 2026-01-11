@@ -10,7 +10,8 @@ Tests verify that:
 import pytest
 from PyQt6.QtWidgets import QWidget, QLabel
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -55,13 +56,13 @@ class TestTracingTabsContent:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Select root session
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Navigate to tab and verify accessibility
         detail = tracing._detail_panel
@@ -85,7 +86,7 @@ class TestTracingTreeContent:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Verify tree has expected column count
         tree = tracing._tree
@@ -150,12 +151,12 @@ class TestTokenDisplayNonRegression:
         # When: On affiche le panel plusieurs fois (simulate navigation)
         for iteration in range(3):
             dashboard_window._signals.tracing_updated.emit(data)
-            qtbot.wait(SIGNAL_WAIT_MS)
+            process_qt_events()
 
             root_item = tracing._tree.topLevelItem(0)
             tracing._tree.setCurrentItem(root_item)
             tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+            process_qt_events()
 
             # Then: Les valeurs doivent rester identiques (pas de double comptage)
             detail_panel = tracing._detail_panel
@@ -209,12 +210,12 @@ class TestTokenDisplayNonRegression:
         error = None
         try:
             dashboard_window._signals.tracing_updated.emit(data)
-            qtbot.wait(SIGNAL_WAIT_MS)
+            process_qt_events()
 
             root_item = tracing._tree.topLevelItem(0)
             tracing._tree.setCurrentItem(root_item)
             tracing._on_item_clicked(root_item, 0)
-            qtbot.wait(SIGNAL_WAIT_MS)
+            process_qt_events()
         except Exception as e:
             success = False
             error = str(e)
@@ -257,12 +258,12 @@ class TestTokenDisplayNonRegression:
 
         # When: On charge les données
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Then: Vérifier que cache_write est bien affiché
         detail_panel = tracing._detail_panel

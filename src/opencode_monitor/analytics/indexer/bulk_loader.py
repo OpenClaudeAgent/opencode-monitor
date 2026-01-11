@@ -291,21 +291,29 @@ class BulkLoader:
         conn = self._db.connect()
 
         try:
+            debug(f"[BulkLoader] Starting parts load from {path}")
+
             # Optimize DuckDB for bulk loading large number of JSON files
             # - memory_limit: read_text loads all files, needs more RAM
             # - preserve_insertion_order=false: reduces memory usage, order not needed for analytics
+            debug("[BulkLoader] Setting DuckDB memory limit to 4GB")
             conn.execute("SET memory_limit='4GB'")
             conn.execute("SET preserve_insertion_order=false")
+            debug("[BulkLoader] DuckDB settings applied")
 
             # Load and transform in one query using SQL template
             # Path is validated in __init__ - resolved absolute path, safe for SQL
             query = LOAD_PARTS_SQL.format(path=path)
+            debug("[BulkLoader] Executing parts SQL query...")
             conn.execute(query)
+            debug("[BulkLoader] Parts SQL query completed")
 
             # Count loaded
+            debug("[BulkLoader] Counting loaded parts...")
             result = conn.execute("SELECT COUNT(*) FROM parts").fetchone()
             count = result[0] if result else 0
             self._parts_loaded = count
+            debug(f"[BulkLoader] Found {count:,} parts in DB")
 
             elapsed = time.time() - start
             speed = count / elapsed if elapsed > 0 else 0
@@ -313,7 +321,9 @@ class BulkLoader:
             info(f"[BulkLoader] Parts: {count:,} in {elapsed:.1f}s ({speed:.0f}/s)")
 
             # Create delegation traces from task parts
+            debug("[BulkLoader] Creating delegation traces...")
             self._create_delegation_traces(conn)
+            debug("[BulkLoader] Delegation traces created")
 
             return BulkLoadResult("part", count, elapsed, speed, 0)
 
@@ -441,17 +451,21 @@ class BulkLoader:
         Returns:
             Number of files marked
         """
+        debug(f"[BulkLoader] Starting file marking (cutoff={cutoff_time})")
         state = FileProcessingState(self._db)
         marked = 0
 
         # Scan each file type directory
         for file_type in ["session", "message", "part"]:
+            debug(f"[BulkLoader] Scanning {file_type} directory...")
             type_path = self._storage_path / file_type
             if not type_path.exists():
+                debug(f"[BulkLoader] {file_type} directory not found, skipping")
                 continue
 
             # Collect files with mtime < cutoff_time
             files_to_mark = []
+            subdirs_scanned = 0
 
             # For flat directories (no subdirs)
             if file_type in ("todo", "project"):
@@ -469,6 +483,12 @@ class BulkLoader:
                 for subdir in type_path.iterdir():
                     if not subdir.is_dir():
                         continue
+                    subdirs_scanned += 1
+                    if subdirs_scanned % 1000 == 0:
+                        debug(
+                            f"[BulkLoader] {file_type}: scanned {subdirs_scanned} subdirs, {len(files_to_mark)} files to mark"
+                        )
+
                     for json_file in subdir.glob("*.json"):
                         try:
                             mtime = json_file.stat().st_mtime
@@ -487,6 +507,9 @@ class BulkLoader:
 
             # Mark in batch for performance
             if files_to_mark:
+                debug(
+                    f"[BulkLoader] Marking {len(files_to_mark)} {file_type} files in DB..."
+                )
                 count = state.mark_processed_batch(files_to_mark)
                 marked += count
                 debug(f"[BulkLoader] Marked {count} {file_type} files as processed")

@@ -9,11 +9,8 @@ Consolidated tests verify:
 
 import pytest
 
-from ..conftest import (
-    SECTION_MONITORING,
-    SECTION_ANALYTICS,
-)
-from ..fixtures import MockAPIResponses
+from ..conftest import SECTION_MONITORING, SECTION_ANALYTICS
+from ..fixtures import MockAPIResponses, process_qt_events
 
 pytestmark = pytest.mark.integration
 
@@ -37,7 +34,7 @@ class TestSectionVisibility:
         # 2. Set monitoring data before navigating away
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        qtbot.wait(50)
+        process_qt_events()
 
         # 3. Navigate to Analytics - verify section changes
         click_nav(dashboard_window, SECTION_ANALYTICS)

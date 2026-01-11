@@ -1,7 +1,4 @@
-"""Tests for threading utilities."""
-
 import threading
-import time
 from typing import Any
 
 import pytest
@@ -10,31 +7,25 @@ from opencode_monitor.utils.threading import run_in_background, start_background
 
 
 class TestRunInBackground:
-    """Tests for run_in_background decorator."""
-
     def test_decorator_properties(self):
-        """Test decorator creates daemon thread, runs in background, preserves metadata."""
         results: dict[str, Any] = {"thread_id": None, "daemon": None}
         main_thread_id = threading.current_thread().ident
+        done = threading.Event()
 
         @run_in_background
         def my_special_function():
             results["thread_id"] = threading.current_thread().ident
             results["daemon"] = threading.current_thread().daemon
-            time.sleep(0.2)
+            done.set()
 
-        # Verify decorator preserves function name
         assert my_special_function.__name__ == "my_special_function"
 
-        # Verify returns None immediately (non-blocking)
         return_value = my_special_function()
         assert return_value == None
 
-        time.sleep(0.1)
+        done.wait(timeout=1)
 
-        # Verify runs in different thread
         assert results["thread_id"] != main_thread_id
-        # Verify thread is daemon
         assert results["daemon"] == True
 
     @pytest.mark.parametrize(
@@ -48,48 +39,40 @@ class TestRunInBackground:
         ids=["positional", "large-positional", "mixed", "kwargs-only"],
     )
     def test_with_arguments(self, args, kwargs, expected):
-        """Test decorated function handles args and kwargs correctly."""
         results: list[int] = []
+        done = threading.Event()
 
         @run_in_background
         def add_numbers(a, b):
             results.append(a + b)
+            done.set()
 
         add_numbers(*args, **kwargs)
-        time.sleep(0.1)
+        done.wait(timeout=1)
 
         assert len(results) == 1
         assert results[0] == expected
 
     def test_concurrent_execution(self):
-        """Test multiple calls run in parallel, not sequentially."""
         results: list[int] = []
-        start_time = time.time()
+        barrier = threading.Barrier(4)
 
         @run_in_background
-        def slow_append(value):
-            time.sleep(0.1)
+        def append_value(value):
             results.append(value)
+            barrier.wait(timeout=1)
 
-        # Start 3 background tasks
-        slow_append(1)
-        slow_append(2)
-        slow_append(3)
+        append_value(1)
+        append_value(2)
+        append_value(3)
 
-        # Wait for all to complete
-        time.sleep(0.3)
-        elapsed = time.time() - start_time
+        barrier.wait(timeout=1)
 
-        # Should complete faster than sequential (3 * 0.1 = 0.3s)
-        assert elapsed < 0.4
         assert sorted(results) == [1, 2, 3]
 
 
 class TestStartBackgroundTask:
-    """Tests for start_background_task function."""
-
     def test_thread_properties_and_lifecycle(self):
-        """Test returns started daemon Thread that can be joined."""
         results: dict[str, Any] = {"thread_id": None, "started": False}
         main_thread_id = threading.current_thread().ident
         started_event = threading.Event()
@@ -98,22 +81,16 @@ class TestStartBackgroundTask:
             results["thread_id"] = threading.current_thread().ident
             results["started"] = True
             started_event.set()
-            time.sleep(0.05)
 
         thread = start_background_task(task_function)
 
-        # Verify returns Thread object
         assert type(thread).__name__ == "Thread"
-        # Verify thread is daemon
         assert thread.daemon == True
 
-        # Verify thread is started (wait for signal)
-        wait_result = started_event.wait(timeout=0.5)
+        wait_result = started_event.wait(timeout=1)
         assert wait_result == True
 
-        # Verify can be joined
         thread.join(timeout=1)
 
-        # Verify ran in different thread
         assert results["thread_id"] != main_thread_id
         assert results["started"] == True

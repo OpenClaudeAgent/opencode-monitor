@@ -9,6 +9,7 @@ Tests the core functionality:
 """
 
 import json
+import os
 import tempfile
 import time
 from datetime import datetime
@@ -317,9 +318,9 @@ class TestFileTracker:
         test_file.write_text('{"id": "ses_001"}')
         tracker.mark_indexed(test_file, "session", "ses_001")
 
-        # Modify the file
-        time.sleep(0.1)  # Ensure mtime changes
         test_file.write_text('{"id": "ses_001", "title": "Updated"}')
+        future_mtime = time.time() + 10
+        os.utime(test_file, (future_mtime, future_mtime))
 
         # Should need indexing again
         assert tracker.needs_indexing(test_file) is True

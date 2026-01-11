@@ -10,7 +10,8 @@ Tests verify that:
 
 import pytest
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_SECURITY
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_SECURITY
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
@@ -37,7 +38,7 @@ class TestSecuritySection:
         # Emit security data
         data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         # Verify navigation succeeded
         assert dashboard_window._pages.currentIndex() == SECTION_SECURITY, (
@@ -68,7 +69,7 @@ class TestSecuritySection:
 
         data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         security = dashboard_window._security
         table = security._commands_table
@@ -123,7 +124,7 @@ class TestSecuritySection:
 
         data = MockAPIResponses.realistic_security()
         dashboard_window._signals.security_updated.emit(data)
-        qtbot.wait(SIGNAL_WAIT_MS)
+        process_qt_events()
 
         security = dashboard_window._security
         files_checked = False

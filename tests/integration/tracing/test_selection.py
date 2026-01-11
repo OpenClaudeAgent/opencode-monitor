@@ -10,7 +10,8 @@ Tests verify that:
 import pytest
 from PyQt6.QtWidgets import QWidget, QTabWidget
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration

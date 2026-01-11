@@ -1049,7 +1049,7 @@ class TestBuildExchangesFromMessages:
         now = datetime.now()
         # Row format: id, session_id, created_at, role, agent, content, tokens_in, tokens_out, tokens_cache
         msg_rows = [
-            ("msg_1", "sess_1", now, "user", "plan", "Hello", None, None, None),
+            ("msg_1", "sess_1", now, "user", "plan", "Hello", None, None, None, None),
             (
                 "msg_2",
                 "sess_1",
@@ -1060,6 +1060,7 @@ class TestBuildExchangesFromMessages:
                 10,
                 20,
                 5,
+                0,
             ),
         ]
 
@@ -1083,7 +1084,7 @@ class TestBuildExchangesFromMessages:
 
         now = datetime.now()
         msg_rows = [
-            ("msg_1", "sess_1", now, "user", None, "Hello", None, None, None),
+            ("msg_1", "sess_1", now, "user", None, "Hello", None, None, None, None),
             (
                 "msg_2",
                 "sess_1",
@@ -1094,6 +1095,7 @@ class TestBuildExchangesFromMessages:
                 10,
                 20,
                 5,
+                0,
             ),
         ]
         tools_by_message = {

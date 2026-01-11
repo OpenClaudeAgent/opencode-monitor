@@ -21,7 +21,8 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTreeWidgetItem
 
-from ..conftest import SIGNAL_WAIT_MS, SECTION_TRACING
+from ..fixtures import process_qt_events
+from ..conftest import SECTION_TRACING
 
 pytestmark = pytest.mark.integration
 
@@ -124,7 +125,7 @@ TOTAL_DELEGATIONS = 1
 TOTAL_ROOT_CHILDREN = 5  # 5 user turns directly under root
 
 # Expected labels (EXACT)
-ROOT_LABEL = f"🌳 {SESSION_PROJECT_NAME}"
+ROOT_LABEL = f"🌳 {SESSION_PROJECT_NAME}: {SESSION_TITLE}"
 UT1_LABEL = f'💬 user → {UT1_AGENT}: "{UT1_PROMPT}"'
 UT2_LABEL = f'💬 user → {UT2_AGENT}: "{UT2_PROMPT}"'
 UT3_LABEL = f'💬 user → {UT3_AGENT}: "{UT3_PROMPT}"'
@@ -133,13 +134,17 @@ UT5_LABEL = f'💬 user → {UT5_AGENT}: "{UT5_PROMPT}"'
 # Note: depth=2 (root→ut5→delegation), so icon is └─ not 🔗
 DELEG_LABEL = f"└─ {DELEG_PARENT_AGENT} → {DELEG_AGENT_TYPE}"
 
-# Tool labels (EXACT)
-UT2_TOOL1_LABEL = f"{UT2_TOOL1_ICON} {UT2_TOOL1_NAME}: {UT2_TOOL1_DISPLAY}"
-UT2_TOOL2_LABEL = f"{UT2_TOOL2_ICON} {UT2_TOOL2_NAME}: {UT2_TOOL2_DISPLAY}"
-UT3_TOOL1_LABEL = f"{UT3_TOOL1_ICON} {UT3_TOOL1_NAME}: {UT3_TOOL1_DISPLAY}"
-UT4_TOOL1_LABEL = f"{UT4_TOOL1_ICON} {UT4_TOOL1_NAME}: {UT4_TOOL1_DISPLAY}"
-DELEG_TOOL1_LABEL = f"{DELEG_TOOL1_ICON} {DELEG_TOOL1_NAME}: {DELEG_TOOL1_DISPLAY}"
-DELEG_TOOL2_LABEL = f"{DELEG_TOOL2_ICON} {DELEG_TOOL2_NAME}: {DELEG_TOOL2_DISPLAY}"
+# Tool labels (EXACT) - Note: tool names are now capitalized in UI
+UT2_TOOL1_LABEL = f"{UT2_TOOL1_ICON} {UT2_TOOL1_NAME.capitalize()}: {UT2_TOOL1_DISPLAY}"
+UT2_TOOL2_LABEL = f"{UT2_TOOL2_ICON} {UT2_TOOL2_NAME.capitalize()}: {UT2_TOOL2_DISPLAY}"
+UT3_TOOL1_LABEL = f"{UT3_TOOL1_ICON} {UT3_TOOL1_NAME.capitalize()}: {UT3_TOOL1_DISPLAY}"
+UT4_TOOL1_LABEL = f"{UT4_TOOL1_ICON} {UT4_TOOL1_NAME.capitalize()}: {UT4_TOOL1_DISPLAY}"
+DELEG_TOOL1_LABEL = (
+    f"{DELEG_TOOL1_ICON} {DELEG_TOOL1_NAME.capitalize()}: {DELEG_TOOL1_DISPLAY}"
+)
+DELEG_TOOL2_LABEL = (
+    f"{DELEG_TOOL2_ICON} {DELEG_TOOL2_NAME.capitalize()}: {DELEG_TOOL2_DISPLAY}"
+)
 
 
 # =============================================================================
@@ -404,12 +409,11 @@ def find_items_by_tool_name(tree_widget, tool_name: str) -> list[QTreeWidgetItem
     return result
 
 
-def expand_all_items(tree_widget, qtbot):
-    """Expand all items in the tree."""
+def expand_all_items(tree_widget):
     for item in get_all_tree_items(tree_widget):
         if item.childCount() > 0:
             item.setExpanded(True)
-    qtbot.wait(SIGNAL_WAIT_MS // 2)
+    process_qt_events()
 
 
 def load_and_expand(dashboard_window, qtbot, click_nav):
@@ -419,9 +423,9 @@ def load_and_expand(dashboard_window, qtbot, click_nav):
 
     data = quick_checkin_tracing_data()
     dashboard_window._signals.tracing_updated.emit(data)
-    qtbot.wait(SIGNAL_WAIT_MS)
+    process_qt_events()
 
-    expand_all_items(tracing._tree, qtbot)
+    expand_all_items(tracing._tree)
     return tracing
 
 

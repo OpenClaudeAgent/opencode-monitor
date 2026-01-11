@@ -362,7 +362,6 @@ class TestSyncStateProgressTracking:
         sync_state.start_bulk(time.time(), total_files=100)
 
         before = sync_state.get_status().last_indexed
-        time.sleep(0.01)
         sync_state.update_progress(files_done=10)
         after = sync_state.get_status().last_indexed
 

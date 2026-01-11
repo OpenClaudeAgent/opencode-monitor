@@ -460,12 +460,18 @@ class TestStatsAndReport:
 class TestGlobalFunctions:
     """Tests for global singleton functions."""
 
+    @pytest.fixture(autouse=True)
+    def reset_singleton(self):
+        """Reset auditor singleton before and after each test."""
+        from opencode_monitor.security.auditor import core as auditor_core
+
+        auditor_core._auditor = None
+        yield
+        auditor_core._auditor = None
+
     def test_get_auditor_creates_singleton(self):
         """get_auditor creates and returns singleton."""
         from opencode_monitor.security.auditor import core as auditor_core
-
-        # Reset singleton
-        auditor_core._auditor = None
 
         with patch.object(auditor_core, "SecurityAuditor") as mock_cls:
             mock_inst = MagicMock()
@@ -474,18 +480,12 @@ class TestGlobalFunctions:
             r1 = get_auditor()
             r2 = get_auditor()
 
-            # Should only create once
             mock_cls.assert_called_once()
             assert r1 is r2
-
-        # Cleanup
-        auditor_core._auditor = None
 
     def test_start_auditor_starts_singleton(self):
         """start_auditor starts the singleton."""
         from opencode_monitor.security.auditor import core as auditor_core
-
-        auditor_core._auditor = None
 
         with patch.object(auditor_core, "SecurityAuditor") as mock_cls:
             mock_inst = MagicMock()
@@ -494,33 +494,26 @@ class TestGlobalFunctions:
             start_auditor()
             mock_inst.start.assert_called_once()
 
-        auditor_core._auditor = None
-
     def test_stop_auditor_stops_and_clears_singleton(self):
         """stop_auditor stops and clears singleton."""
         from opencode_monitor.security.auditor import core as auditor_core
-
-        auditor_core._auditor = None
 
         with patch.object(auditor_core, "SecurityAuditor") as mock_cls:
             mock_inst = MagicMock()
             mock_cls.return_value = mock_inst
 
-            get_auditor()  # Create singleton
+            get_auditor()
             assert auditor_core._auditor is not None
 
             stop_auditor()
             mock_inst.stop.assert_called_once()
             assert auditor_core._auditor is None
 
-        auditor_core._auditor = None
-
     def test_stop_auditor_when_none_is_safe(self):
         """stop_auditor is safe to call when no auditor exists."""
         from opencode_monitor.security.auditor import core as auditor_core
 
-        auditor_core._auditor = None
-        stop_auditor()  # Should not raise
+        stop_auditor()
         assert auditor_core._auditor is None
 
 

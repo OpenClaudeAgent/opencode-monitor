@@ -360,6 +360,21 @@ class TestGetSessionTimelineFull:
         assert isinstance(timeline, list)
         assert len(timeline) > 0
 
+        for event in timeline:
+            assert "timestamp" in event, f"Event {event.get('type')} missing timestamp"
+            assert event["timestamp"] is not None, (
+                f"Event {event.get('type')} has null timestamp"
+            )
+            assert "exchange_number" in event
+            assert event["exchange_number"] > 0, "Exchange number must be positive"
+
+        timestamps = [e["timestamp"] for e in timeline if e.get("timestamp")]
+        if len(timestamps) > 1:
+            for i in range(len(timestamps) - 1):
+                assert timestamps[i] <= timestamps[i + 1], (
+                    "Timeline events not chronologically sorted"
+                )
+
     def test_timeline_events_have_type(self, timeline_service: TracingDataService):
         """Test each timeline event has a type."""
         result = timeline_service.get_session_timeline_full("ses_timeline_001")
@@ -414,8 +429,44 @@ class TestGetSessionTimelineFull:
             e for e in result["data"]["timeline"] if e["type"] == "user_prompt"
         ]
         assert len(user_prompts) > 0
-        assert "content" in user_prompts[0]
-        assert len(user_prompts[0]["content"]) > 0
+
+        for prompt in user_prompts:
+            assert "content" in prompt
+            assert prompt["content"] is not None, "User prompt content must not be null"
+            assert len(prompt["content"]) > 0, "User prompt content must not be empty"
+            assert "message_id" in prompt
+            assert prompt["message_id"] is not None, (
+                "User prompt message_id must not be null"
+            )
+            assert "timestamp" in prompt
+            assert prompt["timestamp"] is not None, (
+                "User prompt timestamp must not be null"
+            )
+
+    def test_timeline_reasoning_text_complete(
+        self, timeline_service: TracingDataService
+    ):
+        """Test reasoning events have non-empty text."""
+        result = timeline_service.get_session_timeline_full("ses_timeline_001")
+
+        reasoning_events = [
+            e for e in result["data"]["timeline"] if e["type"] == "reasoning"
+        ]
+
+        if len(reasoning_events) > 0:
+            for reasoning in reasoning_events:
+                assert "entries" in reasoning, "Reasoning event missing entries field"
+                assert reasoning["entries"] is not None, (
+                    "Reasoning entries must not be null"
+                )
+                assert len(reasoning["entries"]) > 0, (
+                    "Reasoning entries must not be empty"
+                )
+
+                for entry in reasoning["entries"]:
+                    assert "text" in entry, "Reasoning entry missing text field"
+                    assert entry["text"] is not None, "Reasoning text must not be null"
+                    assert len(entry["text"]) > 0, "Reasoning text must not be empty"
 
     def test_timeline_tool_call_has_details(self, timeline_service: TracingDataService):
         """Test tool call events have necessary details."""
@@ -423,9 +474,24 @@ class TestGetSessionTimelineFull:
 
         tool_calls = [e for e in result["data"]["timeline"] if e["type"] == "tool_call"]
         if len(tool_calls) > 0:
-            tool = tool_calls[0]
-            assert "tool_name" in tool
-            assert "status" in tool
+            for tool in tool_calls:
+                assert "tool_name" in tool, "Tool call missing tool_name"
+                assert tool["tool_name"] is not None, "Tool name must not be null"
+                assert len(tool["tool_name"]) > 0, "Tool name must not be empty"
+
+                assert "status" in tool, "Tool call missing status"
+                assert tool["status"] is not None, "Tool status must not be null"
+                assert tool["status"] in ["completed", "failed", "pending"], (
+                    f"Invalid tool status: {tool['status']}"
+                )
+
+                if "arguments" in tool and tool["arguments"]:
+                    assert isinstance(tool["arguments"], dict), (
+                        "Tool arguments must be dict"
+                    )
+
+                if "duration_ms" in tool and tool["duration_ms"] is not None:
+                    assert tool["duration_ms"] >= 0, "Duration must be non-negative"
 
 
 # =============================================================================

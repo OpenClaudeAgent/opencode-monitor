@@ -26,15 +26,14 @@ sys.path.insert(0, str(src_path))
 # Import centralized mock client
 from tests.mocks import MockAnalyticsAPIClient
 
-# Import from reorganized fixtures
 from .fixtures import (
     MockAPIResponses,
-    SIGNAL_WAIT_MS,
     SECTION_MONITORING,
     SECTION_SECURITY,
     SECTION_ANALYTICS,
     SECTION_TRACING,
     EXPECTED_TRACING,
+    process_qt_events,
 )
 
 # Import helpers (now as fixtures from helpers module)
@@ -178,8 +177,14 @@ def dashboard_window(qtbot, patched_api_client, patched_monitoring, patched_secu
 
     yield window
 
-    # Cleanup
     window.close()
+    window.deleteLater()
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.processEvents()
+    import gc
+
+    gc.collect()
 
 
 @pytest.fixture
@@ -192,8 +197,6 @@ def dashboard_window_hidden(
     window = DashboardWindow()
     qtbot.addWidget(window)
 
-    # Stop timers BEFORE yield to avoid interference during tests
-    # The 2000ms refresh timer could fire and overwrite manually emitted data
     if window._refresh_timer:
         window._refresh_timer.stop()
     if window._sync_checker:
@@ -201,8 +204,11 @@ def dashboard_window_hidden(
 
     yield window
 
-    # Cleanup
     window.close()
+    window.deleteLater()
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.processEvents()
 
 
 @pytest.fixture
@@ -224,12 +230,15 @@ def dashboard_window_with_timers(
 
     yield window
 
-    # Cleanup
     if window._refresh_timer:
         window._refresh_timer.stop()
     if window._sync_checker:
         window._sync_checker.stop()
     window.close()
+    window.deleteLater()
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.processEvents()
 
 
 @pytest.fixture
@@ -252,6 +261,10 @@ def dashboard_window_hidden_with_timers(
     if window._sync_checker:
         window._sync_checker.stop()
     window.close()
+    window.deleteLater()
+    from PyQt6.QtWidgets import QApplication
+
+    QApplication.processEvents()
 
 
 @pytest.fixture
@@ -269,7 +282,7 @@ def tracing_with_data(dashboard_window, qtbot, click_nav):
     click_nav(dashboard_window, SECTION_TRACING)
     data = MockAPIResponses.realistic_tracing()
     dashboard_window._signals.tracing_updated.emit(data)
-    qtbot.wait(SIGNAL_WAIT_MS)
+    process_qt_events()
     return dashboard_window._tracing, dashboard_window
 
 

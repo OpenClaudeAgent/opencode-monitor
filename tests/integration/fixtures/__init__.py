@@ -7,7 +7,6 @@ Provides:
 - Constants for reproducible testing
 """
 
-# Constants
 from .constants import (
     EXPECTED_TRACING,
     FIXED_TEST_DATE,
@@ -15,7 +14,7 @@ from .constants import (
     SECTION_MONITORING,
     SECTION_SECURITY,
     SECTION_TRACING,
-    SIGNAL_WAIT_MS,
+    process_qt_events,
 )
 
 # Factory functions
@@ -43,14 +42,13 @@ from .tracing import realistic_tracing
 from .mock_responses import MockAPIResponses
 
 __all__ = [
-    # Constants
     "FIXED_TEST_DATE",
     "EXPECTED_TRACING",
     "SECTION_MONITORING",
     "SECTION_SECURITY",
     "SECTION_ANALYTICS",
     "SECTION_TRACING",
-    "SIGNAL_WAIT_MS",
+    "process_qt_events",
     # Factories
     "create_session_data",
     "create_trace_data",

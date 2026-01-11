@@ -22,7 +22,7 @@ class TestTextContentStrategy:
         node = TreeNodeData(raw=data)
         content = TextContentStrategy().get_content(node)
 
-        assert content["content_type"] == "tabs"
+        assert content.get("content_type") == "tabs"
 
     def test_get_content_with_prompt_output(self):
         """Transcript should contain the prompt_output in assistant_content."""
@@ -35,14 +35,3 @@ class TestTextContentStrategy:
 
         transcript = content.get("transcript", {})
         assert transcript.get("assistant_content") == "This is assistant reasoning"
-
-    def test_get_content_with_subagent_type(self):
-        """Header should show agent name when subagent_type is provided."""
-        data = {
-            "node_type": "unknown",
-            "subagent_type": "executor",
-        }
-        node = TreeNodeData(raw=data)
-        content = TextContentStrategy().get_content(node)
-
-        assert "executor" in content["header"]

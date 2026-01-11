@@ -584,7 +584,6 @@ class TestHybridIndexerEdgeCases:
 
         indexer = HybridIndexer(storage_path=empty_storage, db_path=temp_db_path)
         indexer.start()
-        time.sleep(0.5)
 
         try:
             status = indexer.get_status()

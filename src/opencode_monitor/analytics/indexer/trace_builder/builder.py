@@ -849,7 +849,7 @@ class TraceBuilder:
                         0 as tokens_in,
                         0 as tokens_out,
                         json_object(
-                            'text', p.reasoning_text,
+                            'text', COALESCE(p.reasoning_text, p.content),
                             'has_signature', CASE WHEN p.anthropic_signature IS NOT NULL THEN true ELSE false END,
                             'signature', p.anthropic_signature
                         ) as event_data
