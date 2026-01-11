@@ -21,7 +21,6 @@ import pytest
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTreeWidgetItem
 
-from ..fixtures import process_qt_events
 from ..conftest import SECTION_TRACING
 
 pytestmark = pytest.mark.integration
@@ -409,23 +408,23 @@ def find_items_by_tool_name(tree_widget, tool_name: str) -> list[QTreeWidgetItem
     return result
 
 
-def expand_all_items(tree_widget):
+def expand_all_items(tree_widget, qtbot):
     for item in get_all_tree_items(tree_widget):
         if item.childCount() > 0:
             item.setExpanded(True)
-    process_qt_events()
+    qtbot.wait(50)
 
 
 def load_and_expand(dashboard_window, qtbot, click_nav):
-    """Load data and expand all items. Returns tracing section."""
     click_nav(dashboard_window, SECTION_TRACING)
     tracing = dashboard_window._tracing
 
     data = quick_checkin_tracing_data()
     dashboard_window._signals.tracing_updated.emit(data)
-    process_qt_events()
+    qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=2000)
 
-    expand_all_items(tracing._tree)
+    expand_all_items(tracing._tree, qtbot)
+    qtbot.wait(50)
     return tracing
 
 

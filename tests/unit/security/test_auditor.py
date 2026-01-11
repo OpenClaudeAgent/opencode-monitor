@@ -457,6 +457,7 @@ class TestStatsAndReport:
 # =====================================================
 
 
+@pytest.mark.xdist_group(name="auditor_singleton")
 class TestGlobalFunctions:
     """Tests for global singleton functions."""
 

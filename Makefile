@@ -57,13 +57,13 @@ run-debug:
 # === Testing ===
 
 test:
-	@uv run pytest tests/unit/ tests/integration/database/ tests/integration/api/ -v -n 8
+	@uv run pytest tests/unit/ tests/integration/database/ tests/integration/api/ -v -n 2
 
 test-unit:
-	@uv run pytest tests/unit/ -v -n 8
+	@uv run pytest tests/unit/ -v -n 2
 
 test-integration:
-	@QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/ -v -n 8
+	@QT_QPA_PLATFORM=offscreen uv run pytest tests/integration/ -v -n 2
 
 test-integration-visible:
 	@uv run pytest tests/integration/ -v -n 8

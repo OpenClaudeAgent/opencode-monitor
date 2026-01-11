@@ -10,7 +10,7 @@ Consolidated tests verify:
 import pytest
 
 from ..conftest import SECTION_MONITORING, SECTION_ANALYTICS
-from ..fixtures import MockAPIResponses, process_qt_events
+from ..fixtures import MockAPIResponses
 
 pytestmark = pytest.mark.integration
 
@@ -34,7 +34,10 @@ class TestSectionVisibility:
         # 2. Set monitoring data before navigating away
         data = MockAPIResponses.realistic_monitoring()
         dashboard_window._signals.monitoring_updated.emit(data)
-        process_qt_events()
+        metric_cards = dashboard_window._monitoring._metric_cards
+        qtbot.waitUntil(
+            lambda: metric_cards["agents"]._value_label.text() == "3", timeout=1000
+        )
 
         # 3. Navigate to Analytics - verify section changes
         click_nav(dashboard_window, SECTION_ANALYTICS)
@@ -44,7 +47,6 @@ class TestSectionVisibility:
         click_nav(dashboard_window, SECTION_MONITORING)
         assert dashboard_window._pages.currentIndex() == SECTION_MONITORING
 
-        metric_cards = dashboard_window._monitoring._metric_cards
         assert metric_cards["agents"]._value_label.text() == "3"
 
     def test_api_client_isolation(self, patched_api_client):

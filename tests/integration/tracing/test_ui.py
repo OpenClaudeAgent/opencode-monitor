@@ -15,7 +15,6 @@ from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.sections.tracing import TracingSection
 from opencode_monitor.dashboard.sections.tracing.detail_panel import TraceDetailPanel
 
-from ..fixtures import process_qt_events
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
@@ -67,13 +66,9 @@ class TestTracingEmptyState:
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
-        # Emit empty tracing data
         empty_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(empty_data)
-        process_qt_events()
-
-        # 1. Tree should be hidden
-        assert tracing._tree.isHidden(), "Tree should be hidden with empty data"
+        qtbot.waitUntil(lambda: tracing._tree.isHidden(), timeout=1000)
 
         # 2. Empty state should be visible
         assert not tracing._empty.isHidden(), "Empty state should be visible"
@@ -105,10 +100,7 @@ class TestTracingSessionList:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
-
-        # Tree visible, empty state hidden
-        assert tracing._tree.isHidden() is False
+        qtbot.waitUntil(lambda: not tracing._tree.isHidden(), timeout=1000)
         assert tracing._empty.isHidden() is True
 
         # Fixture has exactly 1 root session
@@ -121,9 +113,7 @@ class TestTracingSessionList:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
-
-        # Root: project "my-project" from fixture directory "/home/dev/my-project"
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() == 1, timeout=1000)
         root_item = tracing._tree.topLevelItem(0)
         assert root_item.text(0) == "🌳 my-project: Implement feature X"
 
@@ -167,12 +157,15 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        process_qt_events()
+        qtbot.waitUntil(
+            lambda: hasattr(tracing._detail_panel._session_overview, "_tokens"),
+            timeout=1000,
+        )
 
         # Then: Vérifier que le panel overview contient un widget tokens
         detail_panel = tracing._detail_panel
@@ -254,12 +247,15 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        process_qt_events()
+        qtbot.waitUntil(
+            lambda: hasattr(tracing._detail_panel._session_overview, "_agents"),
+            timeout=1000,
+        )
 
         # Then: Vérifier que le panel overview affiche les agents
         detail_panel = tracing._detail_panel
@@ -319,12 +315,15 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        process_qt_events()
+        qtbot.waitUntil(
+            lambda: hasattr(tracing._detail_panel._session_overview, "_tools"),
+            timeout=1000,
+        )
 
         # Then: Vérifier que le panel overview affiche les tools
         detail_panel = tracing._detail_panel
@@ -398,12 +397,15 @@ class TestSessionOverviewPanelTokens:
 
         # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
 
         root_item = tracing._tree.topLevelItem(0)
         tracing._tree.setCurrentItem(root_item)
         tracing._on_item_clicked(root_item, 0)
-        process_qt_events()
+        qtbot.waitUntil(
+            lambda: hasattr(tracing._detail_panel._session_overview, "_timeline"),
+            timeout=1000,
+        )
 
         # Then: Vérifier que le panel overview affiche la timeline
         detail_panel = tracing._detail_panel

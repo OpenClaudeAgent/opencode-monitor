@@ -502,14 +502,20 @@ class TestHybridIndexerIntegration:
         indexer = HybridIndexer(storage_path=temp_storage, db_path=temp_db_path)
         indexer.start()
 
-        # Wait for bulk to complete
         timeout = 10
         start = time.time()
+        realtime_reached = False
+
         while time.time() - start < timeout:
             status = indexer.get_status()
             if status.phase == SyncPhase.REALTIME:
+                realtime_reached = True
                 break
-            time.sleep(0.1)
+            time.sleep(0.05)
+
+        assert realtime_reached, (
+            f"Indexer did not reach REALTIME phase within {timeout}s"
+        )
 
         try:
             status = indexer.get_status()
@@ -528,6 +534,7 @@ class TestHybridIndexerIntegration:
 # =============================================================================
 
 
+@pytest.mark.xdist_group(name="indexer_singleton")
 class TestGlobalFunctions:
     """Tests for module-level functions."""
 
