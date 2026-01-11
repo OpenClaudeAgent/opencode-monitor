@@ -12,8 +12,10 @@ Covers:
 - get_comparison()
 - update_session_stats()
 - update_daily_stats()
+- extract_tool_display_info()
 """
 
+import json
 from datetime import datetime
 
 import pytest
@@ -23,6 +25,107 @@ from opencode_monitor.analytics.tracing import (
     TracingDataService,
     TracingConfig,
 )
+from opencode_monitor.analytics.tracing.helpers import extract_tool_display_info
+
+
+class TestExtractToolDisplayInfo:
+    @pytest.mark.parametrize(
+        "tool,args,expected",
+        [
+            (None, None, ""),
+            ("bash", None, ""),
+            ("read", "not-json", ""),
+            ("read", json.dumps({}), ""),
+        ],
+        ids=["none_tool", "none_args", "invalid_json", "empty_path"],
+    )
+    def test_edge_cases(self, tool, args, expected):
+        assert extract_tool_display_info(tool, args) == expected
+
+    @pytest.mark.parametrize(
+        "tool,file_path,expected",
+        [
+            ("read", "/path/to/file.py", "file.py"),
+            ("write", "/deep/nested/output.txt", "output.txt"),
+            ("edit", "/src/main.rs", "main.rs"),
+        ],
+        ids=["read", "write", "edit"],
+    )
+    def test_file_tools_extract_basename(self, tool, file_path, expected):
+        args = json.dumps({"filePath": file_path})
+        assert extract_tool_display_info(tool, args) == expected
+
+    @pytest.mark.parametrize(
+        "args_dict,expected",
+        [
+            ({"pattern": "**/*.py"}, "**/*.py"),
+            ({"path": "/src/components"}, "/src/components"),
+            ({"pattern": "a" * 50}, "a" * 40),
+        ],
+        ids=["pattern", "path_fallback", "truncate_long"],
+    )
+    def test_glob_tool(self, args_dict, expected):
+        args = json.dumps(args_dict)
+        assert extract_tool_display_info("glob", args) == expected
+
+    @pytest.mark.parametrize(
+        "command,expected_suffix",
+        [
+            ("git status", "git status"),
+            ("line1\nline2", "line1..."),
+        ],
+        ids=["simple", "multiline"],
+    )
+    def test_bash_tool(self, command, expected_suffix):
+        args = json.dumps({"command": command})
+        result = extract_tool_display_info("bash", args)
+        assert result == expected_suffix
+
+    def test_bash_truncates_long_command(self):
+        args = json.dumps({"command": "echo " + "x" * 100})
+        result = extract_tool_display_info("bash", args)
+        assert len(result) <= 63 and result.endswith("...")
+
+    @pytest.mark.parametrize(
+        "pattern,expected",
+        [
+            ("def main", "/def main/"),
+            ("x" * 50, "/" + "x" * 39),
+        ],
+        ids=["simple", "truncate"],
+    )
+    def test_grep_tool(self, pattern, expected):
+        args = json.dumps({"pattern": pattern})
+        result = extract_tool_display_info("grep", args)
+        assert result == expected
+        assert len(result) <= 40
+
+    @pytest.mark.parametrize(
+        "tool,url,expected",
+        [
+            ("webfetch", "https://docs.python.org/3/lib", "docs.python.org"),
+            ("web_fetch", "https://example.com/page", "example.com"),
+            ("webfetch", "invalid-url", ""),
+        ],
+        ids=["webfetch", "web_fetch", "invalid_url_returns_empty"],
+    )
+    def test_webfetch_tools(self, tool, url, expected):
+        args = json.dumps({"url": url})
+        assert extract_tool_display_info(tool, args) == expected
+
+    @pytest.mark.parametrize(
+        "tool,args_dict,expected",
+        [
+            ("context7_query-docs", {"libraryId": "react/hooks"}, "react/hooks"),
+            ("task", {"subagent_type": "oracle"}, "oracle"),
+            ("task", {"description": "Analyze code"}, "Analyze code"),
+            ("unknown_tool", {"someKey": "someValue"}, "someValue"),
+        ],
+        ids=["context7", "task_subagent", "task_description", "generic_fallback"],
+    )
+    def test_other_tools(self, tool, args_dict, expected):
+        args = json.dumps(args_dict)
+        assert extract_tool_display_info(tool, args) == expected
 
 
 # =============================================================================
@@ -355,19 +458,54 @@ class TestGetSessionTools:
 
 
 class TestGetSessionFiles:
-    """Tests for get_session_files method."""
-
     def test_returns_file_details(
         self, temp_db: AnalyticsDB, populated_db: AnalyticsDB
     ):
-        """Should return file operation details."""
         service = TracingDataService(db=populated_db)
         result = service.get_session_files("ses_001")
 
         assert result["meta"]["session_id"] == "ses_001"
-        # From parts table - 1 read, 1 write, 0 edit
         assert result["summary"]["total_reads"] == 1
         assert result["summary"]["total_writes"] == 1
+
+    def test_fallback_extracts_from_parts_when_file_operations_empty(
+        self, temp_db: AnalyticsDB
+    ):
+        conn = temp_db.connect()
+
+        conn.execute(
+            """INSERT INTO sessions (id, title, created_at)
+               VALUES ('ses_fallback', 'Fallback Test', '2026-01-01 10:00:00')"""
+        )
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, created_at)
+               VALUES ('msg_fb', 'ses_fallback', 'assistant', '2026-01-01 10:00:00')"""
+        )
+
+        parts_data = [
+            ("prt_fb_read", "read", json.dumps({"filePath": "/src/app.py"})),
+            ("prt_fb_write", "write", json.dumps({"filePath": "/out/result.txt"})),
+            ("prt_fb_edit", "edit", json.dumps({"filePath": "/src/utils.py"})),
+        ]
+        for part_id, tool, args in parts_data:
+            conn.execute(
+                """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, 
+                   tool_status, arguments, created_at)
+                   VALUES (?, 'ses_fallback', 'msg_fb', 'tool', ?, 'completed', ?, 
+                   '2026-01-01 10:01:00')""",
+                [part_id, tool, args],
+            )
+
+        service = TracingDataService(db=temp_db)
+        result = service.get_session_files("ses_fallback")
+
+        assert result["summary"]["total_reads"] == 1
+        assert result["summary"]["total_writes"] == 1
+        assert result["summary"]["total_edits"] == 1
+        assert result["details"]["unique_files"] == 3
+        assert "/src/app.py" in result["details"]["files_list"]["read"]
+        assert "/out/result.txt" in result["details"]["files_list"]["write"]
+        assert "/src/utils.py" in result["details"]["files_list"]["edit"]
 
 
 # =============================================================================
