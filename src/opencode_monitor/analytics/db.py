@@ -103,10 +103,25 @@ class AnalyticsDB:
         with self._lock:
             if self._conn is None:
                 self._conn = duckdb.connect(str(self._db_path), read_only=read_only)
-                # Performance settings: reduce CPU/memory usage for background loading
+                # Performance settings: optimized for bulk loading
                 self._conn.execute("PRAGMA disable_progress_bar")
-                self._conn.execute("SET threads = 2")
+
+                # Auto-scale threads: use half of CPU cores (minimum 2)
+                import os
+
+                cpu_count = os.cpu_count()
+                threads = max(2, cpu_count // 2) if cpu_count else 2
+                self._conn.execute(f"SET threads = {threads}")
+
+                # Memory limit: 4GB for streaming (forces efficient algorithms)
                 self._conn.execute("SET memory_limit = '4GB'")
+
+                # Enable object cache for repeated struct parsing
+                self._conn.execute("SET enable_object_cache = true")
+
+                # Temp directory for spill-to-disk operations
+                self._conn.execute("SET temp_directory = '/tmp/duckdb'")
+
                 if not read_only:
                     self._create_schema()
             return self._conn
