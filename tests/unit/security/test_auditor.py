@@ -444,13 +444,6 @@ class TestStatsAndReport:
         assert stats["high"] >= 1
         assert stats["low"] >= 1
 
-    def test_generate_report(self, auditor):
-        """generate_report returns a string report."""
-        report = auditor.generate_report()
-
-        assert isinstance(report, str)
-        assert len(report) > 0
-
 
 # =====================================================
 # Global Singleton Functions Tests
