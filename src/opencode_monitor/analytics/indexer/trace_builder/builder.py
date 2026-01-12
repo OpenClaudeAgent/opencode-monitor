@@ -549,3 +549,69 @@ class TraceBuilder:
                 "delegation_traces": 0,
             }
 
+    # Compatibility wrappers for tests - delegate to MaterializedTableManager
+    def build_exchanges(self, session_id: Optional[str] = None) -> int:
+        """Build exchanges table - delegates to MaterializedTableManager.
+
+        Args:
+            session_id: Optional session ID filter
+
+        Returns:
+            Number of exchanges created
+        """
+        from ...materialization import MaterializedTableManager
+
+        manager = MaterializedTableManager(self._db)
+        result = manager.refresh_exchanges(session_id=session_id, incremental=False)
+        return result.get("rows_added", 0)
+
+    def build_exchange_traces(self, session_id: Optional[str] = None) -> int:
+        """Build exchange_traces table - delegates to MaterializedTableManager.
+
+        Args:
+            session_id: Optional session ID filter
+
+        Returns:
+            Number of exchange traces created
+        """
+        from ...materialization import MaterializedTableManager
+
+        manager = MaterializedTableManager(self._db)
+        result = manager.refresh_exchange_traces(session_id=session_id)
+        return result.get("rows_added", 0)
+
+    def build_session_traces(self, session_id: Optional[str] = None) -> int:
+        """Build session_traces table - delegates to MaterializedTableManager.
+
+        Args:
+            session_id: Optional session ID filter
+
+        Returns:
+            Number of session traces created
+        """
+        from ...materialization import MaterializedTableManager
+
+        manager = MaterializedTableManager(self._db)
+        result = manager.refresh_session_traces(
+            session_id=session_id, incremental=False
+        )
+        return result.get("rows_added", 0)
+
+    def build_all(self, session_id: Optional[str] = None) -> dict:
+        """Build all materialized tables - delegates to MaterializedTableManager.
+
+        Args:
+            session_id: Optional session ID filter
+
+        Returns:
+            Dictionary with counts for each table
+        """
+        exchanges = self.build_exchanges(session_id=session_id)
+        exchange_traces = self.build_exchange_traces(session_id=session_id)
+        session_traces = self.build_session_traces(session_id=session_id)
+
+        return {
+            "exchanges": exchanges,
+            "exchange_traces": exchange_traces,
+            "session_traces": session_traces,
+        }
