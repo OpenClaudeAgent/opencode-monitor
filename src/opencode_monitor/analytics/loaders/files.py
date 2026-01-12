@@ -185,17 +185,32 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
                 [session_id],
             ).fetchall()
 
+            # Pre-build suffix mapping for O(1) lookups instead of O(N*M) nested loop
+            suffix_map = {}
+            for diff_path, diff_stats in diff_by_file.items():
+                norm_path = diff_path.lstrip("./")
+                suffix_map[norm_path] = diff_stats
+                # Also store exact path
+                suffix_map[diff_path] = diff_stats
+
             for op_id, file_path in file_ops:
+                stats = None
+
                 # Try exact match first
                 stats = diff_by_file.get(file_path)
 
-                # If no match, try suffix match (diff has relative, DB has absolute)
+                # Try normalized path match
                 if not stats:
-                    for diff_path, diff_stats in diff_by_file.items():
-                        if file_path.endswith(diff_path) or diff_path.endswith(
-                            file_path
+                    norm_file_path = file_path.lstrip("./")
+                    stats = suffix_map.get(norm_file_path)
+
+                # Try suffix match on normalized path (last resort)
+                if not stats:
+                    for suffix_key in suffix_map:
+                        if norm_file_path.endswith(suffix_key) or suffix_key.endswith(
+                            norm_file_path
                         ):
-                            stats = diff_stats
+                            stats = suffix_map[suffix_key]
                             break
 
                 if stats:

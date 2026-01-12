@@ -33,8 +33,11 @@ class TimelineTab(BaseTab):
         if not self._summary:
             return
         total = len(events)
-        tools = len([e for e in events if e.get("type") == "tool_call"])
-        reasoning = len([e for e in events if e.get("type") == "reasoning"])
+        from collections import Counter
+
+        type_counts = Counter(e.get("type") for e in events)
+        tools = type_counts.get("tool_call", 0)
+        reasoning = type_counts.get("reasoning", 0)
         self._summary.setText(
             f"Events: {total}  •  Tools: {tools}  •  Reasoning: {reasoning}"
         )

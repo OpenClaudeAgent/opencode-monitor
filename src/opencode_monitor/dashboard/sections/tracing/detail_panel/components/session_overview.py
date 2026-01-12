@@ -799,7 +799,8 @@ class ToolsBreakdownWidget(QFrame):
     def load_tools(self, tools: Counter, tool_targets: dict[str, list[str]]) -> None:
         """Load tools into the breakdown."""
         # Clear existing
-        while self._container_layout.count():
+        count = self._container_layout.count()
+        for _ in range(count):
             item = self._container_layout.takeAt(0)
             if item.widget():
                 item.widget().deleteLater()

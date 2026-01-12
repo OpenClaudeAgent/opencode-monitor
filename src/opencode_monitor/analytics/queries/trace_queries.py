@@ -13,7 +13,6 @@ from ..models import AgentTrace
 from .base import BaseQueries
 
 
-
 @dataclass
 class TraceTreeNode:
     """A node in the trace hierarchy tree."""
@@ -132,7 +131,7 @@ class TraceQueries(BaseQueries):
 
             # Build tree structure
             traces_by_id: dict[str, TraceTreeNode] = {}
-            root_nodes: list[TraceTreeNode] = []
+            root_nodes: set[TraceTreeNode] = set()  # Use set for O(1) operations
 
             for row in results:
                 trace = self._row_to_trace(row[:15])  # First 15 columns
@@ -149,7 +148,7 @@ class TraceQueries(BaseQueries):
                     parent = traces_by_id[node.trace.parent_trace_id]
                     parent.children.append(node)
                 elif node.depth == 0:
-                    root_nodes.append(node)
+                    root_nodes.add(node)  # O(1) set addition
 
             # If no parent links, use session hierarchy
             if not any(n.children for n in traces_by_id.values()):
@@ -164,11 +163,10 @@ class TraceQueries(BaseQueries):
                     if node.trace.child_session_id:
                         children = session_to_nodes.get(node.trace.child_session_id, [])
                         node.children.extend(children)
-                        for child in children:
-                            if child in root_nodes:
-                                root_nodes.remove(child)
+                        # O(1) set operations instead of O(N) list operations
+                        root_nodes.difference_update(children)
 
-            return root_nodes
+            return list(root_nodes)  # Convert back to list for return type
 
         except Exception as e:
             return []

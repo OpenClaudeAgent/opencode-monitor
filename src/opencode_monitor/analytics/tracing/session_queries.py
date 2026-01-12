@@ -8,7 +8,6 @@ from datetime import datetime
 from typing import TYPE_CHECKING, Iterator
 
 
-
 if TYPE_CHECKING:
     from .config import TracingConfig
     import duckdb
@@ -1051,6 +1050,29 @@ class SessionQueriesMixin:
             total_tool_calls = 0
             total_reasoning = 0
 
+            # Batch fetch all trace events for all exchanges (Fix N+1 query)
+            exchange_ids = [ex_row[0] for ex_row in exchanges_result]
+            trace_events_by_exchange = {}
+            if exchange_ids:
+                placeholders = ",".join("?" * len(exchange_ids))
+                all_trace_events = self._conn.execute(
+                    f"""
+                    SELECT exchange_id, event_type, event_order, event_data, timestamp,
+                           duration_ms, tokens_in, tokens_out
+                    FROM exchange_traces
+                    WHERE exchange_id IN ({placeholders})
+                    ORDER BY exchange_id, event_order ASC
+                    """,  # nosec B608
+                    exchange_ids,
+                ).fetchall()
+
+                # Group by exchange_id
+                for event_row in all_trace_events:
+                    ex_id = event_row[0]
+                    if ex_id not in trace_events_by_exchange:
+                        trace_events_by_exchange[ex_id] = []
+                    trace_events_by_exchange[ex_id].append(event_row[1:])
+
             for ex_row in exchanges_result:
                 exchange_num = ex_row[1]
                 user_msg_id = ex_row[2]
@@ -1078,17 +1100,8 @@ class SessionQueriesMixin:
                         }
                     )
 
-                # Get exchange trace events (reasoning, tools, etc.)
-                trace_events = self._conn.execute(
-                    """
-                    SELECT event_type, event_order, event_data, timestamp,
-                           duration_ms, tokens_in, tokens_out
-                    FROM exchange_traces
-                    WHERE exchange_id = ?
-                    ORDER BY event_order ASC
-                    """,
-                    [ex_row[0]],
-                ).fetchall()
+                # Use pre-fetched trace events (O(1) lookup instead of N queries)
+                trace_events = trace_events_by_exchange.get(ex_row[0], [])
 
                 for evt in trace_events:
                     evt_type = evt[0]
@@ -1298,6 +1311,29 @@ class SessionQueriesMixin:
                 yield from self._iter_timeline_from_parts(session_id, limit)
                 return
 
+            # Batch fetch all trace events for all exchanges (Fix N+1 query)
+            exchange_ids = [ex_row[0] for ex_row in exchanges]
+            trace_events_by_exchange = {}
+            if exchange_ids:
+                placeholders = ",".join("?" * len(exchange_ids))
+                all_trace_events = self._conn.execute(
+                    f"""
+                    SELECT exchange_id, event_type, event_order, event_data, timestamp,
+                           duration_ms, tokens_in, tokens_out
+                    FROM exchange_traces
+                    WHERE exchange_id IN ({placeholders})
+                    ORDER BY exchange_id, event_order ASC
+                    """,  # nosec B608
+                    exchange_ids,
+                ).fetchall()
+
+                # Group by exchange_id
+                for event_row in all_trace_events:
+                    ex_id = event_row[0]
+                    if ex_id not in trace_events_by_exchange:
+                        trace_events_by_exchange[ex_id] = []
+                    trace_events_by_exchange[ex_id].append(event_row[1:])
+
             for ex_row in exchanges:
                 if limit is not None and count >= limit:
                     return
@@ -1319,17 +1355,8 @@ class SessionQueriesMixin:
                     }
                     count += 1
 
-                # Get trace events for this exchange
-                trace_events = self._conn.execute(
-                    """
-                    SELECT event_type, event_order, event_data, timestamp,
-                           duration_ms, tokens_in, tokens_out
-                    FROM exchange_traces
-                    WHERE exchange_id = ?
-                    ORDER BY event_order ASC
-                    """,
-                    [ex_row[0]],
-                ).fetchall()
+                # Use pre-fetched trace events (O(1) lookup instead of N queries)
+                trace_events = trace_events_by_exchange.get(ex_row[0], [])
 
                 for evt in trace_events:
                     if limit is not None and count >= limit:

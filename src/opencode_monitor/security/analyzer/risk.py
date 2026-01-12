@@ -35,7 +35,7 @@ class RiskAnalyzer:
         value_lower = value.lower()
         max_score = 0
         reason = "Normal"
-        mitre_techniques: List[str] = []
+        mitre_techniques_set: set[str] = set()
 
         for level in ["critical", "high", "medium"]:
             for entry in patterns.get(level, []):
@@ -44,12 +44,9 @@ class RiskAnalyzer:
                     if score > max_score:
                         max_score = score
                         reason = desc
-                    # Collect all MITRE techniques
-                    for tech in mitre:
-                        if tech not in mitre_techniques:
-                            mitre_techniques.append(tech)
+                    mitre_techniques_set.update(mitre)
 
-        return max_score, reason, mitre_techniques
+        return max_score, reason, list(mitre_techniques_set)
 
     def analyze_file_path(self, file_path: str, write_mode: bool = False) -> RiskResult:
         """Analyze a file path for security risk"""
