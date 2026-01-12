@@ -13,7 +13,7 @@ import sys
 from typing import Callable, Any, Optional
 from datetime import datetime
 
-from .logger import info, warning
+from .logger import info, warning, debug
 
 
 # =============================================================================
@@ -365,21 +365,21 @@ class PerformanceReport:
         """Print formatted performance report."""
         summary = self.get_summary()
 
-        info("=" * 80)
-        info("PERFORMANCE REPORT")
-        info("=" * 80)
+        debug("=" * 80)
+        debug("PERFORMANCE REPORT")
+        debug("=" * 80)
 
         for op, stats in summary.items():
-            info(f"\n{op}:")
-            info(f"  Count: {stats['count']}")
-            info(f"  Min:   {stats['min_ms']:.1f}ms")
-            info(f"  Avg:   {stats['avg_ms']:.1f}ms")
-            info(f"  P50:   {stats['p50_ms']:.1f}ms")
-            info(f"  P95:   {stats['p95_ms']:.1f}ms")
-            info(f"  P99:   {stats['p99_ms']:.1f}ms")
-            info(f"  Max:   {stats['max_ms']:.1f}ms")
+            debug(f"\n{op}:")
+            debug(f"  Count: {stats['count']}")
+            debug(f"  Min:   {stats['min_ms']:.1f}ms")
+            debug(f"  Avg:   {stats['avg_ms']:.1f}ms")
+            debug(f"  P50:   {stats['p50_ms']:.1f}ms")
+            debug(f"  P95:   {stats['p95_ms']:.1f}ms")
+            debug(f"  P99:   {stats['p99_ms']:.1f}ms")
+            debug(f"  Max:   {stats['max_ms']:.1f}ms")
 
-        info("=" * 80)
+        debug("=" * 80)
 
 
 # Global performance report instance

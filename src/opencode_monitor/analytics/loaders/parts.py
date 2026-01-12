@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, error
+from ...utils.logger import error
 from ...utils.datetime import ms_to_datetime
 
 
@@ -265,7 +265,6 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
         # Insert remaining batches
         flush_batches()
 
-        info(f"Loaded {stats.total} parts ({stats})")
         return stats.total
 
     except Exception:  # Intentional catch-all: various errors possible

@@ -4,7 +4,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, error
+from ...utils.logger import error
 
 
 def get_opencode_storage_path() -> Path:
@@ -81,7 +81,6 @@ def load_sessions_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) 
 
         row = conn.execute("SELECT COUNT(*) FROM sessions").fetchone()
         count = row[0] if row else 0
-        info(f"Loaded {count} sessions")
         return count
     except Exception as e:  # Intentional catch-all: DuckDB can raise various errors
         error(f"Session load failed: {e}")

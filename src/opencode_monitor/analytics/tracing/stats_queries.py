@@ -6,6 +6,7 @@ Contains methods for global stats, daily aggregation, and comparison.
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
+from ...utils.logger import info
 
 
 if TYPE_CHECKING:
@@ -304,6 +305,7 @@ class StatsQueriesMixin:
             info(f"Updated session_stats for {session_id}")
 
         except Exception as e:
+            pass
 
     def update_daily_stats(self, date: Optional[datetime] = None) -> None:
         """Update daily aggregation stats.
@@ -355,7 +357,8 @@ class StatsQueriesMixin:
                 )
                 info(f"Updated daily_stats for {date_str}")
 
-        except Exception as e:
+        except Exception:
+            pass
 
     def get_daily_stats(self, days: int = 7) -> list[dict]:
         """Get aggregated statistics per day.

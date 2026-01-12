@@ -259,6 +259,20 @@ class SecurityEnrichmentWorker:
                 updates,
             )
 
+            risk_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for update in updates:
+                risk_level = update[1]
+                if risk_level in risk_counts:
+                    risk_counts[risk_level] += 1
+
+            critical = risk_counts["critical"]
+            high = risk_counts["high"]
+            if critical > 0 or high > 0:
+                info(
+                    f"[Security] Enriched {len(updates)} parts: "
+                    f"{critical} critical, {high} high"
+                )
+
         return len(updates)
 
     def _analyze_part(

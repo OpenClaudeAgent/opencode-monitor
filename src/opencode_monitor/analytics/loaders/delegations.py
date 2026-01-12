@@ -122,5 +122,4 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
 
     row = conn.execute("SELECT COUNT(*) FROM delegations").fetchone()
     count = row[0] if row else 0
-    info(f"Loaded {count} delegations")
     return count

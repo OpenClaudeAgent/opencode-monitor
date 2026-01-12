@@ -80,5 +80,4 @@ def load_skills(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
 
     row = conn.execute("SELECT COUNT(*) FROM skills").fetchone()
     count = row[0] if row else 0
-    info(f"Loaded {count} skills")
     return count

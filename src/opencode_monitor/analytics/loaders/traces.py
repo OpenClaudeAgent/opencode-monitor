@@ -749,5 +749,4 @@ def load_traces(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
 
     # 5. Insert
     count = _insert_traces(conn, traces)
-    info(f"Loaded {count} traces")
     return count

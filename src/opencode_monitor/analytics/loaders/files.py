@@ -118,7 +118,6 @@ def load_file_operations(
 
     row = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()
     count = row[0] if row else 0
-    info(f"Loaded {count} file operations")
 
     enriched = enrich_file_operations_with_diff_stats(db, storage_path)
     if enriched > 0:
