@@ -78,9 +78,9 @@ class AnalyticsAPIClient:
         except urllib.error.URLError as e:
             elapsed = (time.time() - start_time) * 1000
             if self._available is not False:
-            self._available = False
+                self._available = False
             return None
-        except Exception:
+        except Exception as e:
             elapsed = (time.time() - start_time) * 1000
             error(f"[API Client] Error ({elapsed:.0f}ms): {e}")
             return None
@@ -88,12 +88,7 @@ class AnalyticsAPIClient:
     def _log_response(
         self, endpoint: str, elapsed: float, result: Optional[dict]
     ) -> None:
-        if isinstance(result, dict):
-            keys = list(result.keys())[:5]
-        elif isinstance(result, list):
-        else:
-                f"[API Client] <<< {endpoint}: {elapsed:.0f}ms {type(result).__name__}"
-            )
+        pass
 
     @property
     def is_available(self) -> bool:
