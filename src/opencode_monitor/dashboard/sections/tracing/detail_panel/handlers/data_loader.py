@@ -84,6 +84,7 @@ class DataLoaderMixin:
             elif tab_index == 6:  # Delegations
                 self._load_delegations_tab()
         except Exception:
+            pass
 
     def _load_transcript_tab(self) -> None:
         """Load transcript tab data."""
