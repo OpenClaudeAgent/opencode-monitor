@@ -24,6 +24,10 @@ class MaterializedTableManager:
     def initialize_indexes(self) -> None:
         """Create all performance indexes on first run."""
         conn = self._db.connect()
+
+        conn.execute("SET memory_limit='8GB'")
+        conn.execute("SET preserve_insertion_order=false")
+
         indexes_sql = (self._sql_dir / "indexes.sql").read_text()
         conn.execute(indexes_sql)
         info("[Materialization] Initialized performance indexes")

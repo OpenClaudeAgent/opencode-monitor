@@ -119,6 +119,17 @@ def run_backfill() -> int:
     print(f"Bulk load complete: {total_loaded:,} files in {total_time:.1f}s")
     print()
 
+    print("Flushing database to disk...")
+    print("-" * 40)
+    conn = db.connect()
+    conn.execute("CHECKPOINT")
+    print("  ✓ Database flushed (memory freed)")
+    db.close()
+    print("  ✓ Connection closed")
+    db.connect()
+    print("  ✓ Connection reopened")
+    print()
+
     print("Post-processing...")
     print("-" * 40)
 
