@@ -58,7 +58,7 @@ class SecurityEnrichmentWorker:
         self,
         db: DatabaseProtocol,
         analyzer: Optional[AnalyzerProtocol] = None,
-        poll_interval: float = 2.0,
+        poll_interval: float = 10.0,
         batch_size: int = 500,
     ):
         """Initialize the enrichment worker.
