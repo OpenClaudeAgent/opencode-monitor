@@ -16,7 +16,6 @@ from ..core.models import State, Usage
 from ..ui.menu import MenuBuilder
 from ..utils.settings import get_settings, save_settings
 from ..utils.logger import info
-from ..security.auditor import get_auditor
 
 if TYPE_CHECKING:
     pass
@@ -148,18 +147,6 @@ class MenuMixin:
         self.menu.clear()  # type: ignore[attr-defined]
         for item in dynamic_items:
             self.menu.add(item)  # type: ignore[attr-defined]
-
-        # Security menu
-        self.menu.add(None)  # type: ignore[attr-defined]
-        auditor = get_auditor()
-        security_menu = self._menu_builder.build_security_menu(auditor)
-
-        # Update critical flag
-        stats = auditor.get_stats()
-        critical_count = stats.get("critical", 0) + stats.get("high", 0)
-        self._has_critical_alert = critical_count > 0
-
-        self.menu.add(security_menu)  # type: ignore[attr-defined]
 
         # Static items (rumps.App.menu has .add() method but no type stubs)
         self.menu.add(None)  # type: ignore[attr-defined]

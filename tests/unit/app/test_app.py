@@ -472,17 +472,13 @@ class TestBuildMenu:
 
         # Uses MenuBuilder
         mock_dependencies["builder_instance"].build_dynamic_items.assert_called()
-        mock_dependencies["builder_instance"].build_security_menu.assert_called()
 
         # Menu cleared and items added (cast to MockMenu for test access)
         menu = cast(MockMenu, app.menu)
         assert menu._clear_called  # Direct boolean assertion
-        # Verify specific items were added (dynamic items + security + analytics + separators + refresh + quit)
-        assert len(menu._add_calls) >= 6
+        # Verify specific items were added (dynamic items + separators + dashboard + refresh + prefs + quit)
+        assert len(menu._add_calls) >= 4
         assert None in menu._add_calls  # Separators
-
-        # Critical flag updated
-        assert app._has_critical_alert == expected_flag
 
 
 # =============================================================================
