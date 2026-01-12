@@ -175,23 +175,22 @@ class FileParser:
         error_code = None
 
         # Common error patterns
+        error_lower = error_message.lower()
         if tool_status == "error":
             error_type = "tool_error"
-        elif "timeout" in error_message.lower():
+        elif "timeout" in error_lower:
             error_type = "timeout"
             error_code = 408
-        elif "auth" in error_message.lower() or "permission" in error_message.lower():
+        elif "auth" in error_lower or "permission" in error_lower:
             error_type = "auth"
             error_code = 403
-        elif (
-            "network" in error_message.lower() or "connection" in error_message.lower()
-        ):
+        elif "network" in error_lower or "connection" in error_lower:
             error_type = "network"
             error_code = 500
-        elif "syntax" in error_message.lower() or "parse" in error_message.lower():
+        elif "syntax" in error_lower or "parse" in error_lower:
             error_type = "syntax"
             error_code = 400
-        elif "not found" in error_message.lower():
+        elif "not found" in error_lower:
             error_type = "not_found"
             error_code = 404
 

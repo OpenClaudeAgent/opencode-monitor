@@ -386,6 +386,8 @@ def attach_delegations_to_exchanges(
         key=lambda x: x.get("started_at") or "",
     )
 
+    exchanges_with_children = set()
+
     for delegation in agent_children:
         deleg_start = delegation.get("started_at") or ""
 
@@ -401,9 +403,13 @@ def attach_delegations_to_exchanges(
             if "children" not in parent_exchange:
                 parent_exchange["children"] = []
             parent_exchange["children"].append(delegation)
-            parent_exchange["children"].sort(key=get_sort_key)
+            exchanges_with_children.add(id(parent_exchange))
         else:
             session_exchanges.append(delegation)
+
+    for ex in sorted_exchanges:
+        if id(ex) in exchanges_with_children and "children" in ex:
+            ex["children"].sort(key=get_sort_key)
 
     return []  # All delegations attached
 

@@ -28,7 +28,7 @@ def analyze_command(command: str, tool: str = "bash") -> SecurityAlert:
 
     max_score = 0
     primary_reason = "Normal operation"
-    mitre_techniques: List[str] = []
+    mitre_techniques_set: set[str] = set()
 
     for entry in DANGEROUS_PATTERNS:
         # Handle both old format (4 elements) and new format (5 elements with MITRE)
@@ -46,11 +46,8 @@ def analyze_command(command: str, tool: str = "bash") -> SecurityAlert:
             if adjusted_score > max_score:
                 max_score = adjusted_score
                 primary_reason = reason
-                # Collect MITRE techniques from all matching patterns
             if mitre:
-                for tech in mitre:
-                    if tech not in mitre_techniques:
-                        mitre_techniques.append(tech)
+                mitre_techniques_set.update(mitre)
 
     for pattern, modifier, _ in SAFE_PATTERNS:
         if re.search(pattern, command, re.IGNORECASE):
@@ -73,7 +70,7 @@ def analyze_command(command: str, tool: str = "bash") -> SecurityAlert:
         score=max_score,
         level=level,
         reason=primary_reason,
-        mitre_techniques=mitre_techniques,
+        mitre_techniques=list(mitre_techniques_set),
     )
 
 

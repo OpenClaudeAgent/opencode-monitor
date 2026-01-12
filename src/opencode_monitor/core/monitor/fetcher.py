@@ -38,7 +38,7 @@ async def fetch_instance(port: int) -> tuple[Optional[Instance], int, int, list,
 
     # Find idle sessions (in all_sessions but not in busy_status)
     idle_sessions = [
-        s for s in all_sessions if s.get("id") and s.get("id") not in busy_session_ids
+        s for s in all_sessions if (sid := s.get("id")) and sid not in busy_session_ids
     ]
 
     # If no sessions at all, return empty instance
