@@ -3,7 +3,6 @@
 from typing import Optional, TYPE_CHECKING
 
 
-
 if TYPE_CHECKING:
     from opencode_monitor.analytics import TracingDataService
 
@@ -211,6 +210,7 @@ class DataLoaderMixin:
                 data = result.get("data", {})
                 return data.get("timeline", [])
         except Exception:
+            pass
 
         return []
 
@@ -247,5 +247,6 @@ class DataLoaderMixin:
             if result:
                 return result.get("tree", {})
         except Exception:
+            pass
 
         return {}
