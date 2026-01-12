@@ -116,6 +116,17 @@ def run_backfill() -> int:
     enriched_count = bulk_loader.enrich_file_operations_with_diffs()
     if enriched_count > 0:
         print(f"  Enriched {enriched_count:,} file operations with additions/deletions")
+
+        conn = db.connect()
+        conn.execute("""
+            UPDATE sessions
+            SET 
+                additions = (SELECT COALESCE(SUM(additions), 0) FROM file_operations WHERE session_id = sessions.id),
+                deletions = (SELECT COALESCE(SUM(deletions), 0) FROM file_operations WHERE session_id = sessions.id)
+            WHERE additions = 0 AND deletions = 0
+              AND id IN (SELECT DISTINCT session_id FROM file_operations WHERE additions > 0 OR deletions > 0)
+        """)
+        print(f"  Updated session totals from file operations")
     else:
         print("  No diff stats found")
 
