@@ -23,7 +23,10 @@ from PyQt6.QtWidgets import QTreeWidgetItem
 
 from ..conftest import SECTION_TRACING
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),
+]
 
 
 # =============================================================================
@@ -422,6 +425,12 @@ def load_and_expand(dashboard_window, qtbot, click_nav):
     data = quick_checkin_tracing_data()
     dashboard_window._signals.tracing_updated.emit(data)
     qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=2000)
+
+    root = tracing._tree.topLevelItem(0)
+    root_has_all_children = (
+        lambda: root is not None and root.childCount() == TOTAL_ROOT_CHILDREN
+    )
+    qtbot.waitUntil(root_has_all_children, timeout=3000)
 
     expand_all_items(tracing._tree, qtbot)
     qtbot.wait(50)

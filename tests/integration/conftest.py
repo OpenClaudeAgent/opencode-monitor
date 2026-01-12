@@ -324,7 +324,20 @@ def duckdb_memory():
 
     conn = duckdb.connect(":memory:")
     yield conn
-    conn.close()
+
+    # CRITICAL: Aggressive cleanup to release file handles
+    try:
+        conn.close()
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"DuckDB memory connection cleanup warning: {e}")
+    finally:
+        # Force garbage collection to release file handles
+        import gc
+
+        gc.collect()
+        gc.collect()  # Double collect for cyclic references
 
 
 @pytest.fixture
@@ -340,9 +353,30 @@ def analytics_db_real(tmp_path):
 
     yield db
 
-    db.close()
-    if db_path.exists():
-        db_path.unlink()
+    # CRITICAL: Aggressive cleanup to release file handles
+    try:
+        if hasattr(db, "_conn") and db._conn:
+            try:
+                db._conn.close()
+            except Exception:
+                pass
+        db.close()
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"Analytics DB real cleanup warning: {e}")
+    finally:
+        # Force garbage collection to release file handles
+        import gc
+
+        gc.collect()
+        gc.collect()  # Double collect for cyclic references
+
+        if db_path.exists():
+            try:
+                db_path.unlink()
+            except Exception:
+                pass
 
 
 @pytest.fixture

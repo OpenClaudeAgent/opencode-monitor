@@ -25,6 +25,20 @@ sys.path.insert(0, str(src_path))
 
 
 # =============================================================================
+# Pytest Configuration Hooks
+# =============================================================================
+
+
+def pytest_configure(config):
+    """Configure pytest before any tests run.
+
+    This hook runs ONCE per worker process in pytest-xdist, ensuring
+    the rumps mock is set up before any module imports it.
+    """
+    pass
+
+
+# =============================================================================
 # Rumps Mock Infrastructure (shared by test_app.py and test_menu.py)
 # =============================================================================
 
@@ -47,7 +61,6 @@ class MockMenuItem:
             self._items_dict[item.title] = item
             item.parent = self
         elif item is None:
-            # Separator
             self._items.append(None)
 
     def clear(self):
@@ -409,8 +422,26 @@ def analytics_db(tmp_path: Path):
 
     yield db
 
-    db.close()
-    db_module._db_instance = old_singleton
+    # CRITICAL: Aggressive cleanup to release file handles
+    try:
+        if hasattr(db, "_conn") and db._conn:
+            try:
+                db._conn.close()
+            except Exception:
+                pass
+        db.close()
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"Database cleanup warning: {e}")
+    finally:
+        db_module._db_instance = old_singleton
+
+        # Force garbage collection to release file handles
+        import gc
+
+        gc.collect()
+        gc.collect()  # Double collect for cyclic references
 
 
 # Alias for backward compatibility - tests can use either name
@@ -439,7 +470,25 @@ def populated_analytics_db(tmp_path: Path):
 
     db, session_ids, part_ids = create_populated_test_db(tmp_path)
     yield db, session_ids, part_ids
-    db.close()
+
+    # CRITICAL: Aggressive cleanup to release file handles
+    try:
+        if hasattr(db, "_conn") and db._conn:
+            try:
+                db._conn.close()
+            except Exception:
+                pass
+        db.close()
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"Database cleanup warning: {e}")
+    finally:
+        # Force garbage collection to release file handles
+        import gc
+
+        gc.collect()
+        gc.collect()  # Double collect for cyclic references
 
 
 @pytest.fixture
@@ -476,7 +525,25 @@ def enrichment_db(analytics_db):
         )
     """)
 
-    return analytics_db
+    yield analytics_db
+
+    # CRITICAL: Aggressive cleanup to release file handles
+    try:
+        if hasattr(analytics_db, "_conn") and analytics_db._conn:
+            try:
+                analytics_db._conn.close()
+            except Exception:
+                pass
+    except Exception as e:
+        import warnings
+
+        warnings.warn(f"Enrichment DB cleanup warning: {e}")
+    finally:
+        # Force garbage collection to release file handles
+        import gc
+
+        gc.collect()
+        gc.collect()  # Double collect for cyclic references
 
 
 @pytest.fixture
@@ -716,19 +783,39 @@ def mock_aioresponse():
 
 
 @pytest.fixture
-def available_port():
-    """Get an available port for testing.
+def available_port(worker_id):
+    """Allocate ports from worker-specific ranges to prevent collisions.
 
-    Returns a free port that can be used for test servers without collision.
-    Uses socket to find an available port dynamically.
+    Each worker gets a 100-port range:
+    - master: 9000-9099
+    - gw0: 9100-9199
+    - gw1: 9200-9299
+    - etc.
     """
     import socket
 
-    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    sock.bind(("localhost", 0))
-    port = sock.getsockname()[1]
-    sock.close()
-    return port
+    if worker_id == "master":
+        base_port = 9000
+    else:
+        # Extract number from 'gw0', 'gw1', etc.
+        worker_num = int(worker_id.replace("gw", ""))
+        base_port = 9000 + ((worker_num + 1) * 100)
+
+    # Find first available port in worker's range
+    for offset in range(100):
+        port = base_port + offset
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(("localhost", port))
+            sock.close()
+            return port
+        except OSError:
+            continue
+
+    raise RuntimeError(
+        f"No available ports in range {base_port}-{base_port + 99} "
+        f"for worker {worker_id}"
+    )
 
 
 # =============================================================================
@@ -783,6 +870,45 @@ def reset_global_singletons():
 
         auditor_core._auditor = None
 
+    # Reset settings singleton
+    if "opencode_monitor.utils.settings" in sys.modules:
+        import opencode_monitor.utils.settings as settings_module
+
+        settings_module._settings = None
+
+    # Reset risk analyzer singleton
+    if "opencode_monitor.security.analyzer.risk" in sys.modules:
+        import opencode_monitor.security.analyzer.risk as risk_module
+
+        risk_module._analyzer = None
+
+    # Reset API client singleton
+    if "opencode_monitor.api.client" in sys.modules:
+        import opencode_monitor.api.client as client_module
+
+        client_module._api_client = None
+
+    # Reset API server singleton
+    if "opencode_monitor.api.server" in sys.modules:
+        import opencode_monitor.api.server as server_module
+
+        server_module._api_server = None
+
+    # Reset dashboard process singleton
+    if "opencode_monitor.dashboard.window.launcher" in sys.modules:
+        import opencode_monitor.dashboard.window.launcher as launcher_module
+
+        launcher_module._dashboard_process = None
+
+    # Reset factory singleton
+    if (
+        "opencode_monitor.dashboard.sections.tracing.detail_panel.strategies"
+        in sys.modules
+    ):
+        import opencode_monitor.dashboard.sections.tracing.detail_panel.strategies as strategies_module
+
+        strategies_module._factory_instance = None
+
     yield
 
     # Reset AFTER test (even if test crashes)
@@ -812,3 +938,42 @@ def reset_global_singletons():
         import opencode_monitor.security.auditor.core as auditor_core
 
         auditor_core._auditor = None
+
+    # Reset settings singleton
+    if "opencode_monitor.utils.settings" in sys.modules:
+        import opencode_monitor.utils.settings as settings_module
+
+        settings_module._settings = None
+
+    # Reset risk analyzer singleton
+    if "opencode_monitor.security.analyzer.risk" in sys.modules:
+        import opencode_monitor.security.analyzer.risk as risk_module
+
+        risk_module._analyzer = None
+
+    # Reset API client singleton
+    if "opencode_monitor.api.client" in sys.modules:
+        import opencode_monitor.api.client as client_module
+
+        client_module._api_client = None
+
+    # Reset API server singleton
+    if "opencode_monitor.api.server" in sys.modules:
+        import opencode_monitor.api.server as server_module
+
+        server_module._api_server = None
+
+    # Reset dashboard process singleton
+    if "opencode_monitor.dashboard.window.launcher" in sys.modules:
+        import opencode_monitor.dashboard.window.launcher as launcher_module
+
+        launcher_module._dashboard_process = None
+
+    # Reset factory singleton
+    if (
+        "opencode_monitor.dashboard.sections.tracing.detail_panel.strategies"
+        in sys.modules
+    ):
+        import opencode_monitor.dashboard.sections.tracing.detail_panel.strategies as strategies_module
+
+        strategies_module._factory_instance = None

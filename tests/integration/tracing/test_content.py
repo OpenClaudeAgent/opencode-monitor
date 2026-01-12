@@ -14,7 +14,10 @@ from ..fixtures import process_qt_events
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
 
 # Expected tree columns
 TREE_COLUMNS = ["Type / Name", "Time", "Duration", "In", "Out", ""]
@@ -88,23 +91,18 @@ class TestTracingTreeContent:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        # Verify tree has expected column count
         tree = tracing._tree
         assert tree.columnCount() == TREE_COLUMN_COUNT
 
-        # Get root item and verify session info
         root_item = tree.topLevelItem(0)
         root_text = root_item.text(0)
         assert root_text == ROOT_SESSION_LABEL, (
             f"Expected root label '{ROOT_SESSION_LABEL}', got '{root_text}'"
         )
 
-        # Verify children count and structure
-        assert root_item.childCount() == CHILD_COUNT, (
-            f"Expected {CHILD_COUNT} children, got {root_item.childCount()}"
-        )
+        root_has_all_children = lambda: root_item.childCount() == CHILD_COUNT
+        qtbot.waitUntil(root_has_all_children, timeout=3000)
 
-        # Verify first child (executor delegation)
         first_child = root_item.child(0)
         first_child_text = first_child.text(0)
         assert "executor" in first_child_text.lower() or "Execute" in first_child_text

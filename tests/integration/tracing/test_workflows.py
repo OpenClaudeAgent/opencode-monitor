@@ -34,7 +34,10 @@ class TestUserWorkflows:
 
         root_item = tracing._tree.topLevelItem(0)
         assert root_item.text(0) == "🌳 my-project: Implement feature X"
-        assert root_item.childCount() == 2
+
+        expected_child_count = 2
+        root_has_all_children = lambda: root_item.childCount() == expected_child_count
+        qtbot.waitUntil(root_has_all_children, timeout=3000)
 
         child_1 = root_item.child(0)
         child_2 = root_item.child(1)

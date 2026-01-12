@@ -18,7 +18,10 @@ from opencode_monitor.dashboard.sections.tracing.detail_panel import TraceDetail
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),
+]
 
 
 class TestTracingSectionStructure:
@@ -117,10 +120,10 @@ class TestTracingSessionList:
         root_item = tracing._tree.topLevelItem(0)
         assert root_item.text(0) == "🌳 my-project: Implement feature X"
 
-        # Fixture has 2 delegation children
-        assert root_item.childCount() == 2
+        expected_child_count = 2
+        root_has_all_children = lambda: root_item.childCount() == expected_child_count
+        qtbot.waitUntil(root_has_all_children, timeout=3000)
 
-        # Verify delegation labels match fixture data exactly
         assert root_item.child(0).text(0) == "💬 user → executor"
         assert root_item.child(1).text(0) == "🔗 executor → tester"
 

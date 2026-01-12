@@ -15,32 +15,20 @@ from datetime import datetime, timezone, timedelta
 # Mock rumps before importing menu module
 # =============================================================================
 
-
-class MockMenuItem:
-    """Mock for rumps.MenuItem"""
-
-    def __init__(self, title="", callback=None):
-        self.title = title
-        self.callback = callback
-        self._items = []
-        # Mock the native _menuitem for setToolTip_
-        self._menuitem = MagicMock()
-
-    def add(self, item):
-        self._items.append(item)
-
-    def __repr__(self):
-        return f"MockMenuItem({self.title!r})"
-
-
-# Create the mock module
-mock_rumps = MagicMock()
-mock_rumps.MenuItem = MockMenuItem
-
-# Patch rumps before importing menu
 import sys
 
-sys.modules["rumps"] = mock_rumps
+# Import MockMenuItem from conftest
+from tests.conftest import MockMenuItem
+
+# Mock rumps module at module level BEFORE importing menu
+if "rumps" not in sys.modules:
+    from unittest.mock import MagicMock
+
+    mock_rumps = MagicMock()
+    mock_rumps.MenuItem = MockMenuItem
+    sys.modules["rumps"] = mock_rumps
+else:
+    sys.modules["rumps"].MenuItem = MockMenuItem
 
 # Now import the menu module
 from opencode_monitor.ui.menu import (
@@ -952,6 +940,10 @@ class TestAddCriticalItems:
 
         menu_builder._add_critical_items(mock_menu, mock_auditor)
         titles = [item.title for item in mock_menu._items if hasattr(item, "title")]
+
+        print(f"\nDEBUG: mock_menu._items = {mock_menu._items}")
+        print(f"DEBUG: titles = {titles}")
+        print(f"DEBUG: Looking for '{category_title}' in titles")
 
         assert any(category_title in t for t in titles)
         assert any(item_text in t for t in titles)

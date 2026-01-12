@@ -40,13 +40,22 @@ asyncio_default_fixture_loop_scope = "function"
 qt_api = "pyqt6"
 testpaths = ["tests"]
 pythonpath = ["src"]
-timeout = 10
+timeout = 30
 timeout_method = "thread"
 markers = [
     "integration: marks tests as integration tests (deselect with '-m \"not integration\"')",
     "slow: marks tests as slow (deselect with '-m \"not slow\"')",
     "unit: unit tests",
     "e2e: end-to-end tests",
+]
+
+# Parallel execution optimizations
+addopts = "-n auto --dist loadscope"
+
+# Force test isolation
+filterwarnings = [
+    "error::pytest.PytestUnraisableExceptionWarning",
+    "ignore::DeprecationWarning",
 ]
 
 # =============================================================================
