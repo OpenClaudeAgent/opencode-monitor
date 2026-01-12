@@ -11,6 +11,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ..db import AnalyticsDB
+from ..materialization import MaterializedTableManager
 from .watcher import FileWatcher
 from .parsers import FileParser
 from .tracker import FileTracker
@@ -67,6 +68,7 @@ class HybridIndexer:
         self._parser: Optional[FileParser] = None
         self._trace_builder: Optional[TraceBuilder] = None
         self._file_processing: Optional[FileProcessingState] = None
+        self._materialization_manager: Optional[MaterializedTableManager] = None
 
         self._handlers: dict[str, FileHandler] = {
             "session": SessionHandler(),
@@ -97,6 +99,9 @@ class HybridIndexer:
         self._parser = self._injected_parser or FileParser()
         self._trace_builder = self._injected_trace_builder or TraceBuilder(self._db)
         self._file_processing = FileProcessingState(self._db)
+        self._materialization_manager = MaterializedTableManager(self._db)
+
+        self._materialization_manager.initialize_indexes()
 
         self._watcher = FileWatcher(
             self._storage_path,
@@ -116,9 +121,38 @@ class HybridIndexer:
         self._db.close()
         info("[Indexer] Stopped")
 
+    def _extract_session_id(self, path: Path) -> Optional[str]:
+        """Extract session ID from file path."""
+        try:
+            if "messages" in path.parts:
+                idx = path.parts.index("messages")
+                if idx + 1 < len(path.parts):
+                    return path.parts[idx + 1]
+
+            parts = path.stem.split("_")
+            if len(parts) >= 2 and parts[0] == "session":
+                return "_".join(parts[1:])
+
+            return None
+        except Exception:
+            return None
+
     def _on_file_event(self, file_type: str, path: Path) -> None:
         """Handle file event from watcher - process immediately."""
-        self._process_file(file_type, path)
+        processed = self._process_file(file_type, path)
+
+        if processed and file_type in ("message", "part"):
+            session_id = self._extract_session_id(path)
+            if session_id and self._materialization_manager:
+                try:
+                    self._materialization_manager.refresh_exchanges(
+                        session_id=session_id, incremental=True
+                    )
+                    self._materialization_manager.refresh_session_traces(
+                        session_id=session_id, incremental=True
+                    )
+                except Exception:
+                    pass
 
     def _process_file(self, file_type: str, path: Path) -> bool:
         """Process a single file."""
