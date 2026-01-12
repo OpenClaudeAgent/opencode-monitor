@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from ...utils.logger import debug, info
+from ...utils.logger import info
 from ..scope import ScopeDetector
 
 
@@ -58,7 +58,7 @@ class SecurityEnrichmentWorker:
         self,
         db: DatabaseProtocol,
         analyzer: Optional[AnalyzerProtocol] = None,
-        poll_interval: float = 2.0,
+        poll_interval: float = 10.0,
         batch_size: int = 500,
     ):
         """Initialize the enrichment worker.
@@ -165,8 +165,7 @@ class SecurityEnrichmentWorker:
                     time.sleep(self._poll_interval)  # Nothing to do, wait
                 else:
                     time.sleep(0.05)  # More work available, continue quickly
-            except Exception as e:
-                debug(f"Enrichment error: {e}")
+            except Exception:
                 time.sleep(self._poll_interval)  # Wait before retrying
 
     def enrich_batch(self, limit: int = 500) -> int:
@@ -199,8 +198,7 @@ class SecurityEnrichmentWorker:
             """,
                 [limit],
             ).fetchall()
-        except Exception as e:
-            debug(f"Query error: {e}")
+        except Exception:
             return 0
 
         if not parts:
@@ -260,6 +258,20 @@ class SecurityEnrichmentWorker:
             """,
                 updates,
             )
+
+            risk_counts = {"critical": 0, "high": 0, "medium": 0, "low": 0}
+            for update in updates:
+                risk_level = update[1]
+                if risk_level in risk_counts:
+                    risk_counts[risk_level] += 1
+
+            critical = risk_counts["critical"]
+            high = risk_counts["high"]
+            if critical > 0 or high > 0:
+                info(
+                    f"[Security] Enriched {len(updates)} parts: "
+                    f"{critical} critical, {high} high"
+                )
 
         return len(updates)
 

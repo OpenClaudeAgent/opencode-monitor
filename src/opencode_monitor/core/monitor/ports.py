@@ -2,7 +2,10 @@ import asyncio
 import subprocess  # nosec B404 - required for port/TTY detection
 
 from ..client import check_opencode_port
-from ...utils.logger import debug
+from ...utils.logger import info
+
+
+_last_seen_ports: set[int] = set()
 
 
 async def find_opencode_ports() -> list[int]:
@@ -12,7 +15,6 @@ async def find_opencode_ports() -> list[int]:
         )
         lines = result.stdout.split("\n")
     except Exception as e:
-        debug(f"[Ports] netstat failed: {e}")
         return []
 
     candidate_ports = set()
@@ -28,15 +30,19 @@ async def find_opencode_ports() -> list[int]:
                     except ValueError:
                         continue
 
-    debug(f"[Ports] Found {len(candidate_ports)} candidate ports")
-
     check_tasks = [check_opencode_port(port) for port in candidate_ports]
     results = await asyncio.gather(*check_tasks)
 
     opencode_ports = [
         port for port, is_opencode in zip(candidate_ports, results) if is_opencode
     ]
-    debug(f"[Ports] OpenCode ports: {opencode_ports}")
+
+    global _last_seen_ports
+    current_ports = set(opencode_ports)
+    if current_ports != _last_seen_ports:
+        info(f"[Ports] OpenCode instances changed: {len(opencode_ports)} active")
+        _last_seen_ports = current_ports
+
     return opencode_ports
 
 

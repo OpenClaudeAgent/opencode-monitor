@@ -14,7 +14,7 @@ from typing import Optional
 from datetime import datetime
 
 from ..db import AnalyticsDB
-from ...utils.logger import debug
+
 
 
 class FileProcessingState:
@@ -68,7 +68,6 @@ class FileProcessingState:
             ON file_processing_state(status)
         """)
 
-        debug("[FileProcessingState] file_processing_state table ensured")
 
     def is_already_processed(self, file_path: str | Path) -> bool:
         """
@@ -227,7 +226,6 @@ class FileProcessingState:
         with self._lock:
             conn = self._db.connect()
             conn.execute("DELETE FROM file_processing_state")
-            debug("[FileProcessingState] Cleared file_processing_state table")
 
 
 # Convenience functions for backward compatibility

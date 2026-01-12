@@ -6,7 +6,7 @@ DQ-001: Token validation for reasonable ranges.
 """
 
 from typing import Optional, Tuple
-from ...utils.logger import debug
+from ...utils.logger import info
 
 
 # Token validation thresholds
@@ -43,19 +43,19 @@ def validate_token_counts(
 
     # Check for suspicious values
     if input_tokens > TOKEN_MAX_INPUT:
-        debug(
+        info(
             f"[TokenValidator] Suspicious input tokens: {input_tokens} "
             f"(>{TOKEN_MAX_INPUT:,}) {context}"
         )
 
     if output_tokens > TOKEN_MAX_OUTPUT:
-        debug(
+        info(
             f"[TokenValidator] Suspicious output tokens: {output_tokens} "
             f"(>{TOKEN_MAX_OUTPUT:,}) {context}"
         )
 
     if reasoning_tokens > TOKEN_MAX_REASONING:
-        debug(
+        info(
             f"[TokenValidator] Suspicious reasoning tokens: {reasoning_tokens} "
             f"(>{TOKEN_MAX_REASONING:,}) {context}"
         )

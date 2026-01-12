@@ -13,7 +13,7 @@ import duckdb
 
 from datetime import datetime
 
-from ..utils.logger import info, debug, error
+from ..utils.logger import info, error
 
 
 def get_db_path() -> Path:
@@ -609,7 +609,7 @@ class AnalyticsDB:
         # Security data is now stored in the unified `parts` table
         # with risk_score, risk_level, risk_reason, mitre_techniques columns
 
-        debug("Analytics database schema created")
+        info("Analytics database schema created")
 
     # Tables managed by this module - used for whitelist validation
     _MANAGED_TABLES = frozenset(
@@ -649,7 +649,6 @@ class AnalyticsDB:
         def column_exists(table: str, column: str) -> bool:
             # Validate table name against whitelist before using in SQL
             if table not in self._MANAGED_TABLES:
-                debug(f"Table '{table}' not in managed tables whitelist")
                 return False
 
             try:
@@ -666,9 +665,8 @@ class AnalyticsDB:
             except duckdb.CatalogException:
                 # Expected: information_schema may not exist or table doesn't exist yet
                 return False
-            except Exception as e:
-                # Unexpected error querying schema - log but treat as non-existent
-                debug(f"Unexpected error checking {table}.{column}: {e}")
+            except Exception:
+                # Unexpected error querying schema - treat as non-existent
                 return False
 
         # Helper to add column if not exists
@@ -677,7 +675,6 @@ class AnalyticsDB:
         ) -> None:
             # Validate table name against whitelist (also checked in column_exists)
             if table not in self._MANAGED_TABLES:
-                debug(f"Table '{table}' not in managed tables whitelist")
                 return
 
             if not column_exists(table, column):
@@ -687,10 +684,9 @@ class AnalyticsDB:
                     conn.execute(
                         f"ALTER TABLE {table} ADD COLUMN {column} {col_type}{default_clause}"
                     )
-                    debug(f"Added column {table}.{column}")
-                except duckdb.CatalogException as e:
+                except duckdb.CatalogException:
                     # Expected: table doesn't exist yet, will be created later
-                    debug(f"Catalog error for {table}.{column} (likely benign): {e}")
+                    pass
                 except (duckdb.ParserException, duckdb.SyntaxException) as e:
                     # CRITICAL: SQL syntax error in migration - this is a BUG
                     error(f"CRITICAL: Invalid SQL for {table}.{column}: {e}")
@@ -814,9 +810,8 @@ class AnalyticsDB:
             except duckdb.CatalogException:
                 # Expected: table doesn't exist yet
                 result[table] = 0
-            except Exception as e:
-                # Unexpected error - log but return 0 for robustness
-                debug(f"Unexpected error counting {table}: {e}")
+            except Exception:
+                # Unexpected error - return 0 for robustness
                 result[table] = 0
 
         return result
@@ -838,9 +833,8 @@ class AnalyticsDB:
         except duckdb.CatalogException:
             # Expected: sessions table doesn't exist yet
             return 0
-        except Exception as e:
-            # Unexpected error - log but return 0 for robustness
-            debug(f"Unexpected error getting last refresh: {e}")
+        except Exception:
+            # Unexpected error - return 0 for robustness
             return 0
 
     def migrate_schema(self) -> None:

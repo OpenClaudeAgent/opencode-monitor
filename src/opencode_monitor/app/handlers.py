@@ -9,7 +9,7 @@ from ..security.auditor import get_auditor
 from ..ui.terminal import focus_iterm2
 from ..dashboard import show_dashboard
 from ..analytics import AnalyticsDB, load_opencode_data
-from ..utils.logger import info, error, debug
+from ..utils.logger import info, error
 
 
 if TYPE_CHECKING:

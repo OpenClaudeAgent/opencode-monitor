@@ -23,7 +23,7 @@ from watchdog.events import (
     FileModifiedEvent,
 )
 
-from ...utils.logger import debug, info, error
+from ...utils.logger import info, error
 
 
 # Debounce delay in seconds
@@ -87,14 +87,20 @@ class DebouncedEventHandler(FileSystemEventHandler):
                         del self._pending[path_str]
 
             # Process ready files outside the lock
+            batch_counts: dict[str, int] = {}
             for path_str in ready_paths:
                 path = Path(path_str)
                 file_type = self._get_file_type(path)
                 if file_type:
                     try:
                         self._on_file_ready(file_type, path)
-                    except Exception as e:
-                        debug(f"[Watcher] Error processing {path}: {e}")
+                        batch_counts[file_type] = batch_counts.get(file_type, 0) + 1
+                    except Exception:
+                        pass
+
+            if batch_counts:
+                parts = [f"{count} {ftype}" for ftype, count in batch_counts.items()]
+                info(f"[Indexer] Processed batch: {', '.join(parts)}")
 
             time.sleep(0.1)  # Short sleep between checks
 
@@ -185,7 +191,6 @@ class FileWatcher:
             return True
 
         if not self._storage_path.exists():
-            debug(f"[Watcher] Storage path not found: {self._storage_path}")
             return False
 
         try:
@@ -202,7 +207,7 @@ class FileWatcher:
                 path = self._storage_path / subdir
                 if path.exists():
                     self._observer.schedule(self._handler, str(path), recursive=True)
-                    debug(f"[Watcher] Watching {path}")
+                    info(f"[Watcher] Watching {path}")
 
             self._observer.start()
             self._running = True

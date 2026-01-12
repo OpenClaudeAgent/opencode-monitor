@@ -9,7 +9,6 @@ from typing import Optional
 
 from ..models import SessionStats, SessionTokenStats, TokenStats
 from .base import BaseQueries
-from ...utils.logger import debug
 
 
 class SessionQueries(BaseQueries):
@@ -91,8 +90,7 @@ class SessionQueries(BaseQueries):
                 min_tokens=int(result[3] or 0),
                 median_tokens=int(result[4] or 0),
             )
-        except Exception as e:  # Intentional catch-all: query failures return None
-            debug(f"_get_session_token_stats query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return None
             return None
 
     def _get_avg_session_duration(
@@ -151,6 +149,5 @@ class SessionQueries(BaseQueries):
             }
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty hierarchy
-            debug(f"get_session_hierarchy query failed: {e}")
+        ):  # Intentional catch-all: query failures return empty hierarchy
             return {"parents": [], "current": session_id, "children": []}

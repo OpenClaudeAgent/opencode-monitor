@@ -7,7 +7,7 @@ Creates trace segments when users switch agents mid-session
 
 from typing import TYPE_CHECKING
 
-from ....utils.logger import debug
+
 
 if TYPE_CHECKING:
     from ...db import AnalyticsDB
@@ -181,11 +181,10 @@ class SegmentBuilder:
                     [segments[0]["agent"], root_trace_id],
                 )
 
-            debug(f"[SegmentBuilder] Created {created} segments for {session_id}")
+            info(f"[SegmentBuilder] Created {created} segments for {session_id}")
             return created
 
-        except Exception as e:
-            debug(f"[SegmentBuilder] Failed to create segments: {e}")
+        except Exception:
             return 0
 
     def analyze_all_sessions_for_segments(self) -> int:
@@ -229,15 +228,14 @@ class SegmentBuilder:
                 total_created += created
 
             if total_created > 0:
-                debug(
+                info(
                     f"[SegmentBuilder] Created {total_created} segments "
                     f"across {len(sessions)} sessions"
                 )
 
             return total_created
 
-        except Exception as e:
-            debug(f"[SegmentBuilder] Failed to analyze sessions: {e}")
+        except Exception:
             return 0
 
     def _update_root_trace_agent(self, session_id: str, segment: dict) -> None:
@@ -268,5 +266,4 @@ class SegmentBuilder:
                     trace_id,
                 ],
             )
-        except Exception as e:
-            debug(f"[SegmentBuilder] Failed to update root trace: {e}")
+        except Exception:

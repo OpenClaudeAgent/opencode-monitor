@@ -5,7 +5,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, debug
+from ...utils.logger import info
 from ...utils.datetime import ms_to_datetime
 
 
@@ -75,11 +75,9 @@ def load_skills(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> int:
                     s["loaded_at"],
                 ],
             )
-        except Exception as e:  # Intentional catch-all: skip individual insert failures
-            debug(f"Skill insert failed for {s.get('skill_name', 'unknown')}: {e}")
+        except Exception:  # Intentional catch-all: skip individual insert failures
             continue
 
     row = conn.execute("SELECT COUNT(*) FROM skills").fetchone()
     count = row[0] if row else 0
-    info(f"Loaded {count} skills")
     return count

@@ -587,7 +587,6 @@ class ExchangeGroupWidget(QFrame):
             content_layout.addWidget(event_widget)
             event_count += 1
 
-        logger.debug(
             f"[Timeline] Exchange #{self._exchange_number}: "
             f"total={len(self._events)}, displayed={event_count}"
         )
@@ -674,7 +673,6 @@ class ExpandableTimelineWidget(QFrame):
 
     def load_timeline_full(self, data: dict) -> None:
         """Load from /timeline/full API response."""
-        logger.debug("[Timeline] load_timeline_full called")
         # Clear existing
         self._clear_content()
 
@@ -684,19 +682,16 @@ class ExpandableTimelineWidget(QFrame):
             for d in data.get("delegations", [])
             if d.get("child_session_id")
         }
-        logger.debug(
             f"[Timeline] timeline={len(timeline)} events, "
             f"delegations={len(self._delegations)}"
         )
 
         if not timeline:
-            logger.debug("[Timeline] Empty timeline - showing empty state")
             self._show_empty_state()
             return
 
         # Group events by exchange_number
         groups = self._group_by_exchange(timeline)
-        logger.debug(
             f"[Timeline] Grouped into {len(groups)} exchanges: "
             f"{[(num, len(evts)) for num, evts in sorted(groups.items())]}"
         )
@@ -704,7 +699,6 @@ class ExpandableTimelineWidget(QFrame):
         # Create exchange widgets
         for exchange_num in sorted(groups.keys()):
             events = groups[exchange_num]
-            logger.debug(
                 f"[Timeline] Creating ExchangeGroupWidget for exchange #{exchange_num} "
                 f"with {len(events)} events"
             )
@@ -721,7 +715,6 @@ class ExpandableTimelineWidget(QFrame):
             )
             self._exchange_widgets.append(widget)
 
-        logger.debug(
             f"[Timeline] Created {len(self._exchange_widgets)} exchange widgets"
         )
 
@@ -1666,7 +1659,6 @@ class SessionOverviewPanel(QFrame):
         _collect_agents_recursive(tree_data, agents)
 
         session_id = tree_data.get("session_id")
-        logger.debug(
             f"[Timeline] load_session called, session_id={session_id}, "
             f"tree_data keys={list(tree_data.keys())}"
         )
@@ -1706,7 +1698,6 @@ class SessionOverviewPanel(QFrame):
         """
         from opencode_monitor.api import get_api_client
 
-        logger.debug(f"[Timeline] Loading timeline for session {session_id}")
 
         client = get_api_client()
         if not client.is_available:

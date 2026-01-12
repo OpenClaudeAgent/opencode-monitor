@@ -23,9 +23,11 @@ sys.path.insert(0, str(Path(__file__).parent))
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
 from bulk_loader import BulkLoader
+from bulk_enrichment import bulk_enrich
+from config import DEFAULT_DB_PATH, DEFAULT_STORAGE_PATH
 
 
-OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
+OPENCODE_STORAGE = DEFAULT_STORAGE_PATH
 
 
 def check_db_lock(db_path: Path) -> bool:
@@ -46,7 +48,7 @@ def run_backfill() -> int:
     print("OpenCode Monitor - Bulk Backfill")
     print("=" * 60)
 
-    db_path = Path.home() / ".config" / "opencode-monitor" / "analytics.duckdb"
+    db_path = DEFAULT_DB_PATH
 
     if not check_db_lock(db_path):
         print()
@@ -143,6 +145,18 @@ def run_backfill() -> int:
     except Exception as e:
         print(f"  Warning: Failed to build trace tables: {e}")
 
+    print("-" * 40)
+
+    print()
+    print("Security enrichment (bulk mode)...", flush=True)
+    print("-" * 40)
+
+    enrichment_stats = bulk_enrich(db, batch_size=1000)
+    print(
+        f"  Enriched: {enrichment_stats['enriched']:,} parts in "
+        f"{enrichment_stats['duration_seconds']:.1f}s "
+        f"({enrichment_stats['rate']:.0f} parts/sec)"
+    )
     print("-" * 40)
 
     db.close()

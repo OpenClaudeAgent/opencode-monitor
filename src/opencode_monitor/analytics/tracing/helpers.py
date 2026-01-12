@@ -9,7 +9,7 @@ from datetime import datetime
 from typing import Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
-from ...utils.logger import debug
+
 
 if TYPE_CHECKING:
     from .config import TracingConfig
@@ -205,7 +205,6 @@ class HelpersMixin:
                 ],
             }
         except Exception as e:
-            debug(f"_get_session_tokens_internal failed: {e}")
             return {
                 "message_count": 0,
                 "input": 0,
@@ -277,7 +276,6 @@ class HelpersMixin:
                 ],
             }
         except Exception as e:
-            debug(f"_get_session_tools_internal failed: {e}")
             return {
                 "total_calls": 0,
                 "unique_tools": 0,
@@ -415,7 +413,6 @@ class HelpersMixin:
                 ],
             }
         except Exception as e:
-            debug(f"_get_session_files_internal failed: {e}")
             return {
                 "total_reads": 0,
                 "total_writes": 0,
@@ -478,7 +475,6 @@ class HelpersMixin:
                 ],
             }
         except Exception as e:
-            debug(f"_get_session_agents_internal failed: {e}")
             return {
                 "unique_count": 0,
                 "max_depth": 0,

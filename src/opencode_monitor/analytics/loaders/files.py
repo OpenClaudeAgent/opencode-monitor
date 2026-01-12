@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, debug
+from ...utils.logger import info
 from ...utils.datetime import ms_to_datetime
 from .utils import collect_recent_part_files, chunked
 
@@ -39,7 +39,7 @@ def load_file_operations(
         info("No recent part files found for file operations")
         return 0
 
-    debug(f"Scanning {len(recent_files)} recent part files for file operations")
+    info(f"Scanning {len(recent_files)} recent part files for file operations")
 
     cutoff = datetime.now() - timedelta(days=max_days)
     operations: list[dict] = []
@@ -113,13 +113,11 @@ def load_file_operations(
                     op["risk_reason"],
                 ],
             )
-        except Exception as e:
-            debug(f"File operation insert failed for {op.get('id', 'unknown')}: {e}")
+        except Exception:
             continue
 
     row = conn.execute("SELECT COUNT(*) FROM file_operations").fetchone()
     count = row[0] if row else 0
-    info(f"Loaded {count} file operations")
 
     enriched = enrich_file_operations_with_diff_stats(db, storage_path)
     if enriched > 0:
@@ -210,7 +208,6 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
                     enriched_count += 1
 
         except (json.JSONDecodeError, OSError) as e:
-            debug(f"Failed to read diff file for session {session_id}: {e}")
             continue
 
     return enriched_count

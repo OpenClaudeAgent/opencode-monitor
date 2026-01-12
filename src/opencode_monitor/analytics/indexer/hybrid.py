@@ -23,7 +23,7 @@ from .handlers import (
     PartHandler,
     SessionDiffHandler,
 )
-from ...utils.logger import info, debug
+from ...utils.logger import info
 
 
 OPENCODE_STORAGE = Path.home() / ".local" / "share" / "opencode" / "storage"
@@ -124,7 +124,6 @@ class HybridIndexer:
         """Process a single file."""
         try:
             if not self._tracker or not self._parser or not self._trace_builder:
-                debug("[Indexer] Components not initialized")
                 return False
 
             if self._t0 and self._file_processing:
@@ -141,7 +140,6 @@ class HybridIndexer:
 
             handler = self._handlers.get(file_type)
             if not handler:
-                debug(f"[Indexer] Unknown file type: {file_type}")
                 return False
 
             raw_data = self._parser.read_json(path)
@@ -176,7 +174,6 @@ class HybridIndexer:
                 return False
 
         except Exception as e:
-            debug(f"[Indexer] Error processing {path}: {e}")
             if self._tracker:
                 self._tracker.mark_error(path, file_type, str(e))
             return False

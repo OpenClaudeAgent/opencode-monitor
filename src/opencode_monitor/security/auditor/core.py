@@ -22,7 +22,7 @@ from ..db import (
 from ..sequences import SequenceMatch
 from ..correlator import Correlation
 from ...analytics.db import AnalyticsDB
-from ...utils.logger import info, debug
+from ...utils.logger import info
 
 from ._edr_handler import EDRHandler
 
@@ -103,8 +103,7 @@ class SecurityAuditor:
                 "scope_suspicious": result[13] or 0,
                 "scope_sensitive": result[14] or 0,
             }
-        except Exception as e:
-            debug(f"Error loading stats: {e}")
+        except Exception:
             return {
                 "total_scanned": 0,
                 "total_commands": 0,

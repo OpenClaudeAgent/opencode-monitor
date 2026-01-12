@@ -12,7 +12,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from ...utils.datetime import ms_to_datetime
-from ...utils.logger import debug
+
 from .validators import validate_token_counts
 
 
@@ -231,7 +231,6 @@ class FileParser:
             with open(path, "r") as f:
                 return json.load(f)
         except (json.JSONDecodeError, OSError) as e:
-            debug(f"[FileParser] Failed to read {path}: {e}")
             return None
 
     @staticmethod

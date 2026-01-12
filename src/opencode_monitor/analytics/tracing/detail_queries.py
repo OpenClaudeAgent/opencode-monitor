@@ -5,7 +5,7 @@ Contains methods for retrieving detailed information about traces and costs.
 
 from typing import Optional, TYPE_CHECKING
 
-from ...utils.logger import debug
+
 
 if TYPE_CHECKING:
     from .config import TracingConfig
@@ -122,7 +122,6 @@ class DetailQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_trace_details failed: {e}")
             return None
 
     def get_session_cost_breakdown(self, session_id: str) -> dict:
@@ -191,7 +190,6 @@ class DetailQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_cost_breakdown failed: {e}")
             return {
                 "session_id": session_id,
                 "total_cost_usd": 0,

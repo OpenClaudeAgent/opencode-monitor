@@ -13,7 +13,7 @@ import sys
 from typing import Callable, Any, Optional
 from datetime import datetime
 
-from .logger import debug, info, warning
+from .logger import info, warning, debug
 
 
 # =============================================================================
@@ -131,7 +131,7 @@ def _log_api_metrics(
         log_fn = info
         severity = "WARNING"
     else:
-        log_fn = debug
+        log_fn = info
         severity = "OK"
 
     log_fn(
@@ -176,7 +176,7 @@ class QueryProfiler:
 
         if exc_type is None:
             # Success
-            log_fn = debug if duration_ms < 500 else warning
+            log_fn = info if duration_ms < 500 else warning
             log_fn(
                 f"[QUERY] {self.query_name} | "
                 f"{duration_ms:.1f}ms | "
@@ -229,7 +229,7 @@ class MemoryProfiler:
             log_fn = info
             severity = "MEDIUM"
         else:
-            log_fn = debug
+            log_fn = info
             severity = "OK"
 
         log_fn(
@@ -269,7 +269,7 @@ def profile_dashboard_fetch(section_name: str):
                 result = f(*args, **kwargs)
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
-                log_fn = debug if duration_ms < 500 else info
+                log_fn = info if duration_ms < 500 else info
                 log_fn(f"[DASHBOARD] {section_name} fetch | {duration_ms:.1f}ms")
 
                 return result
@@ -365,21 +365,21 @@ class PerformanceReport:
         """Print formatted performance report."""
         summary = self.get_summary()
 
-        info("=" * 80)
-        info("PERFORMANCE REPORT")
-        info("=" * 80)
+        debug("=" * 80)
+        debug("PERFORMANCE REPORT")
+        debug("=" * 80)
 
         for op, stats in summary.items():
-            info(f"\n{op}:")
-            info(f"  Count: {stats['count']}")
-            info(f"  Min:   {stats['min_ms']:.1f}ms")
-            info(f"  Avg:   {stats['avg_ms']:.1f}ms")
-            info(f"  P50:   {stats['p50_ms']:.1f}ms")
-            info(f"  P95:   {stats['p95_ms']:.1f}ms")
-            info(f"  P99:   {stats['p99_ms']:.1f}ms")
-            info(f"  Max:   {stats['max_ms']:.1f}ms")
+            debug(f"\n{op}:")
+            debug(f"  Count: {stats['count']}")
+            debug(f"  Min:   {stats['min_ms']:.1f}ms")
+            debug(f"  Avg:   {stats['avg_ms']:.1f}ms")
+            debug(f"  P50:   {stats['p50_ms']:.1f}ms")
+            debug(f"  P95:   {stats['p95_ms']:.1f}ms")
+            debug(f"  P99:   {stats['p99_ms']:.1f}ms")
+            debug(f"  Max:   {stats['max_ms']:.1f}ms")
 
-        info("=" * 80)
+        debug("=" * 80)
 
 
 # Global performance report instance

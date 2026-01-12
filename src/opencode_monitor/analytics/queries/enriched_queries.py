@@ -8,7 +8,6 @@ from typing import Optional
 
 from ..models import Project, ProjectStats, Todo, TodoStats
 from .base import BaseQueries
-from ...utils.logger import debug
 
 
 class EnrichedQueries(BaseQueries):
@@ -50,10 +49,7 @@ class EnrichedQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"get_todos query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return empty list
             return []
 
     def get_todo_stats(self, days: int) -> Optional[TodoStats]:
@@ -90,8 +86,7 @@ class EnrichedQueries(BaseQueries):
                 cancelled=result[4] or 0,
                 completion_rate=completion_rate,
             )
-        except Exception as e:  # Intentional catch-all: query failures return None
-            debug(f"get_todo_stats query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return None
             return None
 
     def get_projects(self) -> list[Project]:
@@ -115,10 +110,7 @@ class EnrichedQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"get_projects query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return empty list
             return []
 
     def get_project_stats(self, days: int) -> list[ProjectStats]:
@@ -159,10 +151,7 @@ class EnrichedQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"get_project_stats query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return empty list
             return []
 
     def get_code_stats(self, days: int) -> dict:
@@ -189,10 +178,7 @@ class EnrichedQueries(BaseQueries):
                 "files_changed": result[2] if result else 0,
                 "sessions_with_changes": result[3] if result else 0,
             }
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: query failures return default dict
-            debug(f"get_code_stats query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return default dict
             return {
                 "additions": 0,
                 "deletions": 0,
@@ -222,10 +208,7 @@ class EnrichedQueries(BaseQueries):
                 "avg_cost_per_message": float(result[1]) if result else 0.0,
                 "messages_with_cost": result[2] if result else 0,
             }
-        except (
-            Exception
-        ) as e:  # Intentional catch-all: query failures return default dict
-            debug(f"get_cost_stats query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return default dict
             return {
                 "total_cost": 0.0,
                 "avg_cost_per_message": 0.0,

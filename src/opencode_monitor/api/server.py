@@ -14,7 +14,7 @@ from flask import Flask
 from werkzeug.serving import make_server
 
 from ..analytics import TracingDataService
-from ..utils.logger import info, debug
+from ..utils.logger import info
 from .config import API_HOST, API_PORT
 from .routes import (
     health_bp,
@@ -84,7 +84,6 @@ class AnalyticsAPIServer:
     def start(self) -> None:
         """Start the API server in a background thread."""
         if self._thread is not None and self._thread.is_alive():
-            debug("[API] Server already running")
             return
 
         def run_server():

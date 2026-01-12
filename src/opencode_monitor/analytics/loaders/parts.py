@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, debug, error
+from ...utils.logger import error
 from ...utils.datetime import ms_to_datetime
 
 
@@ -260,16 +260,14 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                         flush_batches()
 
                 except (json.JSONDecodeError, OSError) as e:
-                    debug(f"Error reading part file {part_file}: {e}")
                     continue
 
         # Insert remaining batches
         flush_batches()
 
-        info(f"Loaded {stats.total} parts ({stats})")
         return stats.total
 
-    except Exception as e:  # Intentional catch-all: various errors possible
+    except Exception:  # Intentional catch-all: various errors possible
         error(f"Parts load failed: {e}")
         return 0
 

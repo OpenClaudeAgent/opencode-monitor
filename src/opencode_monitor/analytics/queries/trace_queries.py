@@ -11,7 +11,7 @@ from typing import Optional
 
 from ..models import AgentTrace
 from .base import BaseQueries
-from ...utils.logger import debug
+
 
 
 @dataclass
@@ -82,7 +82,6 @@ class TraceQueries(BaseQueries):
 
             return [self._row_to_trace(row) for row in results]
         except Exception as e:
-            debug(f"get_traces_by_session failed: {e}")
             return []
 
     def get_trace_tree(self, session_id: str) -> list[TraceTreeNode]:
@@ -172,7 +171,6 @@ class TraceQueries(BaseQueries):
             return root_nodes
 
         except Exception as e:
-            debug(f"get_trace_tree failed: {e}")
             return []
 
     def get_traces_by_date_range(
@@ -208,7 +206,6 @@ class TraceQueries(BaseQueries):
 
             return [self._row_to_trace(row) for row in results]
         except Exception as e:
-            debug(f"get_traces_by_date_range failed: {e}")
             return []
 
     def get_traces_by_agent(self, subagent_type: str) -> list[AgentTrace]:
@@ -240,7 +237,6 @@ class TraceQueries(BaseQueries):
 
             return [self._row_to_trace(row) for row in results]
         except Exception as e:
-            debug(f"get_traces_by_agent failed: {e}")
             return []
 
     def get_trace_details(self, trace_id: str) -> Optional[AgentTrace]:
@@ -273,7 +269,6 @@ class TraceQueries(BaseQueries):
                 return self._row_to_trace(result)
             return None
         except Exception as e:
-            debug(f"get_trace_details failed: {e}")
             return None
 
     def get_sessions_with_traces(self, limit: int = 50) -> list[SessionWithTraces]:
@@ -314,7 +309,6 @@ class TraceQueries(BaseQueries):
                 for row in results
             ]
         except Exception as e:
-            debug(f"get_sessions_with_traces failed: {e}")
             return []
 
     def get_trace_stats(self, start_date: datetime, end_date: datetime) -> dict:
@@ -356,7 +350,6 @@ class TraceQueries(BaseQueries):
                 }
             return {}
         except Exception as e:
-            debug(f"get_trace_stats failed: {e}")
             return {}
 
     def get_agent_type_stats(
@@ -399,7 +392,6 @@ class TraceQueries(BaseQueries):
                 for row in results
             ]
         except Exception as e:
-            debug(f"get_agent_type_stats failed: {e}")
             return []
 
     def get_session_hierarchy(
@@ -507,7 +499,6 @@ class TraceQueries(BaseQueries):
             return root_sessions[:limit]
 
         except Exception as e:
-            debug(f"get_session_hierarchy failed: {e}")
             return []
 
     def _row_to_trace(self, row: tuple) -> AgentTrace:
