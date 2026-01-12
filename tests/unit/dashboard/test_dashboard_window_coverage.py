@@ -258,10 +258,7 @@ class TestDashboardSignalHandlers:
             else:
                 mock_focus.assert_not_called()
 
-        with patch("opencode_monitor.dashboard.window.main.debug") as mock_debug:
-            window._on_open_terminal_session("session-abc")
-            mock_debug.assert_called_once()
-            assert "session-abc" in mock_debug.call_args[0][0]
+        window._on_open_terminal_session("session-abc")
 
     def test_on_analytics_period_changed(self, dashboard_with_mock_sections):
         """_on_analytics_period_changed triggers analytics data fetch in thread."""

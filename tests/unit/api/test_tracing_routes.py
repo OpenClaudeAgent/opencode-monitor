@@ -649,7 +649,7 @@ class TestBuildToolsBySession:
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
 
         conn = MagicMock()
-        # Row format: id, session_id, tool_name, tool_status, arguments, created_at, duration_ms, result_summary
+        # Row format: id, session_id, tool_name, tool_status, arguments, created_at, duration_ms, result_summary, error_message
         tool_rows = [
             (
                 "tool_1",
@@ -660,6 +660,7 @@ class TestBuildToolsBySession:
                 datetime.now(),
                 100,
                 "success",
+                None,  # error_message
             ),
             (
                 "tool_2",
@@ -670,6 +671,7 @@ class TestBuildToolsBySession:
                 datetime.now(),
                 50,
                 None,
+                None,  # error_message
             ),
             (
                 "tool_3",
@@ -680,6 +682,7 @@ class TestBuildToolsBySession:
                 datetime.now(),
                 75,
                 None,
+                "File write error",  # error_message
             ),
         ]
         conn.execute.return_value.fetchall.return_value = tool_rows
@@ -690,6 +693,8 @@ class TestBuildToolsBySession:
         assert len(result["sess_2"]) == 1
         assert result["sess_1"][0]["tool_name"] == "bash"
         assert result["sess_1"][0]["node_type"] == "tool"
+        assert result["sess_1"][0]["error"] is None
+        assert result["sess_2"][0]["error"] == "File write error"
 
 
 class TestBuildToolsByMessage:
@@ -716,7 +721,7 @@ class TestBuildToolsByMessage:
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_message
 
         conn = MagicMock()
-        # Row format: id, session_id, message_id, tool_name, tool_status, arguments, created_at, duration_ms, result_summary
+        # Row format: id, session_id, message_id, tool_name, tool_status, arguments, created_at, duration_ms, result_summary, error_message
         tool_rows = [
             (
                 "tool_1",
@@ -728,6 +733,7 @@ class TestBuildToolsByMessage:
                 datetime.now(),
                 100,
                 "success",
+                None,  # error_message
             ),
             (
                 "tool_2",
@@ -739,6 +745,7 @@ class TestBuildToolsByMessage:
                 datetime.now(),
                 50,
                 None,
+                "Connection timeout",  # error_message
             ),
         ]
         conn.execute.return_value.fetchall.return_value = tool_rows
@@ -749,6 +756,8 @@ class TestBuildToolsByMessage:
         assert len(result["msg_1"]) == 2
         assert result["msg_1"][0]["tool_name"] == "bash"
         assert result["msg_1"][0]["trace_id"] == "tool_tool_1"
+        assert result["msg_1"][0]["error"] is None
+        assert result["msg_1"][1]["error"] == "Connection timeout"
 
     def test_skip_tools_without_message_id(self):
         """Skip tools that have no message_id."""
@@ -759,12 +768,13 @@ class TestBuildToolsByMessage:
             (
                 "tool_1",
                 "sess_1",
-                None,  # No message_id
+                None,
                 "bash",
                 "completed",
                 '{"command": "ls"}',
                 datetime.now(),
                 100,
+                None,
                 None,
             ),
         ]
