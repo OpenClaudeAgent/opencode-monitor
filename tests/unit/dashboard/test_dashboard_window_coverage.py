@@ -648,13 +648,9 @@ class TestFetchApiUnavailable:
                         "opencode_monitor.dashboard.window.main.error"
                     ) as mock_error:
                         window._fetch_tracing_data()
-                        # Called twice: once for message, once for traceback
-                        assert mock_error.call_count == 2
-                        # Verify error messages contain expected content
-                        error_calls = [str(call) for call in mock_error.call_args_list]
-                        assert any(
-                            "Tracing fetch error" in call for call in error_calls
-                        )
+                        assert mock_error.call_count == 1
+                        mock_error.assert_called_once()
+                        assert "Tracing fetch error" in str(mock_error.call_args)
                 finally:
                     window.close()
                     window.deleteLater()
