@@ -22,14 +22,14 @@ Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode)
 - **Analytics section** - token usage statistics (by period, agent, tool, skill)
 - **Tracing section** - agent delegation tree with timeline and transcript
 - **Security section** - risk analysis with MITRE ATT&CK mapping
-- **HTML reports** with Plotly charts
+- **Analytics visualization** with interactive dashboard
 
 ## Installation
 
 ### Requirements
 
 - macOS 12+
-- Python 3.11+
+- Python 3.12+
 - [uv](https://docs.astral.sh/uv/) (Python package manager)
 - OpenCode CLI running
 
@@ -79,22 +79,11 @@ Click the icon to see:
 ---
 🟢 Session: 45% (reset 2h30m)
 📅 Weekly: 29% (reset Mon 0h)
-📊 Open Claude Usage
+🌐 Open Claude Usage
 ---
-🛡️ Security Audit
-    📊 Stats summary
-    💻 ── Commands ──
-    📖 ── File Reads ──
-    ✏️ ── File Writes ──
-    🌐 ── Web Fetches ──
-    📋 View Full Report
-    📜 Export All Data
-📊 Analytics ▸
-    📅 Last 24 hours
-    📅 Last 7 days
-    📅 Last 30 days
-    ─────────────
-    🔄 Refresh data
+📊 Dashboard                      ← Opens PyQt6 dashboard
+---
+*🛡️ Security analysis available in Dashboard → Security tab*
 ---
 Refresh
 ---
@@ -155,8 +144,7 @@ opencode-monitor/
 │       │   ├── indexer/          # Real-time + backfill indexer
 │       │   ├── loaders/          # Data loaders
 │       │   ├── queries/          # SQL queries
-│       │   ├── tracing/          # Tracing service
-│       │   └── report/           # HTML report generation
+│       │   └── tracing/          # Tracing service
 │       ├── dashboard/            # PyQt6 dashboard
 │       │   ├── sections/         # UI sections
 │       │   ├── widgets/          # Reusable components
@@ -187,7 +175,7 @@ See [docs/backlog/](docs/backlog/) for planned features and [docs/archive/](docs
 | Version | Date | Description |
 |---------|------|-------------|
 | v2.23.0 | 2026-01-04 | Python Analysis CLI - jedi/radon/vulture tools, 10 commands, `.opencode/AGENTS.md` |
-| v2.13.0 | 2025-12-30 | Analytics dashboard - DuckDB, HTML reports with Plotly, delegation metrics |
+| v2.13.0 | 2025-12-30 | Analytics dashboard - DuckDB, PyQt6 visualization, delegation metrics |
 | v2.12.0 | 2025-12-30 | Display idle session count in menu bar title |
 | v2.11.0 | 2025-12-29 | MCP Notify ask_user detection - bell icon when agent awaits response |
 | v2.10.0 | 2025-12-29 | Permission detection heuristic - lock icon on tools running > 5s |

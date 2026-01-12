@@ -43,8 +43,7 @@ Quit
 - **Click agent** → Focus its terminal in iTerm2
 - **⚙️ Preferences** → Configure refresh rate
 - **📊 Open Claude Usage** → Open Claude usage page
-- **🛡️ Security Audit** → View security analysis of commands
-- **📊 Dashboard** → Open PyQt6 dashboard for analytics and tracing
+- **📊 Dashboard** → Open analytics dashboard with security analysis, tracing, and metrics
 
 ## 4. Configure
 

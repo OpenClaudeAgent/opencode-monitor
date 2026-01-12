@@ -2,7 +2,7 @@
 
 REST API for accessing analytics and tracing data.
 
-**Base URL**: `http://localhost:8765`
+**Base URL**: `http://localhost:19876`
 
 ## Authentication
 
@@ -41,6 +41,12 @@ List endpoints support pagination:
 |-----------|------|---------|-----|-------------|
 | `page` | int | 1 | - | Page number (1-based) |
 | `per_page` | int | 50 | 200 | Items per page |
+
+**Note on Pagination Behavior:**
+- Pagination parameters are **optional** for all endpoints (backwards compatible)
+- If `page` and `per_page` are **not specified**, endpoints return **all results** without pagination
+- If pagination parameters are provided, results are paginated as expected
+- This design ensures backwards compatibility with clients expecting full result sets
 
 Paginated responses include:
 - `X-Total-Count` header with total item count
@@ -111,7 +117,7 @@ Get paginated list of sessions.
 
 **Example**:
 ```bash
-curl "http://localhost:8765/api/sessions?days=7&page=1&per_page=20"
+curl "http://localhost:19876/api/sessions?days=7&page=1&per_page=20"
 ```
 
 **Response**:
@@ -148,7 +154,7 @@ Search sessions by title or directory.
 
 **Example**:
 ```bash
-curl "http://localhost:8765/api/sessions/search?q=refactor&limit=10"
+curl "http://localhost:19876/api/sessions/search?q=refactor&limit=10"
 ```
 
 **Response**:
@@ -293,7 +299,7 @@ Get paginated list of agent traces.
 
 **Example**:
 ```bash
-curl "http://localhost:8765/api/traces?days=7&page=1&per_page=20"
+curl "http://localhost:19876/api/traces?days=7&page=1&per_page=20"
 ```
 
 **Response**:
@@ -495,30 +501,30 @@ Get daily aggregated statistics.
 
 ### Get recent sessions with pagination
 ```bash
-curl "http://localhost:8765/api/sessions?days=7&page=1&per_page=10"
+curl "http://localhost:19876/api/sessions?days=7&page=1&per_page=10"
 ```
 
 ### Search for sessions
 ```bash
-curl "http://localhost:8765/api/sessions/search?q=refactor&limit=5"
+curl "http://localhost:19876/api/sessions/search?q=refactor&limit=5"
 ```
 
 ### Get trace details
 ```bash
-curl "http://localhost:8765/api/trace/root_abc123"
+curl "http://localhost:19876/api/trace/root_abc123"
 ```
 
 ### Get daily statistics
 ```bash
-curl "http://localhost:8765/api/stats/daily?days=14"
+curl "http://localhost:19876/api/stats/daily?days=14"
 ```
 
 ### Get session cost breakdown
 ```bash
-curl "http://localhost:8765/api/session/ses_abc123/cost"
+curl "http://localhost:19876/api/session/ses_abc123/cost"
 ```
 
 ### Check API health
 ```bash
-curl "http://localhost:8765/api/health/detailed"
+curl "http://localhost:19876/api/health/detailed"
 ```

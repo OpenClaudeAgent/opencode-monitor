@@ -74,7 +74,6 @@ OpenCode Monitor consists of two main components:
 | `analytics/loaders/` | Specialized data loaders |
 | `analytics/queries/` | SQL query modules |
 | `analytics/tracing/` | Tracing data service |
-| `analytics/report/` | HTML report generation |
 | **Dashboard** | |
 | `dashboard/window/` | PyQt6 main window |
 | `dashboard/sections/` | UI sections (monitoring, security, analytics, tracing) |
@@ -319,7 +318,7 @@ make test  # Ensure tests pass
 git commit -m "feat(scope): description"
 
 # Merge to main
-git checkout master
+git checkout main
 git merge feature/my-feature
 git tag -a vX.Y.Z -m "description"
 ```

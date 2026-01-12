@@ -52,9 +52,10 @@ opencode-monitor/
 │       ├── analytics/                # Analytics system (DuckDB)
 │       │   ├── __init__.py           # Public exports
 │       │   ├── db.py                 # DuckDB database management
-│       │   ├── collector.py          # Background data collection
-│       │   ├── loader.py             # Bulk data loading (legacy)
+│       │   ├── loader.py             # Bulk data loading (deprecated, use indexer/)
 │       │   ├── models.py             # Analytics data models
+│       │   ├── materialization.py    # Materialized table management
+│       │   ├── schema_analyzer.py    # Storage schema drift detection
 │       │   │
 │       │   ├── indexer/              # Unified indexer system
 │       │   │   ├── __init__.py
@@ -101,22 +102,15 @@ opencode-monitor/
 │       │   │   ├── tool_queries.py
 │       │   │   └── trace_queries.py
 │       │   │
-│       │   ├── tracing/              # Tracing data service
-│       │   │   ├── __init__.py
-│       │   │   ├── config.py         # Tracing configuration
-│       │   │   ├── service.py        # TracingDataService
-│       │   │   ├── detail_queries.py
-│       │   │   ├── helpers.py
-│       │   │   ├── list_queries.py
-│       │   │   ├── session_queries.py
-│       │   │   └── stats_queries.py
-│       │   │
-│       │   └── report/               # HTML report generation
+│       │   └── tracing/              # Tracing data service
 │       │       ├── __init__.py
-│       │       ├── generator.py      # Report generator
-│       │       ├── charts.py         # Plotly charts
-│       │       ├── sections.py       # Report sections
-│       │       └── styles.py         # Report CSS
+│       │       ├── config.py         # Tracing configuration
+│       │       ├── service.py        # TracingDataService
+│       │       ├── detail_queries.py
+│       │       ├── helpers.py
+│       │       ├── list_queries.py
+│       │       ├── session_queries.py
+│       │       └── stats_queries.py
 │       │
 │       ├── dashboard/                # PyQt6 dashboard application
 │       │   ├── __init__.py           # Public exports
@@ -286,7 +280,10 @@ The dashboard (reader) uses the API client to fetch data.
 
 DuckDB-based analytics with multiple subsystems:
 
-- **`db.py`**: DuckDB database management (15 tables)
+- **`db.py`**: DuckDB database management (21 tables)
+- **`materialization.py`**: Materialized table manager with incremental refresh
+- **`schema_analyzer.py`**: Storage schema analyzer for drift detection
+- **`loader.py`**: Legacy bulk loader (deprecated, use `indexer/` instead)
 - **`indexer/`**: Unified indexer with real-time + backfill support
   - **`unified/`**: Modular indexer package
     - `config.py`: Configuration constants (batch size, throttle, workers)
@@ -297,7 +294,6 @@ DuckDB-based analytics with multiple subsystems:
 - **`loaders/`**: Specialized data loaders
 - **`queries/`**: SQL query modules
 - **`tracing/`**: Tracing data service
-- **`report/`**: HTML report generation with Plotly
 
 ### `dashboard/` - PyQt6 Dashboard
 
