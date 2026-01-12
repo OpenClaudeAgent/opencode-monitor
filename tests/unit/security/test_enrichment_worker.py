@@ -583,3 +583,21 @@ class TestWorkerLifecycle:
         worker.stop()
 
         assert not worker.is_running()
+
+    def test_default_poll_interval(self, enrichment_db, mock_analyzer):
+        """Default poll interval should be 10 seconds (not aggressive)."""
+        from opencode_monitor.security.enrichment import SecurityEnrichmentWorker
+
+        worker = SecurityEnrichmentWorker(db=enrichment_db, analyzer=mock_analyzer)
+
+        assert worker._poll_interval == 10.0
+
+    def test_custom_poll_interval(self, enrichment_db, mock_analyzer):
+        """Should allow custom poll_interval."""
+        from opencode_monitor.security.enrichment import SecurityEnrichmentWorker
+
+        worker = SecurityEnrichmentWorker(
+            db=enrichment_db, analyzer=mock_analyzer, poll_interval=5.0
+        )
+
+        assert worker._poll_interval == 5.0
