@@ -41,7 +41,8 @@ def build_tools_by_session(
         f"""
         SELECT 
             id, session_id, tool_name, tool_status,
-            arguments, created_at, duration_ms, result_summary
+            arguments, created_at, duration_ms, result_summary,
+            error_message
         FROM parts
         WHERE session_id IN ({placeholders})
           AND part_type = 'tool'
@@ -68,6 +69,7 @@ def build_tools_by_session(
                 "display_info": display_info,
                 "created_at": row[5].isoformat() if row[5] else None,
                 "duration_ms": row[6],
+                "error": row[8],
             }
         )
 
@@ -98,7 +100,8 @@ def build_tools_by_message(
         f"""
         SELECT 
             id, session_id, message_id, tool_name, tool_status,
-            arguments, created_at, duration_ms, result_summary
+            arguments, created_at, duration_ms, result_summary,
+            error_message
         FROM parts
         WHERE session_id IN ({placeholders})
           AND part_type = 'tool'
@@ -131,6 +134,7 @@ def build_tools_by_message(
                     "started_at": trow[6].isoformat() if trow[6] else None,
                     "duration_ms": trow[7],
                     "result_summary": trow[8],
+                    "error": trow[9],
                     "children": [],
                 }
             )

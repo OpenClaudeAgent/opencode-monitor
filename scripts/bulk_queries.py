@@ -140,8 +140,8 @@ SELECT
         ELSE NULL 
     END as duration_ms,
     CAST(json_extract(j, '$.state.input') AS VARCHAR) as arguments,
-    NULL as error_message,
-    NULL as error_data,
+    json_extract_string(j, '$.state.error') as error_message,
+    CAST(json_extract(j, '$.state') AS VARCHAR) as error_data,
     -- Extract child_session_id from state.metadata.sessionId for task delegations
     json_extract_string(j, '$.state.metadata.sessionId') as child_session_id,
     -- Plan 34: Enriched columns

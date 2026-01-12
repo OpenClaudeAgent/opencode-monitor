@@ -216,29 +216,32 @@ def _extract_from_node(node: dict, data: SessionData) -> None:
                     if file_path not in data.files[action]:
                         data.files[action].append(file_path)
 
-        # Check for errors
-        status = node.get("status", "")
-        if status == "error":
+        tool_status = node.get("tool_status") or node.get("status") or ""
+        is_error = tool_status == "error"
+        if is_error:
             timestamp = node.get("started_at", "") or node.get("created_at", "")
-            message = node.get("error", "") or node.get("display_info", "") or "Error"
+            error_msg = node.get("error") or node.get("display_info") or ""
+            if not error_msg:
+                error_msg = f"{tool_name} failed"
             data.errors.append(
                 ErrorInfo(
                     timestamp=timestamp,
                     tool_name=tool_name,
-                    message=str(message)[:100],
+                    message=str(error_msg)[:200],
                 )
             )
 
-    # Also check for errors in non-tool nodes
     elif node.get("status") == "error":
         timestamp = node.get("started_at", "") or node.get("created_at", "")
-        title = node.get("title", "") or node_type
-        message = node.get("error", "") or "Error"
+        title = node.get("subagent_type") or node.get("title") or node_type
+        error_msg = node.get("error") or node.get("prompt_output") or ""
+        if not error_msg:
+            error_msg = f"{title} failed"
         data.errors.append(
             ErrorInfo(
                 timestamp=timestamp,
                 tool_name=title,
-                message=str(message)[:100],
+                message=str(error_msg)[:200],
             )
         )
 
@@ -340,7 +343,7 @@ class TimelineEventWidget(QFrame):
                 color: {COLORS["text_muted"]};
             """)
             expand_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-            expand_btn.mousePressEvent = lambda _ev: self._toggle_child()
+            expand_btn.mousePressEvent = lambda ev: self._toggle_child()
             self._expand_btn = expand_btn
             row_layout.addWidget(expand_btn)
 
@@ -1304,61 +1307,238 @@ class AgentsWidget(QFrame):
 # ============================================================
 
 
-class ErrorsWidget(QFrame):
-    """Display errors if present."""
+def classify_error_type(message: str) -> tuple[str, str, str]:
+    msg_lower = message.lower()
 
+    if "timeout" in msg_lower or "aborted" in msg_lower or "timed out" in msg_lower:
+        return ("timeout", COLORS["warning"], "TIMEOUT")
+    elif any(
+        kw in msg_lower
+        for kw in ("auth", "permission", "403", "401", "forbidden", "rejected")
+    ):
+        return ("auth", COLORS["error"], "AUTH")
+    elif any(
+        kw in msg_lower for kw in ("network", "connection", "certificate", "ssl", "dns")
+    ):
+        return ("network", COLORS["warning"], "NETWORK")
+    elif "not found" in msg_lower or "404" in msg_lower:
+        return ("not_found", COLORS["info"], "NOT FOUND")
+    elif "syntax" in msg_lower or "parse" in msg_lower:
+        return ("syntax", COLORS["warning"], "SYNTAX")
+    elif "rate" in msg_lower or "429" in msg_lower or "too many" in msg_lower:
+        return ("rate_limit", COLORS["warning"], "RATE LIMIT")
+    else:
+        return ("unknown", COLORS["text_muted"], "ERROR")
+
+
+class ErrorItemWidget(QFrame):
+    def __init__(self, error: ErrorInfo, prefix: str, parent: QWidget | None = None):
+        super().__init__(parent)
+        self._error = error
+        self._prefix = prefix
+        self._is_expanded = False
+        self._setup_ui()
+
+    def _setup_ui(self) -> None:
+        self.setStyleSheet("""
+            QFrame {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+
+        layout = QVBoxLayout(self)
+        layout.setContentsMargins(0, 0, 0, 0)
+        layout.setSpacing(2)
+
+        row = QFrame()
+        row.setCursor(Qt.CursorShape.PointingHandCursor)
+        row.mousePressEvent = lambda a0: self._toggle_expand()
+        row_layout = QHBoxLayout(row)
+        row_layout.setContentsMargins(SPACING["xs"], 2, SPACING["xs"], 2)
+        row_layout.setSpacing(SPACING["xs"])
+
+        prefix_label = QLabel(self._prefix)
+        prefix_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-family: {FONTS["mono"]};
+            color: {COLORS["border_default"]};
+        """)
+        prefix_label.setFixedWidth(20)
+        row_layout.addWidget(prefix_label)
+
+        time_str = format_time(self._error.timestamp)
+        time_label = QLabel(time_str)
+        time_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-family: {FONTS["mono"]};
+            color: {COLORS["text_muted"]};
+        """)
+        time_label.setFixedWidth(40)
+        row_layout.addWidget(time_label)
+
+        tool_short = shorten_tool_name(self._error.tool_name)
+        tool_label = QLabel(truncate_text(tool_short, 20))
+        tool_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-family: {FONTS["mono"]};
+            color: {COLORS["text_secondary"]};
+        """)
+        tool_label.setFixedWidth(120)
+        tool_label.setToolTip(self._error.tool_name)
+        row_layout.addWidget(tool_label)
+
+        error_type, error_color, badge_text = classify_error_type(self._error.message)
+        badge = QLabel(badge_text)
+        badge.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-family: {FONTS["mono"]};
+            font-weight: {FONTS["weight_semibold"]};
+            color: {error_color};
+            padding: 2px 6px;
+            border-radius: {RADIUS["sm"]}px;
+        """)
+        row_layout.addWidget(badge)
+
+        preview = truncate_text(self._error.message, 50)
+        self._preview_label = QLabel(preview)
+        self._preview_label.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_secondary"]};
+        """)
+        self._preview_label.setWordWrap(False)
+        row_layout.addWidget(self._preview_label, 1)
+
+        self._arrow = QLabel("▶")
+        self._arrow.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        self._arrow.setFixedWidth(16)
+        row_layout.addWidget(self._arrow)
+
+        layout.addWidget(row)
+
+        self._full_message = QLabel(self._error.message)
+        self._full_message.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            font-family: {FONTS["mono"]};
+            color: {error_color};
+            background-color: {COLORS["bg_elevated"]};
+            padding: {SPACING["xs"]}px;
+            border-radius: {RADIUS["sm"]}px;
+            margin-left: 40px;
+        """)
+        self._full_message.setWordWrap(True)
+        self._full_message.hide()
+        layout.addWidget(self._full_message)
+
+    def _toggle_expand(self) -> None:
+        self._is_expanded = not self._is_expanded
+        self._full_message.setVisible(self._is_expanded)
+        self._arrow.setText("▼" if self._is_expanded else "▶")
+
+
+class ErrorsWidget(QFrame):
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
+        self._errors: list[ErrorInfo] = []
+        self._is_expanded = False
         self._setup_ui()
 
     def _setup_ui(self) -> None:
         self.setStyleSheet(f"""
             QFrame {{
-                background-color: {COLORS["error_muted"]};
-                border: 1px solid {COLORS["error"]};
+                background-color: {COLORS["bg_surface"]};
+                border: 1px solid {COLORS["border_subtle"]};
                 border-radius: {RADIUS["md"]}px;
             }}
         """)
 
-        layout = QHBoxLayout(self)
+        layout = QVBoxLayout(self)
         layout.setContentsMargins(
-            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["xs"]
+            SPACING["sm"], SPACING["xs"], SPACING["sm"], SPACING["sm"]
         )
-        layout.setSpacing(SPACING["sm"])
+        layout.setSpacing(SPACING["xs"])
 
-        self._label = QLabel()
-        self._label.setStyleSheet(f"""
+        header_frame = QFrame()
+        header_frame.setCursor(Qt.CursorShape.PointingHandCursor)
+        header_frame.mousePressEvent = lambda a0: self._toggle_expand()
+        header_layout = QHBoxLayout(header_frame)
+        header_layout.setContentsMargins(0, 0, 0, 0)
+        header_layout.setSpacing(SPACING["xs"])
+
+        self._header = QLabel("⚠️ ERRORS")
+        self._header.setStyleSheet(f"""
             font-size: {FONTS["size_xs"]}px;
-            font-weight: {FONTS["weight_medium"]};
-            color: {COLORS["error"]};
+            font-weight: {FONTS["weight_semibold"]};
+            color: {COLORS["text_muted"]};
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         """)
-        self._label.setWordWrap(True)
-        layout.addWidget(self._label, 1)
+        header_layout.addWidget(self._header, 1)
+
+        self._arrow = QLabel("▶")
+        self._arrow.setStyleSheet(f"""
+            font-size: {FONTS["size_xs"]}px;
+            color: {COLORS["text_muted"]};
+        """)
+        header_layout.addWidget(self._arrow)
+
+        layout.addWidget(header_frame)
+
+        self._container = QWidget()
+        self._container_layout = QVBoxLayout(self._container)
+        self._container_layout.setContentsMargins(0, 0, 0, 0)
+        self._container_layout.setSpacing(2)
+
+        self._scroll = QScrollArea()
+        self._scroll.setWidget(self._container)
+        self._scroll.setWidgetResizable(True)
+        self._scroll.setStyleSheet("""
+            QScrollArea {
+                background-color: transparent;
+                border: none;
+            }
+        """)
+        self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self._scroll.setMaximumHeight(200)
+        self._scroll.hide()
+        layout.addWidget(self._scroll)
+
+    def _toggle_expand(self) -> None:
+        if not self._errors:
+            return
+
+        self._is_expanded = not self._is_expanded
+        self._scroll.setVisible(self._is_expanded)
+        self._arrow.setText("▼" if self._is_expanded else "▶")
 
     def load_errors(self, errors: list[ErrorInfo]) -> None:
-        """Load errors into the widget."""
+        self._errors = errors
+
+        while self._container_layout.count():
+            item = self._container_layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
         if not errors:
             self.hide()
             return
 
         count = len(errors)
-        if count == 1:
-            err = errors[0]
-            time_str = format_time(err.timestamp)
-            tool_short = shorten_tool_name(err.tool_name)
-            self._label.setText(
-                f"⚠️ {tool_short} failed{' at ' + time_str if time_str else ''}"
-            )
-            self._label.setToolTip(err.message)
-        else:
-            self._label.setText(f"⚠️ {count} errors occurred")
-            tooltip = "\n".join(
-                f"• {shorten_tool_name(e.tool_name)}: {e.message[:50]}"
-                for e in errors[:5]
-            )
-            if count > 5:
-                tooltip += f"\n... +{count - 5} more"
-            self._label.setToolTip(tooltip)
+        self._header.setText(f"⚠️ ERRORS ({count})")
+
+        for i, error in enumerate(errors):
+            prefix = "└─" if i == len(errors) - 1 else "├─"
+            item = ErrorItemWidget(error, prefix, self._container)
+            self._container_layout.addWidget(item)
+
+        self._container_layout.addStretch()
+
+        self._is_expanded = False
+        self._scroll.hide()
+        self._arrow.setText("▶")
 
         self.show()
 
