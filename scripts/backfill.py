@@ -112,6 +112,13 @@ def run_backfill() -> int:
         f"  File operations: {results['file_operation'].files_loaded:,} in {results['file_operation'].duration_seconds:.1f}s"
     )
 
+    print("Enriching file operations with diff stats...", flush=True)
+    enriched_count = bulk_loader.enrich_file_operations_with_diffs()
+    if enriched_count > 0:
+        print(f"  Enriched {enriched_count:,} file operations with additions/deletions")
+    else:
+        print("  No diff stats found")
+
     total_loaded = sum(r.files_loaded for r in results.values())
     total_time = sum(r.duration_seconds for r in results.values())
 

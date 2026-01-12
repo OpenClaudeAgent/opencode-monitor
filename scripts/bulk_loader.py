@@ -421,6 +421,31 @@ class BulkLoader:
             debug(f"[BulkLoader] File operations load error: {e}")
             return BulkLoadResult("file_operation", 0, time.time() - start, 0, 1)
 
+    def enrich_file_operations_with_diffs(self) -> int:
+        """Enrich file_operations with additions/deletions from session_diff files.
+
+        Returns:
+            Number of file operations enriched
+        """
+        from opencode_monitor.analytics.loaders.files import (
+            enrich_file_operations_with_diff_stats,
+        )
+
+        start = time.time()
+        try:
+            enriched = enrich_file_operations_with_diff_stats(
+                self._db, self._storage_path
+            )
+            elapsed = time.time() - start
+            if enriched > 0:
+                info(
+                    f"[BulkLoader] Enriched {enriched:,} file operations with diff stats in {elapsed:.1f}s"
+                )
+            return enriched
+        except Exception as e:
+            debug(f"[BulkLoader] Diff enrichment error: {e}")
+            return 0
+
     def _create_root_traces(self, conn) -> int:
         """Create root traces for sessions without parent."""
         try:

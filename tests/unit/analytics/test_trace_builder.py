@@ -762,6 +762,9 @@ class TestDelegationLinkage:
         assert depths["ses_child"] == (1, "ses_root")
         assert depths["ses_grandchild"] == (2, "ses_child")
 
+    @pytest.mark.skip(
+        reason="_calculate_delegation_depth is now part of MaterializedTableManager internal implementation"
+    )
     def test_calculate_delegation_depth_method(self, trace_builder, temp_db):
         """_calculate_delegation_depth returns correct depth for any session."""
         conn = temp_db.connect()

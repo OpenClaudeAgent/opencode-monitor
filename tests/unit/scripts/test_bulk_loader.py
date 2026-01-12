@@ -1056,3 +1056,116 @@ class TestBulkLoaderFileOperations:
         ).fetchone()
 
         assert file_op[0] == "/fallback/path.py"
+
+
+class TestEnrichFileOperationsWithDiffs:
+    def test_enrich_file_operations_with_diffs_success(
+        self, temp_storage, temp_db, bulk_loader
+    ):
+        now_ms = int(time.time() * 1000)
+        session_id = "ses_enrich_test"
+
+        session = {
+            "id": session_id,
+            "projectID": "proj_001",
+            "directory": "/test",
+            "title": "Test Session",
+            "time": {"created": now_ms, "updated": now_ms},
+        }
+        write_json_file(temp_storage, "session", "proj_001", session_id, session)
+
+        part_write = {
+            "id": "prt_write",
+            "sessionID": session_id,
+            "messageID": "msg_001",
+            "tool": "write",
+            "state": {
+                "status": "completed",
+                "input": {"filePath": "/test/file1.py"},
+                "time": {"start": now_ms, "end": now_ms + 100},
+            },
+        }
+        write_json_file(temp_storage, "part", "proj_001", "prt_write", part_write)
+
+        part_edit = {
+            "id": "prt_edit",
+            "sessionID": session_id,
+            "messageID": "msg_002",
+            "tool": "edit",
+            "state": {
+                "status": "completed",
+                "input": {"filePath": "/test/file2.py"},
+                "time": {"start": now_ms, "end": now_ms + 100},
+            },
+        }
+        write_json_file(temp_storage, "part", "proj_001", "prt_edit", part_edit)
+
+        diff_data = [
+            {"file": "/test/file1.py", "additions": 50, "deletions": 10},
+            {"file": "/test/file2.py", "additions": 30, "deletions": 20},
+        ]
+        diff_dir = temp_storage / "session_diff"
+        diff_dir.mkdir(exist_ok=True)
+        diff_file = diff_dir / f"{session_id}.json"
+        diff_file.write_text(json.dumps(diff_data))
+
+        bulk_loader.load_sessions()
+        bulk_loader.load_file_operations()
+
+        enriched = bulk_loader.enrich_file_operations_with_diffs()
+
+        assert enriched == 2
+
+        conn = temp_db.connect()
+        file1 = conn.execute(
+            "SELECT additions, deletions FROM file_operations WHERE id = 'prt_write'"
+        ).fetchone()
+        file2 = conn.execute(
+            "SELECT additions, deletions FROM file_operations WHERE id = 'prt_edit'"
+        ).fetchone()
+
+        assert file1[0] == 50
+        assert file1[1] == 10
+        assert file2[0] == 30
+        assert file2[1] == 20
+
+    def test_enrich_file_operations_no_diffs(self, temp_storage, temp_db, bulk_loader):
+        now_ms = int(time.time() * 1000)
+        session_id = "ses_no_diffs"
+
+        session = {
+            "id": session_id,
+            "projectID": "proj_001",
+            "directory": "/test",
+            "title": "Test Session",
+            "time": {"created": now_ms, "updated": now_ms},
+        }
+        write_json_file(temp_storage, "session", "proj_001", session_id, session)
+
+        part_write = {
+            "id": "prt_no_diff",
+            "sessionID": session_id,
+            "messageID": "msg_001",
+            "tool": "write",
+            "state": {
+                "status": "completed",
+                "input": {"filePath": "/test/file1.py"},
+                "time": {"start": now_ms, "end": now_ms + 100},
+            },
+        }
+        write_json_file(temp_storage, "part", "proj_001", "prt_no_diff", part_write)
+
+        bulk_loader.load_sessions()
+        bulk_loader.load_file_operations()
+
+        enriched = bulk_loader.enrich_file_operations_with_diffs()
+
+        assert enriched == 0
+
+        conn = temp_db.connect()
+        file1 = conn.execute(
+            "SELECT additions, deletions FROM file_operations WHERE id = 'prt_no_diff'"
+        ).fetchone()
+
+        assert file1[0] is None or file1[0] == 0
+        assert file1[1] is None or file1[1] == 0
