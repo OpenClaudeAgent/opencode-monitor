@@ -395,19 +395,6 @@ class SecurityAuditor:
             for i, row in enumerate(rows)
         ]
 
-    def generate_report(self) -> str:
-        """Generate a text report of security findings."""
-        from ..reporter import SecurityReporter
-
-        reporter = SecurityReporter()
-        return reporter.generate_summary_report(
-            stats=self.get_stats(),
-            critical_cmds=self.get_critical_commands(10),
-            sensitive_reads=self.get_sensitive_reads(10),
-            sensitive_writes=self.get_sensitive_writes(10),
-            risky_fetches=self.get_risky_webfetches(10),
-        )
-
     # ===== EDR API (kept for backwards compatibility) =====
 
     def get_recent_sequences(self) -> List[SequenceMatch]:

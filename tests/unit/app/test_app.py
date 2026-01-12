@@ -751,74 +751,7 @@ class TestAddSecurityAlert:
 
 
 # =============================================================================
-# Group 12: Security Reports (2 → 1 test)
-# =============================================================================
-
-
-class TestSecurityReports:
-    """Tests for security report and export functionality"""
-
-    def test_security_reports_full(self, mock_dependencies):
-        """Should generate report/export, write to temp/config file, and open it."""
-        with (
-            patch("subprocess.run") as mock_run,
-            patch("builtins.open", MagicMock()) as mock_open,
-            patch(
-                "opencode_monitor.app.handlers.SecurityReporter"
-            ) as mock_reporter_class,
-        ):
-            mock_reporter = MagicMock()
-            mock_reporter.generate_full_export.return_value = "Export content"
-            mock_reporter_class.return_value = mock_reporter
-
-            app = create_app_with_mocks(mock_dependencies)
-            mock_dependencies["auditor"].generate_report.return_value = "Report content"
-            mock_dependencies["auditor"].get_all_commands.return_value = []
-            mock_dependencies["auditor"].get_all_reads.return_value = []
-            mock_dependencies["auditor"].get_all_writes.return_value = []
-            mock_dependencies["auditor"].get_all_webfetches.return_value = []
-
-            # Test show_security_report
-            app._show_security_report(None)
-            mock_dependencies["auditor"].generate_report.assert_called_once()
-            mock_run.assert_called()
-            args = mock_run.call_args[0][0]
-            assert args[0] == "open"
-            assert "opencode_security_report.txt" in args[1]
-
-            mock_run.reset_mock()
-
-            # Test export_all_commands
-            app._export_all_commands(None)
-
-            # All data fetched
-            mock_dependencies["auditor"].get_all_commands.assert_called_once_with(
-                limit=10000
-            )
-            mock_dependencies["auditor"].get_all_reads.assert_called_once_with(
-                limit=10000
-            )
-            mock_dependencies["auditor"].get_all_writes.assert_called_once_with(
-                limit=10000
-            )
-            mock_dependencies["auditor"].get_all_webfetches.assert_called_once_with(
-                limit=10000
-            )
-
-            # Reporter used
-            mock_reporter.generate_full_export.assert_called_once()
-
-            # Written to config dir and file opened
-            mock_open.assert_called()
-            call_args = mock_open.call_args[0][0]
-            assert ".config/opencode-monitor" in call_args
-            assert "security_audit_" in call_args
-            mock_run.assert_called_once()
-            assert mock_run.call_args[0][0][0] == "open"
-
-
-# =============================================================================
-# Group 13: Main (1 test - unchanged)
+# Group 12: Main (1 test - unchanged)
 # =============================================================================
 
 

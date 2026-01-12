@@ -43,8 +43,6 @@ class MenuMixin:
     # Handlers (will be provided by HandlersMixin)
     def _focus_terminal(self, tty: str): ...
     def _add_security_alert(self, alert): ...
-    def _show_security_report(self, _): ...
-    def _export_all_commands(self, _): ...
     def _on_refresh(self, _): ...
     def _show_dashboard(self, _): ...
 
@@ -154,11 +152,7 @@ class MenuMixin:
         # Security menu
         self.menu.add(None)  # type: ignore[attr-defined]
         auditor = get_auditor()
-        security_menu = self._menu_builder.build_security_menu(
-            auditor,
-            report_callback=self._show_security_report,
-            export_callback=self._export_all_commands,
-        )
+        security_menu = self._menu_builder.build_security_menu(auditor)
 
         # Update critical flag
         stats = auditor.get_stats()

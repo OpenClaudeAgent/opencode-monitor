@@ -30,7 +30,6 @@ from ..db import (
     AuditedFileWrite,
     AuditedWebFetch,
 )
-from ..reporter import SecurityReporter
 from ..sequences import SequenceAnalyzer, SequenceMatch, create_event_from_audit_data
 from ..correlator import EventCorrelator, Correlation
 
@@ -59,8 +58,6 @@ __all__ = [
     "AuditedFileRead",
     "AuditedFileWrite",
     "AuditedWebFetch",
-    # From reporter
-    "SecurityReporter",
     # From sequences
     "SequenceAnalyzer",
     "SequenceMatch",

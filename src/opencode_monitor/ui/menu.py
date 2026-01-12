@@ -386,15 +386,11 @@ class MenuBuilder:
     def build_security_menu(
         self,
         auditor,
-        report_callback: Callable,
-        export_callback: Callable,
     ) -> rumps.MenuItem:
         """Build the security audit submenu.
 
         Args:
             auditor: SecurityAuditor instance
-            report_callback: Callback for viewing full report
-            export_callback: Callback for exporting data
 
         Returns:
             rumps.MenuItem with security submenu
@@ -463,10 +459,6 @@ class MenuBuilder:
 
         # Top critical/high items
         self._add_critical_items(menu, auditor)
-
-        menu.add(None)
-        menu.add(rumps.MenuItem("📋 View Full Report", callback=report_callback))
-        menu.add(rumps.MenuItem("📤 Export All Data", callback=export_callback))
 
         return menu
 

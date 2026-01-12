@@ -17,7 +17,6 @@ from ..utils.settings import get_settings, save_settings
 from ..utils.logger import info, error, debug
 from ..security.analyzer import SecurityAlert, RiskLevel
 from ..security.auditor import get_auditor, start_auditor
-from ..security.reporter import SecurityReporter
 from ..ui.terminal import focus_iterm2
 from ..ui.menu import (
     MenuBuilder,
@@ -55,7 +54,6 @@ __all__ = [
     "RiskLevel",
     "get_auditor",
     "start_auditor",
-    "SecurityReporter",
     "focus_iterm2",
     "MenuBuilder",
     "truncate_with_tooltip",

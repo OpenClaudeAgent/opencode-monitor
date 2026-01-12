@@ -797,21 +797,17 @@ class TestBuildSecurityMenu:
     def test_security_menu_structure(
         self, menu_builder, mock_auditor, critical, high, expected_alerts
     ):
-        """Security menu: title with alerts, stats, View Report, Export buttons.
+        """Security menu: title with alerts and stats summary.
 
         Tests:
         - Title shows alert count when alerts exist
         - Title hides count when no alerts
         - Stats summary included
-        - View Full Report button present
-        - Export All Data button present
         """
         mock_auditor.get_stats.return_value["critical"] = critical
         mock_auditor.get_stats.return_value["high"] = high
-        report_cb = MagicMock()
-        export_cb = MagicMock()
 
-        menu = menu_builder.build_security_menu(mock_auditor, report_cb, export_cb)
+        menu = menu_builder.build_security_menu(mock_auditor)
 
         # Alert count
         if expected_alerts:
@@ -821,11 +817,6 @@ class TestBuildSecurityMenu:
 
         # Stats
         assert "100 cmds" in menu._items[0].title
-
-        # Buttons
-        titles = [item.title for item in menu._items if hasattr(item, "title")]
-        assert any("View Full Report" in t for t in titles)
-        assert any("Export All Data" in t for t in titles)
 
 
 # =============================================================================
