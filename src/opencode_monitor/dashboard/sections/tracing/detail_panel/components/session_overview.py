@@ -587,10 +587,6 @@ class ExchangeGroupWidget(QFrame):
             content_layout.addWidget(event_widget)
             event_count += 1
 
-            f"[Timeline] Exchange #{self._exchange_number}: "
-            f"total={len(self._events)}, displayed={event_count}"
-        )
-
         main_layout.addWidget(self._content)
 
         # Initial state
@@ -682,9 +678,6 @@ class ExpandableTimelineWidget(QFrame):
             for d in data.get("delegations", [])
             if d.get("child_session_id")
         }
-            f"[Timeline] timeline={len(timeline)} events, "
-            f"delegations={len(self._delegations)}"
-        )
 
         if not timeline:
             self._show_empty_state()
@@ -692,16 +685,10 @@ class ExpandableTimelineWidget(QFrame):
 
         # Group events by exchange_number
         groups = self._group_by_exchange(timeline)
-            f"[Timeline] Grouped into {len(groups)} exchanges: "
-            f"{[(num, len(evts)) for num, evts in sorted(groups.items())]}"
-        )
 
         # Create exchange widgets
         for exchange_num in sorted(groups.keys()):
             events = groups[exchange_num]
-                f"[Timeline] Creating ExchangeGroupWidget for exchange #{exchange_num} "
-                f"with {len(events)} events"
-            )
             widget = ExchangeGroupWidget(
                 exchange_number=exchange_num,
                 events=events,
@@ -714,9 +701,6 @@ class ExpandableTimelineWidget(QFrame):
                 self._container_layout.count() - 1, widget
             )
             self._exchange_widgets.append(widget)
-
-            f"[Timeline] Created {len(self._exchange_widgets)} exchange widgets"
-        )
 
     def _group_by_exchange(self, timeline: list[dict]) -> dict[int, list[dict]]:
         """Group events by exchange_number and sort chronologically."""
@@ -1659,9 +1643,6 @@ class SessionOverviewPanel(QFrame):
         _collect_agents_recursive(tree_data, agents)
 
         session_id = tree_data.get("session_id")
-            f"[Timeline] load_session called, session_id={session_id}, "
-            f"tree_data keys={list(tree_data.keys())}"
-        )
         if session_id:
             self._load_extended_timeline(session_id)
             files_with_stats = self._load_files_from_api(session_id)
@@ -1697,7 +1678,6 @@ class SessionOverviewPanel(QFrame):
             session_id: Session ID to load
         """
         from opencode_monitor.api import get_api_client
-
 
         client = get_api_client()
         if not client.is_available:
