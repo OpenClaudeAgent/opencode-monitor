@@ -8,7 +8,6 @@ Creates trace segments when users switch agents mid-session
 from typing import TYPE_CHECKING
 
 
-
 if TYPE_CHECKING:
     from ...db import AnalyticsDB
 
@@ -267,3 +266,4 @@ class SegmentBuilder:
                 ],
             )
         except Exception:
+            pass
