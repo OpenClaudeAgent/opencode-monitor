@@ -7,7 +7,7 @@ import json
 from datetime import datetime
 from typing import TYPE_CHECKING, Iterator
 
-from ...utils.logger import debug
+
 
 if TYPE_CHECKING:
     from .config import TracingConfig
@@ -131,7 +131,6 @@ class SessionQueriesMixin:
                 },
             }
         except Exception as e:
-            debug(f"get_session_summary failed: {e}")
             return self._empty_response(session_id)
 
     def get_session_tokens(self, session_id: str) -> dict:
@@ -288,7 +287,6 @@ class SessionQueriesMixin:
                 "prompt_output": prompt_output or "(No response yet)",
             }
         except Exception as e:
-            debug(f"get_session_prompts failed: {e}")
             return {
                 "meta": {"session_id": session_id, "error": str(e)},
                 "prompt_input": "(Unable to load prompt data)",
@@ -410,7 +408,6 @@ class SessionQueriesMixin:
             return messages
 
         except Exception as e:
-            debug(f"get_session_messages failed: {e}")
             return []
 
     def get_session_timeline(self, session_id: str) -> list[dict]:
@@ -500,7 +497,6 @@ class SessionQueriesMixin:
             return events
 
         except Exception as e:
-            debug(f"get_session_timeline failed: {e}")
             return []
 
     def get_session_agents(self, session_id: str) -> list[dict]:
@@ -593,7 +589,6 @@ class SessionQueriesMixin:
             return operations
 
         except Exception as e:
-            debug(f"get_session_tool_operations failed: {e}")
             return []
 
     # ===== Plan 34: Enriched Parts Methods =====
@@ -654,7 +649,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_reasoning failed: {e}")
             return {
                 "meta": {"session_id": session_id, "count": 0, "error": str(e)},
                 "summary": {"total_entries": 0, "signed_entries": 0, "total_chars": 0},
@@ -751,7 +745,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_steps failed: {e}")
             return {
                 "meta": {"session_id": session_id, "count": 0, "error": str(e)},
                 "summary": {
@@ -829,7 +822,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_git_history failed: {e}")
             return {
                 "meta": {"session_id": session_id, "commits": 0, "error": str(e)},
                 "summary": {"total_commits": 0, "unique_files": 0, "files_list": []},
@@ -906,7 +898,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_file_parts failed: {e}")
             return {
                 "meta": {"session_id": session_id, "error": str(e)},
                 "summary": {"total_files": 0, "by_mime_type": []},
@@ -995,7 +986,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_precise_cost failed: {e}")
             return {
                 "meta": {"session_id": session_id, "error": str(e)},
                 "precise": {"cost_usd": 0, "tokens_input": 0, "tokens_output": 0},
@@ -1263,7 +1253,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_timeline_full failed: {e}")
             return {
                 "success": False,
                 "error": str(e),
@@ -1847,7 +1836,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_session_exchanges failed: {e}")
             return {
                 "meta": {
                     "session_id": session_id,
@@ -1970,7 +1958,6 @@ class SessionQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_delegation_tree failed: {e}")
             return {
                 "meta": {
                     "session_id": session_id,
@@ -2159,7 +2146,6 @@ class SessionQueriesMixin:
                 "timeline": timeline,
             }
         except Exception as e:
-            debug(f"get_delegation_timeline failed: {e}")
             return {
                 "meta": {"session_id": session_id, "error": str(e)},
                 "prompt_input": None,

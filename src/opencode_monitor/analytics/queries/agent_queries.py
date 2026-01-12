@@ -8,7 +8,7 @@ from datetime import datetime
 
 from ..models import AgentDelegationStats, AgentRole, AgentStats, TokenStats
 from .base import BaseQueries
-from ...utils.logger import debug
+
 
 
 class AgentQueries(BaseQueries):
@@ -125,7 +125,6 @@ class AgentQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_agent_roles query failed: {e}")
             return []
 
     def _get_agent_delegation_stats(
@@ -171,5 +170,4 @@ class AgentQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_agent_delegation_stats query failed: {e}")
             return []

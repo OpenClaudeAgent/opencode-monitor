@@ -14,7 +14,7 @@ from ..models import (
     DelegationSession,
 )
 from .base import BaseQueries
-from ...utils.logger import debug
+
 
 
 class DelegationQueries(BaseQueries):
@@ -94,8 +94,7 @@ class DelegationQueries(BaseQueries):
                 max_depth=max_depth,
                 avg_per_session=(total / sessions) if sessions > 0 else 0,
             )
-        except Exception as e:  # Intentional catch-all: query failures return None
-            debug(f"_get_delegation_metrics query failed: {e}")
+        except Exception:  # Intentional catch-all: query failures return None
             return None
 
     def _get_delegation_patterns(
@@ -151,7 +150,6 @@ class DelegationQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_delegation_patterns query failed: {e}")
             return []
 
     def _get_agent_chains(
@@ -290,5 +288,4 @@ class DelegationQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_delegation_sessions query failed: {e}")
             return []

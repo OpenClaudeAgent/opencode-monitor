@@ -24,7 +24,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
-from ..utils.logger import info, debug, error
+from ..utils.logger import info, error
 
 
 # =============================================================================
@@ -235,7 +235,6 @@ class StorageSchemaAnalyzer:
         for entity_type in ["session", "message", "part"]:
             entity_dir = self.storage_path / entity_type
             if not entity_dir.exists():
-                debug(f"[SchemaAnalyzer] Directory not found: {entity_dir}")
                 continue
 
             self._scan_entity_directory(entity_type, entity_dir, sample_limit)
@@ -264,7 +263,6 @@ class StorageSchemaAnalyzer:
                 count += 1
 
             except (json.JSONDecodeError, IOError) as e:
-                debug(f"[SchemaAnalyzer] Error reading {json_file}: {e}")
 
         info(f"[SchemaAnalyzer] Scanned {count} {entity_type} files")
 
@@ -291,7 +289,7 @@ class StorageSchemaAnalyzer:
             db.close()
             return db_schema
 
-        except Exception as e:
+        except Exception:
             error(f"[SchemaAnalyzer] Error getting DB schema: {e}")
             return {}
 

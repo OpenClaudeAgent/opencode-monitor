@@ -2,7 +2,7 @@
 
 from typing import Optional, TYPE_CHECKING
 
-from opencode_monitor.utils.logger import debug
+
 
 if TYPE_CHECKING:
     from opencode_monitor.analytics import TracingDataService
@@ -61,13 +61,11 @@ class DataLoaderMixin:
             tab_index: Index of the tab to load data for
         """
         if not self._current_session_id:
-            debug("[TraceDetailPanel] _load_tab_data: no session_id")
             return
 
         client = self._get_api_client()
 
         if not client.is_available:
-            debug("[TraceDetailPanel] _load_tab_data: API not available")
             return
 
         try:
@@ -85,8 +83,7 @@ class DataLoaderMixin:
                 self._load_timeline_tab()
             elif tab_index == 6:  # Delegations
                 self._load_delegations_tab()
-        except Exception as e:
-            debug(f"Failed to load tab data: {e}")
+        except Exception:
 
     def _load_transcript_tab(self) -> None:
         """Load transcript tab data."""
@@ -98,9 +95,7 @@ class DataLoaderMixin:
             return
 
         client = self._get_api_client()
-        debug(f"[TraceDetailPanel] Loading prompts for transcript {session_id}")
         prompts_data = client.get_session_prompts(session_id)
-        debug(f"[TraceDetailPanel] Prompts data: {prompts_data is not None}")
 
         if prompts_data:
             self._transcript_tab.load_data(  # type: ignore
@@ -214,8 +209,7 @@ class DataLoaderMixin:
             if result and result.get("success"):
                 data = result.get("data", {})
                 return data.get("timeline", [])
-        except Exception as e:
-            debug(f"Error loading timeline: {e}")
+        except Exception:
 
         return []
 
@@ -251,7 +245,6 @@ class DataLoaderMixin:
             result = self._service.get_delegation_tree(session_id)
             if result:
                 return result.get("tree", {})
-        except Exception as e:
-            debug(f"Error loading delegations: {e}")
+        except Exception:
 
         return {}

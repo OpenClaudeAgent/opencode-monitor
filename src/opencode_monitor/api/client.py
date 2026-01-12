@@ -11,7 +11,7 @@ import json
 import time
 from typing import Optional
 
-from ..utils.logger import debug, error
+from ..utils.logger import error
 from .config import API_HOST, API_PORT, API_TIMEOUT
 
 # Cache duration for health check (seconds)
@@ -56,7 +56,6 @@ class AnalyticsAPIClient:
             query_string = "&".join(f"{k}={v}" for k, v in params.items())
             url = f"{url}?{query_string}"
 
-        debug(f"[API Client] >>> {endpoint} params={params}")
         start_time = time.time()
 
         try:
@@ -79,10 +78,9 @@ class AnalyticsAPIClient:
         except urllib.error.URLError as e:
             elapsed = (time.time() - start_time) * 1000
             if self._available is not False:
-                debug(f"[API Client] API unavailable ({elapsed:.0f}ms): {e}")
             self._available = False
             return None
-        except Exception as e:
+        except Exception:
             elapsed = (time.time() - start_time) * 1000
             error(f"[API Client] Error ({elapsed:.0f}ms): {e}")
             return None
@@ -92,11 +90,8 @@ class AnalyticsAPIClient:
     ) -> None:
         if isinstance(result, dict):
             keys = list(result.keys())[:5]
-            debug(f"[API Client] <<< {endpoint}: {elapsed:.0f}ms keys={keys}")
         elif isinstance(result, list):
-            debug(f"[API Client] <<< {endpoint}: {elapsed:.0f}ms list[{len(result)}]")
         else:
-            debug(
                 f"[API Client] <<< {endpoint}: {elapsed:.0f}ms {type(result).__name__}"
             )
 

@@ -17,7 +17,8 @@ import uuid
 
 from ...db import AnalyticsDB
 from ..parsers import ParsedDelegation, ParsedPart
-from ....utils.logger import debug
+from ....utils.logger import info
+
 from .helpers import determine_status, extract_prompt
 from .segments import SegmentBuilder
 
@@ -138,7 +139,7 @@ class TraceBuilder:
                 ],
             )
 
-            debug(
+            info(
                 f"[TraceBuilder] Created trace {trace_id} for {delegation.child_agent}"
             )
 
@@ -148,8 +149,7 @@ class TraceBuilder:
 
             return trace_id
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to create trace: {e}")
+        except Exception:
             return None
 
     def update_trace_tokens(self, child_session_id: str) -> None:
@@ -185,8 +185,8 @@ class TraceBuilder:
                     [result[0], result[1], child_session_id],
                 )
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to update tokens: {e}")
+        except Exception:
+            pass
 
     def backfill_missing_tokens(self) -> int:
         """Backfill tokens for all traces with child_session_id but no tokens.
@@ -245,12 +245,11 @@ class TraceBuilder:
             )
 
             if will_update > 0:
-                debug(f"[TraceBuilder] Backfilled tokens for {will_update} traces")
+                info(f"[TraceBuilder] Backfilled tokens for {will_update} traces")
 
             return will_update
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to backfill tokens: {e}")
+        except Exception:
             return 0
 
     def resolve_parent_traces(self) -> int:
@@ -312,11 +311,10 @@ class TraceBuilder:
             total_updated += updated
 
             if total_updated > 0:
-                debug(f"[TraceBuilder] Resolved {total_updated} parent traces")
+                info(f"[TraceBuilder] Resolved {total_updated} parent traces")
             return total_updated
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to resolve parent traces: {e}")
+        except Exception:
             return 0
 
     def update_root_trace_agents(self) -> int:
@@ -358,11 +356,10 @@ class TraceBuilder:
 
             updated = result.rowcount if hasattr(result, "rowcount") else 0
             if updated > 0:
-                debug(f"[TraceBuilder] Updated {updated} root trace agents")
+                info(f"[TraceBuilder] Updated {updated} root trace agents")
             return updated
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to update root trace agents: {e}")
+        except Exception:
             return 0
 
     def _resolve_parent_trace_id(self, session_id: str, trace_id: str) -> Optional[str]:
@@ -391,8 +388,7 @@ class TraceBuilder:
                 [session_id, trace_id],
             ).fetchone()
             return result[0] if result else None
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to resolve parent trace: {e}")
+        except Exception:
             return None
 
     def _resolve_parent_agent(self, message_id: Optional[str]) -> Optional[str]:
@@ -480,11 +476,10 @@ class TraceBuilder:
                 ],
             )
 
-            debug(f"[TraceBuilder] Created root trace {trace_id}")
+            info(f"[TraceBuilder] Created root trace {trace_id}")
             return trace_id
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to create root trace: {e}")
+        except Exception:
             return None
 
     def create_conversation_segments(self, session_id: str) -> int:
@@ -546,8 +541,7 @@ class TraceBuilder:
                 "delegation_traces": delegation_count,
             }
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to get stats: {e}")
+        except Exception:
             return {
                 "total": 0,
                 "by_status": {},
@@ -572,7 +566,12 @@ class TraceBuilder:
         exchange_traces = self.build_exchange_traces(session_id)
         session_traces = self.build_session_traces(session_id)
 
-        debug(
+        if exchanges or exchange_traces or session_traces:
+            info(
+                f"[TraceBuilder] Build complete: {exchanges} exchanges, {exchange_traces} exchange traces, {session_traces} session traces"
+            )
+
+        info(
             f"[TraceBuilder] build_all complete: "
             f"exchanges={exchanges}, exchange_traces={exchange_traces}, "
             f"session_traces={session_traces}"
@@ -772,11 +771,9 @@ class TraceBuilder:
                 result = conn.execute("SELECT COUNT(*) FROM exchanges").fetchone()
 
             count = result[0] if result else 0
-            debug(f"[TraceBuilder] Built {count} exchanges")
             return count
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to build exchanges: {e}")
+        except Exception:
             return 0
 
     def build_exchange_traces(self, session_id: Optional[str] = None) -> int:
@@ -992,11 +989,9 @@ class TraceBuilder:
                 result = conn.execute("SELECT COUNT(*) FROM exchange_traces").fetchone()
 
             count = result[0] if result else 0
-            debug(f"[TraceBuilder] Built {count} exchange traces")
             return count
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to build exchange traces: {e}")
+        except Exception:
             return 0
 
     def _calculate_delegation_depth(self, session_id: str) -> int:
@@ -1038,8 +1033,7 @@ class TraceBuilder:
 
             return depth
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to calculate depth for {session_id}: {e}")
+        except Exception:
             return 0
 
     def _build_delegation_depths(self) -> dict[str, int]:
@@ -1081,8 +1075,7 @@ class TraceBuilder:
 
             return {row[0]: row[1] for row in results}
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to build depth map: {e}")
+        except Exception:
             return {}
 
     def build_session_traces(self, session_id: Optional[str] = None) -> int:
@@ -1252,9 +1245,7 @@ class TraceBuilder:
                 result = conn.execute("SELECT COUNT(*) FROM session_traces").fetchone()
 
             count = result[0] if result else 0
-            debug(f"[TraceBuilder] Built {count} session traces")
             return count
 
-        except Exception as e:
-            debug(f"[TraceBuilder] Failed to build session traces: {e}")
+        except Exception:
             return 0

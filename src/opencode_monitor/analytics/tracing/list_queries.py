@@ -6,7 +6,7 @@ Contains paginated list methods for sessions, traces, delegations.
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from ...utils.logger import debug
+
 
 if TYPE_CHECKING:
     import duckdb
@@ -116,7 +116,6 @@ class ListQueriesMixin:
             return self._paginate(sessions, page, per_page, total)
 
         except Exception as e:
-            debug(f"get_sessions_list failed: {e}")
             return self._paginate([], page, per_page, 0)
 
     def get_traces_list(
@@ -189,7 +188,6 @@ class ListQueriesMixin:
             return self._paginate(traces, page, per_page, total)
 
         except Exception as e:
-            debug(f"get_traces_list failed: {e}")
             return self._paginate([], page, per_page, 0)
 
     def get_delegations_list(
@@ -252,7 +250,6 @@ class ListQueriesMixin:
             return self._paginate(delegations, page, per_page, total)
 
         except Exception as e:
-            debug(f"get_delegations_list failed: {e}")
             return self._paginate([], page, per_page, 0)
 
     def search_sessions(self, query: str, limit: int = 20) -> list[dict]:
@@ -295,5 +292,4 @@ class ListQueriesMixin:
             ]
 
         except Exception as e:
-            debug(f"search_sessions failed: {e}")
             return []

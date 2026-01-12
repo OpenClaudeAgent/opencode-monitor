@@ -19,7 +19,7 @@ from ..core.monitor import fetch_all_instances
 from ..core.usage import fetch_usage
 from ..ui.menu import MenuBuilder
 from ..utils.settings import get_settings
-from ..utils.logger import info, error, debug
+from ..utils.logger import info, error
 from ..security.auditor import start_auditor
 from ..security.enrichment import SecurityEnrichmentWorker
 
@@ -233,7 +233,7 @@ class OpenCodeApp(HandlersMixin, MenuMixin, rumps.App):
                     self._previous_busy_agents = self._update_session_cache(new_state)
                     self._needs_refresh = True
 
-                    debug(f"State updated: {new_state.instance_count} instances")
+                    info(f"State updated: {new_state.instance_count} instances")
 
                 except Exception as e:
                     error(f"Monitor error: {e}")

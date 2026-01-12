@@ -8,7 +8,7 @@ from datetime import datetime
 
 from ..models import DirectoryStats, ModelStats
 from .base import BaseQueries
-from ...utils.logger import debug
+
 
 
 class DimensionQueries(BaseQueries):
@@ -47,7 +47,6 @@ class DimensionQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_directory_stats query failed: {e}")
             return []
 
     def _get_model_stats(
@@ -95,7 +94,6 @@ class DimensionQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_model_stats query failed: {e}")
             return []
 
     def _get_anomalies(self, start_date: datetime, end_date: datetime) -> list[str]:

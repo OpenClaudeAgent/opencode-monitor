@@ -10,7 +10,7 @@ from typing import Optional
 
 from ..db import AnalyticsDB
 from ..models import AgentTrace
-from ...utils.logger import info, debug
+from ...utils.logger import info
 from ...utils.datetime import ms_to_datetime
 from .enrichment import get_session_agent, get_first_user_message
 
@@ -408,7 +408,7 @@ def extract_root_sessions(
 
     # Phase 2: Sort by date descending (most recent first)
     sessions.sort(key=lambda x: x.created_at, reverse=True)
-    debug(f"Processing {len(sessions)} root sessions (newest first)")
+    info(f"Processing {len(sessions)} root sessions (newest first)")
 
     # Phase 3: Process sessions with throttling
     traces: list[AgentTrace] = []
@@ -703,8 +703,7 @@ def _insert_traces(conn, traces: list[AgentTrace]) -> int:
                     trace.child_session_id,
                 ],
             )
-        except Exception as e:  # Intentional catch-all: skip individual failures
-            debug(f"Trace insert failed for {trace.trace_id}: {e}")
+        except Exception:  # Intentional catch-all: skip individual failures
             continue
 
     return conn.execute("SELECT COUNT(*) FROM agent_traces").fetchone()[0]

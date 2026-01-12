@@ -13,7 +13,7 @@ import sys
 from typing import Callable, Any, Optional
 from datetime import datetime
 
-from .logger import debug, info, warning
+from .logger import info, warning
 
 
 # =============================================================================
@@ -131,7 +131,7 @@ def _log_api_metrics(
         log_fn = info
         severity = "WARNING"
     else:
-        log_fn = debug
+        log_fn = info
         severity = "OK"
 
     log_fn(
@@ -176,7 +176,7 @@ class QueryProfiler:
 
         if exc_type is None:
             # Success
-            log_fn = debug if duration_ms < 500 else warning
+            log_fn = info if duration_ms < 500 else warning
             log_fn(
                 f"[QUERY] {self.query_name} | "
                 f"{duration_ms:.1f}ms | "
@@ -229,7 +229,7 @@ class MemoryProfiler:
             log_fn = info
             severity = "MEDIUM"
         else:
-            log_fn = debug
+            log_fn = info
             severity = "OK"
 
         log_fn(
@@ -269,7 +269,7 @@ def profile_dashboard_fetch(section_name: str):
                 result = f(*args, **kwargs)
                 duration_ms = (time.perf_counter() - start_time) * 1000
 
-                log_fn = debug if duration_ms < 500 else info
+                log_fn = info if duration_ms < 500 else info
                 log_fn(f"[DASHBOARD] {section_name} fetch | {duration_ms:.1f}ms")
 
                 return result

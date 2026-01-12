@@ -37,7 +37,7 @@ from ..sections import (
 )
 from .signals import DataSignals
 from .sync import SyncChecker
-from ...utils.logger import debug, error
+from ...utils.logger import error, info
 
 
 class DashboardWindow(QMainWindow):
@@ -61,11 +61,14 @@ class DashboardWindow(QMainWindow):
         self._sync_checker: Optional[SyncChecker] = None
         self._refresh_count = 0
         self._monitoring_fetch_in_progress = False
+        self._current_section_index = 0
 
         self._setup_window()
         self._setup_ui()
         self._connect_signals()
         self._start_refresh()
+
+        info("[Dashboard] Window opened")
 
     def _setup_window(self) -> None:
         """Configure window properties."""
@@ -153,6 +156,13 @@ class DashboardWindow(QMainWindow):
         expensive queries during auto-refresh cycles. Tracing data fetches
         194+ root sessions, causing UI lag when done every 10s.
         """
+        section_names = ["Monitoring", "Security", "Analytics", "Tracing"]
+        if self._current_section_index != index:
+            old_name = section_names[self._current_section_index]
+            new_name = section_names[index]
+            info(f"[Dashboard] Section changed: {old_name} → {new_name}")
+            self._current_section_index = index
+
         self._pages.setCurrentIndex(index)
 
         # Load tracing data on-demand when user clicks Tracing tab
@@ -176,6 +186,7 @@ class DashboardWindow(QMainWindow):
 
     def _on_open_terminal(self, agent_id: str) -> None:
         """Handle request to open terminal for an agent."""
+        info(f"[Monitoring] Terminal opened for agent: {agent_id}")
         tty = self._agent_tty_map.get(agent_id)
         if tty:
             from ...ui.terminal import focus_iterm2
@@ -184,8 +195,7 @@ class DashboardWindow(QMainWindow):
 
     def _on_open_terminal_session(self, session_id: str) -> None:
         """Handle request to open terminal for a session (from tracing)."""
-        # For now, just log - could be extended to find session's terminal
-        debug(f"Open terminal requested for session: {session_id}")
+        info(f"[Tracing] Terminal opened for session: {session_id[:12]}...")
 
     def _on_analytics_period_changed(self, days: int) -> None:
         """Handle analytics period change - refresh data immediately."""
@@ -240,10 +250,6 @@ class DashboardWindow(QMainWindow):
             loop = asyncio.new_event_loop()
             state = loop.run_until_complete(fetch_all_instances())
             loop.close()
-
-            debug(
-                f"[Dashboard] fetch_all_instances: connected={state.connected} instances={len(state.instances)}"
-            )
 
             # Build data dict
             agents_data = []
@@ -337,9 +343,6 @@ class DashboardWindow(QMainWindow):
             # Update TTY mapping (thread-safe assignment)
             self._agent_tty_map = agent_tty_map
 
-            debug(
-                f"[Dashboard] Emitting: instances={len(state.instances)} agents={len(agents_data)} busy={busy_count}"
-            )
             self._signals.monitoring_updated.emit(data)
 
             # Note: Sidebar status update removed - was using signals improperly
@@ -364,7 +367,6 @@ class DashboardWindow(QMainWindow):
 
             # Check if API is available
             if not client.is_available:
-                debug("[Dashboard] API not available for security data")
                 return
 
             row_limit = UI["table_row_limit"]
@@ -392,7 +394,6 @@ class DashboardWindow(QMainWindow):
 
             # Check if API is available
             if not client.is_available:
-                debug("[Dashboard] API not available for analytics")
                 return
 
             days = self._analytics.get_current_period()
@@ -445,9 +446,6 @@ class DashboardWindow(QMainWindow):
 
     def _on_monitoring_data(self, data: dict) -> None:
         """Handle monitoring data update."""
-        debug(
-            f"[Dashboard] _on_monitoring_data: instances={data.get('instances', 0)} agents={data.get('agents', 0)}"
-        )
         self._monitoring.update_data(
             instances=data.get("instances", 0),
             agents=data.get("agents", 0),
@@ -498,14 +496,9 @@ class DashboardWindow(QMainWindow):
             client = get_api_client()
 
             if not client.is_available:
-                debug("[Dashboard] API not available, menubar may not be running")
                 return
 
             session_hierarchy: list[dict] = client.get_tracing_tree(days=30) or []  # type: ignore[assignment]
-
-            debug(
-                f"[Dashboard] Got tracing tree with {len(session_hierarchy)} root sessions"
-            )
 
             self._signals.tracing_updated.emit(
                 {
@@ -515,9 +508,6 @@ class DashboardWindow(QMainWindow):
 
         except Exception as e:
             error(f"[Dashboard] Tracing fetch error: {e}")
-            import traceback
-
-            error(traceback.format_exc())
 
     def _on_tracing_data(self, data: dict) -> None:
         """Handle tracing data update."""
@@ -527,6 +517,7 @@ class DashboardWindow(QMainWindow):
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:
         """Handle window close."""
+        info("[Dashboard] Window closed")
         if self._refresh_timer:
             self._refresh_timer.stop()
         if self._sync_checker:

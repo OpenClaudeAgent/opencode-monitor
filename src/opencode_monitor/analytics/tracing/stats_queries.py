@@ -6,7 +6,7 @@ Contains methods for global stats, daily aggregation, and comparison.
 from datetime import datetime, timedelta
 from typing import Optional, TYPE_CHECKING
 
-from ...utils.logger import debug
+
 
 if TYPE_CHECKING:
     from .config import TracingConfig
@@ -226,7 +226,6 @@ class StatsQueriesMixin:
             }
 
         except Exception as e:
-            debug(f"get_global_stats failed: {e}")
             return {
                 "meta": {"error": str(e)},
                 "summary": {},
@@ -302,10 +301,9 @@ class StatsQueriesMixin:
                     s.get("duration_ms", 0),
                 ],
             )
-            debug(f"Updated session_stats for {session_id}")
+            info(f"Updated session_stats for {session_id}")
 
         except Exception as e:
-            debug(f"update_session_stats failed: {e}")
 
     def update_daily_stats(self, date: Optional[datetime] = None) -> None:
         """Update daily aggregation stats.
@@ -355,10 +353,9 @@ class StatsQueriesMixin:
                         round(stats[5] or 0, 2),
                     ],
                 )
-                debug(f"Updated daily_stats for {date_str}")
+                info(f"Updated daily_stats for {date_str}")
 
         except Exception as e:
-            debug(f"update_daily_stats failed: {e}")
 
     def get_daily_stats(self, days: int = 7) -> list[dict]:
         """Get aggregated statistics per day.
@@ -436,5 +433,4 @@ class StatsQueriesMixin:
             ]
 
         except Exception as e:
-            debug(f"get_daily_stats failed: {e}")
             return []

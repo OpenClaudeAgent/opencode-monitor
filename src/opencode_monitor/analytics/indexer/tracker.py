@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Optional
 
 from ..db import AnalyticsDB
-from ...utils.logger import debug
+
 
 
 @dataclass
@@ -71,7 +71,6 @@ class FileTracker:
             CREATE INDEX IF NOT EXISTS idx_file_index_mtime
             ON file_index(mtime DESC)
         """)
-        debug("[FileTracker] file_index table ensured")
 
     def needs_indexing(self, path: Path | str) -> bool:
         """Check if a file needs (re)indexing based on mtime and size.
@@ -373,4 +372,3 @@ class FileTracker:
         """Clear all tracking data (for testing/reset)."""
         conn = self._db.connect()
         conn.execute("DELETE FROM file_index")
-        debug("[FileTracker] Cleared file_index table")

@@ -6,7 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import AnalyticsDB
-from ...utils.logger import info, debug
+from ...utils.logger import info
 from ...utils.datetime import ms_to_datetime
 from .utils import collect_recent_part_files, chunked
 
@@ -30,7 +30,7 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
         info("No recent part files found")
         return 0
 
-    debug(f"Scanning {len(recent_files)} recent part files for delegations")
+    info(f"Scanning {len(recent_files)} recent part files for delegations")
 
     cutoff = datetime.now() - timedelta(days=max_days)
     delegations: list[dict] = []
@@ -117,8 +117,7 @@ def load_delegations(db: AnalyticsDB, storage_path: Path, max_days: int = 30) ->
                     d["created_at"],
                 ],
             )
-        except Exception as e:  # Intentional catch-all: skip individual insert failures
-            debug(f"Delegation insert failed for {d.get('id', 'unknown')}: {e}")
+        except Exception:  # Intentional catch-all: skip individual insert failures
             continue
 
     row = conn.execute("SELECT COUNT(*) FROM delegations").fetchone()

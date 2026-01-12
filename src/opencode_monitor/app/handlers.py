@@ -10,7 +10,7 @@ from ..security.auditor import get_auditor
 from ..ui.terminal import focus_iterm2
 from ..dashboard import show_dashboard
 from ..analytics import AnalyticsDB, load_opencode_data, generate_report
-from ..utils.logger import info, error, debug
+from ..utils.logger import info, error
 
 
 if TYPE_CHECKING:
@@ -172,7 +172,6 @@ class HandlersMixin:
                     load_opencode_data(db, clear_first=True)
                     info("[Analytics] Background refresh complete")
                 else:
-                    debug("[Analytics] Data is fresh, skipping refresh")
             except Exception as e:
                 error(f"[Analytics] Background refresh error: {e}")
             finally:

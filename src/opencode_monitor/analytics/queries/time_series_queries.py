@@ -8,7 +8,7 @@ from datetime import datetime
 
 from ..models import DailyStats, HourlyDelegations, HourlyStats
 from .base import BaseQueries
-from ...utils.logger import debug
+
 
 
 class TimeSeriesQueries(BaseQueries):
@@ -63,7 +63,6 @@ class TimeSeriesQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_hourly_delegations query failed: {e}")
             return []
 
     def _get_daily_stats(
@@ -139,5 +138,4 @@ class TimeSeriesQueries(BaseQueries):
         except (
             Exception
         ) as e:  # Intentional catch-all: query failures return empty list
-            debug(f"_get_daily_stats query failed: {e}")
             return []

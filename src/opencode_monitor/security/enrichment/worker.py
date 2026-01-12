@@ -20,7 +20,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional, Protocol
 
-from ...utils.logger import debug, info
+from ...utils.logger import info
 from ..scope import ScopeDetector
 
 
@@ -165,8 +165,7 @@ class SecurityEnrichmentWorker:
                     time.sleep(self._poll_interval)  # Nothing to do, wait
                 else:
                     time.sleep(0.05)  # More work available, continue quickly
-            except Exception as e:
-                debug(f"Enrichment error: {e}")
+            except Exception:
                 time.sleep(self._poll_interval)  # Wait before retrying
 
     def enrich_batch(self, limit: int = 500) -> int:
@@ -199,8 +198,7 @@ class SecurityEnrichmentWorker:
             """,
                 [limit],
             ).fetchall()
-        except Exception as e:
-            debug(f"Query error: {e}")
+        except Exception:
             return 0
 
         if not parts:

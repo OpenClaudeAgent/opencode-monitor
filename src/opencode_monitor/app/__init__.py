@@ -14,7 +14,7 @@ from ..core.models import State, SessionStatus, Usage
 from ..core.monitor import fetch_all_instances
 from ..core.usage import fetch_usage
 from ..utils.settings import get_settings, save_settings
-from ..utils.logger import info, error, debug
+from ..utils.logger import info, error
 from ..security.analyzer import SecurityAlert, RiskLevel
 from ..security.auditor import get_auditor, start_auditor
 from ..security.reporter import SecurityReporter
