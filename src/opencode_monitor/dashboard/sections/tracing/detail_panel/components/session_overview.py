@@ -227,7 +227,7 @@ def _extract_from_node(node: dict, data: SessionData) -> None:
                 ErrorInfo(
                     timestamp=timestamp,
                     tool_name=tool_name,
-                    message=str(error_msg)[:200],
+                    message=str(error_msg),
                 )
             )
 
@@ -241,7 +241,7 @@ def _extract_from_node(node: dict, data: SessionData) -> None:
             ErrorInfo(
                 timestamp=timestamp,
                 tool_name=title,
-                message=str(error_msg)[:200],
+                message=str(error_msg),
             )
         )
 
@@ -1502,7 +1502,8 @@ class ErrorsWidget(QFrame):
             }
         """)
         self._scroll.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
-        self._scroll.setMaximumHeight(200)
+        self._scroll.setMinimumHeight(300)
+        self._scroll.setMaximumHeight(400)
         self._scroll.hide()
         layout.addWidget(self._scroll)
 
