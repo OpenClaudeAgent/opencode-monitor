@@ -9,7 +9,7 @@ from ..security.reporter import SecurityReporter
 from ..security.auditor import get_auditor
 from ..ui.terminal import focus_iterm2
 from ..dashboard import show_dashboard
-from ..analytics import AnalyticsDB, load_opencode_data, generate_report
+from ..analytics import AnalyticsDB, load_opencode_data
 from ..utils.logger import info, error, debug
 
 
@@ -98,86 +98,3 @@ class HandlersMixin:
 
         subprocess.run(["open", export_path])  # nosec B603 B607 - trusted internal path
         info(f"Security audit exported: {export_path}")
-
-    def _show_analytics(self, days: int):
-        """Show analytics report for the specified period (runs in background)."""
-
-        def run_in_background():
-            import tempfile
-            import os
-
-            db = None
-            try:
-                info(f"[Analytics] Starting for {days} days...")
-                db = AnalyticsDB(read_only=False)
-
-                stats = db.get_stats()
-                info(f"[Analytics] Current stats: {stats}")
-
-                if stats.get("messages", 0) == 0:
-                    info("[Analytics] Loading OpenCode data...")
-                    load_opencode_data(db, clear_first=True)
-
-                report = generate_report(days, db=db, refresh_data=False)
-                report_html = report.to_html()
-
-                report_path = os.path.join(
-                    tempfile.gettempdir(), f"opencode_analytics_{days}d.html"
-                )
-                with open(report_path, "w") as f:
-                    f.write(report_html)
-
-                subprocess.run(["open", report_path])  # nosec B603 B607 - trusted path
-                info("[Analytics] Done!")
-            except Exception as e:
-                error(f"[Analytics] Error: {e}")
-                import traceback
-
-                error(traceback.format_exc())
-            finally:
-                if db:
-                    db.close()
-
-        thread = threading.Thread(target=run_in_background, daemon=True)
-        thread.start()
-
-    def _refresh_analytics(self, _):
-        """Refresh analytics data from OpenCode storage (runs in background)."""
-
-        def run_in_background():
-            db = None
-            try:
-                info("Refreshing OpenCode analytics data (background)...")
-                db = AnalyticsDB(read_only=False)
-                load_opencode_data(db, clear_first=True)
-                info("Analytics data refreshed")
-            except Exception as e:
-                error(f"Analytics refresh error: {e}")
-            finally:
-                if db:
-                    db.close()
-
-        thread = threading.Thread(target=run_in_background, daemon=True)
-        thread.start()
-
-    def _start_analytics_refresh(self):
-        """Start background analytics refresh if data is stale (>24h old)."""
-
-        def check_and_refresh():
-            db = None
-            try:
-                db = AnalyticsDB(read_only=False)
-                if db.needs_refresh(max_age_hours=24):
-                    info("[Analytics] Data is stale, refreshing in background...")
-                    load_opencode_data(db, clear_first=True)
-                    info("[Analytics] Background refresh complete")
-                else:
-                    debug("[Analytics] Data is fresh, skipping refresh")
-            except Exception as e:
-                error(f"[Analytics] Background refresh error: {e}")
-            finally:
-                if db:
-                    db.close()
-
-        thread = threading.Thread(target=check_and_refresh, daemon=True)
-        thread.start()

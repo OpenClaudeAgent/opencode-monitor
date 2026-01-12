@@ -10,14 +10,12 @@ Structure:
 - loader.py: Bulk data loading (legacy)
 - queries.py: SQL queries
 - tracing/: Centralized tracing data service package
-- report/: HTML report generation
 """
 
 from .db import AnalyticsDB, get_analytics_db
 from .loader import load_opencode_data
 from .models import PeriodStats, TokenStats
 from .queries import AnalyticsQueries
-from .report import AnalyticsReport, generate_report
 from .tracing import TracingDataService, TracingConfig
 
 __all__ = [
@@ -34,7 +32,4 @@ __all__ = [
     # Tracing Service
     "TracingDataService",
     "TracingConfig",
-    # Report
-    "AnalyticsReport",
-    "generate_report",
 ]
