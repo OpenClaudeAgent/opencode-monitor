@@ -43,131 +43,113 @@ class TestClassifyErrorType:
             ("", "unknown", "ERROR"),
         ],
     )
-    def test_classify_error_type(self, message, expected_type, expected_label):
+    def test_returns_correct_type_and_label(
+        self, message, expected_type, expected_label
+    ):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             classify_error_type,
+            COLORS,
         )
 
         error_type, color, label = classify_error_type(message)
+
         assert error_type == expected_type
         assert label == expected_label
-        assert isinstance(color, str)
-        assert color.startswith("#")
+        assert color in COLORS.values(), f"Color {color} not in design system"
 
-    def test_classify_error_type_case_insensitive(self):
+    def test_is_case_insensitive(self):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             classify_error_type,
         )
 
-        upper_case = classify_error_type("TIMEOUT ERROR")
-        lower_case = classify_error_type("timeout error")
-        mixed_case = classify_error_type("TimeOut Error")
+        results = [
+            classify_error_type("TIMEOUT ERROR")[0],
+            classify_error_type("timeout error")[0],
+            classify_error_type("TimeOut Error")[0],
+        ]
 
-        assert upper_case[0] == lower_case[0] == mixed_case[0] == "timeout"
+        assert all(r == "timeout" for r in results)
 
 
 class TestErrorInfo:
-    def test_error_info_creation(self):
+    @pytest.mark.parametrize(
+        "timestamp,tool_name,message",
+        [
+            ("2025-01-10T10:30:00", "bash", "Tool execution aborted"),
+            ("2025-01-10T10:30:00", "webfetch", "Error: " + "x" * 500),
+            ("", "edit", ""),
+        ],
+    )
+    def test_stores_all_fields_without_modification(
+        self, timestamp, tool_name, message
+    ):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorInfo,
         )
 
-        error = ErrorInfo(
-            timestamp="2025-01-10T10:30:00",
-            tool_name="bash",
-            message="Tool execution aborted",
-        )
+        error = ErrorInfo(timestamp=timestamp, tool_name=tool_name, message=message)
 
-        assert error.timestamp == "2025-01-10T10:30:00"
-        assert error.tool_name == "bash"
-        assert error.message == "Tool execution aborted"
-
-    def test_error_info_with_long_message(self):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            ErrorInfo,
-        )
-
-        long_message = "Error: " + "x" * 500
-        error = ErrorInfo(
-            timestamp="2025-01-10T10:30:00",
-            tool_name="webfetch",
-            message=long_message,
-        )
-
-        assert len(error.message) == 507
-        assert error.message == long_message
+        assert error.timestamp == timestamp
+        assert error.tool_name == tool_name
+        assert error.message == message
+        assert len(error.message) == len(message)
 
 
 class TestErrorItemWidget:
-    def test_error_item_creation(self, qapp, widget_parent):
+    def test_initializes_collapsed(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorItemWidget,
             ErrorInfo,
         )
 
-        error = ErrorInfo(
-            timestamp="2025-01-10T10:30:00",
-            tool_name="bash",
-            message="Tool execution aborted",
-        )
-
+        error = ErrorInfo("2025-01-10T10:30:00", "bash", "Tool execution aborted")
         widget = ErrorItemWidget(error, prefix="├─", parent=widget_parent)
 
-        assert widget._error == error
+        assert widget._error is error
         assert widget._prefix == "├─"
         assert widget._is_expanded is False
+        assert widget._full_message.isHidden() is True
+        assert widget._arrow.text() == "▶"
 
-    def test_error_item_toggle_expand(self, qapp, widget_parent):
+    def test_toggle_expand_shows_full_message(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorItemWidget,
             ErrorInfo,
         )
 
-        error = ErrorInfo(
-            timestamp="2025-01-10T10:30:00",
-            tool_name="webfetch",
-            message="Error: Request failed with status code: 403",
-        )
-
+        full_msg = 'Error: The user has specified a rule [{"permission":"*"}]'
+        error = ErrorInfo("2025-01-10T10:30:00", "todowrite", full_msg)
         widget = ErrorItemWidget(error, prefix="└─", parent=widget_parent)
-
-        assert widget._is_expanded is False
-        assert widget._full_message.isHidden() is True
 
         widget._toggle_expand()
 
         assert widget._is_expanded is True
         assert widget._full_message.isHidden() is False
         assert widget._arrow.text() == "▼"
+        assert widget._full_message.text() == full_msg
 
+    def test_double_toggle_returns_to_collapsed(self, qapp, widget_parent):
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ErrorItemWidget,
+            ErrorInfo,
+        )
+
+        widget = ErrorItemWidget(
+            ErrorInfo("2025-01-10T10:30:00", "bash", "Error"),
+            prefix="─",
+            parent=widget_parent,
+        )
+
+        widget._toggle_expand()
         widget._toggle_expand()
 
         assert widget._is_expanded is False
         assert widget._full_message.isHidden() is True
         assert widget._arrow.text() == "▶"
 
-    def test_error_item_full_message_visible_when_expanded(self, qapp, widget_parent):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            ErrorItemWidget,
-            ErrorInfo,
-        )
-
-        full_msg = 'Error: The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"*","pattern":"*","action":"allow"}]'
-        error = ErrorInfo(
-            timestamp="2025-01-10T10:30:00",
-            tool_name="todowrite",
-            message=full_msg,
-        )
-
-        widget = ErrorItemWidget(error, prefix="└─", parent=widget_parent)
-        widget._toggle_expand()
-
-        assert widget._full_message.text() == full_msg
-        assert widget._full_message.isHidden() is False
-
 
 class TestErrorsWidget:
-    def test_errors_widget_creation(self, qapp, widget_parent):
+    def test_initializes_empty_and_collapsed(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorsWidget,
         )
@@ -177,27 +159,30 @@ class TestErrorsWidget:
         assert widget._is_expanded is False
         assert widget._errors == []
         assert widget._scroll.isHidden() is True
+        assert widget._container_layout.count() == 0
 
-    def test_errors_widget_load_errors(self, qapp, widget_parent):
+    def test_load_errors_populates_container(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorsWidget,
             ErrorInfo,
+            ErrorItemWidget,
         )
 
         widget = ErrorsWidget(parent=widget_parent)
-
         errors = [
-            ErrorInfo("2025-01-10T10:30:00", "bash", "Tool execution aborted"),
-            ErrorInfo("2025-01-10T10:31:00", "webfetch", "Error: 403 Forbidden"),
-            ErrorInfo("2025-01-10T10:32:00", "read", "File not found"),
+            ErrorInfo("2025-01-10T10:30:00", "bash", "Error 1"),
+            ErrorInfo("2025-01-10T10:31:00", "webfetch", "Error 2"),
         ]
 
         widget.load_errors(errors)
 
-        assert widget._errors == errors
-        assert widget._container_layout.count() == 4  # 3 errors + 1 stretch
+        assert widget._errors is errors
+        assert widget._container_layout.count() == 3  # 2 errors + stretch
+        first_item = widget._container_layout.itemAt(0).widget()
+        assert isinstance(first_item, ErrorItemWidget)
+        assert first_item._error is errors[0]
 
-    def test_errors_widget_empty_list(self, qapp, widget_parent):
+    def test_load_empty_list_hides_widget(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorsWidget,
         )
@@ -207,21 +192,26 @@ class TestErrorsWidget:
 
         assert widget._errors == []
         assert widget._container_layout.count() == 0
+        assert widget.isHidden() is True
 
-    def test_errors_widget_toggle_expand(self, qapp, widget_parent):
+    def test_toggle_without_errors_stays_collapsed(self, qapp, widget_parent):
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ErrorsWidget,
+        )
+
+        widget = ErrorsWidget(parent=widget_parent)
+        widget._toggle_expand()
+
+        assert widget._is_expanded is False
+
+    def test_toggle_with_errors_expands_scroll(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorsWidget,
             ErrorInfo,
         )
 
         widget = ErrorsWidget(parent=widget_parent)
-        widget.load_errors(
-            [
-                ErrorInfo("2025-01-10T10:30:00", "bash", "Error"),
-            ]
-        )
-
-        assert widget._scroll.isHidden() is True
+        widget.load_errors([ErrorInfo("2025-01-10T10:30:00", "bash", "Error")])
 
         widget._toggle_expand()
 
@@ -229,44 +219,70 @@ class TestErrorsWidget:
         assert widget._scroll.isHidden() is False
         assert widget._arrow.text() == "▼"
 
-    def test_errors_widget_toggle_without_errors(self, qapp, widget_parent):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            ErrorsWidget,
-        )
-
-        widget = ErrorsWidget(parent=widget_parent)
-
-        widget._toggle_expand()
-
-        assert widget._is_expanded is False
-        assert widget._scroll.isHidden() is True
-
-    def test_errors_widget_reload_clears_previous(self, qapp, widget_parent):
+    def test_reload_clears_previous_items(self, qapp, widget_parent):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             ErrorsWidget,
             ErrorInfo,
         )
 
         widget = ErrorsWidget(parent=widget_parent)
-
         widget.load_errors(
             [
                 ErrorInfo("2025-01-10T10:30:00", "bash", "Error 1"),
                 ErrorInfo("2025-01-10T10:31:00", "bash", "Error 2"),
             ]
         )
-        assert widget._container_layout.count() == 3  # 2 errors + stretch
+        initial_count = widget._container_layout.count()
 
-        widget.load_errors(
-            [
-                ErrorInfo("2025-01-10T10:32:00", "bash", "Error 3"),
-            ]
-        )
+        widget.load_errors([ErrorInfo("2025-01-10T10:32:00", "bash", "Error 3")])
+
+        assert widget._container_layout.count() < initial_count
         assert widget._container_layout.count() == 2  # 1 error + stretch
+
+    @pytest.mark.parametrize(
+        "error_count,expected_prefixes",
+        [
+            (1, ["└─"]),
+            (2, ["├─", "└─"]),
+            (3, ["├─", "├─", "└─"]),
+        ],
+    )
+    def test_assigns_correct_tree_prefixes(
+        self, qapp, widget_parent, error_count, expected_prefixes
+    ):
+        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
+            ErrorsWidget,
+            ErrorInfo,
+            ErrorItemWidget,
+        )
+
+        widget = ErrorsWidget(parent=widget_parent)
+        errors = [
+            ErrorInfo(f"2025-01-10T10:3{i}:00", "bash", f"Error {i}")
+            for i in range(error_count)
+        ]
+
+        widget.load_errors(errors)
+
+        for i, expected_prefix in enumerate(expected_prefixes):
+            item_widget = widget._container_layout.itemAt(i).widget()
+            assert isinstance(item_widget, ErrorItemWidget)
+            assert item_widget._prefix == expected_prefix
 
 
 class TestExtractFromNode:
-    def test_extract_tool_error(self):
+    @pytest.mark.parametrize(
+        "error_value,display_info,expected_message",
+        [
+            ("Tool execution aborted", None, "Tool execution aborted"),
+            (None, "https://example.com", "https://example.com"),
+            ("", "", "bash failed"),
+            (None, None, "bash failed"),
+        ],
+    )
+    def test_extracts_tool_error_with_fallback_chain(
+        self, error_value, display_info, expected_message
+    ):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             _extract_from_node,
             SessionData,
@@ -276,8 +292,8 @@ class TestExtractFromNode:
             "node_type": "tool",
             "tool_name": "bash",
             "tool_status": "error",
-            "status": "error",
-            "error": "Tool execution aborted",
+            "error": error_value,
+            "display_info": display_info,
             "created_at": "2025-01-10T10:30:00",
             "children": [],
         }
@@ -287,53 +303,10 @@ class TestExtractFromNode:
 
         assert len(data.errors) == 1
         assert data.errors[0].tool_name == "bash"
-        assert data.errors[0].message == "Tool execution aborted"
+        assert data.errors[0].message == expected_message
+        assert data.errors[0].timestamp == "2025-01-10T10:30:00"
 
-    def test_extract_tool_error_with_fallback_message(self):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            _extract_from_node,
-            SessionData,
-        )
-
-        node = {
-            "node_type": "tool",
-            "tool_name": "webfetch",
-            "tool_status": "error",
-            "error": None,
-            "display_info": "https://example.com",
-            "created_at": "2025-01-10T10:30:00",
-            "children": [],
-        }
-
-        data = SessionData()
-        _extract_from_node(node, data)
-
-        assert len(data.errors) == 1
-        assert data.errors[0].message == "https://example.com"
-
-    def test_extract_tool_error_with_generated_message(self):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            _extract_from_node,
-            SessionData,
-        )
-
-        node = {
-            "node_type": "tool",
-            "tool_name": "edit",
-            "tool_status": "error",
-            "error": "",
-            "display_info": "",
-            "created_at": "2025-01-10T10:30:00",
-            "children": [],
-        }
-
-        data = SessionData()
-        _extract_from_node(node, data)
-
-        assert len(data.errors) == 1
-        assert data.errors[0].message == "edit failed"
-
-    def test_extract_non_tool_error(self):
+    def test_extracts_non_tool_error(self):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             _extract_from_node,
             SessionData,
@@ -343,7 +316,7 @@ class TestExtractFromNode:
             "node_type": "delegation",
             "status": "error",
             "subagent_type": "oracle",
-            "error": "Agent crashed unexpectedly",
+            "error": "Agent crashed",
             "created_at": "2025-01-10T10:30:00",
             "children": [],
         }
@@ -353,9 +326,9 @@ class TestExtractFromNode:
 
         assert len(data.errors) == 1
         assert data.errors[0].tool_name == "oracle"
-        assert data.errors[0].message == "Agent crashed unexpectedly"
+        assert data.errors[0].message == "Agent crashed"
 
-    def test_extract_nested_errors(self):
+    def test_extracts_errors_recursively_from_children(self):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             _extract_from_node,
             SessionData,
@@ -393,10 +366,9 @@ class TestExtractFromNode:
         _extract_from_node(node, data)
 
         assert len(data.errors) == 2
-        assert data.errors[0].tool_name == "bash"
-        assert data.errors[1].tool_name == "webfetch"
+        assert [e.tool_name for e in data.errors] == ["bash", "webfetch"]
 
-    def test_extract_success_tool_no_error(self):
+    def test_ignores_successful_tools(self):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             _extract_from_node,
             SessionData,
@@ -414,17 +386,17 @@ class TestExtractFromNode:
 
         assert len(data.errors) == 0
 
-    def test_extract_preserves_full_error_message(self):
+    def test_preserves_full_message_without_truncation(self):
         from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
             _extract_from_node,
             SessionData,
         )
 
-        long_error = 'Error: The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"*","pattern":"*","action":"allow"},{"permission":"todowrite","pattern":"*","action":"deny"}]'
+        long_error = "Error: " + "x" * 500
 
         node = {
             "node_type": "tool",
-            "tool_name": "todowrite",
+            "tool_name": "bash",
             "tool_status": "error",
             "error": long_error,
             "created_at": "2025-01-10T10:30:00",
@@ -435,54 +407,4 @@ class TestExtractFromNode:
         _extract_from_node(node, data)
 
         assert data.errors[0].message == long_error
-        assert len(data.errors[0].message) == len(long_error)
-
-
-class TestErrorItemTreePrefixes:
-    def test_single_error_gets_last_prefix(self, qapp, widget_parent):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            ErrorsWidget,
-            ErrorInfo,
-            ErrorItemWidget,
-        )
-
-        widget = ErrorsWidget(parent=widget_parent)
-        widget.load_errors(
-            [
-                ErrorInfo("2025-01-10T10:30:00", "bash", "Error"),
-            ]
-        )
-
-        item = widget._container_layout.itemAt(0)
-        assert item is not None
-        error_widget = item.widget()
-        assert isinstance(error_widget, ErrorItemWidget)
-        assert error_widget._prefix == "└─"
-
-    def test_multiple_errors_get_correct_prefixes(self, qapp, widget_parent):
-        from opencode_monitor.dashboard.sections.tracing.detail_panel.components.session_overview import (
-            ErrorsWidget,
-            ErrorInfo,
-            ErrorItemWidget,
-        )
-
-        widget = ErrorsWidget(parent=widget_parent)
-        widget.load_errors(
-            [
-                ErrorInfo("2025-01-10T10:30:00", "bash", "Error 1"),
-                ErrorInfo("2025-01-10T10:31:00", "bash", "Error 2"),
-                ErrorInfo("2025-01-10T10:32:00", "bash", "Error 3"),
-            ]
-        )
-
-        first = widget._container_layout.itemAt(0).widget()
-        middle = widget._container_layout.itemAt(1).widget()
-        last = widget._container_layout.itemAt(2).widget()
-
-        assert isinstance(first, ErrorItemWidget)
-        assert isinstance(middle, ErrorItemWidget)
-        assert isinstance(last, ErrorItemWidget)
-
-        assert first._prefix == "├─"
-        assert middle._prefix == "├─"
-        assert last._prefix == "└─"
+        assert len(data.errors[0].message) == 507

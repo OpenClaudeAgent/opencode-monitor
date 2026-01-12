@@ -8,26 +8,23 @@ from opencode_monitor.analytics.db import AnalyticsDB
 
 
 class TestBuildToolsBySession:
-    def test_build_tools_returns_error_field(self, analytics_db_real: AnalyticsDB):
+    def test_returns_error_field_with_all_tool_fields(
+        self, analytics_db_real: AnalyticsDB
+    ):
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
 
         conn = analytics_db_real.connect()
         now = datetime.now()
 
         conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
             ["sess-001", "proj-001", "/dir", "Test Session", now, now],
         )
-
         conn.execute(
-            """
-            INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
-                              arguments, created_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+                              arguments, created_at, duration_ms, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 "prt-001",
                 "sess-001",
@@ -37,6 +34,7 @@ class TestBuildToolsBySession:
                 "error",
                 '{"command": "ls"}',
                 now,
+                1500,
                 "Tool execution aborted",
             ],
         )
@@ -44,32 +42,30 @@ class TestBuildToolsBySession:
         result = build_tools_by_session(conn, {"sess-001"}, include_tools=True)
 
         assert "sess-001" in result
-        tools = result["sess-001"]
-        assert len(tools) == 1
-        assert tools[0]["tool_name"] == "bash"
-        assert tools[0]["status"] == "error"
-        assert tools[0]["error"] == "Tool execution aborted"
+        tool = result["sess-001"][0]
+        assert tool["id"] == "prt-001"
+        assert tool["node_type"] == "tool"
+        assert tool["tool_name"] == "bash"
+        assert tool["status"] == "error"
+        assert tool["error"] == "Tool execution aborted"
+        assert tool["duration_ms"] == 1500
+        assert tool["created_at"] is not None
 
-    def test_build_tools_success_has_null_error(self, analytics_db_real: AnalyticsDB):
+    def test_success_tool_has_none_error(self, analytics_db_real: AnalyticsDB):
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
 
         conn = analytics_db_real.connect()
         now = datetime.now()
 
         conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ["sess-001", "proj-001", "/dir", "Test Session", now, now],
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            ["sess-001", "proj-001", "/dir", "Test", now, now],
         )
-
         conn.execute(
-            """
-            INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
                               arguments, created_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 "prt-001",
                 "sess-001",
@@ -77,7 +73,7 @@ class TestBuildToolsBySession:
                 "tool",
                 "bash",
                 "success",
-                '{"command": "ls"}',
+                "{}",
                 now,
                 None,
             ],
@@ -85,62 +81,140 @@ class TestBuildToolsBySession:
 
         result = build_tools_by_session(conn, {"sess-001"}, include_tools=True)
 
-        tools = result["sess-001"]
-        assert tools[0]["error"] is None
+        assert result["sess-001"][0]["status"] == "success"
+        assert result["sess-001"][0]["error"] is None
 
-    def test_build_tools_multiple_errors(self, analytics_db_real: AnalyticsDB):
+    def test_include_tools_false_returns_empty(self, analytics_db_real: AnalyticsDB):
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
 
         conn = analytics_db_real.connect()
         now = datetime.now()
 
         conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ["sess-001", "proj-001", "/dir", "Test Session", now, now],
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            ["sess-001", "proj-001", "/dir", "Test", now, now],
+        )
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+                              arguments, created_at, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt-001",
+                "sess-001",
+                "msg-001",
+                "tool",
+                "bash",
+                "error",
+                "{}",
+                now,
+                "Error",
+            ],
         )
 
-        error_parts = [
-            ("prt-001", "bash", "Tool execution aborted"),
-            ("prt-002", "webfetch", "Error: Request failed with status code: 403"),
-            ("prt-003", "read", "File not found: /path/to/file"),
-        ]
+        result = build_tools_by_session(conn, {"sess-001"}, include_tools=False)
 
-        for part_id, tool, error in error_parts:
-            conn.execute(
-                """
-                INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
-                                  arguments, created_at, error_message)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-                """,
-                [
-                    part_id,
-                    "sess-001",
-                    "msg-001",
-                    "tool",
-                    tool,
-                    "error",
-                    "{}",
-                    now,
-                    error,
-                ],
-            )
+        assert result == {}
+
+    def test_empty_session_ids_returns_empty(self, analytics_db_real: AnalyticsDB):
+        from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
+
+        conn = analytics_db_real.connect()
+
+        result = build_tools_by_session(conn, set(), include_tools=True)
+
+        assert result == {}
+
+    def test_filters_out_task_tool(self, analytics_db_real: AnalyticsDB):
+        from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
+
+        conn = analytics_db_real.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            ["sess-001", "proj-001", "/dir", "Test", now, now],
+        )
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+                              arguments, created_at, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt-001",
+                "sess-001",
+                "msg-001",
+                "tool",
+                "task",
+                "error",
+                "{}",
+                now,
+                "Error",
+            ],
+        )
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+                              arguments, created_at, error_message)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt-002",
+                "sess-001",
+                "msg-001",
+                "tool",
+                "bash",
+                "error",
+                "{}",
+                now,
+                "Error",
+            ],
+        )
 
         result = build_tools_by_session(conn, {"sess-001"}, include_tools=True)
 
-        tools = result["sess-001"]
-        assert len(tools) == 3
+        tool_names = [t["tool_name"] for t in result["sess-001"]]
+        assert "task" not in tool_names
+        assert "bash" in tool_names
 
-        errors = {t["tool_name"]: t["error"] for t in tools}
-        assert errors["bash"] == "Tool execution aborted"
-        assert errors["webfetch"] == "Error: Request failed with status code: 403"
-        assert errors["read"] == "File not found: /path/to/file"
+    def test_multiple_sessions_grouped_correctly(self, analytics_db_real: AnalyticsDB):
+        from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
+
+        conn = analytics_db_real.connect()
+        now = datetime.now()
+
+        for sess_id in ["sess-001", "sess-002"]:
+            conn.execute(
+                """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?)""",
+                [sess_id, "proj-001", "/dir", "Test", now, now],
+            )
+            conn.execute(
+                """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+                                  arguments, created_at, error_message)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                [
+                    f"prt-{sess_id}",
+                    sess_id,
+                    "msg-001",
+                    "tool",
+                    "bash",
+                    "error",
+                    "{}",
+                    now,
+                    f"Error {sess_id}",
+                ],
+            )
+
+        result = build_tools_by_session(
+            conn, {"sess-001", "sess-002"}, include_tools=True
+        )
+
+        assert len(result) == 2
+        assert result["sess-001"][0]["error"] == "Error sess-001"
+        assert result["sess-002"][0]["error"] == "Error sess-002"
 
 
 class TestBuildToolsByMessage:
-    def test_build_tools_by_message_returns_error_field(
+    def test_returns_error_field_grouped_by_message(
         self, analytics_db_real: AnalyticsDB
     ):
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_message
@@ -149,27 +223,19 @@ class TestBuildToolsByMessage:
         now = datetime.now()
 
         conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ["sess-001", "proj-001", "/dir", "Test Session", now, now],
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            ["sess-001", "proj-001", "/dir", "Test", now, now],
         )
-
         conn.execute(
-            """
-            INSERT INTO messages (id, session_id, role, created_at)
-            VALUES (?, ?, ?, ?)
-            """,
+            """INSERT INTO messages (id, session_id, role, created_at)
+            VALUES (?, ?, ?, ?)""",
             ["msg-001", "sess-001", "assistant", now],
         )
-
         conn.execute(
-            """
-            INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
                               arguments, created_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 "prt-001",
                 "sess-001",
@@ -179,60 +245,22 @@ class TestBuildToolsByMessage:
                 "error",
                 '{"filePath": "/test.py"}',
                 now,
-                "Error: oldString not found in content",
+                "Error: oldString not found",
             ],
         )
 
         result = build_tools_by_message(conn, {"sess-001"}, include_tools=True)
 
         assert "msg-001" in result
-        tools = result["msg-001"]
-        assert len(tools) == 1
-        assert tools[0]["error"] == "Error: oldString not found in content"
+        tool = result["msg-001"][0]
+        assert tool["tool_name"] == "edit"
+        assert tool["tool_status"] == "error"
+        assert tool["error"] == "Error: oldString not found"
+        assert tool["node_type"] == "tool"
+        assert tool["session_id"] == "sess-001"
 
 
 class TestErrorMessagePreservation:
-    def test_long_error_message_preserved(self, analytics_db_real: AnalyticsDB):
-        from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
-
-        conn = analytics_db_real.connect()
-        now = datetime.now()
-
-        conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ["sess-001", "proj-001", "/dir", "Test Session", now, now],
-        )
-
-        long_error = 'Error: The user has specified a rule which prevents you from using this specific tool call. Here are some of the relevant rules [{"permission":"*","pattern":"*","action":"allow"},{"permission":"todowrite","pattern":"*","action":"deny"}]'
-
-        conn.execute(
-            """
-            INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
-                              arguments, created_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            [
-                "prt-001",
-                "sess-001",
-                "msg-001",
-                "tool",
-                "todowrite",
-                "error",
-                "{}",
-                now,
-                long_error,
-            ],
-        )
-
-        result = build_tools_by_session(conn, {"sess-001"}, include_tools=True)
-
-        tools = result["sess-001"]
-        assert tools[0]["error"] == long_error
-        assert len(tools[0]["error"]) == len(long_error)
-
     @pytest.mark.parametrize(
         "error_message",
         [
@@ -241,11 +269,12 @@ class TestErrorMessagePreservation:
             "Error: unknown certificate verification error",
             "Error: The user rejected permission to use this specific tool call.",
             "File not found: /path/to/missing/file.py",
+            'Error: Long message with JSON [{"permission":"*","pattern":"*","action":"allow"},{"permission":"todowrite","pattern":"*","action":"deny"}]',
             "",
             None,
         ],
     )
-    def test_various_error_messages(
+    def test_preserves_error_message_exactly(
         self, analytics_db_real: AnalyticsDB, error_message
     ):
         from opencode_monitor.api.routes.tracing.builders import build_tools_by_session
@@ -254,19 +283,14 @@ class TestErrorMessagePreservation:
         now = datetime.now()
 
         conn.execute(
-            """
-            INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?)
-            """,
-            ["sess-001", "proj-001", "/dir", "Test Session", now, now],
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?)""",
+            ["sess-001", "proj-001", "/dir", "Test", now, now],
         )
-
         conn.execute(
-            """
-            INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
+            """INSERT INTO parts (id, session_id, message_id, part_type, tool_name, tool_status, 
                               arguments, created_at, error_message)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             [
                 "prt-001",
                 "sess-001",
@@ -282,5 +306,6 @@ class TestErrorMessagePreservation:
 
         result = build_tools_by_session(conn, {"sess-001"}, include_tools=True)
 
-        tools = result["sess-001"]
-        assert tools[0]["error"] == error_message
+        assert result["sess-001"][0]["error"] == error_message
+        if error_message:
+            assert len(result["sess-001"][0]["error"]) == len(error_message)
