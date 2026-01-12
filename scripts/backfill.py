@@ -22,6 +22,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+from opencode_monitor.analytics.materialization import MaterializedTableManager
 from bulk_loader import BulkLoader
 from bulk_enrichment import bulk_enrich
 from config import DEFAULT_DB_PATH, DEFAULT_STORAGE_PATH
@@ -75,6 +76,7 @@ def run_backfill() -> int:
 
     bulk_loader = BulkLoader(db, OPENCODE_STORAGE)
     trace_builder = TraceBuilder(db)
+    materialization_manager = MaterializedTableManager(db)
 
     start_time = time.time()
     cutoff_time = time.time()
@@ -120,6 +122,10 @@ def run_backfill() -> int:
     print("Post-processing...")
     print("-" * 40)
 
+    print("  Initializing performance indexes...", flush=True)
+    materialization_manager.initialize_indexes()
+    print("  ✓ Indexes created")
+
     updated_agents = trace_builder.update_root_trace_agents()
     if updated_agents > 0:
         print(f"  Updated {updated_agents} root trace agents")
@@ -132,18 +138,26 @@ def run_backfill() -> int:
     if backfilled > 0:
         print(f"  Backfilled tokens for {backfilled} traces")
 
+    print("  Building materialized tables...", flush=True)
     try:
-        stats = trace_builder.build_all()
-        exchanges = stats.get("exchanges", 0)
-        exchange_traces = stats.get("exchange_traces", 0)
-        session_traces = stats.get("session_traces", 0)
-        if exchanges > 0 or exchange_traces > 0 or session_traces > 0:
-            print(
-                f"  Built trace tables: {exchanges} exchanges, "
-                f"{exchange_traces} events, {session_traces} sessions"
-            )
+        result_exchanges = materialization_manager.refresh_exchanges(incremental=False)
+        print(
+            f"    Exchanges: {result_exchanges['rows_added']:,} rows in {result_exchanges['duration_ms']}ms"
+        )
+
+        result_traces = materialization_manager.refresh_exchange_traces()
+        print(
+            f"    Exchange traces: {result_traces['rows_added']:,} rows in {result_traces['duration_ms']}ms"
+        )
+
+        result_sessions = materialization_manager.refresh_session_traces(
+            incremental=False
+        )
+        print(
+            f"    Session traces: {result_sessions['rows_added']:,} rows in {result_sessions['duration_ms']}ms"
+        )
     except Exception as e:
-        print(f"  Warning: Failed to build trace tables: {e}")
+        print(f"  Warning: Failed to build materialized tables: {e}")
 
     print("-" * 40)
 
