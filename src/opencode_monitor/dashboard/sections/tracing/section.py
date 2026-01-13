@@ -9,8 +9,7 @@ from PyQt6.QtWidgets import (
     QVBoxLayout,
     QLabel,
     QSplitter,
-    QTreeWidget,
-    QTreeWidgetItem,
+    QTreeView,
     QHeaderView,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
@@ -20,8 +19,7 @@ from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 
 from .detail_panel import TraceDetailPanel, PanelController
-from .tree_builder import build_session_tree
-from .tree_items import add_exchange_item, add_part_item
+from .tree_model import TracingTreeModel
 
 
 class TracingSection(QWidget):
@@ -84,44 +82,43 @@ class TracingSection(QWidget):
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
-        # Tree widget with columns: Name | Time | Duration | In | Out | Status
-        self._tree = QTreeWidget()
-        self._tree.setHeaderLabels(["Name", "Time", "Duration", "In", "Out", ""])
-        self._tree.setColumnWidth(0, 450)  # Name: expanded for better readability
-        self._tree.setColumnWidth(1, 120)  # Time: wider to show full timestamp
-        self._tree.setColumnWidth(2, 100)  # Duration: wider to show full duration
-        self._tree.setColumnWidth(3, 55)  # In: unchanged
-        self._tree.setColumnWidth(4, 55)  # Out: unchanged
-        self._tree.setColumnWidth(5, 30)  # Status: unchanged
+        self._model = TracingTreeModel()
+        self._tree = QTreeView()
+        self._tree.setModel(self._model)
+        self._tree.setColumnWidth(0, 450)
+        self._tree.setColumnWidth(1, 120)
+        self._tree.setColumnWidth(2, 100)
+        self._tree.setColumnWidth(3, 55)
+        self._tree.setColumnWidth(4, 55)
+        self._tree.setColumnWidth(5, 30)
         self._tree.setAlternatingRowColors(True)
         self._tree.setRootIsDecorated(True)
         self._tree.setAnimated(True)
         self._tree.setIndentation(20)
         self._tree.setUniformRowHeights(True)
 
-        # Set proper alternating colors via palette
         palette = self._tree.palette()
         palette.setColor(palette.ColorRole.Base, QColor(COLORS["bg_surface"]))
         palette.setColor(palette.ColorRole.AlternateBase, QColor(COLORS["bg_elevated"]))
         self._tree.setPalette(palette)
 
         self._tree.setStyleSheet(f"""
-            QTreeWidget {{
+            QTreeView {{
                 background-color: {COLORS["bg_surface"]};
                 border: 1px solid {COLORS["border_default"]};
                 border-radius: {RADIUS["lg"]}px;
                 outline: none;
             }}
-            QTreeWidget::item {{
+            QTreeView::item {{
                 padding: {SPACING["sm"]}px {SPACING["xs"]}px;
                 border: none;
                 min-height: 32px;
             }}
-            QTreeWidget::item:selected {{
+            QTreeView::item:selected {{
                 background-color: {COLORS["sidebar_active"]};
                 border-radius: {RADIUS["sm"]}px;
             }}
-            QTreeWidget::item:hover:!selected {{
+            QTreeView::item:hover:!selected {{
                 background-color: {COLORS["bg_hover"]};
             }}
             QHeaderView {{
@@ -150,7 +147,6 @@ class TracingSection(QWidget):
             }}
         """)
 
-        # Make columns resizable
         header = self._tree.header()
         if header:
             header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
@@ -181,82 +177,48 @@ class TracingSection(QWidget):
         layout.addWidget(self._splitter, stretch=1)
 
     def _connect_signals(self) -> None:
-        """Connect internal signals."""
-        self._tree.itemClicked.connect(self._on_item_clicked)
-        self._tree.itemDoubleClicked.connect(self._on_item_double_clicked)
-        self._tree.itemExpanded.connect(self._on_item_expanded)
-        # Also handle keyboard navigation (arrow keys)
-        self._tree.currentItemChanged.connect(self._on_current_item_changed)
+        self._tree.clicked.connect(self._on_index_clicked)
+        self._tree.doubleClicked.connect(self._on_index_double_clicked)
+        selection_model = self._tree.selectionModel()
+        if selection_model:
+            selection_model.currentChanged.connect(self._on_current_changed)
 
-    def _on_current_item_changed(
-        self, current: QTreeWidgetItem, _previous: QTreeWidgetItem
-    ) -> None:
-        """Handle current item change (keyboard navigation)."""
-        if current:
-            self._on_item_clicked(current, 0)
+    def _on_current_changed(self, current, _previous):
+        if current.isValid():
+            self._on_index_clicked(current)
 
-    def _on_item_expanded(self, item: QTreeWidgetItem) -> None:
-        """Handle item expansion.
+    def _on_index_clicked(self, index):
+        if not index.isValid():
+            return
+        data = self._model.data(index, Qt.ItemDataRole.UserRole)
+        if data:
+            self._controller.handle_selection_data(data)
 
-        Note: Exchanges are now included in the API response (/api/tracing/tree),
-        so no separate loading is needed. Children are displayed in the order
-        received from the API.
-        """
-        # No-op: all children are already loaded from the API
-        pass
-
-    def _on_item_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        """Handle click on tree item - delegate to controller."""
-        self._controller.handle_selection(item)
-
-    def _on_item_double_clicked(self, item: QTreeWidgetItem, _col: int) -> None:
-        """Handle double-click - open terminal."""
-        trace_data = item.data(0, Qt.ItemDataRole.UserRole)
-        if trace_data:
-            session_id = trace_data.get("session_id", "")
+    def _on_index_double_clicked(self, index):
+        if not index.isValid():
+            return
+        data = self._model.data(index, Qt.ItemDataRole.UserRole)
+        if data:
+            session_id = data.get("session_id", "")
             if session_id:
                 self.open_terminal_requested.emit(session_id)
 
-    def _add_exchange_item(
-        self, parent: QTreeWidgetItem, exchange: dict, index: int
-    ) -> QTreeWidgetItem:
-        """Add an exchange (user → assistant) item to the tree.
-
-        Delegates to tree_items.add_exchange_item for implementation.
-        """
-        return add_exchange_item(parent, exchange, index)
-
-    def _add_part_item(self, parent: QTreeWidgetItem, part: dict) -> QTreeWidgetItem:
-        """Add a part (tool, text, delegation) item to the tree.
-
-        Delegates to tree_items.add_part_item for implementation.
-        """
-        return add_part_item(parent, part)
-
     def _populate_sessions_tree(self, sessions: list[dict]) -> None:
-        """Populate tree widget with session hierarchy."""
         session_ids = {s.get("session_id") for s in sessions}
         if hasattr(self, "_last_session_ids") and self._last_session_ids == session_ids:
             return
         self._last_session_ids = session_ids
 
-        self._tree.setUpdatesEnabled(False)
-        try:
-            if not sessions:
-                self._tree.clear()
-                self._tree.hide()
-                self._empty.show()
-                self._detail_panel.clear()
-                return
+        if not sessions:
+            self._model.clear()
+            self._tree.hide()
+            self._empty.show()
+            self._detail_panel.clear()
+            return
 
-            self._tree.show()
-            self._empty.hide()
-
-            # Delegate to tree_builder module
-            build_session_tree(self._tree, sessions)
-
-        finally:
-            self._tree.setUpdatesEnabled(True)
+        self._tree.show()
+        self._empty.hide()
+        self._model.set_sessions(sessions)
 
     def update_data(
         self,

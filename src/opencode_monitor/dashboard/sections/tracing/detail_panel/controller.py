@@ -1,4 +1,4 @@
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 from PyQt6.QtCore import Qt
 from PyQt6.QtWidgets import QTreeWidgetItem
@@ -17,6 +17,11 @@ class PanelController:
 
     def handle_selection(self, item: QTreeWidgetItem) -> None:
         data = item.data(0, Qt.ItemDataRole.UserRole)
+        if not data:
+            return
+        self.handle_selection_data(data)
+
+    def handle_selection_data(self, data: Optional[Any]) -> None:
         if not data:
             return
 

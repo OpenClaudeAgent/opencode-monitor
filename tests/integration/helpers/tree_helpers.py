@@ -1,26 +1,66 @@
-"""
-Tree traversal helpers for Tracing section integration tests.
+from PyQt6.QtCore import Qt, QModelIndex
+from PyQt6.QtWidgets import QTreeView, QTreeWidget, QTreeWidgetItem
 
-Provides reusable functions for:
-- Traversing QTreeWidget items
-- Extracting item data
-- Finding items by node_type or tool_name
-- Expanding all items
-"""
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import QTreeWidget, QTreeWidgetItem
+def get_all_tree_indexes(tree_view: QTreeView) -> list[QModelIndex]:
+    model = tree_view.model()
+    if model is None:
+        return []
+
+    indexes = []
+
+    def collect(parent: QModelIndex):
+        rows = model.rowCount(parent)
+        for row in range(rows):
+            index = model.index(row, 0, parent)
+            if index.isValid():
+                indexes.append(index)
+                collect(index)
+
+    collect(QModelIndex())
+    return indexes
+
+
+def get_index_data(tree_view: QTreeView, index: QModelIndex) -> dict:
+    model = tree_view.model()
+    if model is None:
+        return {}
+    return model.data(index, Qt.ItemDataRole.UserRole) or {}
+
+
+def find_indexes_by_node_type(
+    tree_view: QTreeView, node_type: str
+) -> list[QModelIndex]:
+    result = []
+    for index in get_all_tree_indexes(tree_view):
+        data = get_index_data(tree_view, index)
+        if data.get("node_type") == node_type:
+            result.append(index)
+    return result
+
+
+def find_indexes_by_tool_name(
+    tree_view: QTreeView, tool_name: str
+) -> list[QModelIndex]:
+    result = []
+    for index in get_all_tree_indexes(tree_view):
+        data = get_index_data(tree_view, index)
+        if data.get("node_type") == "tool" and data.get("tool_name") == tool_name:
+            result.append(index)
+    return result
+
+
+def expand_all_indexes(tree_view: QTreeView) -> None:
+    from PyQt6.QtWidgets import QApplication
+
+    tree_view.expandAll()
+    QApplication.processEvents()
+
+
+# Legacy QTreeWidget support (deprecated - for backward compatibility)
 
 
 def get_all_tree_items(tree_widget: QTreeWidget) -> list[QTreeWidgetItem]:
-    """Get all items in tree (flattened).
-
-    Args:
-        tree_widget: The QTreeWidget to traverse
-
-    Returns:
-        List of all QTreeWidgetItem in the tree (depth-first)
-    """
     items = []
 
     def collect(item: QTreeWidgetItem):
@@ -39,29 +79,12 @@ def get_all_tree_items(tree_widget: QTreeWidget) -> list[QTreeWidgetItem]:
 
 
 def get_item_data(item: QTreeWidgetItem) -> dict:
-    """Get the data stored in a tree item.
-
-    Args:
-        item: The tree item to extract data from
-
-    Returns:
-        Dict of item data (node_type, tool_name, etc.)
-    """
     return item.data(0, Qt.ItemDataRole.UserRole) or {}
 
 
 def find_items_by_node_type(
     tree_widget: QTreeWidget, node_type: str
 ) -> list[QTreeWidgetItem]:
-    """Find all items with a specific node_type.
-
-    Args:
-        tree_widget: The QTreeWidget to search
-        node_type: The node_type to match (e.g., "session", "user_turn", "tool")
-
-    Returns:
-        List of matching QTreeWidgetItems
-    """
     result = []
     for item in get_all_tree_items(tree_widget):
         data = get_item_data(item)
@@ -73,15 +96,6 @@ def find_items_by_node_type(
 def find_items_by_tool_name(
     tree_widget: QTreeWidget, tool_name: str
 ) -> list[QTreeWidgetItem]:
-    """Find all tool items with a specific tool_name.
-
-    Args:
-        tree_widget: The QTreeWidget to search
-        tool_name: The tool_name to match (e.g., "webfetch", "bash", "read")
-
-    Returns:
-        List of matching QTreeWidgetItems (node_type == "tool")
-    """
     result = []
     for item in get_all_tree_items(tree_widget):
         data = get_item_data(item)

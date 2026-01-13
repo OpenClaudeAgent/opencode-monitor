@@ -63,9 +63,9 @@ def get_tracing_tree():
     try:
         days = request.args.get("days", 30, type=int)
         include_tools = request.args.get("include_tools", "true").lower() == "true"
-        limit = request.args.get("limit", 50, type=int)
+        limit = request.args.get("limit", 500, type=int)
 
-        limit = min(limit, 500)
+        limit = min(limit, 1000)
 
         with get_db_lock():
             db = get_analytics_db()

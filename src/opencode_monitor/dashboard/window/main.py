@@ -498,7 +498,7 @@ class DashboardWindow(QMainWindow):
             if not client.is_available:
                 return
 
-            session_hierarchy: list[dict] = client.get_tracing_tree(days=30) or []  # type: ignore[assignment]
+            session_hierarchy: list[dict] = client.get_tracing_tree(days=60) or []  # type: ignore[assignment]
 
             self._signals.tracing_updated.emit(
                 {
