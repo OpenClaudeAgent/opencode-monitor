@@ -12,13 +12,25 @@ import pytest
 from pathlib import Path
 from unittest.mock import patch, MagicMock
 
-from PyQt6.QtCore import Qt
+from PyQt6.QtCore import Qt, QModelIndex
 from PyQt6.QtWidgets import QApplication
 
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses, process_qt_events
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
+
+
+def _select_root_session(tracing) -> QModelIndex:
+    """Helper to select root session in tree (QTreeView/QAbstractItemModel API)."""
+    model = tracing._model
+    root_index = model.index(0, 0)
+    tracing._tree.setCurrentIndex(root_index)
+    tracing._on_index_clicked(root_index)
+    return root_index
 
 
 class TestFilesListWidgetDiffStats:
@@ -35,9 +47,7 @@ class TestFilesListWidgetDiffStats:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -72,9 +82,7 @@ class TestFilesListWidgetDiffStats:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -107,9 +115,7 @@ class TestFilesListWidgetDiffStats:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -140,9 +146,7 @@ class TestDiffExportSignal:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -186,9 +190,7 @@ class TestDiffExportToClipboard:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -297,9 +299,7 @@ class TestDiffExportToClipboard:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -339,9 +339,7 @@ class TestDiffExportToClipboard:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -383,9 +381,7 @@ class TestDiffExportToClipboard:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel
@@ -461,9 +457,7 @@ class TestDiffExportToClipboard:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         detail_panel = tracing._detail_panel

@@ -362,5 +362,6 @@ def realistic_tracing() -> dict[str, Any]:
         "total_traces": 4,
         "unique_agents": 4,  # user, executor, tester, quality
         "total_duration_ms": 215000,
+        "meta": {"has_more": False},  # Disable pagination for tests
         **details,
     }

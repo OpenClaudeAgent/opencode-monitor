@@ -201,19 +201,46 @@ class AnalyticsAPIClient:
         }
         return self._request(f"/api/session/{session_id}/timeline/full", params)
 
-    def get_tracing_tree(self, days: int = 30) -> Optional[dict]:
-        """Get hierarchical tracing tree for dashboard display.
+    def get_tracing_tree(
+        self, days: int = 30, limit: int = 80, offset: int = 0
+    ) -> Optional[dict]:
+        return self._request_with_meta(
+            "/api/tracing/tree", {"days": days, "limit": limit, "offset": offset}
+        )
 
-        Returns sessions with their child traces already structured
-        as a tree. No client-side aggregation needed.
+    def _request_with_meta(
+        self, endpoint: str, params: Optional[dict] = None
+    ) -> Optional[dict]:
+        url = f"{self._base_url}{endpoint}"
 
-        Args:
-            days: Number of days to include
+        if params:
+            query_string = "&".join(f"{k}={v}" for k, v in params.items())
+            url = f"{url}?{query_string}"
 
-        Returns:
-            Dict with session nodes and children, or None
-        """
-        return self._request("/api/tracing/tree", {"days": days})
+        start_time = time.time()
+
+        try:
+            req = urllib.request.Request(url, method="GET")
+            req.add_header("Accept", "application/json")
+
+            with urllib.request.urlopen(req, timeout=self._timeout) as response:  # nosec B310
+                data = json.loads(response.read().decode("utf-8"))
+                elapsed = (time.time() - start_time) * 1000
+
+                if data.get("success"):
+                    self._available = True
+                    result = {
+                        "data": data.get("data"),
+                        "meta": data.get("meta", {}),
+                    }
+                    self._log_response(endpoint, elapsed, result)
+                    return result
+                else:
+                    error(f"[API Client] Request failed: {data.get('error')}")
+                    return None
+
+        except urllib.error.URLError:
+            return None
 
     def get_sync_status(self) -> Optional[dict]:
         """Get sync status including backfill state (legacy format).

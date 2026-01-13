@@ -68,8 +68,8 @@ def _get_name_text(data: dict, node_type: str) -> str:
             return f'{icon} user → {agent}: "{preview}"'
         return f"{icon} user → {agent}"
 
-    elif node_type == "agent":
-        agent_type = data.get("subagent_type", "agent")
+    elif node_type in ("agent", "delegation"):
+        agent_type = data.get("subagent_type") or data.get("agent_type", "agent")
         parent_agent = data.get("parent_agent", "")
         depth = data.get("depth", 0)
         icon = get_delegation_icon(depth, parent_agent)

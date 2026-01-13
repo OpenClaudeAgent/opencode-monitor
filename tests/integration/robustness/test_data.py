@@ -12,7 +12,10 @@ import pytest
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
 
 
 class TestDataRobustness:
@@ -132,7 +135,7 @@ class TestDataRobustness:
 
         dashboard_window._signals.tracing_updated.emit(tracing_data)
         tracing = dashboard_window._tracing
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() == 10, timeout=1000)
+        qtbot.waitUntil(lambda: tracing._model.rowCount() == 10, timeout=1000)
 
         assert len(tracing._session_hierarchy) == 10
         # Dashboard should remain responsive

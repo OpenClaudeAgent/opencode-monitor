@@ -28,12 +28,15 @@ def click_tab(qtbot):
 
 @pytest.fixture
 def select_first_session(qtbot):
+    """Select the first session in the tracing tree (QTreeView/QAbstractItemModel API)."""
+
     def _select(tracing):
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item is not None, "Expected at least one session in tree"
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        model = tracing._model
+        root_index = model.index(0, 0)
+        assert root_index.isValid(), "Expected at least one session in tree"
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
         QApplication.processEvents()
-        return root_item
+        return root_index
 
     return _select

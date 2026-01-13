@@ -11,7 +11,9 @@ from typing import Any
 # =============================================================================
 
 
-def fetch_root_traces(conn: Any, start_date: Any, limit: int = 50) -> list:
+def fetch_root_traces(
+    conn: Any, start_date: Any, limit: int = 80, offset: int = 0
+) -> list:
     return conn.execute(
         """
         SELECT 
@@ -37,8 +39,9 @@ def fetch_root_traces(conn: Any, start_date: Any, limit: int = 50) -> list:
           AND t.started_at >= ?
         ORDER BY t.started_at DESC
         LIMIT ?
+        OFFSET ?
         """,
-        [start_date, limit],
+        [start_date, limit, offset],
     ).fetchall()
 
 

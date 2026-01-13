@@ -180,9 +180,9 @@ class DashboardWindow(QMainWindow):
         # Connect period change to trigger analytics refresh
         self._analytics.period_changed.connect(self._on_analytics_period_changed)
 
-        # Connect terminal focus signal
         self._monitoring.open_terminal_requested.connect(self._on_open_terminal)
         self._tracing.open_terminal_requested.connect(self._on_open_terminal_session)
+        self._tracing.load_more_requested.connect(self._on_tracing_load_more)
 
     def _on_open_terminal(self, agent_id: str) -> None:
         """Handle request to open terminal for an agent."""
@@ -194,8 +194,14 @@ class DashboardWindow(QMainWindow):
             focus_iterm2(tty)
 
     def _on_open_terminal_session(self, session_id: str) -> None:
-        """Handle request to open terminal for a session (from tracing)."""
         info(f"[Tracing] Terminal opened for session: {session_id[:12]}...")
+
+    def _on_tracing_load_more(self, offset: int, limit: int) -> None:
+        threading.Thread(
+            target=self._fetch_tracing_data,
+            args=(offset, limit),
+            daemon=True,
+        ).start()
 
     def _on_analytics_period_changed(self, days: int) -> None:
         """Handle analytics period change - refresh data immediately."""
@@ -488,8 +494,7 @@ class DashboardWindow(QMainWindow):
             skills=data.get("skills", []),
         )
 
-    def _fetch_tracing_data(self) -> None:
-        """Fetch tracing data from API."""
+    def _fetch_tracing_data(self, offset: int = 0, limit: int = 80) -> None:
         try:
             from ...api import get_api_client
 
@@ -498,11 +503,18 @@ class DashboardWindow(QMainWindow):
             if not client.is_available:
                 return
 
-            session_hierarchy: list[dict] = client.get_tracing_tree(days=60) or []  # type: ignore[assignment]
+            result = client.get_tracing_tree(days=60, limit=limit, offset=offset)
+            if not result:
+                return
+
+            sessions = result.get("data", [])
+            meta = result.get("meta", {})
 
             self._signals.tracing_updated.emit(
                 {
-                    "session_hierarchy": session_hierarchy,
+                    "session_hierarchy": sessions,
+                    "meta": meta,
+                    "is_append": offset > 0,
                 }
             )
 
@@ -510,9 +522,10 @@ class DashboardWindow(QMainWindow):
             error(f"[Dashboard] Tracing fetch error: {e}")
 
     def _on_tracing_data(self, data: dict) -> None:
-        """Handle tracing data update."""
         self._tracing.update_data(
             session_hierarchy=data.get("session_hierarchy", []),
+            meta=data.get("meta"),
+            is_append=data.get("is_append", False),
         )
 
     def closeEvent(self, a0: QCloseEvent | None) -> None:

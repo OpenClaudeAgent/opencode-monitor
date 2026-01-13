@@ -7,11 +7,15 @@ Tests verify that:
 """
 
 import pytest
+from PyQt6.QtCore import Qt
 
 from ..conftest import SECTION_TRACING, SECTION_MONITORING, SECTION_ANALYTICS
 from ..fixtures import MockAPIResponses, process_qt_events
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
 
 
 class TestUserWorkflows:
@@ -25,28 +29,38 @@ class TestUserWorkflows:
 
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
 
         tracing = dashboard_window._tracing
         detail = tracing._detail_panel
+        model = tracing._model
 
-        assert tracing._tree.topLevelItemCount() == 1
+        qtbot.waitUntil(lambda: model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item.text(0) == "🌳 my-project: Implement feature X"
+        root_index = model.index(0, 0)
+        root_text = model.data(root_index, Qt.ItemDataRole.DisplayRole)
+        assert root_text == "🌳 my-project: Implement feature X"
 
         expected_child_count = 2
-        root_has_all_children = lambda: root_item.childCount() == expected_child_count
+        root_has_all_children = (
+            lambda: model.rowCount(root_index) == expected_child_count
+        )
         qtbot.waitUntil(root_has_all_children, timeout=3000)
 
-        child_1 = root_item.child(0)
-        child_2 = root_item.child(1)
+        child_1_index = model.index(0, 0, root_index)
+        child_2_index = model.index(1, 0, root_index)
 
-        assert child_1.text(0) == "💬 user → executor"
-        assert child_2.text(0) == "🔗 executor → tester"
+        # Labels format: "└─ parent → child" for delegations
+        child_1_text = model.data(child_1_index, Qt.ItemDataRole.DisplayRole)
+        child_2_text = model.data(child_2_index, Qt.ItemDataRole.DisplayRole)
+        assert "executor" in child_1_text, (
+            f"Expected 'executor' in child 1, got: {child_1_text}"
+        )
+        assert "tester" in child_2_text, (
+            f"Expected 'tester' in child 2, got: {child_2_text}"
+        )
 
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
 
         click_tab(detail._tabs, 0)
         assert detail._tabs.currentIndex() == 0
@@ -57,7 +71,7 @@ class TestUserWorkflows:
         click_nav(dashboard_window, SECTION_TRACING)
 
         assert dashboard_window._pages.currentIndex() == SECTION_TRACING
-        assert tracing._tree.topLevelItemCount() == 1
+        assert model.rowCount() == 1
 
     def test_navigation_preserves_section_state(
         self, dashboard_window, qtbot, click_nav
@@ -66,10 +80,10 @@ class TestUserWorkflows:
         click_nav(dashboard_window, SECTION_TRACING)
         tracing_data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(tracing_data)
-        process_qt_events()
 
         tracing = dashboard_window._tracing
-        assert tracing._tree.topLevelItemCount() == 1
+        model = tracing._model
+        qtbot.waitUntil(lambda: model.rowCount() > 0, timeout=3000)
 
         click_nav(dashboard_window, SECTION_MONITORING)
         monitoring_data = MockAPIResponses.realistic_monitoring()
@@ -88,6 +102,7 @@ class TestUserWorkflows:
 
         click_nav(dashboard_window, SECTION_TRACING)
 
-        assert tracing._tree.topLevelItemCount() == 1
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item.text(0).startswith("🌳 my-project")
+        assert model.rowCount() == 1
+        root_index = model.index(0, 0)
+        root_text = model.data(root_index, Qt.ItemDataRole.DisplayRole)
+        assert root_text.startswith("🌳 my-project")

@@ -14,7 +14,10 @@ from ..fixtures import process_qt_events
 from ..conftest import SECTION_TRACING
 from ..fixtures import MockAPIResponses
 
-pytestmark = pytest.mark.integration
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
 
 
 class TestTracingSessionSelection:

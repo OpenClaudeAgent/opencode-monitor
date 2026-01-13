@@ -1,6 +1,6 @@
 from typing import Any, Optional
 
-from PyQt6.QtCore import QAbstractItemModel, QModelIndex, Qt
+from PyQt6.QtCore import QAbstractItemModel, QModelIndex, Qt, pyqtSignal
 
 from .tree_formatters import get_display_text, get_foreground_color, get_tooltip
 
@@ -41,77 +41,95 @@ class TreeNode:
 
 
 class TracingTreeModel(QAbstractItemModel):
-    """Tree model for tracing data with virtualization support.
+    fetch_more_requested = pyqtSignal(int, int)
 
-    Uses QAbstractItemModel to enable efficient rendering of large
-    hierarchical datasets with thousands of nodes.
-    """
-
-    def __init__(self, parent=None):
-        """Initialize the tree model."""
+    def __init__(self, parent=None, page_size: int = 80):
         super().__init__(parent)
         self._root = TreeNode({"node_type": "root"})
         self._column_count = 6
         self._headers = ["Name", "Time", "Duration", "In", "Out", ""]
+        self._page_size = page_size
+        self._has_more = False
+        self._is_fetching = False
+        self._total_loaded = 0
 
     def clear(self) -> None:
-        """Clear all data from the model."""
         self.beginResetModel()
         self._root = TreeNode({"node_type": "root"})
+        self._has_more = False
+        self._is_fetching = False
+        self._total_loaded = 0
         self.endResetModel()
 
     def set_sessions(self, sessions: list[dict]) -> None:
         self.beginResetModel()
         self._root = TreeNode({"node_type": "root"})
+        self._total_loaded = 0
 
         for session_data in sessions:
             root_data = {**session_data, "_is_tree_root": True}
             self._build_session_node(self._root, root_data)
 
+        self._total_loaded = len(sessions)
         self.endResetModel()
 
+    def append_sessions(self, sessions: list[dict]) -> int:
+        if not sessions:
+            return 0
+
+        parent_index = QModelIndex()
+        first_new_row = self._root.child_count()
+        last_new_row = first_new_row + len(sessions) - 1
+
+        self.beginInsertRows(parent_index, first_new_row, last_new_row)
+
+        for session_data in sessions:
+            root_data = {**session_data, "_is_tree_root": True}
+            self._build_session_node(self._root, root_data)
+
+        self.endInsertRows()
+        self._total_loaded += len(sessions)
+
+        return len(sessions)
+
+    def set_pagination_state(self, has_more: bool) -> None:
+        self._has_more = has_more
+        self._is_fetching = False
+
     def _build_session_node(self, parent: TreeNode, session_data: dict) -> TreeNode:
-        """Build a session node and its children recursively.
-
-        Args:
-            parent: Parent tree node
-            session_data: Session data dictionary
-
-        Returns:
-            Created session node
-        """
-        # Create session node
         node = TreeNode(session_data, parent)
         parent.add_child(node)
 
-        # Add children recursively
         children = session_data.get("children", [])
         for child_data in children:
             child_type = child_data.get("node_type", "")
 
             if child_type in ("user_turn", "conversation", "exchange"):
-                # Exchange node
                 exchange_node = TreeNode(child_data, node)
                 node.add_child(exchange_node)
 
-                # Add parts/tools as children
                 if "parts" in child_data:
                     for part_data in child_data["parts"]:
                         part_node = TreeNode(part_data, exchange_node)
                         exchange_node.add_child(part_node)
                 elif "assistant" in child_data:
-                    # New format with assistant.parts
                     assistant = child_data.get("assistant", {})
                     for part_data in assistant.get("parts", []):
                         part_node = TreeNode(part_data, exchange_node)
                         exchange_node.add_child(part_node)
 
-            elif child_type == "agent":
-                # Agent/delegation node - recurse
+                for nested in child_data.get("children", []):
+                    nested_type = nested.get("node_type", "")
+                    if nested_type in ("agent", "delegation"):
+                        self._build_session_node(exchange_node, nested)
+                    elif nested_type in ("part", "tool"):
+                        nested_node = TreeNode(nested, exchange_node)
+                        exchange_node.add_child(nested_node)
+
+            elif child_type in ("agent", "delegation"):
                 self._build_session_node(node, child_data)
 
-            elif child_type == "part":
-                # Direct part (tool) - shouldn't happen at this level but handle it
+            elif child_type in ("part", "tool"):
                 part_node = TreeNode(child_data, node)
                 node.add_child(part_node)
 
@@ -124,7 +142,6 @@ class TracingTreeModel(QAbstractItemModel):
     def index(
         self, row: int, column: int, parent: QModelIndex = QModelIndex()
     ) -> QModelIndex:
-        """Create an index for the item at row/column under parent."""
         if not self.hasIndex(row, column, parent):
             return QModelIndex()
 
@@ -139,7 +156,6 @@ class TracingTreeModel(QAbstractItemModel):
         return QModelIndex()
 
     def parent(self, index: QModelIndex) -> QModelIndex:
-        """Get the parent index of the given index."""
         if not index.isValid():
             return QModelIndex()
 
@@ -152,7 +168,6 @@ class TracingTreeModel(QAbstractItemModel):
         return self.createIndex(parent_node.row(), 0, parent_node)
 
     def rowCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        """Get number of rows under parent."""
         if parent.column() > 0:
             return 0
 
@@ -164,11 +179,9 @@ class TracingTreeModel(QAbstractItemModel):
         return parent_node.child_count()
 
     def columnCount(self, parent: QModelIndex = QModelIndex()) -> int:
-        """Get number of columns."""
         return self._column_count
 
     def data(self, index: QModelIndex, role: int = Qt.ItemDataRole.DisplayRole) -> Any:
-        """Get data for the given index and role."""
         if not index.isValid():
             return None
 
@@ -181,7 +194,6 @@ class TracingTreeModel(QAbstractItemModel):
         orientation: Qt.Orientation,
         role: int = Qt.ItemDataRole.DisplayRole,
     ) -> Any:
-        """Get header data for the given section."""
         if (
             orientation == Qt.Orientation.Horizontal
             and role == Qt.ItemDataRole.DisplayRole
@@ -191,7 +203,24 @@ class TracingTreeModel(QAbstractItemModel):
         return None
 
     def flags(self, index: QModelIndex) -> Qt.ItemFlag:
-        """Get flags for the given index."""
         if not index.isValid():
             return Qt.ItemFlag.NoItemFlags
         return Qt.ItemFlag.ItemIsEnabled | Qt.ItemFlag.ItemIsSelectable
+
+    # =========================================================================
+    # Lazy Loading - Qt Native canFetchMore/fetchMore
+    # =========================================================================
+
+    def canFetchMore(self, parent: QModelIndex) -> bool:
+        if parent.isValid():
+            return False
+        return self._has_more and not self._is_fetching
+
+    def fetchMore(self, parent: QModelIndex) -> None:
+        if parent.isValid():
+            return
+        if not self._has_more or self._is_fetching:
+            return
+
+        self._is_fetching = True
+        self.fetch_more_requested.emit(self._total_loaded, self._page_size)

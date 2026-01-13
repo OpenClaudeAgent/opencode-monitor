@@ -8,6 +8,7 @@ Tests verify that:
 """
 
 import pytest
+from PyQt6.QtCore import Qt, QModelIndex
 from PyQt6.QtWidgets import QWidget, QLabel
 
 from ..fixtures import process_qt_events
@@ -26,6 +27,15 @@ TREE_COLUMN_COUNT = 6
 # Expected values from fixture (tracing.py)
 ROOT_SESSION_LABEL = "🌳 my-project: Implement feature X"
 CHILD_COUNT = 2  # executor + tester delegations
+
+
+def _select_root_session(tracing) -> QModelIndex:
+    """Helper to select root session in tree (QTreeView/QAbstractItemModel API)."""
+    model = tracing._model
+    root_index = model.index(0, 0)
+    tracing._tree.setCurrentIndex(root_index)
+    tracing._on_index_clicked(root_index)
+    return root_index
 
 
 class TestTracingTabsContent:
@@ -61,10 +71,8 @@ class TestTracingTabsContent:
         dashboard_window._signals.tracing_updated.emit(data)
         process_qt_events()
 
-        # Select root session
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        # Select root session (QTreeView/QAbstractItemModel API)
+        _select_root_session(tracing)
         process_qt_events()
 
         # Navigate to tab and verify accessibility
@@ -89,33 +97,31 @@ class TestTracingTreeContent:
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        tree = tracing._tree
-        assert tree.columnCount() == TREE_COLUMN_COUNT
+        model = tracing._model
+        assert model.columnCount() == TREE_COLUMN_COUNT
 
-        root_item = tree.topLevelItem(0)
-        root_text = root_item.text(0)
+        root_index = model.index(0, 0)
+        root_text = model.data(root_index, Qt.ItemDataRole.DisplayRole)
         assert root_text == ROOT_SESSION_LABEL, (
             f"Expected root label '{ROOT_SESSION_LABEL}', got '{root_text}'"
         )
 
-        root_has_all_children = lambda: root_item.childCount() == CHILD_COUNT
+        root_has_all_children = lambda: model.rowCount(root_index) == CHILD_COUNT
         qtbot.waitUntil(root_has_all_children, timeout=3000)
 
-        first_child = root_item.child(0)
-        first_child_text = first_child.text(0)
+        first_child = model.index(0, 0, root_index)
+        first_child_text = model.data(first_child, Qt.ItemDataRole.DisplayRole)
         assert "executor" in first_child_text.lower() or "Execute" in first_child_text
 
         # Verify second child (tester delegation)
-        second_child = root_item.child(1)
-        second_child_text = second_child.text(0)
+        second_child = model.index(1, 0, root_index)
+        second_child_text = model.data(second_child, Qt.ItemDataRole.DisplayRole)
         assert "tester" in second_child_text.lower() or "Run tests" in second_child_text
 
-        # All items should have proper column count
-        assert root_item.columnCount() == TREE_COLUMN_COUNT
-        assert first_child.columnCount() == TREE_COLUMN_COUNT
-        assert second_child.columnCount() == TREE_COLUMN_COUNT
+        # All items should have proper column count (model-level, same for all)
+        assert model.columnCount() == TREE_COLUMN_COUNT
 
 
 class TestTokenDisplayNonRegression:
@@ -146,14 +152,11 @@ class TestTokenDisplayNonRegression:
             ]
         }
 
-        # When: On affiche le panel plusieurs fois (simulate navigation)
         for iteration in range(3):
             dashboard_window._signals.tracing_updated.emit(data)
-            process_qt_events()
+            qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-            root_item = tracing._tree.topLevelItem(0)
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
+            _select_root_session(tracing)
             process_qt_events()
 
             # Then: Les valeurs doivent rester identiques (pas de double comptage)
@@ -203,16 +206,13 @@ class TestTokenDisplayNonRegression:
             ]
         }
 
-        # When: On charge les données et sélectionne la session
         success = True
         error = None
         try:
             dashboard_window._signals.tracing_updated.emit(data)
-            process_qt_events()
+            qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-            root_item = tracing._tree.topLevelItem(0)
-            tracing._tree.setCurrentItem(root_item)
-            tracing._on_item_clicked(root_item, 0)
+            _select_root_session(tracing)
             process_qt_events()
         except Exception as e:
             success = False
@@ -254,13 +254,10 @@ class TestTokenDisplayNonRegression:
             ]
         }
 
-        # When: On charge les données
         dashboard_window._signals.tracing_updated.emit(data)
-        process_qt_events()
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        _select_root_session(tracing)
         process_qt_events()
 
         # Then: Vérifier que cache_write est bien affiché

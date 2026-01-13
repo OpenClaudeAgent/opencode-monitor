@@ -253,3 +253,79 @@ class TestTracingTreeModel:
         data = model.data(agent_index, Qt.ItemDataRole.UserRole)
         assert data.get("subagent_type") == "oracle"
         assert model.rowCount(agent_index) == 1
+
+    def test_append_sessions_returns_count(self):
+        model = TracingTreeModel()
+        model.set_sessions(
+            [{"node_type": "session", "session_id": "s1", "children": []}]
+        )
+
+        count = model.append_sessions(
+            [
+                {"node_type": "session", "session_id": "s2", "children": []},
+                {"node_type": "session", "session_id": "s3", "children": []},
+            ]
+        )
+
+        assert count == 2
+
+    def test_append_sessions_adds_to_existing(self):
+        model = TracingTreeModel()
+        model.set_sessions(
+            [{"node_type": "session", "session_id": "s1", "children": []}]
+        )
+        assert model.rowCount() == 1
+
+        model.append_sessions(
+            [
+                {"node_type": "session", "session_id": "s2", "children": []},
+            ]
+        )
+
+        assert model.rowCount() == 2
+
+    def test_append_sessions_empty_list_returns_zero(self):
+        model = TracingTreeModel()
+        model.set_sessions(
+            [{"node_type": "session", "session_id": "s1", "children": []}]
+        )
+
+        count = model.append_sessions([])
+
+        assert count == 0
+        assert model.rowCount() == 1
+
+    def test_append_sessions_adds_root_flag(self):
+        model = TracingTreeModel()
+        model.set_sessions([])
+
+        model.append_sessions(
+            [{"node_type": "session", "session_id": "s1", "children": []}]
+        )
+
+        index = model.index(0, 0)
+        data = model.data(index, Qt.ItemDataRole.UserRole)
+        assert data.get("_is_tree_root") is True
+
+    def test_append_sessions_preserves_existing_sessions(self):
+        model = TracingTreeModel()
+        model.set_sessions(
+            [
+                {"node_type": "session", "session_id": "first", "children": []},
+            ]
+        )
+
+        model.append_sessions(
+            [
+                {"node_type": "session", "session_id": "second", "children": []},
+            ]
+        )
+
+        first_index = model.index(0, 0)
+        second_index = model.index(1, 0)
+
+        first_data = model.data(first_index, Qt.ItemDataRole.UserRole)
+        second_data = model.data(second_index, Qt.ItemDataRole.UserRole)
+
+        assert first_data.get("session_id") == "first"
+        assert second_data.get("session_id") == "second"

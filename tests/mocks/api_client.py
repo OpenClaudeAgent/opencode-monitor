@@ -987,10 +987,20 @@ class MockAnalyticsAPIClient:
         operations = self._responses.get("session_operations", {})
         return operations.get(session_id, [])
 
-    def get_tracing_tree(self, days: int = 30) -> Optional[list]:
-        """Return configured tracing tree (session hierarchy)."""
-        self._log_call("get_tracing_tree", days=days)
-        return self._responses.get("session_hierarchy", [])
+    def get_tracing_tree(
+        self, days: int = 30, limit: int = 500, offset: int = 0
+    ) -> Optional[dict]:
+        self._log_call("get_tracing_tree", days=days, limit=limit, offset=offset)
+        sessions = self._responses.get("session_hierarchy", [])
+        return {
+            "data": sessions,
+            "meta": {
+                "limit": limit,
+                "offset": offset,
+                "count": len(sessions),
+                "has_more": False,
+            },
+        }
 
     def get_conversation(self, session_id: str) -> Optional[dict]:
         """Return configured conversation for a session."""

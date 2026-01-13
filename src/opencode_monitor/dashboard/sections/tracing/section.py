@@ -23,22 +23,15 @@ from .tree_model import TracingTreeModel
 
 
 class TracingSection(QWidget):
-    """Tracing section - agent execution traces visualization.
-
-    Simplified UI with two panels:
-    - Top: Session/trace tree with hierarchy
-    - Bottom: Detail panel with tabs
-    """
-
-    # Signal when double-click to open terminal
-    open_terminal_requested = pyqtSignal(str)  # session_id
+    open_terminal_requested = pyqtSignal(str)
+    load_more_requested = pyqtSignal(int, int)
 
     def __init__(self, parent: QWidget | None = None):
         super().__init__(parent)
         self._session_hierarchy: list[dict] = []
-        self._max_duration_ms: int = 1  # Avoid division by zero
-        self._view_mode: str = "sessions"  # Always sessions view
-        self._last_session_ids: set[str | None] = set()  # Track for change detection
+        self._max_duration_ms: int = 1
+        self._view_mode: str = "sessions"
+        self._last_session_ids: set[str | None] = set()
         self._setup_ui()
         self._controller = PanelController(self._detail_panel)
         self._connect_signals()
@@ -50,7 +43,6 @@ class TracingSection(QWidget):
         )
         layout.setSpacing(SPACING["sm"])
 
-        # Simple header with just title
         title = QLabel("Traces")
         title.setStyleSheet(f"""
             font-size: {FONTS["size_lg"]}px;
@@ -60,7 +52,6 @@ class TracingSection(QWidget):
         """)
         layout.addWidget(title)
 
-        # Main content with vertical splitter (tree on top, details below)
         self._splitter = QSplitter(Qt.Orientation.Vertical)
         self._splitter.setChildrenCollapsible(False)
         self._splitter.setHandleWidth(8)
@@ -75,14 +66,13 @@ class TracingSection(QWidget):
             }}
         """)
 
-        # Top panel: Tree view
         top_panel = QWidget()
         top_panel.setMinimumHeight(200)
         top_layout = QVBoxLayout(top_panel)
         top_layout.setContentsMargins(0, 0, 0, 0)
         top_layout.setSpacing(0)
 
-        self._model = TracingTreeModel()
+        self._model = TracingTreeModel(page_size=80)
         self._tree = QTreeView()
         self._tree.setModel(self._model)
         self._tree.setColumnWidth(0, 450)
@@ -155,7 +145,6 @@ class TracingSection(QWidget):
 
         top_layout.addWidget(self._tree)
 
-        # Empty state
         self._empty = EmptyState(
             icon="◯",
             title="No traces found",
@@ -166,12 +155,10 @@ class TracingSection(QWidget):
 
         self._splitter.addWidget(top_panel)
 
-        # Bottom panel: Detail panel
         self._detail_panel = TraceDetailPanel()
         self._detail_panel.setMinimumHeight(250)
         self._splitter.addWidget(self._detail_panel)
 
-        # Set splitter proportions (50% tree, 50% details)
         self._splitter.setSizes([500, 500])
 
         layout.addWidget(self._splitter, stretch=1)
@@ -182,6 +169,10 @@ class TracingSection(QWidget):
         selection_model = self._tree.selectionModel()
         if selection_model:
             selection_model.currentChanged.connect(self._on_current_changed)
+        self._model.fetch_more_requested.connect(self._on_fetch_more_requested)
+
+    def _on_fetch_more_requested(self, offset: int, limit: int) -> None:
+        self.load_more_requested.emit(offset, limit)
 
     def _on_current_changed(self, current, _previous):
         if current.isValid():
@@ -223,13 +214,17 @@ class TracingSection(QWidget):
     def update_data(
         self,
         session_hierarchy: list[dict] | None = None,
+        meta: dict | None = None,
+        is_append: bool = False,
     ) -> None:
-        """Update tracing data with session hierarchy.
+        sessions = session_hierarchy or []
+        meta = meta or {}
+        has_more = meta.get("has_more", True)
 
-        Args:
-            session_hierarchy: Hierarchical tree of sessions from API
-        """
-        self._session_hierarchy = session_hierarchy or []
-
-        # Populate tree with sessions hierarchy
-        self._populate_sessions_tree(self._session_hierarchy)
+        if is_append:
+            self._model.append_sessions(sessions)
+            self._model.set_pagination_state(has_more)
+        else:
+            self._session_hierarchy = sessions
+            self._populate_sessions_tree(sessions)
+            self._model.set_pagination_state(has_more)

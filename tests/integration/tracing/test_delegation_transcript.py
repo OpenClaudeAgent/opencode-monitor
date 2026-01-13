@@ -9,6 +9,10 @@ from PyQt6.QtCore import Qt
 
 from tests.mocks import MockAnalyticsAPIClient, MockAPIResponses
 
+pytestmark = [
+    pytest.mark.integration,
+    pytest.mark.xdist_group(name="qt_tracing"),  # Force same worker for Qt UI tests
+]
 
 FIXED_TEST_DATE = datetime(2024, 1, 15, 10, 30, 0)
 

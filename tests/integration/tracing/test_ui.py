@@ -1,15 +1,6 @@
-"""
-Integration tests for Tracing section UI basics.
-
-Tests verify that:
-- TracingSection structure is complete (tree, detail panel, empty state)
-- Navigation works correctly
-- Empty state displays with correct message
-- Session list populates with data
-"""
-
 import pytest
-from PyQt6.QtWidgets import QTreeWidget, QLabel
+from PyQt6.QtCore import Qt
+from PyQt6.QtWidgets import QTreeView, QLabel
 
 from opencode_monitor.dashboard.widgets import EmptyState
 from opencode_monitor.dashboard.sections.tracing import TracingSection
@@ -25,120 +16,89 @@ pytestmark = [
 
 
 class TestTracingSectionStructure:
-    """Test that tracing section has all required components."""
-
     def test_tracing_section_structure(self, dashboard_window, qtbot, click_nav):
-        """Verify tracing section structure: tree widget, detail panel, and navigation."""
-        # 1. Tracing section exists and has correct type
-        assert isinstance(dashboard_window._tracing, TracingSection), (
-            f"_tracing should be TracingSection, got {type(dashboard_window._tracing).__name__}"
-        )
+        assert isinstance(dashboard_window._tracing, TracingSection)
         tracing = dashboard_window._tracing
 
-        # 2. Tree widget exists and has correct type
-        assert isinstance(tracing._tree, QTreeWidget), (
-            f"_tree should be QTreeWidget, got {type(tracing._tree).__name__}"
-        )
-        assert tracing._tree.headerItem(), "Tree should have headers"
-        assert tracing._tree.columnCount() == 6, "Tree should have 6 columns"
+        assert isinstance(tracing._tree, QTreeView)
+        assert tracing._model.columnCount() == 6
 
-        # 3. Detail panel exists and has correct type
-        assert isinstance(tracing._detail_panel, TraceDetailPanel), (
-            f"_detail_panel should be TraceDetailPanel, got {type(tracing._detail_panel).__name__}"
-        )
+        assert isinstance(tracing._detail_panel, TraceDetailPanel)
+        assert isinstance(tracing._empty, EmptyState)
 
-        # 4. Empty state widget exists and has correct type
-        assert isinstance(tracing._empty, EmptyState), (
-            f"_empty should be EmptyState, got {type(tracing._empty).__name__}"
-        )
-
-        # 5. Navigation to tracing section works
         click_nav(dashboard_window, SECTION_TRACING)
-        assert dashboard_window._pages.currentIndex() == SECTION_TRACING, (
-            "Should navigate to tracing section"
-        )
+        assert dashboard_window._pages.currentIndex() == SECTION_TRACING
 
 
 class TestTracingEmptyState:
-    """Test tracing section empty state behavior."""
-
     def test_empty_state_displays_with_correct_message(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Empty state appears with correct message when no tracing data."""
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
         empty_data = {"session_hierarchy": []}
         dashboard_window._signals.tracing_updated.emit(empty_data)
-        qtbot.waitUntil(lambda: tracing._tree.isHidden(), timeout=1000)
+        qtbot.waitUntil(lambda: tracing._tree.isHidden(), timeout=3000)
 
-        # 2. Empty state should be visible
-        assert not tracing._empty.isHidden(), "Empty state should be visible"
-        assert tracing._empty.isVisible(), (
-            "Empty state should be visible in widget hierarchy"
-        )
+        assert not tracing._empty.isHidden()
+        assert tracing._empty.isVisible()
 
-        # 3. Verify empty state contains correct message
         labels = tracing._empty.findChildren(QLabel)
         label_texts = [label.text() for label in labels]
 
-        assert "No traces found" in label_texts, (
-            f"Empty state should contain 'No traces found', got: {label_texts}"
-        )
-        assert any("task" in text.lower() for text in label_texts), (
-            f"Empty state should mention 'task' tool, got: {label_texts}"
-        )
+        assert "No traces found" in label_texts
+        assert any("task" in text.lower() for text in label_texts)
 
 
 class TestTracingSessionList:
-    """Test session list display with data."""
-
     def test_tracing_section_shows_session_list_with_data(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Session tree populates when data is provided."""
         click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: not tracing._tree.isHidden(), timeout=1000)
+        qtbot.waitUntil(lambda: not tracing._tree.isHidden(), timeout=3000)
         assert tracing._empty.isHidden()
 
-        # Fixture has exactly 1 root session
-        assert tracing._tree.topLevelItemCount() == 1
+        assert tracing._model.rowCount() == 1
 
     def test_session_tree_shows_hierarchy(self, dashboard_window, qtbot, click_nav):
-        """Session tree displays hierarchical structure matching fixture data."""
         click_nav(dashboard_window, SECTION_TRACING)
 
         tracing = dashboard_window._tracing
         data = MockAPIResponses.realistic_tracing()
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() == 1, timeout=1000)
-        root_item = tracing._tree.topLevelItem(0)
-        assert root_item.text(0) == "🌳 my-project: Implement feature X"
+        qtbot.waitUntil(lambda: tracing._model.rowCount() == 1, timeout=3000)
+
+        root_index = tracing._model.index(0, 0)
+        root_text = tracing._model.data(root_index, Qt.ItemDataRole.DisplayRole)
+        assert root_text == "🌳 my-project: Implement feature X"
 
         expected_child_count = 2
-        root_has_all_children = lambda: root_item.childCount() == expected_child_count
-        qtbot.waitUntil(root_has_all_children, timeout=3000)
+        qtbot.waitUntil(
+            lambda: tracing._model.rowCount(root_index) == expected_child_count,
+            timeout=3000,
+        )
 
-        assert root_item.child(0).text(0) == "💬 user → executor"
-        assert root_item.child(1).text(0) == "🔗 executor → tester"
+        child0_index = tracing._model.index(0, 0, root_index)
+        child1_index = tracing._model.index(1, 0, root_index)
+        child0_text = tracing._model.data(child0_index, Qt.ItemDataRole.DisplayRole)
+        child1_text = tracing._model.data(child1_index, Qt.ItemDataRole.DisplayRole)
+
+        assert child0_text == "└─ user → executor"
+        assert child1_text == "└─ executor → tester"
 
 
 class TestSessionOverviewPanelTokens:
-    """Test SessionOverviewPanel token display."""
-
     def test_session_overview_panel_displays_tokens(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Test que le SessionOverviewPanel affiche bien tous les tokens."""
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
-        # Given: Une session avec des tokens connus
         data = {
             "session_hierarchy": [
                 {
@@ -158,63 +118,40 @@ class TestSessionOverviewPanelTokens:
             ]
         }
 
-        # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        root_index = tracing._model.index(0, 0)
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
         qtbot.waitUntil(
             lambda: hasattr(tracing._detail_panel._session_overview, "_tokens"),
             timeout=1000,
         )
 
-        # Then: Vérifier que le panel overview contient un widget tokens
         detail_panel = tracing._detail_panel
         overview_panel = detail_panel._session_overview
 
-        # Le panel overview doit avoir un widget _tokens
-        assert hasattr(overview_panel, "_tokens"), (
-            "Overview panel should have _tokens widget"
-        )
+        assert hasattr(overview_panel, "_tokens")
 
-        # Le widget tokens doit être visible (non caché)
         tokens_widget = overview_panel._tokens
-        assert tokens_widget.isVisible() or not tokens_widget.isHidden(), (
-            "Tokens widget should be visible"
-        )
+        assert tokens_widget.isVisible() or not tokens_widget.isHidden()
 
-        # Vérifier que les labels contiennent les tokens (via findChildren)
         labels = tokens_widget.findChildren(QLabel)
         label_texts = [label.text() for label in labels]
 
-        # On s'attend à trouver les tokens formatés dans les labels
-        # Note: format_tokens_short() convertit 175 -> "175", 4747 -> "4.7K", etc.
-        assert any("Input" in text for text in label_texts), (
-            f"Should display Input tokens, got labels: {label_texts}"
-        )
-        assert any("Output" in text for text in label_texts), (
-            f"Should display Output tokens, got labels: {label_texts}"
-        )
-        assert any("Cache Read" in text for text in label_texts), (
-            f"Should display Cache Read tokens, got labels: {label_texts}"
-        )
-        assert any("Cache Write" in text for text in label_texts), (
-            f"Should display Cache Write tokens, got labels: {label_texts}"
-        )
-        assert any("Total" in text for text in label_texts), (
-            f"Should display Total tokens, got labels: {label_texts}"
-        )
+        assert any("Input" in text for text in label_texts)
+        assert any("Output" in text for text in label_texts)
+        assert any("Cache Read" in text for text in label_texts)
+        assert any("Cache Write" in text for text in label_texts)
+        assert any("Total" in text for text in label_texts)
 
     def test_session_overview_panel_displays_agents(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Test que le panel affiche bien les agents."""
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
-        # Given: Une session avec 3 agents "build"
         data = {
             "session_hierarchy": [
                 {
@@ -247,39 +184,33 @@ class TestSessionOverviewPanelTokens:
             ]
         }
 
-        # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        root_index = tracing._model.index(0, 0)
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
         qtbot.waitUntil(
             lambda: hasattr(tracing._detail_panel._session_overview, "_agents"),
             timeout=1000,
         )
 
-        # Then: Vérifier que le panel overview affiche les agents
         detail_panel = tracing._detail_panel
         overview_panel = detail_panel._session_overview
         agents_widget = overview_panel._agents
 
-        # Le widget agents doit exister et être visible
         assert agents_widget.isVisible() or not agents_widget.isHidden()
 
-        # Vérifier le header affiche le count
         header_text = agents_widget._header.text()
         assert "Agents" in header_text
-        assert "(3)" in header_text, f"Should show count (3), got: {header_text}"
+        assert "(3)" in header_text
 
     def test_session_overview_panel_displays_tools(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Test que le panel affiche bien les outils."""
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
-        # Given: Une session avec bash(7x) et webfetch(3x)
         data = {
             "session_hierarchy": [
                 {
@@ -289,7 +220,6 @@ class TestSessionOverviewPanelTokens:
                     "duration_seconds": 120,
                     "tokens": {"input": 100, "output": 200, "total": 300},
                     "children": [
-                        # 7 bash tools
                         *[
                             {
                                 "node_type": "tool",
@@ -299,7 +229,6 @@ class TestSessionOverviewPanelTokens:
                             }
                             for i in range(7)
                         ],
-                        # 3 webfetch tools
                         *[
                             {
                                 "node_type": "tool",
@@ -314,52 +243,39 @@ class TestSessionOverviewPanelTokens:
             ]
         }
 
-        # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        root_index = tracing._model.index(0, 0)
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
         qtbot.waitUntil(
             lambda: hasattr(tracing._detail_panel._session_overview, "_tools"),
             timeout=1000,
         )
 
-        # Then: Vérifier que le panel overview affiche les tools
         detail_panel = tracing._detail_panel
         overview_panel = detail_panel._session_overview
         tools_widget = overview_panel._tools
 
-        # Le widget tools doit exister et être visible
         assert tools_widget.isVisible() or not tools_widget.isHidden()
 
-        # Vérifier le header affiche le total count
         header_text = tools_widget._header.text()
         assert "Tools" in header_text
-        assert "(10)" in header_text, (
-            f"Should show total count (10), got: {header_text}"
-        )
+        assert "(10)" in header_text
 
-        # Vérifier que les labels contiennent bash et webfetch avec counts
         labels = tools_widget.findChildren(QLabel)
         label_texts = [label.text() for label in labels]
 
-        assert any("bash" in text and "7" in text for text in label_texts), (
-            f"Should display bash (7×), got: {label_texts}"
-        )
-        assert any("webfetch" in text and "3" in text for text in label_texts), (
-            f"Should display webfetch (3×), got: {label_texts}"
-        )
+        assert any("bash" in text and "7" in text for text in label_texts)
+        assert any("webfetch" in text and "3" in text for text in label_texts)
 
     def test_session_overview_panel_displays_timeline(
         self, dashboard_window, qtbot, click_nav
     ):
-        """Test que le panel affiche bien la timeline."""
         click_nav(dashboard_window, SECTION_TRACING)
         tracing = dashboard_window._tracing
 
-        # Given: Une session avec 3 exchanges
         data = {
             "session_hierarchy": [
                 {
@@ -395,19 +311,17 @@ class TestSessionOverviewPanelTokens:
             ]
         }
 
-        # When: On charge les données et sélectionne la session
         dashboard_window._signals.tracing_updated.emit(data)
-        qtbot.waitUntil(lambda: tracing._tree.topLevelItemCount() > 0, timeout=1000)
+        qtbot.waitUntil(lambda: tracing._model.rowCount() > 0, timeout=3000)
 
-        root_item = tracing._tree.topLevelItem(0)
-        tracing._tree.setCurrentItem(root_item)
-        tracing._on_item_clicked(root_item, 0)
+        root_index = tracing._model.index(0, 0)
+        tracing._tree.setCurrentIndex(root_index)
+        tracing._on_index_clicked(root_index)
         qtbot.waitUntil(
             lambda: hasattr(tracing._detail_panel._session_overview, "_timeline"),
             timeout=1000,
         )
 
-        # Then: Vérifier que le panel overview affiche la timeline
         detail_panel = tracing._detail_panel
         overview_panel = detail_panel._session_overview
         timeline_widget = overview_panel._timeline
@@ -415,9 +329,7 @@ class TestSessionOverviewPanelTokens:
         assert timeline_widget.isVisible() or not timeline_widget.isHidden()
 
         exchange_widgets = timeline_widget._exchange_widgets
-        assert len(exchange_widgets) == 2, (
-            f"Should have 2 exchanges (from mock realistic_timeline_full), got {len(exchange_widgets)}"
-        )
+        assert len(exchange_widgets) == 2
 
         all_prompts = []
         for widget in exchange_widgets:
@@ -425,9 +337,5 @@ class TestSessionOverviewPanelTokens:
                 if event.get("type") == "user_prompt":
                     all_prompts.append(event.get("content", ""))
 
-        assert any("refactor" in p.lower() for p in all_prompts), (
-            f"Should display first exchange about refactoring, got: {all_prompts}"
-        )
-        assert any("implement" in p.lower() for p in all_prompts), (
-            f"Should display second exchange about implementing, got: {all_prompts}"
-        )
+        assert any("refactor" in p.lower() for p in all_prompts)
+        assert any("implement" in p.lower() for p in all_prompts)

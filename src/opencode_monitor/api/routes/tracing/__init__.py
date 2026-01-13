@@ -63,16 +63,18 @@ def get_tracing_tree():
     try:
         days = request.args.get("days", 30, type=int)
         include_tools = request.args.get("include_tools", "true").lower() == "true"
-        limit = request.args.get("limit", 500, type=int)
+        limit = request.args.get("limit", 80, type=int)
+        offset = request.args.get("offset", 0, type=int)
 
         limit = min(limit, 1000)
+        offset = max(offset, 0)
 
         with get_db_lock():
             db = get_analytics_db()
             conn = db.connect()
             start_date = datetime.now() - timedelta(days=days)
 
-            root_rows = fetch_root_traces(conn, start_date, limit=limit)
+            root_rows = fetch_root_traces(conn, start_date, limit=limit, offset=offset)
             segments_by_session = fetch_segment_traces(conn, start_date)
             child_rows = fetch_child_traces(conn, start_date)
 
@@ -157,7 +159,20 @@ def get_tracing_tree():
                 session = build_session_node(row, agent_children, session_tokens)
                 sessions.append(session)
 
-        return jsonify({"success": True, "data": sessions})
+        has_more = len(root_rows) == limit
+
+        return jsonify(
+            {
+                "success": True,
+                "data": sessions,
+                "meta": {
+                    "limit": limit,
+                    "offset": offset,
+                    "count": len(sessions),
+                    "has_more": has_more,
+                },
+            }
+        )
     except Exception as e:
         error(f"[API] Error getting tracing tree: {e}")
         import traceback

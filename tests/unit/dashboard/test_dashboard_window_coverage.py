@@ -92,9 +92,10 @@ def mock_api_client():
         "summary": {"total_sessions": 10, "total_messages": 100, "total_tokens": 5000},
         "details": {"tokens": {"input": 2000, "cache_read": 3000}},
     }
-    mock_client.get_tracing_tree.return_value = [
-        {"session_id": "sess-1", "title": "Test Session"}
-    ]
+    mock_client.get_tracing_tree.return_value = {
+        "data": [{"session_id": "sess-1", "title": "Test Session"}],
+        "meta": {"limit": 500, "offset": 0, "count": 1, "has_more": False},
+    }
     mock_client.get_security_data.return_value = {
         "stats": {"critical": 0, "high": 1},
         "commands": [
@@ -615,7 +616,6 @@ class TestFetchApiUnavailable:
                     window.deleteLater()
 
     def test_fetch_tracing_data_success(self, dashboard_window):
-        """_fetch_tracing_data fetches and emits tracing data."""
         received_data = []
         dashboard_window._signals.tracing_updated.connect(
             lambda d: received_data.append(d)
@@ -623,12 +623,14 @@ class TestFetchApiUnavailable:
 
         dashboard_window._fetch_tracing_data()
 
-        assert len(received_data) == 1, "Should emit exactly one signal"
+        assert len(received_data) == 1
         data = received_data[0]
-        assert "session_hierarchy" in data, "Should have session_hierarchy"
+        assert "session_hierarchy" in data
         assert data["session_hierarchy"] == [
             {"session_id": "sess-1", "title": "Test Session"}
         ]
+        assert "meta" in data
+        assert data["is_append"] == False
 
     def test_fetch_tracing_data_handles_exception(self, qapp):
         """_fetch_tracing_data logs error with traceback on exception."""
