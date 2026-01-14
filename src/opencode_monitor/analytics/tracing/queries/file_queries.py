@@ -10,8 +10,7 @@ from typing import TYPE_CHECKING
 from .base import BaseSessionQueries
 
 if TYPE_CHECKING:
-    from ..config import TracingConfig
-    import duckdb
+    pass
 
 
 class FileQueries(BaseSessionQueries):
@@ -279,7 +278,7 @@ class FileQueries(BaseSessionQueries):
                     {"operation": "edit", "count": edits},
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "total_reads": 0,
                 "total_writes": 0,

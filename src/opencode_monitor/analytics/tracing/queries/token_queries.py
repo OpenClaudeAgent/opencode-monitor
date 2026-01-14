@@ -3,15 +3,13 @@
 Handles token metrics, cost calculations, and chart data generation.
 """
 
-import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .base import BaseSessionQueries
 
 if TYPE_CHECKING:
-    from ..config import TracingConfig
-    import duckdb
+    pass
 
 
 class TokenQueries(BaseSessionQueries):
@@ -209,7 +207,7 @@ class TokenQueries(BaseSessionQueries):
                     {"agent": row[0], "tokens": row[1] or 0} for row in agent_results
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "message_count": 0,
                 "input": 0,

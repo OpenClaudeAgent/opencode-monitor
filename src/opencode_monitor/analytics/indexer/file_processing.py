@@ -11,7 +11,6 @@ on preventing race conditions during the bulk->realtime handoff.
 import threading
 from pathlib import Path
 from typing import Optional
-from datetime import datetime
 
 from ..db import AnalyticsDB
 

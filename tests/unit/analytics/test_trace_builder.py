@@ -4,6 +4,7 @@ Tests for TraceBuilder - Plan 45 trace table building.
 Tests the exchanges, exchange_traces, and session_traces building functionality.
 """
 
+import json
 import pytest
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -11,6 +12,45 @@ import tempfile
 
 from opencode_monitor.analytics.db import AnalyticsDB
 from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+from opencode_monitor.analytics.indexer.trace_builder.helpers import extract_prompt
+
+
+class TestExtractPrompt:
+    """Tests for extract_prompt helper function."""
+
+    def test_empty_arguments(self):
+        assert extract_prompt(None) == ""
+        assert extract_prompt("") == ""
+
+    def test_invalid_json(self):
+        assert extract_prompt("not json") == ""
+
+    def test_prompt_only(self):
+        args = json.dumps({"prompt": "Analyze the code"})
+        assert extract_prompt(args) == "Analyze the code"
+
+    def test_description_only(self):
+        args = json.dumps({"description": "Task description"})
+        assert extract_prompt(args) == "Task description"
+
+    def test_combined_description_and_prompt(self):
+        args = json.dumps(
+            {"description": "Task description", "prompt": "Detailed prompt here"}
+        )
+        result = extract_prompt(args)
+        assert result == "Task description\n\nDetailed prompt here"
+
+    def test_empty_fields(self):
+        args = json.dumps({"prompt": "", "description": ""})
+        assert extract_prompt(args) == ""
+
+    def test_description_with_empty_prompt(self):
+        args = json.dumps({"description": "Just description", "prompt": ""})
+        assert extract_prompt(args) == "Just description"
+
+    def test_prompt_with_empty_description(self):
+        args = json.dumps({"description": "", "prompt": "Just prompt"})
+        assert extract_prompt(args) == "Just prompt"
 
 
 @pytest.fixture
@@ -86,17 +126,18 @@ class TestBuildExchangesCreatesRecords:
             ["prt_user_1", session_id, user_msg_id, "text", "Hello, AI!", now],
         )
 
-        # Create assistant message
+        # Create assistant message (with parent_id linking to user message)
         assistant_msg_id = "msg_asst_1"
         assistant_time = now + timedelta(seconds=5)
         conn.execute(
             """
-            INSERT INTO messages (id, session_id, role, agent, model_id, created_at)
-            VALUES (?, ?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, parent_id, role, agent, model_id, created_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 assistant_msg_id,
                 session_id,
+                user_msg_id,
                 "assistant",
                 "dev",
                 "claude-4",
@@ -194,10 +235,10 @@ class TestBuildExchangesCreatesRecords:
             asst_msg_id = f"msg_asst_{i}"
             conn.execute(
                 """
-                INSERT INTO messages (id, session_id, role, agent, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO messages (id, session_id, parent_id, role, agent, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
-                [asst_msg_id, session_id, "assistant", "dev", asst_time],
+                [asst_msg_id, session_id, user_msg_id, "assistant", "dev", asst_time],
             )
             conn.execute(
                 """
@@ -277,10 +318,10 @@ class TestBuildExchangeTracesOrdering:
         asst_time = now + timedelta(seconds=1)
         conn.execute(
             """
-            INSERT INTO messages (id, session_id, role, agent, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, parent_id, role, agent, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            [asst_msg_id, session_id, "assistant", "dev", asst_time],
+            [asst_msg_id, session_id, user_msg_id, "assistant", "dev", asst_time],
         )
 
         # Create parts in reverse chronological order to test ordering
@@ -455,10 +496,17 @@ class TestBuildAll:
         # Create assistant message
         conn.execute(
             """
-            INSERT INTO messages (id, session_id, role, agent, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, parent_id, role, agent, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ["msg_a_all", session_id, "assistant", "dev", now + timedelta(seconds=1)],
+            [
+                "msg_a_all",
+                session_id,
+                "msg_u_all",
+                "assistant",
+                "dev",
+                now + timedelta(seconds=1),
+            ],
         )
         conn.execute(
             """
@@ -520,12 +568,13 @@ class TestBuildWithSessionFilter:
             # Assistant message
             conn.execute(
                 """
-                INSERT INTO messages (id, session_id, role, agent, created_at)
-                VALUES (?, ?, ?, ?, ?)
+                INSERT INTO messages (id, session_id, parent_id, role, agent, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
                 """,
                 [
                     f"msg_a_{i}",
                     session_id,
+                    f"msg_u_{i}",
                     "assistant",
                     "dev",
                     now + timedelta(seconds=1),
@@ -592,10 +641,17 @@ class TestRebuildBehavior:
         )
         conn.execute(
             """
-            INSERT INTO messages (id, session_id, role, agent, created_at)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT INTO messages (id, session_id, parent_id, role, agent, created_at)
+            VALUES (?, ?, ?, ?, ?, ?)
             """,
-            ["msg_a_rb", session_id, "assistant", "dev", now + timedelta(seconds=1)],
+            [
+                "msg_a_rb",
+                session_id,
+                "msg_u_rb",
+                "assistant",
+                "dev",
+                now + timedelta(seconds=1),
+            ],
         )
         conn.execute(
             """

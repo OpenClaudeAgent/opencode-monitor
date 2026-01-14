@@ -979,6 +979,19 @@ class MockAnalyticsAPIClient:
     def get_session_prompts(self, session_id: str) -> Optional[dict]:
         """Return configured session prompts."""
         self._log_call("get_session_prompts", session_id=session_id)
+        prompts = self._responses.get("session_prompts", {})
+        if session_id in prompts:
+            return prompts[session_id]
+        delegation_timeline = self._responses.get("delegation_timeline")
+        if delegation_timeline:
+            return {
+                "prompt_input": delegation_timeline.get("prompt_input", ""),
+                "prompt_output": delegation_timeline.get("timeline", [{}])[-1].get(
+                    "content", ""
+                )
+                if delegation_timeline.get("timeline")
+                else "",
+            }
         return None
 
     def get_session_operations(self, session_id: str) -> Optional[list]:

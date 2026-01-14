@@ -75,7 +75,7 @@ class AnalyticsAPIClient:
                     error(f"[API Client] Request failed: {data.get('error')}")
                     return None
 
-        except urllib.error.URLError as e:
+        except urllib.error.URLError:
             elapsed = (time.time() - start_time) * 1000
             if self._available is not False:
                 self._available = False
@@ -198,6 +198,7 @@ class AnalyticsAPIClient:
         params = {
             "include_children": str(include_children).lower(),
             "depth": depth,
+            "stream": "false",
         }
         return self._request(f"/api/session/{session_id}/timeline/full", params)
 

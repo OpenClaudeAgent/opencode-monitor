@@ -1,7 +1,7 @@
 from PyQt6.QtWidgets import QWidget, QFrame, QLabel, QVBoxLayout, QHBoxLayout
 from PyQt6.QtCore import Qt, pyqtSignal
 
-from ..styles import COLORS, SPACING, FONTS, RADIUS
+from ..styles import COLORS, SPACING, FONTS
 
 
 class ExpandableSection(QWidget):

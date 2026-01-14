@@ -20,9 +20,6 @@ from ..styles import (
     RADIUS,
     UI,
     SHADOWS,
-    COMPONENTS,
-    SHADOWS,
-    COMPONENTS,
 )
 
 

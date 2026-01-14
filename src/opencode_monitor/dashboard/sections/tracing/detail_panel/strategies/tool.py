@@ -35,8 +35,7 @@ class ToolStrategy:
         duration_ms = node.duration_ms
         created_at = node.created_at
 
-        icon = TOOL_ICONS.get(tool_name, "⚙️")
-        header = f"{tool_name}: {display_info}" if display_info else tool_name
+        TOOL_ICONS.get(tool_name, "⚙️")
 
         tool_info = f"Tool: {tool_name}\n"
         if display_info:

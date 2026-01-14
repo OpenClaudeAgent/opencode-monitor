@@ -164,8 +164,7 @@ SELECT
     -- file_url: extract base64 data URL when type='file'
     CASE WHEN json_extract_string(j, '$.type') = 'file' 
          THEN json_extract_string(j, '$.url') ELSE NULL END as file_url,
-    -- Plan 45: result_summary - FULL tool output, NO TRUNCATION
-    CAST(json_extract(j, '$.state.output') AS VARCHAR) as result_summary,
+    json_extract_string(j, '$.state.output') as result_summary,
     -- Plan 45+: Additional data completeness fields
     CAST(json_extract(j, '$.cost') AS DOUBLE) as cost,
     CAST(json_extract(j, '$.tokens.input') AS INTEGER) as tokens_input,

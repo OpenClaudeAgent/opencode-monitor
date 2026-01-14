@@ -753,6 +753,13 @@ class TestBulkLoaderParts:
         assert traces[0][1] == "tester"
         assert traces[0][3] == "ses_child_001"
 
+        # Verify child_session_id stored in parts table
+        part = conn.execute("""
+            SELECT child_session_id FROM parts WHERE id = 'prt_task'
+        """).fetchone()
+        assert part is not None
+        assert part[0] == "ses_child_001"
+
 
 # === BulkLoader load_all Integration Tests ===
 

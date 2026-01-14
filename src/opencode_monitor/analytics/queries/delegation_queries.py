@@ -149,7 +149,7 @@ class DelegationQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def _get_agent_chains(
@@ -287,5 +287,5 @@ class DelegationQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []

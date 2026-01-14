@@ -119,9 +119,20 @@ class TestExtractToolDisplayInfo:
             ("context7_query-docs", {"libraryId": "react/hooks"}, "react/hooks"),
             ("task", {"subagent_type": "oracle"}, "oracle"),
             ("task", {"description": "Analyze code"}, "Analyze code"),
+            (
+                "task",
+                {"subagent_type": "librarian", "description": "Find docs"},
+                "librarian: Find docs",
+            ),
             ("unknown_tool", {"someKey": "someValue"}, "someValue"),
         ],
-        ids=["context7", "task_subagent", "task_description", "generic_fallback"],
+        ids=[
+            "context7",
+            "task_subagent_only",
+            "task_description_only",
+            "task_combined",
+            "generic_fallback",
+        ],
     )
     def test_other_tools(self, tool, args_dict, expected):
         args = json.dumps(args_dict)

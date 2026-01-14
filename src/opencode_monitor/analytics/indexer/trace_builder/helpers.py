@@ -32,17 +32,28 @@ def determine_status(tool_status: Optional[str]) -> str:
 def extract_prompt(arguments: Optional[str]) -> str:
     """Extract prompt from task tool arguments.
 
+    Combines description and prompt fields for complete context.
+    Format: "{description}\n\n{prompt}" if both exist.
+
     Args:
         arguments: JSON string of tool arguments
 
     Returns:
-        Prompt text or empty string
+        Combined prompt text or empty string
     """
     if not arguments:
         return ""
 
     try:
         data = json.loads(arguments)
-        return data.get("prompt", "") or ""
+        prompt = data.get("prompt", "") or ""
+        description = data.get("description", "") or ""
+
+        # Combine description and prompt for full context
+        if description and prompt:
+            return f"{description}\n\n{prompt}"
+        elif description:
+            return description
+        return prompt
     except (json.JSONDecodeError, TypeError):
         return ""

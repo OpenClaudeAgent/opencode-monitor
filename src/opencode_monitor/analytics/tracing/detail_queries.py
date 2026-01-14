@@ -121,7 +121,7 @@ class DetailQueriesMixin:
                 "tools": tools,
             }
 
-        except Exception as e:
+        except Exception:
             return None
 
     def get_session_cost_breakdown(self, session_id: str) -> dict:
@@ -189,7 +189,7 @@ class DetailQueriesMixin:
                 ),
             }
 
-        except Exception as e:
+        except Exception:
             return {
                 "session_id": session_id,
                 "total_cost_usd": 0,

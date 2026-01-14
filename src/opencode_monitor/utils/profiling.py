@@ -9,7 +9,6 @@ Provides decorators and helpers for measuring performance bottlenecks:
 
 import functools
 import time
-import sys
 from typing import Callable, Any, Optional
 from datetime import datetime
 

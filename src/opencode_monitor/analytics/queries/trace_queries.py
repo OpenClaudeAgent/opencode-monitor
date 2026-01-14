@@ -80,7 +80,7 @@ class TraceQueries(BaseQueries):
             ).fetchall()
 
             return [self._row_to_trace(row) for row in results]
-        except Exception as e:
+        except Exception:
             return []
 
     def get_trace_tree(self, session_id: str) -> list[TraceTreeNode]:
@@ -168,7 +168,7 @@ class TraceQueries(BaseQueries):
 
             return list(root_nodes)  # Convert back to list for return type
 
-        except Exception as e:
+        except Exception:
             return []
 
     def get_traces_by_date_range(
@@ -203,7 +203,7 @@ class TraceQueries(BaseQueries):
             ).fetchall()
 
             return [self._row_to_trace(row) for row in results]
-        except Exception as e:
+        except Exception:
             return []
 
     def get_traces_by_agent(self, subagent_type: str) -> list[AgentTrace]:
@@ -234,7 +234,7 @@ class TraceQueries(BaseQueries):
             ).fetchall()
 
             return [self._row_to_trace(row) for row in results]
-        except Exception as e:
+        except Exception:
             return []
 
     def get_trace_details(self, trace_id: str) -> Optional[AgentTrace]:
@@ -266,7 +266,7 @@ class TraceQueries(BaseQueries):
             if result:
                 return self._row_to_trace(result)
             return None
-        except Exception as e:
+        except Exception:
             return None
 
     def get_sessions_with_traces(self, limit: int = 50) -> list[SessionWithTraces]:
@@ -306,7 +306,7 @@ class TraceQueries(BaseQueries):
                 )
                 for row in results
             ]
-        except Exception as e:
+        except Exception:
             return []
 
     def get_trace_stats(self, start_date: datetime, end_date: datetime) -> dict:
@@ -347,7 +347,7 @@ class TraceQueries(BaseQueries):
                     "errors": result[6] or 0,
                 }
             return {}
-        except Exception as e:
+        except Exception:
             return {}
 
     def get_agent_type_stats(
@@ -389,7 +389,7 @@ class TraceQueries(BaseQueries):
                 }
                 for row in results
             ]
-        except Exception as e:
+        except Exception:
             return []
 
     def get_session_hierarchy(
@@ -496,7 +496,7 @@ class TraceQueries(BaseQueries):
             root_sessions.sort(key=lambda s: s.created_at or datetime.min, reverse=True)
             return root_sessions[:limit]
 
-        except Exception as e:
+        except Exception:
             return []
 
     def _row_to_trace(self, row: tuple) -> AgentTrace:

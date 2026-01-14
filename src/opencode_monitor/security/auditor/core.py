@@ -8,9 +8,7 @@ or manages its own database tables.
 The public API is preserved for backwards compatibility.
 """
 
-import json
 import threading
-from datetime import datetime
 from typing import Any, Dict, List, Optional
 
 from ..db import (

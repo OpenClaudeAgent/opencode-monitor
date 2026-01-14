@@ -1,15 +1,11 @@
 """Handlers mixin for OpenCodeApp - Contains all callback methods."""
 
-import subprocess  # nosec B404 - required for opening reports in OS
-import threading
 from typing import TYPE_CHECKING
 
 from ..security.analyzer import SecurityAlert, RiskLevel
-from ..security.auditor import get_auditor
 from ..ui.terminal import focus_iterm2
 from ..dashboard import show_dashboard
-from ..analytics import AnalyticsDB, load_opencode_data
-from ..utils.logger import info, error
+from ..utils.logger import info
 
 
 if TYPE_CHECKING:

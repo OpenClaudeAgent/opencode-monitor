@@ -4,15 +4,13 @@ Handles timeline events, messages, prompts, and exchange tracking.
 This is the most complex query module due to timeline aggregation logic.
 """
 
-import json
 from datetime import datetime
-from typing import Iterator, TYPE_CHECKING
+from typing import TYPE_CHECKING
 
 from .base import BaseSessionQueries
 
 if TYPE_CHECKING:
-    from ..config import TracingConfig
-    import duckdb
+    pass
 
 
 class TimelineQueries(BaseSessionQueries):
@@ -188,7 +186,7 @@ class TimelineQueries(BaseSessionQueries):
 
             return messages
 
-        except Exception as e:
+        except Exception:
             return []
 
     def get_session_timeline(self, session_id: str) -> list[dict]:
@@ -252,7 +250,7 @@ class TimelineQueries(BaseSessionQueries):
 
             return events
 
-        except Exception as e:
+        except Exception:
             return []
 
     """

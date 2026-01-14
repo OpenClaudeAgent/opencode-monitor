@@ -313,6 +313,62 @@ class TestHandlerErrorCases:
 
         assert result is None
 
+    def test_part_handler_inserts_child_session_id_for_task(
+        self, temp_storage, temp_db_path
+    ):
+        """Test that PartHandler inserts child_session_id for task parts."""
+        from opencode_monitor.analytics.indexer.handlers import PartHandler
+        from opencode_monitor.analytics.indexer.parsers import FileParser
+        from opencode_monitor.analytics.indexer.trace_builder import TraceBuilder
+        from datetime import datetime
+
+        db = AnalyticsDB(temp_db_path)
+        conn = db.connect()
+        handler = PartHandler()
+        parser = FileParser()
+        trace_builder = TraceBuilder(db)
+
+        # Create prerequisite session and message
+        conn.execute(
+            "INSERT INTO sessions (id, directory, title, created_at) VALUES (?, ?, ?, ?)",
+            ["ses_task_test", "/test", "Test", "2026-01-01T00:00:00"],
+        )
+        conn.execute(
+            "INSERT INTO messages (id, session_id, role, created_at) VALUES (?, ?, ?, ?)",
+            ["msg_task_test", "ses_task_test", "assistant", "2026-01-01T00:00:00"],
+        )
+
+        now_ms = int(datetime.now().timestamp() * 1000)
+        task_data = {
+            "id": "prt_task_handler",
+            "sessionID": "ses_task_test",
+            "messageID": "msg_task_test",
+            "type": "tool",
+            "tool": "task",
+            "callID": "call_task_handler",
+            "state": {
+                "status": "completed",
+                "input": {"subagent_type": "librarian", "prompt": "Search docs"},
+                "metadata": {"sessionId": "ses_child_handler"},
+            },
+            "time": {"start": now_ms, "end": now_ms + 10000},
+        }
+
+        result = handler.process(
+            Path("/fake/path"),
+            task_data,
+            conn,
+            parser,
+            trace_builder,
+        )
+
+        assert result == "prt_task_handler"
+        part = conn.execute(
+            "SELECT child_session_id FROM parts WHERE id = 'prt_task_handler'"
+        ).fetchone()
+        assert part is not None
+        assert part[0] == "ses_child_handler"
+
 
 class TestMessageHandlerProcess:
     """Tests for MessageHandler.process() method."""

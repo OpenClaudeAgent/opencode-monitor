@@ -8,7 +8,7 @@ Bulk/historical loading is handled separately by scripts/backfill.py.
 import threading
 import time
 from pathlib import Path
-from typing import Any, Optional
+from typing import Optional
 
 from ..db import AnalyticsDB
 from ..materialization import MaterializedTableManager

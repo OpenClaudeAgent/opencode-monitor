@@ -90,7 +90,7 @@ class SessionQueries:
                     "files_by_type": self.files._files_chart_data(file_data),
                 },
             }
-        except Exception as e:
+        except Exception:
             return self.tokens._empty_response(session_id)
 
     def _get_session_agents_internal(self, session_id: str) -> dict:
@@ -141,7 +141,7 @@ class SessionQueries:
                     for row in agent_results
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "unique_count": 0,
                 "max_depth": 0,

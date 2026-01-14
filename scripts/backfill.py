@@ -79,7 +79,7 @@ def run_backfill() -> int:
     materialization_manager = MaterializedTableManager(db)
 
     start_time = time.time()
-    cutoff_time = time.time()
+    time.time()
 
     counts = bulk_loader.count_files()
     total = sum(counts.values())
@@ -126,7 +126,7 @@ def run_backfill() -> int:
             WHERE additions = 0 AND deletions = 0
               AND id IN (SELECT DISTINCT session_id FROM file_operations WHERE additions > 0 OR deletions > 0)
         """)
-        print(f"  Updated session totals from file operations")
+        print("  Updated session totals from file operations")
     else:
         print("  No diff stats found")
 

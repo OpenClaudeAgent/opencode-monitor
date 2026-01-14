@@ -1,7 +1,9 @@
 """Structured logging for OpenCode Monitor using loguru."""
 
 from __future__ import annotations
-import os, secrets, sys
+import os
+import secrets
+import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path

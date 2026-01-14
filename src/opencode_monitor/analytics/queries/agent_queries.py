@@ -124,7 +124,7 @@ class AgentQueries(BaseQueries):
             return roles
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def _get_agent_delegation_stats(
@@ -169,5 +169,5 @@ class AgentQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []

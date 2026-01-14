@@ -46,7 +46,7 @@ class DimensionQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def _get_model_stats(
@@ -93,7 +93,7 @@ class DimensionQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def _get_anomalies(self, start_date: datetime, end_date: datetime) -> list[str]:

@@ -10,7 +10,7 @@ from typing import Optional
 import time
 
 from .db import AnalyticsDB
-from ..utils.logger import info, warning
+from ..utils.logger import info
 
 
 class MaterializedTableManager:
@@ -128,33 +128,19 @@ class MaterializedTableManager:
                 tool_count, reasoning_count,
                 agent, model_id
             )
-            WITH user_messages AS (
-                SELECT
-                    m.id, m.session_id, m.created_at,
-                    ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY m.created_at) as msg_num
-                FROM messages m
-                WHERE m.role = 'user'
-            ),
-            assistant_messages AS (
-                SELECT
-                    m.id, m.session_id, m.created_at, m.agent, m.model_id,
-                    ROW_NUMBER() OVER (PARTITION BY m.session_id ORDER BY m.created_at) as msg_num
-                FROM messages m
-                WHERE m.role = 'assistant'
-            ),
-            exchange_pairs AS (
+            WITH exchange_pairs AS (
                 SELECT
                     u.id as user_msg_id,
                     u.session_id,
-                    u.msg_num as exchange_num,
+                    ROW_NUMBER() OVER (PARTITION BY u.session_id ORDER BY a.created_at) as exchange_num,
                     u.created_at as user_time,
                     a.id as assistant_msg_id,
                     a.created_at as assistant_time,
                     a.agent,
                     a.model_id
-                FROM user_messages u
-                LEFT JOIN assistant_messages a
-                    ON u.session_id = a.session_id AND u.msg_num = a.msg_num
+                FROM messages u
+                JOIN messages a ON a.parent_id = u.id AND a.role = 'assistant'
+                WHERE u.role = 'user'
             ),
             user_prompts AS (
                 SELECT DISTINCT ON (p.message_id) p.message_id, p.content as prompt_input
@@ -429,7 +415,13 @@ class MaterializedTableManager:
                     'tool_call' as event_type,
                     p.created_at as timestamp, p.duration_ms,
                     0 as tokens_in, 0 as tokens_out,
-                    json_object('tool_name', p.tool_name, 'status', p.tool_status) as event_data
+                    json_object(
+                        'tool_name', p.tool_name,
+                        'status', p.tool_status,
+                        'arguments', p.arguments,
+                        'result_summary', p.result_summary,
+                        'child_session_id', p.child_session_id
+                    ) as event_data
                 FROM parts p
                 JOIN exchanges e ON e.assistant_message_id = p.message_id
                 WHERE p.part_type = 'tool'
@@ -466,7 +458,7 @@ class MaterializedTableManager:
                   )
             )
             SELECT
-                all_events.id || '_evt' as id,
+                all_events.id || '_' || all_events.exchange_id || '_evt' as id,
                 all_events.session_id,
                 all_events.exchange_id,
                 all_events.event_type,
