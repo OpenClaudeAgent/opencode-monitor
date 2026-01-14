@@ -115,7 +115,7 @@ class ListQueriesMixin:
 
             return self._paginate(sessions, page, per_page, total)
 
-        except Exception as e:
+        except Exception:
             return self._paginate([], page, per_page, 0)
 
     def get_traces_list(
@@ -187,7 +187,7 @@ class ListQueriesMixin:
 
             return self._paginate(traces, page, per_page, total)
 
-        except Exception as e:
+        except Exception:
             return self._paginate([], page, per_page, 0)
 
     def get_delegations_list(
@@ -249,7 +249,7 @@ class ListQueriesMixin:
 
             return self._paginate(delegations, page, per_page, total)
 
-        except Exception as e:
+        except Exception:
             return self._paginate([], page, per_page, 0)
 
     def search_sessions(self, query: str, limit: int = 20) -> list[dict]:
@@ -291,5 +291,5 @@ class ListQueriesMixin:
                 for row in rows
             ]
 
-        except Exception as e:
+        except Exception:
             return []

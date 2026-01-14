@@ -45,7 +45,7 @@ def bulk_enrich(db: AnalyticsDB, batch_size: int = 1000) -> dict:
         batch_count += 1
         total_enriched += enriched
         batch_elapsed = time.time() - batch_start
-        batch_rate = enriched / batch_elapsed if batch_elapsed > 0 else 0
+        enriched / batch_elapsed if batch_elapsed > 0 else 0
 
         if batch_count % PROGRESS_LOG_INTERVAL == 0:
             elapsed = time.time() - start_time

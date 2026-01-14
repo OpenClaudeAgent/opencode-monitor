@@ -62,7 +62,7 @@ class TimeSeriesQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def _get_daily_stats(
@@ -137,5 +137,5 @@ class TimeSeriesQueries(BaseQueries):
             return daily_stats
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []

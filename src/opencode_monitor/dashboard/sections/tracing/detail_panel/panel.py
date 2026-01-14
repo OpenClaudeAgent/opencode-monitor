@@ -262,7 +262,7 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
 
         self._current_data = summary
         meta = summary.get("meta", {})
-        s = summary.get("summary", {})
+        summary.get("summary", {})
 
         directory = meta.get("directory", "")
         project_name = os.path.basename(directory) if directory else "Session"

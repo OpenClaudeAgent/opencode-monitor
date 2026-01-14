@@ -3,15 +3,13 @@
 Handles tool usage metrics, operations tracking, and chart data generation.
 """
 
-import json
 from datetime import datetime
 from typing import TYPE_CHECKING
 
 from .base import BaseSessionQueries
 
 if TYPE_CHECKING:
-    from ..config import TracingConfig
-    import duckdb
+    pass
 
 
 class ToolQueries(BaseSessionQueries):
@@ -176,7 +174,7 @@ class ToolQueries(BaseSessionQueries):
                     for row in top_tools
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "total_calls": 0,
                 "unique_tools": 0,

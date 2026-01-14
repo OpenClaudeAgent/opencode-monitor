@@ -8,7 +8,6 @@ Provides:
 """
 
 import re
-from typing import List
 
 from .types import RiskLevel, SecurityAlert
 from .patterns import DANGEROUS_PATTERNS, SAFE_PATTERNS

@@ -304,7 +304,7 @@ class StatsQueriesMixin:
             )
             info(f"Updated session_stats for {session_id}")
 
-        except Exception as e:
+        except Exception:
             pass
 
     def update_daily_stats(self, date: Optional[datetime] = None) -> None:
@@ -435,5 +435,5 @@ class StatsQueriesMixin:
                 for row in rows
             ]
 
-        except Exception as e:
+        except Exception:
             return []

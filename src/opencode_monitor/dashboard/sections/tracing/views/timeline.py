@@ -16,7 +16,6 @@ from PyQt6.QtWidgets import (
     QHBoxLayout,
 )
 from PyQt6.QtCore import Qt, pyqtSignal
-from PyQt6.QtGui import QColor
 
 from opencode_monitor.dashboard.styles import COLORS, SPACING, FONTS, RADIUS
 

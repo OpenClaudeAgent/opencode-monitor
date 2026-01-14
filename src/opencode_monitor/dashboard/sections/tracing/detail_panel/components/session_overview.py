@@ -298,21 +298,18 @@ class TimelineEventWidget(QFrame):
             event_type = "delegation"
             self._is_delegation = True
 
-        # Check if this event is from a child session (inlined)
-        is_from_child = bool(self._event.get("from_child_session"))
-
         config = EVENT_CONFIG.get(
             event_type, {"icon": "•", "color": COLORS["text_muted"]}
         )
         icon = config["icon"]
         color = config["color"]
 
-        self.setStyleSheet(f"""
-            QFrame {{
+        self.setStyleSheet("""
+            QFrame {
                 background-color: transparent;
                 border: none;
                 padding: 2px 0;
-            }}
+            }
         """)
 
         main_layout = QVBoxLayout(self)

@@ -255,7 +255,7 @@ class DelegationTreeView(QTreeWidget):
             parent: Parent tree widget item
             node: Child node data dictionary
         """
-        child_item = self._create_tree_item(parent, node, is_root=False)
+        self._create_tree_item(parent, node, is_root=False)
         # Children are added recursively in _create_tree_item
 
     def _get_status_display(self, status: str) -> dict:

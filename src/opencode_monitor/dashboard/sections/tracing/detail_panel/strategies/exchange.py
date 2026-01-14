@@ -2,7 +2,6 @@
 Exchange strategy - Handle exchange/conversation nodes.
 """
 
-from ...helpers import format_tokens_short
 from .types import PanelContent, TreeNodeData, TranscriptData
 
 

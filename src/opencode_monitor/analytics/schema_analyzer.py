@@ -139,11 +139,11 @@ class AnalysisReport:
     def to_markdown(self) -> str:
         """Generate markdown report."""
         lines = [
-            f"# OpenCode Storage Schema Analysis",
-            f"",
+            "# OpenCode Storage Schema Analysis",
+            "",
             f"**Generated**: {self.timestamp.isoformat()}",
             f"**Storage Path**: `{self.storage_path}`",
-            f"",
+            "",
         ]
 
         # Summary
@@ -187,7 +187,7 @@ class AnalysisReport:
                         lines.append(f"- `{f}`")
                     lines.append("")
                 if comp.extra_in_db:
-                    lines.append(f"**Extra in DB** (computed/derived):")
+                    lines.append("**Extra in DB** (computed/derived):")
                     for f in sorted(comp.extra_in_db)[:10]:
                         lines.append(f"- `{f}`")
                     lines.append("")
@@ -262,7 +262,8 @@ class StorageSchemaAnalyzer:
                 schema.process_object(data, subtype=str(subtype))
                 count += 1
 
-            except (json.JSONDecodeError, IOError) as e:
+            except (json.JSONDecodeError, IOError):
+                pass
 
         info(f"[SchemaAnalyzer] Scanned {count} {entity_type} files")
 
@@ -289,7 +290,7 @@ class StorageSchemaAnalyzer:
             db.close()
             return db_schema
 
-        except Exception:
+        except Exception as e:
             error(f"[SchemaAnalyzer] Error getting DB schema: {e}")
             return {}
 

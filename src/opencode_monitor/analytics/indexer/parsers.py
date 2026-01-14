@@ -230,7 +230,7 @@ class FileParser:
         try:
             with open(path, "r") as f:
                 return json.load(f)
-        except (json.JSONDecodeError, OSError) as e:
+        except (json.JSONDecodeError, OSError):
             return None
 
     @staticmethod

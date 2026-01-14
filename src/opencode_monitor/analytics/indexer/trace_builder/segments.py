@@ -180,7 +180,6 @@ class SegmentBuilder:
                     [segments[0]["agent"], root_trace_id],
                 )
 
-            info(f"[SegmentBuilder] Created {created} segments for {session_id}")
             return created
 
         except Exception:
@@ -225,12 +224,6 @@ class SegmentBuilder:
             for (session_id,) in sessions:
                 created = self.create_conversation_segments(session_id)
                 total_created += created
-
-            if total_created > 0:
-                info(
-                    f"[SegmentBuilder] Created {total_created} segments "
-                    f"across {len(sessions)} sessions"
-                )
 
             return total_created
 

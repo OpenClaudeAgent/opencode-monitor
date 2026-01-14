@@ -113,7 +113,7 @@ class ToolQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []
 
     def get_tool_performance(self, days: int) -> list[dict]:
@@ -154,5 +154,5 @@ class ToolQueries(BaseQueries):
             ]
         except (
             Exception
-        ) as e:  # Intentional catch-all: query failures return empty list
+        ):  # Intentional catch-all: query failures return empty list
             return []

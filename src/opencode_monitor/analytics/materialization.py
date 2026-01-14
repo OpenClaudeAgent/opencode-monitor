@@ -10,7 +10,7 @@ from typing import Optional
 import time
 
 from .db import AnalyticsDB
-from ..utils.logger import info, warning
+from ..utils.logger import info
 
 
 class MaterializedTableManager:

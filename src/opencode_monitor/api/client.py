@@ -75,7 +75,7 @@ class AnalyticsAPIClient:
                     error(f"[API Client] Request failed: {data.get('error')}")
                     return None
 
-        except urllib.error.URLError as e:
+        except urllib.error.URLError:
             elapsed = (time.time() - start_time) * 1000
             if self._available is not False:
                 self._available = False

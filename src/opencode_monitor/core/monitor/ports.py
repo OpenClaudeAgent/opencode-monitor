@@ -14,7 +14,7 @@ async def find_opencode_ports() -> list[int]:
             ["netstat", "-an"], capture_output=True, text=True, timeout=5
         )
         lines = result.stdout.split("\n")
-    except Exception as e:
+    except Exception:
         return []
 
     candidate_ports = set()

@@ -210,7 +210,7 @@ class HelpersMixin:
                     {"agent": row[0], "tokens": row[1] or 0} for row in agent_results
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "message_count": 0,
                 "input": 0,
@@ -281,7 +281,7 @@ class HelpersMixin:
                     for row in top_tools
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "total_calls": 0,
                 "unique_tools": 0,
@@ -418,7 +418,7 @@ class HelpersMixin:
                     {"operation": "edit", "count": edits},
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "total_reads": 0,
                 "total_writes": 0,
@@ -480,7 +480,7 @@ class HelpersMixin:
                     for row in agent_results
                 ],
             }
-        except Exception as e:
+        except Exception:
             return {
                 "unique_count": 0,
                 "max_depth": 0,

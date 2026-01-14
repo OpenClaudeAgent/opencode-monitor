@@ -222,7 +222,7 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
                     )
                     enriched_count += 1
 
-        except (json.JSONDecodeError, OSError) as e:
+        except (json.JSONDecodeError, OSError):
             continue
 
     return enriched_count

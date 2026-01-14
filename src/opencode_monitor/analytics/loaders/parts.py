@@ -259,7 +259,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                     if total_batch >= batch_size:
                         flush_batches()
 
-                except (json.JSONDecodeError, OSError) as e:
+                except (json.JSONDecodeError, OSError):
                     continue
 
         # Insert remaining batches
@@ -267,7 +267,7 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
 
         return stats.total
 
-    except Exception:  # Intentional catch-all: various errors possible
+    except Exception as e:  # Intentional catch-all: various errors possible
         error(f"Parts load failed: {e}")
         return 0
 
