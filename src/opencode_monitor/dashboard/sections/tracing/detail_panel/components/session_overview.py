@@ -542,7 +542,7 @@ class ExchangeGroupWidget(QFrame):
         if header_event:
             time_str = format_time(header_event.get("timestamp", ""))
             prompt_text = truncate_text(header_event.get("content", ""), 60)
-            icon = "📥" if header_event.get("type") == "delegation_result" else "💬"
+            icon = self._get_header_icon(header_event)
             header_text = (
                 f"{time_str}  {icon} {prompt_text}"
                 if time_str
@@ -616,11 +616,20 @@ class ExchangeGroupWidget(QFrame):
         self._update_state()
 
     def _find_header_event(self) -> dict | None:
-        """Find user_prompt or delegation_result for exchange header."""
         for event in self._events:
             if event.get("type") in ("user_prompt", "delegation_result"):
                 return event
         return None
+
+    def _is_from_child_session(self) -> bool:
+        return any(event.get("from_child_session") for event in self._events)
+
+    def _get_header_icon(self, header_event: dict) -> str:
+        if header_event.get("type") == "delegation_result":
+            return "📥"
+        if self._is_from_child_session():
+            return "🔗"
+        return "💬"
 
     def toggle(self) -> None:
         """Toggle expand/collapse state."""
