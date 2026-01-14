@@ -391,6 +391,7 @@ class TestGetSessionTimelineFull:
             assert "type" in event
             assert event["type"] in [
                 "user_prompt",
+                "delegation_result",
                 "reasoning",
                 "tool_call",
                 "step_finish",
@@ -808,3 +809,1058 @@ class TestResponseFormat:
         assert "meta" in result
         assert "summary" in result
         assert "tree" in result
+
+
+# =============================================================================
+# Tests for continuation detection and child session inline
+# =============================================================================
+
+
+class TestContinuationAndChildSessionInline:
+    """Tests for continuation detection and child session inline features."""
+
+    @pytest.fixture
+    def continuation_db(self, db: AnalyticsDB) -> AnalyticsDB:
+        """Setup test data for continuation and child session inline tests."""
+        conn = db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_continuation_001",
+                "proj_001",
+                "/projects/test",
+                "Continuation Test Session",
+                now - timedelta(hours=2),
+                now,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_librarian_001",
+                "proj_001",
+                "/projects/test",
+                "Librarian Child Session",
+                now - timedelta(hours=1, minutes=45),
+                now - timedelta(hours=1, minutes=30),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_user_cont_001",
+                "ses_continuation_001",
+                "user",
+                None,
+                now - timedelta(hours=2),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_asst_cont_001",
+                "ses_continuation_001",
+                "assistant",
+                "build",
+                now - timedelta(hours=1, minutes=50),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_asst_cont_002",
+                "ses_continuation_001",
+                "assistant",
+                "build",
+                now - timedelta(hours=1, minutes=30),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_lib_user_001",
+                "ses_librarian_001",
+                "user",
+                None,
+                now - timedelta(hours=1, minutes=45),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_lib_asst_001",
+                "ses_librarian_001",
+                "assistant",
+                "librarian",
+                now - timedelta(hours=1, minutes=40),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_cont_001",
+                "ses_continuation_001",
+                1,
+                "msg_user_cont_001",
+                "msg_asst_cont_001",
+                "Find the latest changelogs",
+                "I will delegate to librarian...",
+                now - timedelta(hours=2),
+                now - timedelta(hours=1, minutes=50),
+                600000,
+                500,
+                200,
+                50,
+                0.01,
+                1,
+                1,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_cont_002",
+                "ses_continuation_001",
+                2,
+                "msg_user_cont_001",
+                "msg_asst_cont_002",
+                "Find the latest changelogs",
+                "Based on the librarian's findings...",
+                now - timedelta(hours=1, minutes=35),
+                now - timedelta(hours=1, minutes=30),
+                300000,
+                300,
+                400,
+                100,
+                0.02,
+                0,
+                1,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_lib_001",
+                "ses_librarian_001",
+                1,
+                "msg_lib_user_001",
+                "msg_lib_asst_001",
+                "Search for OpenCode changelogs",
+                "I found three changelog entries...",
+                now - timedelta(hours=1, minutes=45),
+                now - timedelta(hours=1, minutes=40),
+                300000,
+                200,
+                300,
+                50,
+                0.008,
+                1,
+                1,
+                "librarian",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_cont_001",
+                "ses_continuation_001",
+                "exc_cont_001",
+                "tool_call",
+                1,
+                '{"tool_name": "mcp_task", "status": "completed", '
+                '"arguments": {"subagent_type": "librarian", "description": "Search changelogs"}, '
+                '"result_summary": "Found 3 changelog entries for OpenCode versions.", '
+                '"child_session_id": "ses_librarian_001"}',
+                now - timedelta(hours=1, minutes=55),
+                900000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_lib_001",
+                "ses_librarian_001",
+                "exc_lib_001",
+                "reasoning",
+                1,
+                '{"text": "Searching for changelogs...", "has_signature": false}',
+                now - timedelta(hours=1, minutes=44),
+                30000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_lib_002",
+                "ses_librarian_001",
+                "exc_lib_001",
+                "tool_call",
+                2,
+                '{"tool_name": "web_search", "status": "completed", '
+                '"arguments": {"query": "OpenCode changelog"}, '
+                '"result_summary": "Found changelog page"}',
+                now - timedelta(hours=1, minutes=42),
+                60000,
+                0,
+                0,
+            ],
+        )
+
+        return db
+
+    @pytest.fixture
+    def continuation_service(self, continuation_db: AnalyticsDB) -> TracingDataService:
+        """Create TracingDataService with continuation test data."""
+        return TracingDataService(continuation_db)
+
+    def test_continuation_uses_delegation_result(
+        self, continuation_service: TracingDataService
+    ):
+        """Test that repeated user_msg_id produces delegation_result instead of user_prompt."""
+        result = continuation_service.get_session_timeline_full(
+            "ses_continuation_001", include_children=False
+        )
+
+        assert result["success"]
+        timeline = result["data"]["timeline"]
+
+        user_prompts = [e for e in timeline if e["type"] == "user_prompt"]
+        delegation_results = [e for e in timeline if e["type"] == "delegation_result"]
+
+        assert len(user_prompts) == 1, (
+            "Should have exactly one user_prompt for exchange 1"
+        )
+        assert len(delegation_results) == 1, (
+            "Should have exactly one delegation_result for exchange 2"
+        )
+
+        assert user_prompts[0]["exchange_number"] == 1
+        assert delegation_results[0]["exchange_number"] == 2
+        assert delegation_results[0]["content"] == (
+            "Found 3 changelog entries for OpenCode versions."
+        )
+
+    def test_child_session_inline_with_include_children(
+        self, continuation_service: TracingDataService
+    ):
+        """Test that child session events are inlined when include_children=True."""
+        result = continuation_service.get_session_timeline_full(
+            "ses_continuation_001", include_children=True, depth=1
+        )
+
+        assert result["success"]
+        timeline = result["data"]["timeline"]
+
+        child_events = [
+            e for e in timeline if e.get("from_child_session") == "ses_librarian_001"
+        ]
+
+        assert len(child_events) >= 1, "Should have inlined child session events"
+
+        child_reasoning = [e for e in child_events if e["type"] == "reasoning"]
+        child_tool_calls = [e for e in child_events if e["type"] == "tool_call"]
+
+        assert len(child_reasoning) >= 1, "Should include child reasoning events"
+        assert len(child_tool_calls) >= 1, "Should include child tool call events"
+
+        for evt in child_events:
+            assert "original_exchange_number" in evt
+            assert evt["original_exchange_number"] == 1
+
+    def test_child_session_not_inlined_without_flag(
+        self, continuation_service: TracingDataService
+    ):
+        """Test that child session events are NOT inlined when include_children=False."""
+        result = continuation_service.get_session_timeline_full(
+            "ses_continuation_001", include_children=False
+        )
+
+        assert result["success"]
+        timeline = result["data"]["timeline"]
+
+        child_events = [
+            e for e in timeline if e.get("from_child_session") == "ses_librarian_001"
+        ]
+
+        assert len(child_events) == 0, "Should NOT have inlined child session events"
+
+    def test_timeline_preserves_chronological_order_with_inline(
+        self, continuation_service: TracingDataService
+    ):
+        """Test timeline remains chronologically ordered with inline child events."""
+        result = continuation_service.get_session_timeline_full(
+            "ses_continuation_001", include_children=True, depth=1
+        )
+
+        assert result["success"]
+        timeline = result["data"]["timeline"]
+
+        tool_call_idx = None
+        first_child_idx = None
+        for i, evt in enumerate(timeline):
+            if evt["type"] == "tool_call" and evt.get("child_session_id"):
+                tool_call_idx = i
+            if evt.get("from_child_session") and first_child_idx is None:
+                first_child_idx = i
+
+        if tool_call_idx is not None and first_child_idx is not None:
+            assert first_child_idx == tool_call_idx + 1, (
+                "Child events should appear immediately after tool_call"
+            )
+
+
+# =============================================================================
+# Tests for Delegation Timeline Bug Fixes (Plan 45)
+# =============================================================================
+
+
+class TestDelegationTimelineBugFixes:
+    """Tests for delegation timeline fixes from Plan 45."""
+
+    @pytest.fixture
+    def delegation_db(self, db: AnalyticsDB) -> AnalyticsDB:
+        """Setup realistic delegation test data matching actual test session."""
+        conn = db.connect()
+        now = datetime.now()
+
+        # Parent session (build agent)
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_parent_fix",
+                "proj_001",
+                "/projects/test",
+                "Parent Session with Delegation",
+                now - timedelta(hours=2),
+                now,
+            ],
+        )
+
+        # Child session (librarian agent)
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_child_fix",
+                "proj_001",
+                "/projects/test",
+                "Librarian Child Session",
+                now - timedelta(hours=1, minutes=45),
+                now - timedelta(hours=1, minutes=30),
+            ],
+        )
+
+        # Parent messages
+        # Exchange 1 - User message
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_parent_user_1",
+                "ses_parent_fix",
+                "user",
+                None,
+                now - timedelta(hours=2),
+            ],
+        )
+
+        # Exchange 1 - Assistant message with delegation
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_parent_asst_1",
+                "ses_parent_fix",
+                "assistant",
+                "build",
+                now - timedelta(hours=1, minutes=50),
+            ],
+        )
+
+        # Exchange 3 - Assistant continuation message (same user_msg_id)
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_parent_asst_2",
+                "ses_parent_fix",
+                "assistant",
+                "build",
+                now - timedelta(hours=1, minutes=25),
+            ],
+        )
+
+        # Child messages
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_child_user_1",
+                "ses_child_fix",
+                "user",
+                None,
+                now - timedelta(hours=1, minutes=45),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages 
+               (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_child_asst_1",
+                "ses_child_fix",
+                "assistant",
+                "librarian",
+                now - timedelta(hours=1, minutes=35),
+            ],
+        )
+
+        # Parent exchanges
+        # Exchange 1 - Initial delegation
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_parent_1",
+                "ses_parent_fix",
+                1,
+                "msg_parent_user_1",
+                "msg_parent_asst_1",
+                "Find OpenCode changelogs",
+                "Je vais appeler l'agent librarian...",
+                now - timedelta(hours=2),
+                now - timedelta(hours=1, minutes=50),
+                600000,
+                500,
+                200,
+                50,
+                0.01,
+                1,
+                1,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        # Exchange 2 - Continuation with delegation_result (becomes Exchange 3 after offset)
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_parent_2",
+                "ses_parent_fix",
+                2,
+                "msg_parent_user_1",  # Same user_msg_id triggers continuation
+                "msg_parent_asst_2",
+                "Find OpenCode changelogs",
+                "Parfait! L'agent librarian a trouvé...",
+                now - timedelta(hours=1, minutes=30),
+                now - timedelta(hours=1, minutes=25),
+                300000,
+                300,
+                400,
+                100,
+                0.02,
+                0,
+                1,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        # Child exchange
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_child_1",
+                "ses_child_fix",
+                1,
+                "msg_child_user_1",
+                "msg_child_asst_1",
+                "Search for OpenCode changelogs",
+                "J'ai trouvé les changelogs...",
+                now - timedelta(hours=1, minutes=45),
+                now - timedelta(hours=1, minutes=35),
+                600000,
+                400,
+                500,
+                80,
+                0.015,
+                3,
+                2,
+                "librarian",
+                "claude-3",
+            ],
+        )
+
+        # Parent exchange traces - Exchange 1
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_parent_1_reason",
+                "ses_parent_fix",
+                "exc_parent_1",
+                "reasoning",
+                1,
+                '{"text": "L\'utilisateur demande...", "has_signature": false}',
+                now - timedelta(hours=1, minutes=58),
+                30000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_parent_1_tool",
+                "ses_parent_fix",
+                "exc_parent_1",
+                "tool_call",
+                2,
+                '{"tool_name": "mcp_task", "status": "completed", '
+                '"arguments": {"subagent_type": "librarian", "description": "Search changelogs"}, '
+                '"result_summary": "Found 3 changelog entries", '
+                '"child_session_id": "ses_child_fix"}',
+                now - timedelta(hours=1, minutes=52),
+                120000,
+                0,
+                0,
+            ],
+        )
+
+        # Parent exchange traces - Exchange 2 (continuation, becomes Exchange 3)
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_parent_2_reason",
+                "ses_parent_fix",
+                "exc_parent_2",
+                "reasoning",
+                1,
+                '{"text": "L\'agent librarian a terminé...", "has_signature": false}',
+                now - timedelta(hours=1, minutes=28),
+                20000,
+                0,
+                0,
+            ],
+        )
+
+        # Child exchange traces
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_child_1_reason",
+                "ses_child_fix",
+                "exc_child_1",
+                "reasoning",
+                1,
+                '{"text": "Je vais chercher les changelogs...", "has_signature": false}',
+                now - timedelta(hours=1, minutes=44),
+                15000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_child_1_tool1",
+                "ses_child_fix",
+                "exc_child_1",
+                "tool_call",
+                2,
+                '{"tool_name": "bash", "status": "completed", '
+                '"arguments": {"command": "gh api repos/sst/opencode/releases"}}',
+                now - timedelta(hours=1, minutes=42),
+                5000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_child_1_tool2",
+                "ses_child_fix",
+                "exc_child_1",
+                "tool_call",
+                3,
+                '{"tool_name": "read", "status": "completed", '
+                '"arguments": {"filePath": "/tmp/changelog.md"}}',
+                now - timedelta(hours=1, minutes=40),
+                3000,
+                0,
+                0,
+            ],
+        )
+
+        # Delegation record
+        conn.execute(
+            """INSERT INTO delegations 
+               (id, session_id, parent_agent, child_agent, child_session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "del_fix_001",
+                "ses_parent_fix",
+                "build",
+                "librarian",
+                "ses_child_fix",
+                now - timedelta(hours=1, minutes=52),
+            ],
+        )
+
+        return db
+
+    @pytest.fixture
+    def delegation_service(self, delegation_db: AnalyticsDB) -> TracingDataService:
+        """Create TracingDataService with delegation test data."""
+        return TracingDataService(delegation_db)
+
+    def test_exchange_1_user_prompt_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 1 user_prompt must have exact content and message_id."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        assert result["success"]
+        timeline = result["data"]["timeline"]
+
+        exchange_1_events = [e for e in timeline if e["exchange_number"] == 1]
+        user_prompts = [e for e in exchange_1_events if e["type"] == "user_prompt"]
+        assert len(user_prompts) == 1
+
+        user_prompt = user_prompts[0]
+        assert user_prompt["exchange_number"] == 1
+        assert user_prompt["content"] == "Find OpenCode changelogs"
+        assert user_prompt["message_id"] == "msg_parent_user_1"
+        assert user_prompt["timestamp"] is not None
+
+    def test_exchange_1_reasoning_content(self, delegation_service: TracingDataService):
+        """Exchange 1 reasoning must have exact text and signature info."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_1_events = [e for e in timeline if e["exchange_number"] == 1]
+
+        reasoning_events = [e for e in exchange_1_events if e["type"] == "reasoning"]
+        assert len(reasoning_events) == 1
+
+        reasoning = reasoning_events[0]
+        assert len(reasoning["entries"]) == 1
+        assert reasoning["entries"][0]["text"] == "L'utilisateur demande..."
+        assert reasoning["entries"][0]["has_signature"] is False
+        assert reasoning["entries"][0]["signature"] is None
+
+    def test_exchange_1_tool_call_delegation_details(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 1 tool_call must have exact delegation arguments and child_session_id."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_1_events = [e for e in timeline if e["exchange_number"] == 1]
+
+        tool_calls = [e for e in exchange_1_events if e["type"] == "tool_call"]
+        assert len(tool_calls) == 1
+
+        tool_call = tool_calls[0]
+        assert tool_call["tool_name"] == "mcp_task"
+        assert tool_call["status"] == "completed"
+        assert tool_call["child_session_id"] == "ses_child_fix"
+        assert tool_call["result_summary"] == "Found 3 changelog entries"
+        assert tool_call["duration_ms"] == 120000
+
+        assert tool_call["arguments"]["subagent_type"] == "librarian"
+        assert tool_call["arguments"]["description"] == "Search changelogs"
+
+    def test_exchange_1_assistant_response_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 1 assistant_response must have exact content."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_1_events = [e for e in timeline if e["exchange_number"] == 1]
+
+        responses = [e for e in exchange_1_events if e["type"] == "assistant_response"]
+        assert len(responses) == 1
+
+        response = responses[0]
+        assert response["content"] == "Je vais appeler l'agent librarian..."
+        assert response["tokens_out"] == 200
+
+    def test_exchange_2_child_events_structure(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 2 must contain exactly the child session events with correct content."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_2_events = [e for e in timeline if e["exchange_number"] == 2]
+
+        assert len(exchange_2_events) == 5
+
+        for evt in exchange_2_events:
+            assert evt["from_child_session"] == "ses_child_fix"
+            assert evt["original_exchange_number"] == 1
+
+        event_types = [e["type"] for e in exchange_2_events]
+        assert event_types == [
+            "user_prompt",
+            "reasoning",
+            "tool_call",
+            "tool_call",
+            "assistant_response",
+        ]
+
+    def test_exchange_2_child_user_prompt_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 2 child user_prompt must have exact content."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_2_events = [e for e in timeline if e["exchange_number"] == 2]
+
+        user_prompt = exchange_2_events[0]
+        assert user_prompt["type"] == "user_prompt"
+        assert user_prompt["content"] == "Search for OpenCode changelogs"
+        assert user_prompt["message_id"] == "msg_child_user_1"
+
+    def test_exchange_2_child_reasoning_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 2 child reasoning must have exact text."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_2_events = [e for e in timeline if e["exchange_number"] == 2]
+
+        reasoning = exchange_2_events[1]
+        assert reasoning["type"] == "reasoning"
+        assert reasoning["entries"][0]["text"] == "Je vais chercher les changelogs..."
+        assert reasoning["entries"][0]["has_signature"] is False
+
+    def test_exchange_2_child_tool_calls_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 2 child tool_calls must have exact tool names and arguments."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_2_events = [e for e in timeline if e["exchange_number"] == 2]
+
+        bash_tool = exchange_2_events[2]
+        assert bash_tool["type"] == "tool_call"
+        assert bash_tool["tool_name"] == "bash"
+        assert bash_tool["status"] == "completed"
+        assert bash_tool["arguments"]["command"] == "gh api repos/sst/opencode/releases"
+        assert bash_tool["duration_ms"] == 5000
+
+        read_tool = exchange_2_events[3]
+        assert read_tool["type"] == "tool_call"
+        assert read_tool["tool_name"] == "read"
+        assert read_tool["status"] == "completed"
+        assert read_tool["arguments"]["filePath"] == "/tmp/changelog.md"
+        assert read_tool["duration_ms"] == 3000
+
+    def test_exchange_2_child_assistant_response_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 2 child assistant_response must have exact content."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_2_events = [e for e in timeline if e["exchange_number"] == 2]
+
+        response = exchange_2_events[4]
+        assert response["type"] == "assistant_response"
+        assert response["content"] == "J'ai trouvé les changelogs..."
+        assert response["tokens_out"] == 500
+
+    def test_exchange_3_delegation_result_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 3 delegation_result must have exact content from result_summary."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_3_events = [e for e in timeline if e["exchange_number"] == 3]
+
+        delegation_result = exchange_3_events[0]
+        assert delegation_result["type"] == "delegation_result"
+        assert delegation_result["content"] == "Found 3 changelog entries"
+        assert delegation_result["message_id"] == "msg_parent_user_1"
+
+    def test_exchange_3_reasoning_content(self, delegation_service: TracingDataService):
+        """Exchange 3 reasoning must have exact continuation text."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_3_events = [e for e in timeline if e["exchange_number"] == 3]
+
+        reasoning = exchange_3_events[1]
+        assert reasoning["type"] == "reasoning"
+        assert reasoning["entries"][0]["text"] == "L'agent librarian a terminé..."
+        assert reasoning["entries"][0]["has_signature"] is False
+
+    def test_exchange_3_assistant_response_content(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 3 assistant_response must have exact final content."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_3_events = [e for e in timeline if e["exchange_number"] == 3]
+
+        response = exchange_3_events[2]
+        assert response["type"] == "assistant_response"
+        assert response["content"] == "Parfait! L'agent librarian a trouvé..."
+        assert response["tokens_out"] == 400
+
+    def test_exchange_3_event_order_is_delegation_result_then_reasoning_then_response(
+        self, delegation_service: TracingDataService
+    ):
+        """Exchange 3 must have events in exact order: delegation_result, reasoning, assistant_response."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_3_events = [e for e in timeline if e["exchange_number"] == 3]
+
+        assert len(exchange_3_events) == 3
+
+        assert exchange_3_events[0]["type"] == "delegation_result"
+        assert exchange_3_events[1]["type"] == "reasoning"
+        assert exchange_3_events[2]["type"] == "assistant_response"
+
+    def test_result_summary_is_plain_string_not_json_encoded(
+        self, delegation_service: TracingDataService
+    ):
+        """result_summary must be plain string without JSON encoding artifacts."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=False
+        )
+
+        timeline = result["data"]["timeline"]
+        tool_calls = [e for e in timeline if e["type"] == "tool_call"]
+        delegation_tool = [t for t in tool_calls if t.get("child_session_id")][0]
+
+        result_summary = delegation_tool["result_summary"]
+
+        assert result_summary == "Found 3 changelog entries"
+        assert not result_summary.startswith('"')
+        assert not result_summary.startswith("'")
+        assert not result_summary.endswith('"')
+        assert "\\" not in result_summary
+
+    def test_delegation_result_content_is_plain_string_not_json_encoded(
+        self, delegation_service: TracingDataService
+    ):
+        """delegation_result content must be plain string without JSON encoding."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        delegation_results = [e for e in timeline if e["type"] == "delegation_result"]
+
+        assert len(delegation_results) == 1
+        content = delegation_results[0]["content"]
+
+        assert content == "Found 3 changelog entries"
+        assert not content.startswith('"')
+        assert not content.startswith("'")
+        assert "\\" not in content
+
+    def test_timeline_has_exactly_three_exchanges(
+        self, delegation_service: TracingDataService
+    ):
+        """Timeline must have exactly exchanges 1, 2, 3."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        exchange_numbers = sorted(set(e["exchange_number"] for e in timeline))
+
+        assert exchange_numbers == [1, 2, 3]
+
+    def test_timeline_total_event_count(self, delegation_service: TracingDataService):
+        """Timeline must have exactly 12 events total."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        assert len(timeline) == 12
+
+        exchange_1_count = len([e for e in timeline if e["exchange_number"] == 1])
+        exchange_2_count = len([e for e in timeline if e["exchange_number"] == 2])
+        exchange_3_count = len([e for e in timeline if e["exchange_number"] == 3])
+
+        assert exchange_1_count == 4
+        assert exchange_2_count == 5
+        assert exchange_3_count == 3
+
+    def test_child_events_not_present_when_include_children_false(
+        self, delegation_service: TracingDataService
+    ):
+        """When include_children=False, no child events should appear."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=False
+        )
+
+        timeline = result["data"]["timeline"]
+        child_events = [e for e in timeline if e.get("from_child_session")]
+
+        assert len(child_events) == 0
+
+        exchange_numbers = sorted(set(e["exchange_number"] for e in timeline))
+        assert exchange_numbers == [1, 2]
+
+    def test_timestamps_are_chronologically_ordered_within_exchange(
+        self, delegation_service: TracingDataService
+    ):
+        """Events within each exchange must have timestamps in chronological order."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+
+        for exchange_num in [1, 2, 3]:
+            exchange_events = [
+                e for e in timeline if e["exchange_number"] == exchange_num
+            ]
+            timestamps = [e["timestamp"] for e in exchange_events if e.get("timestamp")]
+
+            for i in range(len(timestamps) - 1):
+                assert timestamps[i] <= timestamps[i + 1], (
+                    f"Exchange {exchange_num}: timestamps not chronological "
+                    f"at position {i}: {timestamps[i]} > {timestamps[i + 1]}"
+                )
