@@ -129,7 +129,7 @@ class SessionQueriesMixin:
                     "files_by_type": self._files_chart_data(files),
                 },
             }
-        except Exception as e:
+        except Exception:
             return self._empty_response(session_id)
 
     def get_session_tokens(self, session_id: str) -> dict:
@@ -406,7 +406,7 @@ class SessionQueriesMixin:
 
             return messages
 
-        except Exception as e:
+        except Exception:
             return []
 
     def get_session_timeline(self, session_id: str) -> list[dict]:
@@ -495,7 +495,7 @@ class SessionQueriesMixin:
             events.sort(key=lambda e: e.get("timestamp") or "")
             return events
 
-        except Exception as e:
+        except Exception:
             return []
 
     def get_session_agents(self, session_id: str) -> list[dict]:
@@ -587,7 +587,7 @@ class SessionQueriesMixin:
 
             return operations
 
-        except Exception as e:
+        except Exception:
             return []
 
     # ===== Plan 34: Enriched Parts Methods =====
@@ -998,6 +998,338 @@ class SessionQueriesMixin:
 
     # ===== Plan 45: Timeline & Aggregation Methods =====
 
+    def _parse_event_data(self, raw_data: str | dict | None) -> dict:
+        if isinstance(raw_data, str):
+            try:
+                return json.loads(raw_data)
+            except (json.JSONDecodeError, TypeError):
+                return {}
+        elif isinstance(raw_data, dict):
+            return raw_data
+        return {}
+
+    def _build_reasoning_event(
+        self, exchange_num: int, evt_data: dict, timestamp: datetime | None
+    ) -> dict:
+        return {
+            "type": "reasoning",
+            "exchange_number": exchange_num,
+            "timestamp": timestamp.isoformat() if timestamp else None,
+            "entries": [
+                {
+                    "text": evt_data.get("text", ""),
+                    "has_signature": evt_data.get("has_signature", False),
+                    "signature": evt_data.get("signature"),
+                }
+            ],
+        }
+
+    def _build_tool_call_event(
+        self,
+        exchange_num: int,
+        evt_data: dict,
+        timestamp: datetime | None,
+        duration_ms: int,
+    ) -> dict:
+        return {
+            "type": "tool_call",
+            "exchange_number": exchange_num,
+            "timestamp": timestamp.isoformat() if timestamp else None,
+            "tool_name": evt_data.get("tool_name", ""),
+            "status": evt_data.get("status", "completed"),
+            "arguments": evt_data.get("arguments"),
+            "result_summary": evt_data.get("result_summary", ""),
+            "duration_ms": duration_ms,
+            "child_session_id": evt_data.get("child_session_id"),
+        }
+
+    def _build_step_finish_event(
+        self,
+        exchange_num: int,
+        evt_data: dict,
+        timestamp: datetime | None,
+        tokens_in: int,
+        tokens_out: int,
+    ) -> dict:
+        return {
+            "type": "step_finish",
+            "exchange_number": exchange_num,
+            "timestamp": timestamp.isoformat() if timestamp else None,
+            "reason": evt_data.get("reason", ""),
+            "tokens": {
+                "input": tokens_in,
+                "output": tokens_out,
+                "reasoning": evt_data.get("tokens_reasoning", 0),
+                "cache_read": evt_data.get("tokens_cache_read", 0),
+                "cache_write": evt_data.get("tokens_cache_write", 0),
+            },
+            "cost": evt_data.get("cost", 0),
+        }
+
+    def _build_patch_event(
+        self, exchange_num: int, evt_data: dict, timestamp: datetime | None
+    ) -> dict:
+        return {
+            "type": "patch",
+            "exchange_number": exchange_num,
+            "timestamp": timestamp.isoformat() if timestamp else None,
+            "git_hash": evt_data.get("git_hash", ""),
+            "files": evt_data.get("files", []),
+        }
+
+    def _inline_child_timeline(
+        self,
+        child_session_id: str,
+        exchange_num: int,
+        delegation_exchange_offset: int,
+        include_children: bool,
+        depth: int,
+        limit: int | None,
+    ) -> tuple[list[dict], int]:
+        child_timeline = self.get_session_timeline_full(
+            child_session_id,
+            include_children=include_children,
+            depth=depth - 1,
+            limit=limit,
+        )
+        if not child_timeline.get("success", True):
+            return [], delegation_exchange_offset
+
+        child_events = child_timeline.get("data", {}).get("timeline", [])
+        delegation_exchange_offset += 1
+        delegation_exchange_num = exchange_num + delegation_exchange_offset
+
+        for child_evt in child_events:
+            child_evt["original_exchange_number"] = child_evt.get("exchange_number")
+            child_evt["exchange_number"] = delegation_exchange_num
+            child_evt["from_child_session"] = child_session_id
+
+        return child_events, delegation_exchange_offset
+
+    def _process_trace_event(
+        self,
+        evt: tuple,
+        exchange_num: int,
+        include_children: bool,
+        depth: int,
+        limit: int | None,
+        delegation_exchange_offset: int,
+    ) -> tuple[list[dict], int, str | None]:
+        evt_type = evt[0]
+        evt_data = self._parse_event_data(evt[2])
+        timestamp = evt[3]
+        duration_ms = evt[4] or 0
+        tokens_in = evt[5] or 0
+        tokens_out = evt[6] or 0
+
+        events = []
+        result_summary = None
+
+        if evt_type == "reasoning":
+            events.append(
+                self._build_reasoning_event(exchange_num, evt_data, timestamp)
+            )
+
+        elif evt_type == "tool_call":
+            events.append(
+                self._build_tool_call_event(
+                    exchange_num, evt_data, timestamp, duration_ms
+                )
+            )
+            child_session_id = evt_data.get("child_session_id")
+            if child_session_id and include_children and depth > 0:
+                child_events, delegation_exchange_offset = self._inline_child_timeline(
+                    child_session_id,
+                    exchange_num,
+                    delegation_exchange_offset,
+                    include_children,
+                    depth,
+                    limit,
+                )
+                events.extend(child_events)
+            if evt_data.get("result_summary"):
+                result_summary = evt_data["result_summary"]
+
+        elif evt_type == "step_finish":
+            events.append(
+                self._build_step_finish_event(
+                    exchange_num, evt_data, timestamp, tokens_in, tokens_out
+                )
+            )
+
+        elif evt_type == "patch":
+            events.append(self._build_patch_event(exchange_num, evt_data, timestamp))
+
+        return events, delegation_exchange_offset, result_summary
+
+    def _process_single_exchange(
+        self,
+        ex_row: tuple,
+        exchange_num: int,
+        is_continuation: bool,
+        last_delegation_result: str | None,
+        trace_events: list,
+        include_children: bool,
+        depth: int,
+        limit: int | None,
+        delegation_exchange_offset: int,
+    ) -> tuple[list[dict], int, str | None]:
+        events = []
+        user_msg_id = ex_row[2]
+        tokens_out = ex_row[10] or 0
+
+        if ex_row[4]:
+            if is_continuation:
+                events.append(
+                    {
+                        "type": "delegation_result",
+                        "exchange_number": exchange_num,
+                        "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
+                        "content": last_delegation_result,
+                        "message_id": user_msg_id,
+                    }
+                )
+            else:
+                events.append(
+                    {
+                        "type": "user_prompt",
+                        "exchange_number": exchange_num,
+                        "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
+                        "content": ex_row[4],
+                        "message_id": user_msg_id,
+                    }
+                )
+
+        new_delegation_result = None
+        for evt in trace_events:
+            evt_events, delegation_exchange_offset, result = self._process_trace_event(
+                evt,
+                exchange_num,
+                include_children,
+                depth,
+                limit,
+                delegation_exchange_offset,
+            )
+            events.extend(evt_events)
+            if result:
+                new_delegation_result = result
+
+        if ex_row[5]:
+            events.append(
+                {
+                    "type": "assistant_response",
+                    "exchange_number": exchange_num,
+                    "timestamp": ex_row[7].isoformat() if ex_row[7] else None,
+                    "content": ex_row[5],
+                    "tokens_out": tokens_out,
+                }
+            )
+
+        return events, delegation_exchange_offset, new_delegation_result
+
+    def _fetch_trace_events_by_exchange(self, exchange_ids: list) -> dict[str, list]:
+        if not exchange_ids:
+            return {}
+
+        placeholders = ",".join("?" * len(exchange_ids))
+        all_trace_events = self._conn.execute(
+            f"""
+            SELECT exchange_id, event_type, event_order, event_data, timestamp,
+                   duration_ms, tokens_in, tokens_out
+            FROM exchange_traces
+            WHERE exchange_id IN ({placeholders})
+            ORDER BY exchange_id, event_order ASC
+            """,  # nosec B608
+            exchange_ids,
+        ).fetchall()
+
+        trace_events_by_exchange: dict[str, list] = {}
+        for event_row in all_trace_events:
+            ex_id = event_row[0]
+            if ex_id not in trace_events_by_exchange:
+                trace_events_by_exchange[ex_id] = []
+            trace_events_by_exchange[ex_id].append(event_row[1:])
+        return trace_events_by_exchange
+
+    def _gather_child_delegations(
+        self, session_id: str, include_children: bool, depth: int, limit: int | None
+    ) -> list[dict]:
+        if not include_children or depth <= 0:
+            return []
+
+        child_sessions = self._conn.execute(
+            """
+            SELECT DISTINCT child_session_id
+            FROM delegations
+            WHERE session_id = ? AND child_session_id IS NOT NULL
+            """,
+            [session_id],
+        ).fetchall()
+
+        delegations = []
+        for child_row in child_sessions:
+            child_id = child_row[0]
+            child_timeline = self.get_session_timeline_full(
+                child_id, include_children=True, depth=depth - 1, limit=limit
+            )
+            if child_timeline.get("success", True):
+                delegations.append(
+                    {
+                        "child_session_id": child_id,
+                        "timeline": child_timeline.get("data", {}).get("timeline", []),
+                    }
+                )
+        return delegations
+
+    def _build_timeline_response(
+        self,
+        session_id: str,
+        session: dict,
+        timeline: list,
+        exchanges_result: list,
+        delegations: list,
+        total_tokens: int,
+        total_cost: float,
+        total_tool_calls: int,
+        total_reasoning: int,
+        limit: int | None,
+    ) -> dict:
+        return {
+            "success": True,
+            "data": {
+                "meta": {
+                    "session_id": session_id,
+                    "generated_at": datetime.now().isoformat(),
+                    "title": session.get("title", ""),
+                    "directory": session.get("directory", ""),
+                },
+                "session": {
+                    "id": session_id,
+                    "title": session.get("title", ""),
+                    "directory": session.get("directory", ""),
+                    "agent": session.get("agent"),
+                    "model": session.get("model_id"),
+                    "started_at": session.get("created_at"),
+                    "ended_at": session.get("updated_at"),
+                    "duration_ms": session.get("duration_ms", 0),
+                    "parent_session_id": session.get("parent_id"),
+                    "depth": 0,
+                },
+                "timeline": timeline if limit is None else timeline[:limit],
+                "timeline_total": len(timeline),
+                "timeline_truncated": False if limit is None else len(timeline) > limit,
+                "delegations": delegations,
+                "summary": {
+                    "total_exchanges": len(exchanges_result),
+                    "total_tokens": total_tokens,
+                    "total_cost_usd": round(total_cost, 6),
+                    "total_tool_calls": total_tool_calls,
+                    "total_reasoning_entries": total_reasoning,
+                    "delegations": len(delegations),
+                },
+            },
+        }
+
     def get_session_timeline_full(
         self,
         session_id: str,
@@ -1044,36 +1376,17 @@ class SessionQueriesMixin:
                 [session_id],
             ).fetchall()
 
-            timeline = []
+            timeline: list[dict] = []
             total_tokens = 0
             total_cost = 0.0
             total_tool_calls = 0
             total_reasoning = 0
 
-            # Batch fetch all trace events for all exchanges (Fix N+1 query)
             exchange_ids = [ex_row[0] for ex_row in exchanges_result]
-            trace_events_by_exchange = {}
-            if exchange_ids:
-                placeholders = ",".join("?" * len(exchange_ids))
-                all_trace_events = self._conn.execute(
-                    f"""
-                    SELECT exchange_id, event_type, event_order, event_data, timestamp,
-                           duration_ms, tokens_in, tokens_out
-                    FROM exchange_traces
-                    WHERE exchange_id IN ({placeholders})
-                    ORDER BY exchange_id, event_order ASC
-                    """,  # nosec B608
-                    exchange_ids,
-                ).fetchall()
+            trace_events_by_exchange = self._fetch_trace_events_by_exchange(
+                exchange_ids
+            )
 
-                # Group by exchange_id
-                for event_row in all_trace_events:
-                    ex_id = event_row[0]
-                    if ex_id not in trace_events_by_exchange:
-                        trace_events_by_exchange[ex_id] = []
-                    trace_events_by_exchange[ex_id].append(event_row[1:])
-
-            # Track for continuation detection (same user_msg_id = continuation)
             previous_user_msg_id = None
             last_delegation_result = None
             delegation_exchange_offset = 0
@@ -1081,166 +1394,33 @@ class SessionQueriesMixin:
             for ex_row in exchanges_result:
                 exchange_num = ex_row[1] + delegation_exchange_offset
                 user_msg_id = ex_row[2]
-                tokens_in = ex_row[9] or 0
-                tokens_out = ex_row[10] or 0
-                tokens_reasoning = ex_row[11] or 0
-                cost = float(ex_row[12] or 0)
-                tool_count = ex_row[13] or 0
-                reasoning_count = ex_row[14] or 0
 
-                total_tokens += tokens_in + tokens_out + tokens_reasoning
-                total_cost += cost
-                total_tool_calls += tool_count
-                total_reasoning += reasoning_count
+                total_tokens += (ex_row[9] or 0) + (ex_row[10] or 0) + (ex_row[11] or 0)
+                total_cost += float(ex_row[12] or 0)
+                total_tool_calls += ex_row[13] or 0
+                total_reasoning += ex_row[14] or 0
 
-                # Detect if this is a continuation (same user_msg_id = delegation response)
-                is_continuation = (
+                is_continuation = bool(
                     user_msg_id == previous_user_msg_id and last_delegation_result
                 )
-                pending_delegation_result = None
-
-                if ex_row[4]:  # prompt_input
-                    if is_continuation:
-                        pending_delegation_result = {
-                            "type": "delegation_result",
-                            "exchange_number": exchange_num,
-                            "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
-                            "content": last_delegation_result,
-                            "message_id": user_msg_id,
-                        }
-                    else:
-                        timeline.append(
-                            {
-                                "type": "user_prompt",
-                                "exchange_number": exchange_num,
-                                "timestamp": ex_row[6].isoformat()
-                                if ex_row[6]
-                                else None,
-                                "content": ex_row[4],
-                                "message_id": user_msg_id,
-                            }
-                        )
-
-                if pending_delegation_result:
-                    timeline.append(pending_delegation_result)
-
-                # Use pre-fetched trace events (O(1) lookup instead of N queries)
                 trace_events = trace_events_by_exchange.get(ex_row[0], [])
 
-                for evt in trace_events:
-                    evt_type = evt[0]
-                    # Parse event_data JSON string
-                    raw_data = evt[2]
-                    if isinstance(raw_data, str):
-                        try:
-                            evt_data = json.loads(raw_data)
-                        except (json.JSONDecodeError, TypeError):
-                            evt_data = {}
-                    elif isinstance(raw_data, dict):
-                        evt_data = raw_data
-                    else:
-                        evt_data = {}
-
-                    if evt_type == "reasoning":
-                        timeline.append(
-                            {
-                                "type": "reasoning",
-                                "exchange_number": exchange_num,
-                                "timestamp": evt[3].isoformat() if evt[3] else None,
-                                "entries": [
-                                    {
-                                        "text": evt_data.get("text", ""),
-                                        "has_signature": evt_data.get(
-                                            "has_signature", False
-                                        ),
-                                        "signature": evt_data.get("signature"),
-                                    }
-                                ],
-                            }
-                        )
-                    elif evt_type == "tool_call":
-                        child_session_id = evt_data.get("child_session_id")
-                        result_summary = evt_data.get("result_summary", "")
-                        timeline.append(
-                            {
-                                "type": "tool_call",
-                                "exchange_number": exchange_num,
-                                "timestamp": evt[3].isoformat() if evt[3] else None,
-                                "tool_name": evt_data.get("tool_name", ""),
-                                "status": evt_data.get("status", "completed"),
-                                "arguments": evt_data.get("arguments"),
-                                "result_summary": result_summary,
-                                "duration_ms": evt[4] or 0,
-                                "child_session_id": child_session_id,
-                            }
-                        )
-                        if child_session_id and include_children and depth > 0:
-                            child_timeline = self.get_session_timeline_full(
-                                child_session_id,
-                                include_children=True,
-                                depth=depth - 1,
-                                limit=limit,
-                            )
-                            if child_timeline.get("success", True):
-                                child_events = child_timeline.get("data", {}).get(
-                                    "timeline", []
-                                )
-                                delegation_exchange_offset += 1
-                                delegation_exchange_num = (
-                                    exchange_num + delegation_exchange_offset
-                                )
-                                for child_evt in child_events:
-                                    child_evt["original_exchange_number"] = (
-                                        child_evt.get("exchange_number")
-                                    )
-                                    child_evt["exchange_number"] = (
-                                        delegation_exchange_num
-                                    )
-                                    child_evt["from_child_session"] = child_session_id
-                                timeline.extend(child_events)
-                        if result_summary:
-                            last_delegation_result = result_summary
-                    elif evt_type == "step_finish":
-                        timeline.append(
-                            {
-                                "type": "step_finish",
-                                "exchange_number": exchange_num,
-                                "timestamp": evt[3].isoformat() if evt[3] else None,
-                                "reason": evt_data.get("reason", ""),
-                                "tokens": {
-                                    "input": evt[5] or 0,
-                                    "output": evt[6] or 0,
-                                    "reasoning": evt_data.get("tokens_reasoning", 0),
-                                    "cache_read": evt_data.get("tokens_cache_read", 0),
-                                    "cache_write": evt_data.get(
-                                        "tokens_cache_write", 0
-                                    ),
-                                },
-                                "cost": evt_data.get("cost", 0),
-                            }
-                        )
-                    elif evt_type == "patch":
-                        timeline.append(
-                            {
-                                "type": "patch",
-                                "exchange_number": exchange_num,
-                                "timestamp": evt[3].isoformat() if evt[3] else None,
-                                "git_hash": evt_data.get("git_hash", ""),
-                                "files": evt_data.get("files", []),
-                            }
-                        )
-
-                if ex_row[5]:  # prompt_output
-                    timeline.append(
-                        {
-                            "type": "assistant_response",
-                            "exchange_number": exchange_num,
-                            "timestamp": ex_row[7].isoformat() if ex_row[7] else None,
-                            "content": ex_row[5],
-                            "tokens_out": tokens_out,
-                        }
+                events, delegation_exchange_offset, result = (
+                    self._process_single_exchange(
+                        ex_row,
+                        exchange_num,
+                        is_continuation,
+                        last_delegation_result,
+                        trace_events,
+                        include_children,
+                        depth,
+                        limit,
+                        delegation_exchange_offset,
                     )
-
+                )
+                timeline.extend(events)
+                if result:
+                    last_delegation_result = result
                 previous_user_msg_id = user_msg_id
 
             # If no exchanges, fall back to direct parts query
@@ -1253,77 +1433,25 @@ class SessionQueriesMixin:
                 total_tool_calls = stats["total_tool_calls"]
                 total_reasoning = stats["total_reasoning"]
 
-            # Include child session timelines if requested
-            delegations = []
-            if include_children and depth > 0:
-                child_sessions = self._conn.execute(
-                    """
-                    SELECT DISTINCT child_session_id
-                    FROM delegations
-                    WHERE session_id = ? AND child_session_id IS NOT NULL
-                    """,
-                    [session_id],
-                ).fetchall()
+            delegations = self._gather_child_delegations(
+                session_id, include_children, depth, limit
+            )
 
-                for child_row in child_sessions:
-                    child_id = child_row[0]
-                    child_timeline = self.get_session_timeline_full(
-                        child_id, include_children=True, depth=depth - 1, limit=limit
-                    )
-                    if child_timeline.get("success", True):
-                        delegations.append(
-                            {
-                                "child_session_id": child_id,
-                                "timeline": child_timeline.get("data", {}).get(
-                                    "timeline", []
-                                ),
-                            }
-                        )
-
-            return {
-                "success": True,
-                "data": {
-                    "meta": {
-                        "session_id": session_id,
-                        "generated_at": datetime.now().isoformat(),
-                        "title": session.get("title", ""),
-                        "directory": session.get("directory", ""),
-                    },
-                    "session": {
-                        "id": session_id,
-                        "title": session.get("title", ""),
-                        "directory": session.get("directory", ""),
-                        "agent": session.get("agent"),
-                        "model": session.get("model_id"),
-                        "started_at": session.get("created_at"),
-                        "ended_at": session.get("updated_at"),
-                        "duration_ms": session.get("duration_ms", 0),
-                        "parent_session_id": session.get("parent_id"),
-                        "depth": 0,
-                    },
-                    "timeline": timeline if limit is None else timeline[:limit],
-                    "timeline_total": len(timeline),
-                    "timeline_truncated": False
-                    if limit is None
-                    else len(timeline) > limit,
-                    "delegations": delegations,
-                    "summary": {
-                        "total_exchanges": len(exchanges_result),
-                        "total_tokens": total_tokens,
-                        "total_cost_usd": round(total_cost, 6),
-                        "total_tool_calls": total_tool_calls,
-                        "total_reasoning_entries": total_reasoning,
-                        "delegations": len(delegations),
-                    },
-                },
-            }
+            return self._build_timeline_response(
+                session_id,
+                session,
+                timeline,
+                exchanges_result,
+                delegations,
+                total_tokens,
+                total_cost,
+                total_tool_calls,
+                total_reasoning,
+                limit,
+            )
 
         except Exception as e:
-            return {
-                "success": False,
-                "error": str(e),
-                "data": None,
-            }
+            return {"success": False, "error": str(e), "data": None}
 
     def iter_timeline_events(
         self, session_id: str, limit: int | None = None
