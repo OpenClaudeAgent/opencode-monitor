@@ -211,6 +211,15 @@ class TestFileParser:
         assert result.tool_name == "read"
         assert result.tool_status == "completed"
         assert result.duration_ms == 100
+        assert result.child_session_id is None
+
+    def test_parse_part_task_extracts_child_session_id(self, sample_task_part_data):
+        """Test parsing a task part extracts child_session_id from metadata."""
+        result = FileParser.parse_part(sample_task_part_data)
+
+        assert isinstance(result, ParsedPart)
+        assert result.tool_name == "task"
+        assert result.child_session_id == "ses_child_001"
 
     def test_parse_part_text(self):
         """Test parsing a text part."""

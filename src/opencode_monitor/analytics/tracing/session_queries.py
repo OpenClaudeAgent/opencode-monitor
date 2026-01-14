@@ -1073,8 +1073,13 @@ class SessionQueriesMixin:
                         trace_events_by_exchange[ex_id] = []
                     trace_events_by_exchange[ex_id].append(event_row[1:])
 
+            # Track for continuation detection (same user_msg_id = continuation)
+            previous_user_msg_id = None
+            last_delegation_result = None
+            delegation_exchange_offset = 0
+
             for ex_row in exchanges_result:
-                exchange_num = ex_row[1]
+                exchange_num = ex_row[1] + delegation_exchange_offset
                 user_msg_id = ex_row[2]
                 tokens_in = ex_row[9] or 0
                 tokens_out = ex_row[10] or 0
@@ -1088,17 +1093,36 @@ class SessionQueriesMixin:
                 total_tool_calls += tool_count
                 total_reasoning += reasoning_count
 
-                # Add user prompt event
+                # Detect if this is a continuation (same user_msg_id = delegation response)
+                is_continuation = (
+                    user_msg_id == previous_user_msg_id and last_delegation_result
+                )
+                pending_delegation_result = None
+
                 if ex_row[4]:  # prompt_input
-                    timeline.append(
-                        {
-                            "type": "user_prompt",
+                    if is_continuation:
+                        pending_delegation_result = {
+                            "type": "delegation_result",
                             "exchange_number": exchange_num,
                             "timestamp": ex_row[6].isoformat() if ex_row[6] else None,
-                            "content": ex_row[4],
+                            "content": last_delegation_result,
                             "message_id": user_msg_id,
                         }
-                    )
+                    else:
+                        timeline.append(
+                            {
+                                "type": "user_prompt",
+                                "exchange_number": exchange_num,
+                                "timestamp": ex_row[6].isoformat()
+                                if ex_row[6]
+                                else None,
+                                "content": ex_row[4],
+                                "message_id": user_msg_id,
+                            }
+                        )
+
+                if pending_delegation_result:
+                    timeline.append(pending_delegation_result)
 
                 # Use pre-fetched trace events (O(1) lookup instead of N queries)
                 trace_events = trace_events_by_exchange.get(ex_row[0], [])
@@ -1135,6 +1159,8 @@ class SessionQueriesMixin:
                             }
                         )
                     elif evt_type == "tool_call":
+                        child_session_id = evt_data.get("child_session_id")
+                        result_summary = evt_data.get("result_summary", "")
                         timeline.append(
                             {
                                 "type": "tool_call",
@@ -1143,11 +1169,37 @@ class SessionQueriesMixin:
                                 "tool_name": evt_data.get("tool_name", ""),
                                 "status": evt_data.get("status", "completed"),
                                 "arguments": evt_data.get("arguments"),
-                                "result_summary": evt_data.get("result_summary", ""),
+                                "result_summary": result_summary,
                                 "duration_ms": evt[4] or 0,
-                                "child_session_id": evt_data.get("child_session_id"),
+                                "child_session_id": child_session_id,
                             }
                         )
+                        if child_session_id and include_children and depth > 0:
+                            child_timeline = self.get_session_timeline_full(
+                                child_session_id,
+                                include_children=True,
+                                depth=depth - 1,
+                                limit=limit,
+                            )
+                            if child_timeline.get("success", True):
+                                child_events = child_timeline.get("data", {}).get(
+                                    "timeline", []
+                                )
+                                delegation_exchange_offset += 1
+                                delegation_exchange_num = (
+                                    exchange_num + delegation_exchange_offset
+                                )
+                                for child_evt in child_events:
+                                    child_evt["original_exchange_number"] = (
+                                        child_evt.get("exchange_number")
+                                    )
+                                    child_evt["exchange_number"] = (
+                                        delegation_exchange_num
+                                    )
+                                    child_evt["from_child_session"] = child_session_id
+                                timeline.extend(child_events)
+                        if result_summary:
+                            last_delegation_result = result_summary
                     elif evt_type == "step_finish":
                         timeline.append(
                             {
@@ -1178,7 +1230,6 @@ class SessionQueriesMixin:
                             }
                         )
 
-                # Add assistant response event
                 if ex_row[5]:  # prompt_output
                     timeline.append(
                         {
@@ -1189,6 +1240,8 @@ class SessionQueriesMixin:
                             "tokens_out": tokens_out,
                         }
                     )
+
+                previous_user_msg_id = user_msg_id
 
             # If no exchanges, fall back to direct parts query
             if not exchanges_result:

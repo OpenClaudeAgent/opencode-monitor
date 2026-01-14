@@ -198,6 +198,7 @@ class AnalyticsAPIClient:
         params = {
             "include_children": str(include_children).lower(),
             "depth": depth,
+            "stream": "false",
         }
         return self._request(f"/api/session/{session_id}/timeline/full", params)
 

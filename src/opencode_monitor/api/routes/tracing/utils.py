@@ -52,10 +52,17 @@ def extract_display_info(tool_name: str, arguments: str | None) -> str | None:
             pattern = args.get("pattern", "")
             return f"/{pattern}/"[:40] if pattern else None
 
-        # Task/delegation tools
+        # Task/delegation tools - show subagent and description
         if tool_name == "task":
+            subagent = args.get("subagent_type", "")
             desc = args.get("description", "")
-            return desc[:50] if desc else None
+            if subagent and desc:
+                return f"{subagent}: {desc}"[:100]
+            elif desc:
+                return desc[:100]
+            elif subagent:
+                return subagent
+            return None
 
     except (json.JSONDecodeError, TypeError, AttributeError):
         pass
@@ -92,7 +99,15 @@ def extract_tool_display_info(tool_name: str, args: str | None) -> str:
         elif tool_name == "grep":
             return args_dict.get("pattern", "")
         elif tool_name == "task":
-            return args_dict.get("subagent_type", "")
+            subagent = args_dict.get("subagent_type", "")
+            desc = args_dict.get("description", "")
+            if subagent and desc:
+                return f"{subagent}: {desc}"[:100]
+            elif desc:
+                return desc[:100]
+            elif subagent:
+                return subagent
+            return ""
     except (json.JSONDecodeError, TypeError, AttributeError):
         pass
 

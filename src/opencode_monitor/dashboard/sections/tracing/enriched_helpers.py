@@ -5,6 +5,7 @@ Provides utilities for formatting and displaying enriched tool data,
 agent information, cost, and tokens.
 """
 
+import json
 from typing import Optional
 
 from opencode_monitor.dashboard.styles import AGENT_COLORS
@@ -13,10 +14,10 @@ from opencode_monitor.dashboard.styles import AGENT_COLORS
 def get_tool_display_label(tool_data: dict) -> str:
     """Get primary label for tool display.
 
-    Priority: title > formatted tool_name > 'Unknown'
+    Priority: title > task args (subagent: description) > formatted tool_name > 'Unknown'
 
     Args:
-        tool_data: Tool dict with 'title' and 'tool_name' fields
+        tool_data: Tool dict with 'title', 'tool_name', 'arguments' fields
 
     Returns:
         Human-readable label string
@@ -26,6 +27,28 @@ def get_tool_display_label(tool_data: dict) -> str:
         return title
 
     tool_name = tool_data.get("tool_name")
+
+    if tool_name == "task":
+        arguments = tool_data.get("arguments")
+        if arguments:
+            args = None
+            if isinstance(arguments, dict):
+                args = arguments
+            elif isinstance(arguments, str):
+                try:
+                    args = json.loads(arguments)
+                except json.JSONDecodeError:
+                    pass
+            if args:
+                subagent = args.get("subagent_type", "")
+                description = args.get("description", "")
+                if subagent and description:
+                    return f"{subagent}: {description}"
+                elif description:
+                    return description
+                elif subagent:
+                    return subagent
+
     if tool_name:
         return tool_name.replace("_", " ").title()
 

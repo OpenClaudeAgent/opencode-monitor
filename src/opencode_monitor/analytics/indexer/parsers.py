@@ -75,6 +75,7 @@ class ParsedPart:
     duration_ms: Optional[int]
     error_message: Optional[str]
     error_data: Optional[str]  # Structured error data as JSON string
+    child_session_id: Optional[str] = None  # For task delegations
 
 
 @dataclass
@@ -350,6 +351,7 @@ class FileParser:
         arguments = None
         error_message = None
 
+        child_session_id = None
         if part_type == "text":
             content = data.get("text")
         elif part_type == "tool":
@@ -358,6 +360,10 @@ class FileParser:
             tool_input = state.get("input", {}) if isinstance(state, dict) else {}
             arguments = json.dumps(tool_input) if tool_input else None
             error_message = state.get("error") if isinstance(state, dict) else None
+            metadata = state.get("metadata", {}) if isinstance(state, dict) else {}
+            child_session_id = (
+                metadata.get("sessionId") if isinstance(metadata, dict) else None
+            )
         elif part_type == "reasoning":
             # Support both 'reasoning' (Claude extended thinking) and 'text' (OpenCode format)
             content = data.get("reasoning") or data.get("text", "")
@@ -393,6 +399,7 @@ class FileParser:
             duration_ms=duration_ms,
             error_message=error_message,
             error_data=error_data,
+            child_session_id=child_session_id,
         )
 
     @staticmethod

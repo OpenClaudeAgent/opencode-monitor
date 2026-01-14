@@ -40,6 +40,9 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from opencode_monitor.dashboard.sections.tracing.enriched_helpers import (
+    get_tool_display_label,
+)
 from opencode_monitor.dashboard.sections.tracing.helpers import format_tokens_short
 from opencode_monitor.dashboard.styles import COLORS, FONTS, RADIUS, SPACING
 from opencode_monitor.dashboard.widgets.controls import ClickableLabel
@@ -258,6 +261,7 @@ def _extract_from_node(node: dict, data: SessionData) -> None:
 # Event type configuration for visual styling
 EVENT_CONFIG = {
     "user_prompt": {"icon": "💬", "color": COLORS["accent_primary"]},
+    "delegation_result": {"icon": "📥", "color": COLORS["tree_child"]},
     "reasoning": {"icon": "🧠", "color": COLORS["warning"]},
     "tool_call": {"icon": "🔧", "color": COLORS["info"]},
     "step_finish": {"icon": "⏱️", "color": COLORS["text_muted"]},
@@ -293,6 +297,9 @@ class TimelineEventWidget(QFrame):
         if event_type == "tool_call" and self._event.get("child_session_id"):
             event_type = "delegation"
             self._is_delegation = True
+
+        # Check if this event is from a child session (inlined)
+        is_from_child = bool(self._event.get("from_child_session"))
 
         config = EVENT_CONFIG.get(
             event_type, {"icon": "•", "color": COLORS["text_muted"]}
@@ -409,6 +416,9 @@ class TimelineEventWidget(QFrame):
         if event_type == "user_prompt":
             return self._event.get("content", "") or ""
 
+        elif event_type == "delegation_result":
+            return self._event.get("content", "") or ""
+
         elif event_type == "reasoning":
             entries = self._event.get("entries", [])
             if entries:
@@ -417,7 +427,10 @@ class TimelineEventWidget(QFrame):
             return "Thinking..."
 
         elif event_type == "tool_call":
-            tool_name = shorten_tool_name(self._event.get("tool_name", ""))
+            tool_name = self._event.get("tool_name", "")
+            if tool_name == "task":
+                return get_tool_display_label(self._event)
+            tool_name = shorten_tool_name(tool_name)
             display = self._event.get("display_info", "") or self._event.get(
                 "arguments", ""
             )
@@ -427,6 +440,8 @@ class TimelineEventWidget(QFrame):
 
         elif event_type == "delegation":
             tool_name = self._event.get("tool_name", "agent")
+            if tool_name == "task":
+                return f"→ {get_tool_display_label(self._event)}"
             return f"→ {shorten_tool_name(tool_name)}"
 
         elif event_type == "step_finish":
@@ -525,13 +540,16 @@ class ExchangeGroupWidget(QFrame):
         self._arrow.setFixedWidth(16)
         header_layout.addWidget(self._arrow)
 
-        # Find user_prompt for header content
-        user_prompt = self._find_user_prompt()
-        if user_prompt:
-            time_str = format_time(user_prompt.get("timestamp", ""))
-            prompt_text = truncate_text(user_prompt.get("content", ""), 60)
+        # Find user_prompt or delegation_result for header content
+        header_event = self._find_header_event()
+        if header_event:
+            time_str = format_time(header_event.get("timestamp", ""))
+            prompt_text = truncate_text(header_event.get("content", ""), 60)
+            icon = "📥" if header_event.get("type") == "delegation_result" else "💬"
             header_text = (
-                f"{time_str}  💬 {prompt_text}" if time_str else f"💬 {prompt_text}"
+                f"{time_str}  {icon} {prompt_text}"
+                if time_str
+                else f"{icon} {prompt_text}"
             )
         else:
             header_text = f"Exchange #{self._exchange_number}"
@@ -544,8 +562,12 @@ class ExchangeGroupWidget(QFrame):
         self._header_label.setWordWrap(True)
         header_layout.addWidget(self._header_label, 1)
 
-        # Event count badge
-        non_prompt_events = [e for e in self._events if e.get("type") != "user_prompt"]
+        # Event count badge (exclude header events)
+        non_prompt_events = [
+            e
+            for e in self._events
+            if e.get("type") not in ("user_prompt", "delegation_result")
+        ]
         if non_prompt_events:
             count_label = QLabel(f"({len(non_prompt_events)})")
             count_label.setStyleSheet(f"""
@@ -570,10 +592,14 @@ class ExchangeGroupWidget(QFrame):
         )
         content_layout.setSpacing(0)
 
-        # Add ALL event widgets including user_prompt (show full content in expanded view)
         event_count = 0
         for event in self._events:
-            # Check for delegation with child timeline
+            event_type = event.get("type")
+            is_from_child = event.get("from_child_session")
+
+            if event_type == "delegation_result" and is_from_child:
+                continue
+
             child_timeline = None
             child_session_id = event.get("child_session_id")
             if child_session_id and child_session_id in self._delegations:
@@ -592,10 +618,10 @@ class ExchangeGroupWidget(QFrame):
         # Initial state
         self._update_state()
 
-    def _find_user_prompt(self) -> dict | None:
-        """Find the user_prompt event in this exchange."""
+    def _find_header_event(self) -> dict | None:
+        """Find user_prompt or delegation_result for exchange header."""
         for event in self._events:
-            if event.get("type") == "user_prompt":
+            if event.get("type") in ("user_prompt", "delegation_result"):
                 return event
         return None
 
@@ -703,16 +729,13 @@ class ExpandableTimelineWidget(QFrame):
             self._exchange_widgets.append(widget)
 
     def _group_by_exchange(self, timeline: list[dict]) -> dict[int, list[dict]]:
-        """Group events by exchange_number and sort chronologically."""
+        """Group events by exchange_number, preserving API order."""
         groups: dict[int, list[dict]] = {}
         for event in timeline:
             num = event.get("exchange_number", 0)
             if num not in groups:
                 groups[num] = []
             groups[num].append(event)
-
-        for num in groups:
-            groups[num].sort(key=lambda e: e.get("timestamp") or "")
 
         return groups
 

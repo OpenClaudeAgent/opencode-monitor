@@ -274,10 +274,14 @@ def get_session_timeline_full(session_id: str):
     Query params:
         limit: Max timeline events to return (optional, default: 500, max: 5000)
         stream: Enable streaming response (default: true)
+        include_children: Include child session events inline (default: false)
     """
     try:
         limit = request.args.get("limit", type=int)
         stream = request.args.get("stream", "true").lower() != "false"
+        include_children = (
+            request.args.get("include_children", "false").lower() == "true"
+        )
         if limit is not None:
             limit = min(limit, 5000)
 
@@ -314,7 +318,9 @@ def get_session_timeline_full(session_id: str):
                     headers={"X-Streaming": "true"},
                 )
             else:
-                result = service.get_session_timeline_full(session_id, limit=limit)
+                result = service.get_session_timeline_full(
+                    session_id, include_children=include_children, limit=limit
+                )
                 if result.get("success"):
                     return jsonify(result)
                 return jsonify(result), 404

@@ -10,7 +10,6 @@ from typing import Optional, TYPE_CHECKING
 from urllib.parse import urlparse
 
 
-
 if TYPE_CHECKING:
     from .config import TracingConfig
     import duckdb
@@ -97,8 +96,15 @@ def extract_tool_display_info(
 
     # Task/delegation tools
     if tool_name == "task":
-        subagent = args.get("subagent_type", args.get("description", ""))
-        return subagent[:50] if subagent else ""
+        subagent = args.get("subagent_type", "")
+        description = args.get("description", "")
+        if subagent and description:
+            return f"{subagent}: {description}"[:100]
+        elif description:
+            return description[:100]
+        elif subagent:
+            return subagent
+        return ""
 
     # Generic fallback: show first arg value if available
     if args:

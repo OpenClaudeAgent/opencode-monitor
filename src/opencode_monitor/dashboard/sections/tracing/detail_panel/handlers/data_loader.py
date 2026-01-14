@@ -205,7 +205,9 @@ class DataLoaderMixin:
             return []
 
         try:
-            result = self._service.get_session_timeline_full(session_id)
+            result = self._service.get_session_timeline_full(
+                session_id, include_children=True
+            )
             if result and result.get("success"):
                 data = result.get("data", {})
                 return data.get("timeline", [])

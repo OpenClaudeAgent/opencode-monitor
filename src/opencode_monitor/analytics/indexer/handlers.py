@@ -156,8 +156,9 @@ class PartHandler(FileHandler):
             """
             INSERT OR REPLACE INTO parts
             (id, session_id, message_id, part_type, content, tool_name, tool_status,
-             call_id, created_at, ended_at, duration_ms, arguments, error_message, error_data)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+             call_id, created_at, ended_at, duration_ms, arguments, error_message, error_data,
+             child_session_id)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             """,
             [
                 parsed.id,
@@ -174,6 +175,7 @@ class PartHandler(FileHandler):
                 parsed.arguments,
                 parsed.error_message,
                 parsed.error_data,
+                parsed.child_session_id,
             ],
         )
 

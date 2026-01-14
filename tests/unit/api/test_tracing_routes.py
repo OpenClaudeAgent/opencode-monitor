@@ -222,13 +222,29 @@ class TestExtractToolDisplayInfo:
         result = extract_tool_display_info("grep", args)
         assert result == "TODO"
 
-    def test_tool_display_task_subagent(self):
-        """Extract subagent_type from task tool."""
+    def test_tool_display_task_subagent_only(self):
+        """Extract subagent_type from task tool when only subagent present."""
         from opencode_monitor.api.routes.tracing.utils import extract_tool_display_info
 
         args = json.dumps({"subagent_type": "roadmap"})
         result = extract_tool_display_info("task", args)
         assert result == "roadmap"
+
+    def test_tool_display_task_description_only(self):
+        """Extract description from task tool when only description present."""
+        from opencode_monitor.api.routes.tracing.utils import extract_tool_display_info
+
+        args = json.dumps({"description": "Analyze the code"})
+        result = extract_tool_display_info("task", args)
+        assert result == "Analyze the code"
+
+    def test_tool_display_task_combined(self):
+        """Combine subagent_type and description when both present."""
+        from opencode_monitor.api.routes.tracing.utils import extract_tool_display_info
+
+        args = json.dumps({"subagent_type": "librarian", "description": "Find docs"})
+        result = extract_tool_display_info("task", args)
+        assert result == "librarian: Find docs"
 
     def test_tool_display_empty_args(self):
         """Return empty string when args is None."""

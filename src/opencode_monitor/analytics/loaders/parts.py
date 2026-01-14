@@ -101,8 +101,8 @@ def load_parts_fast(db: AnalyticsDB, storage_path: Path, max_days: int = 30) -> 
                    (id, session_id, message_id, part_type, content, tool_name, tool_status, 
                     created_at, arguments, call_id, ended_at, duration_ms, error_message,
                     reasoning_text, anthropic_signature, compaction_auto, file_mime, file_name,
-                    result_summary)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    result_summary, child_session_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 parts_batch,
             )
             parts_batch = []
@@ -307,6 +307,7 @@ def _process_text_part(
             None,  # file_mime
             None,  # file_name
             None,  # result_summary
+            None,  # child_session_id
         )
     )
     stats.text += 1
@@ -344,7 +345,16 @@ def _process_tool_part(
 
     # Result summary - FULL output, NO TRUNCATION (Plan 45)
     tool_output = state.get("output") if isinstance(state, dict) else None
-    result_summary = json.dumps(tool_output) if tool_output else None
+    if tool_output is None:
+        result_summary = None
+    elif isinstance(tool_output, str):
+        result_summary = tool_output
+    else:
+        result_summary = json.dumps(tool_output)
+
+    # Child session ID for task delegations
+    metadata = state.get("metadata", {}) if isinstance(state, dict) else {}
+    child_session_id = metadata.get("sessionId") if isinstance(metadata, dict) else None
 
     batch.append(
         (
@@ -367,6 +377,7 @@ def _process_tool_part(
             None,  # file_mime
             None,  # file_name
             result_summary,  # FULL tool output
+            child_session_id,
         )
     )
     stats.tool += 1
@@ -411,6 +422,7 @@ def _process_reasoning_part(
             None,  # file_mime
             None,  # file_name
             None,  # result_summary
+            None,  # child_session_id
         )
     )
     stats.reasoning += 1
@@ -550,6 +562,7 @@ def _process_compaction_part(
             None,  # file_mime
             None,  # file_name
             None,  # result_summary
+            None,  # child_session_id
         )
     )
     stats.compaction += 1
@@ -593,6 +606,7 @@ def _process_file_part(
             file_mime,
             file_name,
             None,  # result_summary
+            None,  # child_session_id
         )
     )
     stats.file += 1
