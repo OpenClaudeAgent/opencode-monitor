@@ -902,3 +902,201 @@ class TestDelegationLinkage:
         ).fetchone()
 
         assert result[0] == "del_abc"
+
+
+class TestDelegationResultEventType:
+    """Tests for delegation_result event type in exchange_traces materialization."""
+
+    def test_delegation_result_created_for_tool_with_child_session(
+        self, trace_builder, temp_db
+    ):
+        """delegation_result event is created for tool calls with child_session_id and result_summary."""
+        conn = temp_db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["ses_deleg", "proj1", "/test", "Delegation Test", now, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ["msg_u", "ses_deleg", "user", None, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, parent_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "msg_a",
+                "ses_deleg",
+                "assistant",
+                "build",
+                "msg_u",
+                now + timedelta(seconds=1),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["prt_u", "ses_deleg", "msg_u", "text", "Hello", now],
+        )
+
+        conn.execute(
+            """INSERT INTO parts 
+               (id, session_id, message_id, part_type, tool_name, child_session_id, 
+                result_summary, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt_tool",
+                "ses_deleg",
+                "msg_a",
+                "tool",
+                "mcp_task",
+                "ses_child_123",
+                "Task completed successfully",
+                now + timedelta(seconds=2),
+            ],
+        )
+
+        trace_builder.build_exchanges()
+        count = trace_builder.build_exchange_traces()
+
+        results = conn.execute(
+            """SELECT event_type, event_data FROM exchange_traces
+               WHERE session_id = 'ses_deleg' AND event_type = 'delegation_result'"""
+        ).fetchall()
+
+        assert len(results) == 1
+        assert results[0][0] == "delegation_result"
+
+        import json
+
+        event_data = json.loads(results[0][1])
+        assert event_data["tool_name"] == "mcp_task"
+        assert event_data["child_session_id"] == "ses_child_123"
+        assert event_data["result_summary"] == "Task completed successfully"
+
+    def test_no_delegation_result_without_child_session(self, trace_builder, temp_db):
+        """delegation_result is NOT created for tool calls without child_session_id."""
+        conn = temp_db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["ses_no_deleg", "proj1", "/test", "No Delegation Test", now, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ["msg_u2", "ses_no_deleg", "user", None, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, parent_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "msg_a2",
+                "ses_no_deleg",
+                "assistant",
+                "build",
+                "msg_u2",
+                now + timedelta(seconds=1),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["prt_u2", "ses_no_deleg", "msg_u2", "text", "Hello", now],
+        )
+
+        conn.execute(
+            """INSERT INTO parts 
+               (id, session_id, message_id, part_type, tool_name, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "prt_tool2",
+                "ses_no_deleg",
+                "msg_a2",
+                "tool",
+                "bash",
+                now + timedelta(seconds=2),
+            ],
+        )
+
+        trace_builder.build_exchanges()
+        trace_builder.build_exchange_traces()
+
+        results = conn.execute(
+            """SELECT event_type FROM exchange_traces
+               WHERE session_id = 'ses_no_deleg' AND event_type = 'delegation_result'"""
+        ).fetchall()
+
+        assert len(results) == 0
+
+    def test_no_delegation_result_without_result_summary(self, trace_builder, temp_db):
+        """delegation_result is NOT created for tool calls without result_summary."""
+        conn = temp_db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["ses_no_summary", "proj1", "/test", "No Summary Test", now, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ["msg_u3", "ses_no_summary", "user", None, now],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, parent_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "msg_a3",
+                "ses_no_summary",
+                "assistant",
+                "build",
+                "msg_u3",
+                now + timedelta(seconds=1),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO parts (id, session_id, message_id, part_type, content, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            ["prt_u3", "ses_no_summary", "msg_u3", "text", "Hello", now],
+        )
+
+        conn.execute(
+            """INSERT INTO parts 
+               (id, session_id, message_id, part_type, tool_name, child_session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "prt_tool3",
+                "ses_no_summary",
+                "msg_a3",
+                "tool",
+                "mcp_task",
+                "ses_child_456",
+                now + timedelta(seconds=2),
+            ],
+        )
+
+        trace_builder.build_exchanges()
+        trace_builder.build_exchange_traces()
+
+        results = conn.execute(
+            """SELECT event_type FROM exchange_traces
+               WHERE session_id = 'ses_no_summary' AND event_type = 'delegation_result'"""
+        ).fetchall()
+
+        assert len(results) == 0

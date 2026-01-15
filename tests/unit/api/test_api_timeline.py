@@ -1864,3 +1864,274 @@ class TestDelegationTimelineBugFixes:
                     f"Exchange {exchange_num}: timestamps not chronological "
                     f"at position {i}: {timestamps[i]} > {timestamps[i + 1]}"
                 )
+
+    def test_delegation_result_from_db_with_include_children_false(
+        self, delegation_service: TracingDataService
+    ):
+        """When include_children=False, delegation_result from DB should appear."""
+        result = delegation_service.get_session_timeline_full(
+            "ses_parent_fix", include_children=False
+        )
+
+        timeline = result["data"]["timeline"]
+        delegation_results = [e for e in timeline if e["type"] == "delegation_result"]
+
+        assert len(delegation_results) == 1
+        assert delegation_results[0]["exchange_number"] == 2
+        assert delegation_results[0]["content"] == "Found 3 changelog entries"
+
+
+# =============================================================================
+# Tests for Delegation Without Continuation (Edge Case)
+# =============================================================================
+
+
+class TestDelegationWithoutContinuation:
+    """Tests for delegation where parent has no subsequent exchange."""
+
+    @pytest.fixture
+    def single_exchange_db(self, db: AnalyticsDB) -> AnalyticsDB:
+        """Setup delegation where parent has only ONE exchange (no continuation)."""
+        conn = db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_single_parent",
+                "proj_001",
+                "/projects/test",
+                "Single Exchange Parent",
+                now - timedelta(hours=1),
+                now,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_single_child",
+                "proj_001",
+                "/projects/test",
+                "Child Session",
+                now - timedelta(minutes=50),
+                now - timedelta(minutes=40),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_single_user",
+                "ses_single_parent",
+                "user",
+                None,
+                now - timedelta(hours=1),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_single_asst",
+                "ses_single_parent",
+                "assistant",
+                "build",
+                now - timedelta(minutes=55),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_child_user",
+                "ses_single_child",
+                "user",
+                None,
+                now - timedelta(minutes=50),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_child_asst",
+                "ses_single_child",
+                "assistant",
+                "librarian",
+                now - timedelta(minutes=45),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_single_1",
+                "ses_single_parent",
+                1,
+                "msg_single_user",
+                "msg_single_asst",
+                "Do something with delegation",
+                "I delegated to librarian.",
+                now - timedelta(hours=1),
+                now - timedelta(minutes=55),
+                300000,
+                100,
+                200,
+                50,
+                0.01,
+                1,
+                1,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_child_1",
+                "ses_single_child",
+                1,
+                "msg_child_user",
+                "msg_child_asst",
+                "Search for data",
+                "Found the data.",
+                now - timedelta(minutes=50),
+                now - timedelta(minutes=45),
+                300000,
+                80,
+                150,
+                30,
+                0.008,
+                1,
+                1,
+                "librarian",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_single_tool",
+                "ses_single_parent",
+                "exc_single_1",
+                "tool_call",
+                1,
+                '{"tool_name": "mcp_task", "status": "completed", '
+                '"arguments": {"subagent_type": "librarian"}, '
+                '"result_summary": "Task completed successfully", '
+                '"child_session_id": "ses_single_child"}',
+                now - timedelta(minutes=55),
+                60000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_child_tool",
+                "ses_single_child",
+                "exc_child_1",
+                "tool_call",
+                1,
+                '{"tool_name": "bash", "status": "completed", '
+                '"arguments": {"command": "ls"}}',
+                now - timedelta(minutes=48),
+                5000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO delegations 
+               (id, session_id, parent_agent, child_agent, child_session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "del_single_001",
+                "ses_single_parent",
+                "build",
+                "librarian",
+                "ses_single_child",
+                now - timedelta(minutes=55),
+            ],
+        )
+
+        return db
+
+    @pytest.fixture
+    def single_exchange_service(
+        self, single_exchange_db: AnalyticsDB
+    ) -> TracingDataService:
+        return TracingDataService(single_exchange_db)
+
+    def test_delegation_without_continuation_has_no_delegation_result_event(
+        self, single_exchange_service: TracingDataService
+    ):
+        """When there's no continuation exchange, delegation_result doesn't appear via is_continuation."""
+        result = single_exchange_service.get_session_timeline_full(
+            "ses_single_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        delegation_results = [e for e in timeline if e["type"] == "delegation_result"]
+
+        assert len(delegation_results) == 0
+
+    def test_delegation_without_continuation_still_inlines_child(
+        self, single_exchange_service: TracingDataService
+    ):
+        """Child session events should still be inlined even without continuation."""
+        result = single_exchange_service.get_session_timeline_full(
+            "ses_single_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        child_events = [e for e in timeline if e.get("from_child_session")]
+
+        assert len(child_events) > 0
+        assert all(e["from_child_session"] == "ses_single_child" for e in child_events)
+
+    def test_delegation_without_continuation_tool_call_has_result_summary(
+        self, single_exchange_service: TracingDataService
+    ):
+        """The tool_call event should still have result_summary even without delegation_result event."""
+        result = single_exchange_service.get_session_timeline_full(
+            "ses_single_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        tool_calls = [
+            e
+            for e in timeline
+            if e["type"] == "tool_call" and e.get("child_session_id")
+        ]
+
+        assert len(tool_calls) == 1
+        assert tool_calls[0]["result_summary"] == "Task completed successfully"
