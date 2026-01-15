@@ -10,6 +10,8 @@ from abc import ABC, abstractmethod
 from pathlib import Path
 from typing import Any, Optional, TYPE_CHECKING
 
+from ..path_matcher import DiffPathMatcher, build_diff_stats_map
+
 if TYPE_CHECKING:
     from .parsers import FileParser
     from .trace_builder import TraceBuilder
@@ -200,6 +202,27 @@ class PartHandler(FileHandler):
                 ],
             )
 
+        # Handle patches (git commits)
+        if parsed.part_type == "patch":
+            git_hash = raw_data.get("hash")
+            files = raw_data.get("files", [])
+            if git_hash:
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO patches
+                    (id, session_id, message_id, git_hash, files, created_at)
+                    VALUES (?, ?, ?, ?, ?, ?)
+                    """,
+                    [
+                        parsed.id,
+                        parsed.session_id,
+                        parsed.message_id,
+                        git_hash,
+                        files,
+                        parsed.created_at,
+                    ],
+                )
+
         # Handle task delegation
         if parsed.tool_name == "task" and parsed.tool_status == "completed":
             delegation = parser.parse_delegation(raw_data)
@@ -225,17 +248,11 @@ class SessionDiffHandler(FileHandler):
         if not isinstance(raw_data, list):
             return None
 
-        diff_by_file = {
-            item.get("file"): {
-                "additions": item.get("additions", 0),
-                "deletions": item.get("deletions", 0),
-            }
-            for item in raw_data
-            if isinstance(item, dict) and item.get("file")
-        }
-
+        diff_by_file = build_diff_stats_map(raw_data)
         if not diff_by_file:
             return session_id
+
+        matcher = DiffPathMatcher(diff_by_file)
 
         file_ops = conn.execute(
             """SELECT id, file_path FROM file_operations 
@@ -244,7 +261,7 @@ class SessionDiffHandler(FileHandler):
         ).fetchall()
 
         for op_id, op_file_path in file_ops:
-            stats = diff_by_file.get(op_file_path)
+            stats = matcher.match(op_file_path)
             if stats:
                 conn.execute(
                     """UPDATE file_operations 

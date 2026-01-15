@@ -125,15 +125,16 @@ class FileQueries(BaseSessionQueries):
             Dict with git patches and file statistics
         """
         try:
+            # Query the patches table (not parts) - patches are stored separately
+            # with git_hash and files[] array columns
             results = self._conn.execute(
                 """
                 SELECT
-                    patch,
+                    git_hash,
                     files,
                     created_at
-                FROM parts
+                FROM patches
                 WHERE session_id = ?
-                  AND patch IS NOT NULL
                 ORDER BY created_at ASC
                 """,
                 [session_id],
@@ -143,14 +144,8 @@ class FileQueries(BaseSessionQueries):
             all_files: set[str] = set()
 
             for row in results:
-                files = json.loads(row[1]) if row[1] else []
-
-                # Extract file list if it's in various formats
-                file_list = []
-                if isinstance(files, list):
-                    file_list = files
-                elif isinstance(files, dict):
-                    file_list = files.get("files", [])
+                # files is a VARCHAR[] array in DuckDB, not JSON
+                file_list = list(row[1]) if row[1] else []
 
                 # Collect unique files
                 for f in file_list:
@@ -158,7 +153,7 @@ class FileQueries(BaseSessionQueries):
 
                 patches.append(
                     {
-                        "patch": row[0],
+                        "git_hash": row[0],
                         "files": file_list,
                         "created_at": row[2].isoformat() if row[2] else None,
                     }

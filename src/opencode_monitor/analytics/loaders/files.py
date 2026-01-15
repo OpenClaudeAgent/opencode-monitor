@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 from ..db import AnalyticsDB
+from ..path_matcher import DiffPathMatcher, DiffStats
 from ...utils.logger import info
 from ...utils.datetime import ms_to_datetime
 from .utils import collect_recent_part_files, chunked
@@ -167,17 +168,20 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
             if not isinstance(diff_data, list):
                 continue
 
-            diff_by_file = {
-                item.get("file"): {
-                    "additions": item.get("additions", 0),
-                    "deletions": item.get("deletions", 0),
-                }
-                for item in diff_data
-                if isinstance(item, dict) and item.get("file")
-            }
+            diff_by_file: dict[str, DiffStats] = {}
+            for item in diff_data:
+                if isinstance(item, dict):
+                    file_path = item.get("file")
+                    if file_path:
+                        diff_by_file[file_path] = DiffStats(
+                            additions=item.get("additions", 0),
+                            deletions=item.get("deletions", 0),
+                        )
 
             if not diff_by_file:
                 continue
+
+            matcher = DiffPathMatcher(diff_by_file)
 
             file_ops = conn.execute(
                 """SELECT id, file_path FROM file_operations 
@@ -185,34 +189,8 @@ def enrich_file_operations_with_diff_stats(db: AnalyticsDB, storage_path: Path) 
                 [session_id],
             ).fetchall()
 
-            # Pre-build suffix mapping for O(1) lookups instead of O(N*M) nested loop
-            suffix_map = {}
-            for diff_path, diff_stats in diff_by_file.items():
-                norm_path = diff_path.lstrip("./")
-                suffix_map[norm_path] = diff_stats
-                # Also store exact path
-                suffix_map[diff_path] = diff_stats
-
-            for op_id, file_path in file_ops:
-                stats = None
-
-                # Try exact match first
-                stats = diff_by_file.get(file_path)
-
-                # Try normalized path match
-                if not stats:
-                    norm_file_path = file_path.lstrip("./")
-                    stats = suffix_map.get(norm_file_path)
-
-                # Try suffix match on normalized path (last resort)
-                if not stats:
-                    for suffix_key in suffix_map:
-                        if norm_file_path.endswith(suffix_key) or suffix_key.endswith(
-                            norm_file_path
-                        ):
-                            stats = suffix_map[suffix_key]
-                            break
-
+            for op_id, op_file_path in file_ops:
+                stats = matcher.match(op_file_path)
                 if stats:
                     conn.execute(
                         """UPDATE file_operations 

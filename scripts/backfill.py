@@ -112,6 +112,18 @@ def run_backfill() -> int:
         f"  File operations: {results['file_operation'].files_loaded:,} in {results['file_operation'].duration_seconds:.1f}s"
     )
 
+    print("Loading step events...", flush=True)
+    results["step_event"] = bulk_loader.load_step_events()
+    print(
+        f"  Step events: {results['step_event'].files_loaded:,} in {results['step_event'].duration_seconds:.1f}s"
+    )
+
+    print("Loading patches...", flush=True)
+    results["patch"] = bulk_loader.load_patches()
+    print(
+        f"  Patches: {results['patch'].files_loaded:,} in {results['patch'].duration_seconds:.1f}s"
+    )
+
     print("Enriching file operations with diff stats...", flush=True)
     enriched_count = bulk_loader.enrich_file_operations_with_diffs()
     if enriched_count > 0:
