@@ -2135,3 +2135,371 @@ class TestDelegationWithoutContinuation:
 
         assert len(tool_calls) == 1
         assert tool_calls[0]["result_summary"] == "Task completed successfully"
+
+
+class TestDelegationResultAfterChildSession:
+    """Tests for delegation_result appearing AFTER child session when include_children=True.
+
+    This tests the fix for the bug where delegation_result appeared BEFORE child events
+    because delegation_result DB event had lower event_order than tool_call.
+    """
+
+    @pytest.fixture
+    def db_with_delegation_result_event(self, db: AnalyticsDB) -> AnalyticsDB:
+        """Setup with explicit delegation_result event in exchange_traces."""
+        conn = db.connect()
+        now = datetime.now()
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_dr_parent",
+                "proj_001",
+                "/projects/test",
+                "Parent with DR event",
+                now - timedelta(hours=1),
+                now,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO sessions (id, project_id, directory, title, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "ses_dr_child",
+                "proj_001",
+                "/projects/test",
+                "Child Session",
+                now - timedelta(minutes=50),
+                now - timedelta(minutes=40),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            ["msg_dr_user", "ses_dr_parent", "user", None, now - timedelta(hours=1)],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_dr_asst",
+                "ses_dr_parent",
+                "assistant",
+                "build",
+                now - timedelta(minutes=55),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_dr_child_user",
+                "ses_dr_child",
+                "user",
+                None,
+                now - timedelta(minutes=50),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO messages (id, session_id, role, agent, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            [
+                "msg_dr_child_asst",
+                "ses_dr_child",
+                "assistant",
+                "librarian",
+                now - timedelta(minutes=45),
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_dr_1",
+                "ses_dr_parent",
+                1,
+                "msg_dr_user",
+                "msg_dr_asst",
+                "Delegate to librarian",
+                "Delegated successfully.",
+                now - timedelta(hours=1),
+                now - timedelta(minutes=55),
+                300000,
+                100,
+                200,
+                50,
+                0.01,
+                1,
+                0,
+                "build",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchanges 
+               (id, session_id, exchange_number, user_message_id, assistant_message_id,
+                prompt_input, prompt_output, started_at, ended_at, duration_ms,
+                tokens_in, tokens_out, tokens_reasoning, cost,
+                tool_count, reasoning_count, agent, model_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "exc_dr_child_1",
+                "ses_dr_child",
+                1,
+                "msg_dr_child_user",
+                "msg_dr_child_asst",
+                "Search for data",
+                "Found the data.",
+                now - timedelta(minutes=50),
+                now - timedelta(minutes=45),
+                300000,
+                80,
+                150,
+                30,
+                0.008,
+                1,
+                0,
+                "librarian",
+                "claude-3",
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_dr_tool",
+                "ses_dr_parent",
+                "exc_dr_1",
+                "tool_call",
+                1,
+                '{"tool_name": "mcp_task", "status": "completed", '
+                '"arguments": {"subagent_type": "librarian"}, '
+                '"result_summary": "Librarian found 5 results", '
+                '"child_session_id": "ses_dr_child"}',
+                now - timedelta(minutes=55),
+                60000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_dr_result",
+                "ses_dr_parent",
+                "exc_dr_1",
+                "delegation_result",
+                2,
+                '{"tool_name": "mcp_task", '
+                '"result_summary": "Librarian found 5 results", '
+                '"child_session_id": "ses_dr_child"}',
+                now - timedelta(minutes=55),
+                0,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_dr_child_prompt",
+                "ses_dr_child",
+                "exc_dr_child_1",
+                "user_prompt",
+                1,
+                '{"content": "Search for data", "message_id": "msg_dr_child_user"}',
+                now - timedelta(minutes=50),
+                0,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO exchange_traces 
+               (id, session_id, exchange_id, event_type, event_order, event_data,
+                timestamp, duration_ms, tokens_in, tokens_out)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                "evt_dr_child_tool",
+                "ses_dr_child",
+                "exc_dr_child_1",
+                "tool_call",
+                2,
+                '{"tool_name": "grep", "status": "completed", '
+                '"arguments": {"pattern": "test"}}',
+                now - timedelta(minutes=48),
+                5000,
+                0,
+                0,
+            ],
+        )
+
+        conn.execute(
+            """INSERT INTO delegations 
+               (id, session_id, parent_agent, child_agent, child_session_id, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            [
+                "del_dr_001",
+                "ses_dr_parent",
+                "build",
+                "librarian",
+                "ses_dr_child",
+                now - timedelta(minutes=50),
+            ],
+        )
+
+        return db
+
+    @pytest.fixture
+    def dr_service(
+        self, db_with_delegation_result_event: AnalyticsDB
+    ) -> TracingDataService:
+        return TracingDataService(db_with_delegation_result_event)
+
+    def test_timeline_exact_event_order(self, dr_service: TracingDataService):
+        """Timeline must have events in exact order: parent events, child events, delegation_result, parent response."""
+        result = dr_service.get_session_timeline_full(
+            "ses_dr_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        event_sequence = [(e["type"], e.get("from_child_session")) for e in timeline]
+
+        assert event_sequence[0] == ("user_prompt", None), "First: parent user_prompt"
+        assert event_sequence[1] == ("tool_call", None), (
+            "Second: parent tool_call (delegation)"
+        )
+        assert event_sequence[2] == ("user_prompt", "ses_dr_child"), (
+            "Third: child user_prompt"
+        )
+        assert event_sequence[3] == ("tool_call", "ses_dr_child"), (
+            "Fourth: child tool_call"
+        )
+        assert event_sequence[4] == ("assistant_response", "ses_dr_child"), (
+            "Fifth: child assistant_response"
+        )
+        assert event_sequence[5] == ("delegation_result", None), (
+            "Sixth: delegation_result AFTER all child events"
+        )
+        assert event_sequence[6] == ("assistant_response", None), (
+            "Seventh: parent assistant_response"
+        )
+
+    def test_delegation_result_position_by_index(self, dr_service: TracingDataService):
+        """delegation_result index must be greater than all child event indices."""
+        result = dr_service.get_session_timeline_full(
+            "ses_dr_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+
+        parent_tool_call_idx = next(
+            i
+            for i, e in enumerate(timeline)
+            if e["type"] == "tool_call" and not e.get("from_child_session")
+        )
+        child_indices = [
+            i for i, e in enumerate(timeline) if e.get("from_child_session")
+        ]
+        dr_idx = next(
+            i for i, e in enumerate(timeline) if e["type"] == "delegation_result"
+        )
+
+        assert len(child_indices) == 3, (
+            "3 child events: user_prompt, tool_call, assistant_response"
+        )
+        assert dr_idx == parent_tool_call_idx + 4, (
+            "delegation_result at position tool_call + 4"
+        )
+        assert dr_idx > max(child_indices), "delegation_result after ALL child events"
+
+    def test_delegation_result_has_correct_content(
+        self, dr_service: TracingDataService
+    ):
+        """delegation_result should have correct content from DB event."""
+        result = dr_service.get_session_timeline_full(
+            "ses_dr_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        delegation_results = [e for e in timeline if e["type"] == "delegation_result"]
+
+        assert len(delegation_results) == 1
+        dr = delegation_results[0]
+        assert dr["content"] == "Librarian found 5 results"
+        assert dr["result_summary"] == "Librarian found 5 results"
+        assert dr["child_session_id"] == "ses_dr_child"
+
+    def test_delegation_result_has_offset_exchange_number(
+        self, dr_service: TracingDataService
+    ):
+        """delegation_result should have exchange_number offset after child session."""
+        result = dr_service.get_session_timeline_full(
+            "ses_dr_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+
+        tool_call = next(e for e in timeline if e["type"] == "tool_call")
+        child_events = [e for e in timeline if e.get("from_child_session")]
+        delegation_result = next(
+            e for e in timeline if e["type"] == "delegation_result"
+        )
+
+        assert tool_call["exchange_number"] == 1
+        assert all(e["exchange_number"] == 2 for e in child_events)
+        assert delegation_result["exchange_number"] == 3
+
+    def test_child_events_have_correct_metadata(self, dr_service: TracingDataService):
+        """Child events must have from_child_session set to exact child session ID."""
+        result = dr_service.get_session_timeline_full(
+            "ses_dr_parent", include_children=True, depth=1
+        )
+
+        timeline = result["data"]["timeline"]
+        child_events = [e for e in timeline if e.get("from_child_session")]
+
+        assert len(child_events) == 3, (
+            "3 child events: user_prompt, tool_call, assistant_response"
+        )
+
+        for child_evt in child_events:
+            assert child_evt["from_child_session"] == "ses_dr_child"
+            assert child_evt["exchange_number"] == 2
+            assert child_evt["original_exchange_number"] == 1
+
+        child_prompt = next(e for e in child_events if e["type"] == "user_prompt")
+        assert child_prompt["content"] == "Search for data"
+
+        child_tool = next(e for e in child_events if e["type"] == "tool_call")
+        assert child_tool["tool_name"] == "grep"
+        assert child_tool["status"] == "completed"
+
+        child_response = next(
+            e for e in child_events if e["type"] == "assistant_response"
+        )
+        assert child_response["content"] == "Found the data."

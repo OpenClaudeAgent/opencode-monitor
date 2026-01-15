@@ -504,7 +504,17 @@ class MaterializedTableManager:
                 all_events.exchange_id,
                 all_events.event_type,
                 ROW_NUMBER() OVER (
-                    PARTITION BY all_events.exchange_id ORDER BY all_events.timestamp
+                    PARTITION BY all_events.exchange_id 
+                    ORDER BY all_events.timestamp,
+                        CASE all_events.event_type
+                            WHEN 'user_prompt' THEN 1
+                            WHEN 'reasoning' THEN 2
+                            WHEN 'tool_call' THEN 3
+                            WHEN 'step_finish' THEN 4
+                            WHEN 'delegation_result' THEN 5
+                            WHEN 'assistant_response' THEN 6
+                            ELSE 7
+                        END
                 ) as event_order,
                 all_events.event_data,
                 all_events.timestamp,

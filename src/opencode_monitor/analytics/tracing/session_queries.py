@@ -1162,10 +1162,24 @@ class SessionQueriesMixin:
 
         elif evt_type == "delegation_result":
             child_session_id = evt_data.get("child_session_id")
+            result = evt_data.get("result_summary", "")
             if child_session_id and include_children:
-                pass
+                # Child session was inlined by preceding tool_call event.
+                # Place delegation_result AFTER child events (at offset exchange).
+                delegation_exchange_offset += 1
+                result_exchange_num = exchange_num + delegation_exchange_offset
+                events.append(
+                    {
+                        "type": "delegation_result",
+                        "exchange_number": result_exchange_num,
+                        "timestamp": timestamp.isoformat() if timestamp else None,
+                        "content": result,
+                        "result_summary": result,
+                        "tool_name": evt_data.get("tool_name", ""),
+                        "child_session_id": child_session_id,
+                    }
+                )
             else:
-                result = evt_data.get("result_summary", "")
                 events.append(
                     {
                         "type": "delegation_result",
