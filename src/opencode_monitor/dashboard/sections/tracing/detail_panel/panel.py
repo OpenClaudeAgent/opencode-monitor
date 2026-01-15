@@ -418,6 +418,12 @@ class TraceDetailPanel(DataLoaderMixin, QFrame):
                 tokens_out=event.get("tokens_out", 0),
                 timestamp=event.get("timestamp"),
             )
+        elif event_type == "delegation_result":
+            self.show_message(
+                role="assistant",
+                content=event.get("result_summary", ""),
+                timestamp=event.get("timestamp"),
+            )
 
     def _on_delegation_session_selected(self, session_id: str) -> None:
         """Handle delegation session selection - navigate to that session."""

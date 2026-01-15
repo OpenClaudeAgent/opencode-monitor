@@ -37,6 +37,7 @@ EVENT_TYPE_CONFIG = {
     "step_start": ("", "#6b7280", "bg_hover"),  # Gray
     "delegation_start": ("", "#a78bfa", "tree_child_bg"),  # Violet - delegate
     "delegation_end": ("", "#a78bfa", "tree_child_bg"),  # Violet
+    "delegation_result": ("📥", "#10b981", "tree_child_bg"),  # Teal - inbox
     "compaction": ("", "#06b6d4", "type_webfetch_bg"),  # Cyan - compress
     "file_attachment": ("", "#ec4899", "type_glob_bg"),  # Pink
 }
@@ -265,6 +266,12 @@ class TimelineEventWidget(QFrame):
         elif event_type in ("delegation_start", "delegation_end"):
             child_id = event_data.get("child_session_id", "")
             return f"Session: {child_id[:16]}..." if child_id else ""
+
+        elif event_type == "delegation_result":
+            result = event_data.get("result_summary", "") or self._event.get(
+                "result_summary", ""
+            )
+            return self._truncate(result, 80)
 
         return ""
 

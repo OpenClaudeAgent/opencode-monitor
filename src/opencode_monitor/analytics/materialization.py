@@ -128,18 +128,29 @@ class MaterializedTableManager:
                 tool_count, reasoning_count,
                 agent, model_id
             )
-            WITH exchange_pairs AS (
+            WITH first_assistant_per_user AS (
+                SELECT
+                    a.id,
+                    a.parent_id,
+                    a.created_at,
+                    a.agent,
+                    a.model_id,
+                    ROW_NUMBER() OVER (PARTITION BY a.parent_id ORDER BY a.created_at ASC) as rn
+                FROM messages a
+                WHERE a.role = 'assistant' AND a.parent_id IS NOT NULL
+            ),
+            exchange_pairs AS (
                 SELECT
                     u.id as user_msg_id,
                     u.session_id,
-                    ROW_NUMBER() OVER (PARTITION BY u.session_id ORDER BY a.created_at) as exchange_num,
+                    ROW_NUMBER() OVER (PARTITION BY u.session_id ORDER BY fa.created_at) as exchange_num,
                     u.created_at as user_time,
-                    a.id as assistant_msg_id,
-                    a.created_at as assistant_time,
-                    a.agent,
-                    a.model_id
+                    fa.id as assistant_msg_id,
+                    fa.created_at as assistant_time,
+                    fa.agent,
+                    fa.model_id
                 FROM messages u
-                JOIN messages a ON a.parent_id = u.id AND a.role = 'assistant'
+                JOIN first_assistant_per_user fa ON fa.parent_id = u.id AND fa.rn = 1
                 WHERE u.role = 'user'
             ),
             user_prompts AS (
@@ -150,34 +161,39 @@ class MaterializedTableManager:
                 ORDER BY p.message_id, p.created_at
             ),
             assistant_responses AS (
-                SELECT DISTINCT ON (p.message_id) p.message_id, p.content as prompt_output
+                SELECT DISTINCT ON (m.parent_id) m.parent_id as user_msg_id, p.content as prompt_output
                 FROM parts p
+                JOIN messages m ON p.message_id = m.id
                 WHERE p.part_type = 'text'
-                  AND p.message_id IN (SELECT assistant_msg_id FROM exchange_pairs WHERE assistant_msg_id IS NOT NULL)
-                ORDER BY p.message_id, p.created_at DESC
+                  AND m.role = 'assistant'
+                  AND m.parent_id IS NOT NULL
+                ORDER BY m.parent_id, p.created_at DESC
             ),
             step_totals AS (
                 SELECT
-                    se.message_id,
+                    m.parent_id as user_msg_id,
                     SUM(se.tokens_input) as tokens_in,
                     SUM(se.tokens_output) as tokens_out,
                     SUM(se.tokens_reasoning) as tokens_reasoning,
                     SUM(se.cost) as cost
                 FROM step_events se
-                WHERE se.event_type = 'finish'
-                GROUP BY se.message_id
+                JOIN messages m ON se.message_id = m.id
+                WHERE se.event_type = 'finish' AND m.parent_id IS NOT NULL
+                GROUP BY m.parent_id
             ),
             tool_counts AS (
-                SELECT message_id, COUNT(*) as tool_count
-                FROM parts
-                WHERE part_type = 'tool'
-                GROUP BY message_id
+                SELECT m.parent_id as user_msg_id, COUNT(*) as tool_count
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE p.part_type = 'tool' AND m.role = 'assistant' AND m.parent_id IS NOT NULL
+                GROUP BY m.parent_id
             ),
             reasoning_counts AS (
-                SELECT message_id, COUNT(*) as reasoning_count
-                FROM parts
-                WHERE part_type = 'reasoning'
-                GROUP BY message_id
+                SELECT m.parent_id as user_msg_id, COUNT(*) as reasoning_count
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                WHERE p.part_type = 'reasoning' AND m.role = 'assistant' AND m.parent_id IS NOT NULL
+                GROUP BY m.parent_id
             )
             SELECT
                 'exc_' || ep.session_id || '_' || CAST(ep.exchange_num AS VARCHAR) as id,
@@ -198,17 +214,16 @@ class MaterializedTableManager:
                 COALESCE(st.tokens_out, 0) as tokens_out,
                 COALESCE(st.tokens_reasoning, 0) as tokens_reasoning,
                 COALESCE(st.cost, 0) as cost,
-                COALESCE(tc.tool_count, 0) + COALESCE(atc.tool_count, 0) as tool_count,
+                COALESCE(tc.tool_count, 0) as tool_count,
                 COALESCE(rc.reasoning_count, 0) as reasoning_count,
                 ep.agent,
                 ep.model_id
             FROM exchange_pairs ep
             LEFT JOIN user_prompts up ON up.message_id = ep.user_msg_id
-            LEFT JOIN assistant_responses ar ON ar.message_id = ep.assistant_msg_id
-            LEFT JOIN step_totals st ON st.message_id = ep.assistant_msg_id
-            LEFT JOIN tool_counts tc ON tc.message_id = ep.user_msg_id
-            LEFT JOIN tool_counts atc ON atc.message_id = ep.assistant_msg_id
-            LEFT JOIN reasoning_counts rc ON rc.message_id = ep.assistant_msg_id
+            LEFT JOIN assistant_responses ar ON ar.user_msg_id = ep.user_msg_id
+            LEFT JOIN step_totals st ON st.user_msg_id = ep.user_msg_id
+            LEFT JOIN tool_counts tc ON tc.user_msg_id = ep.user_msg_id
+            LEFT JOIN reasoning_counts rc ON rc.user_msg_id = ep.user_msg_id
             {session_filter}
             ORDER BY ep.session_id, ep.exchange_num
         """
@@ -405,7 +420,8 @@ class MaterializedTableManager:
                     0 as tokens_in, 0 as tokens_out,
                     json_object('text', COALESCE(p.reasoning_text, p.content)) as event_data
                 FROM parts p
-                JOIN exchanges e ON e.assistant_message_id = p.message_id
+                JOIN messages m ON p.message_id = m.id
+                JOIN exchanges e ON m.parent_id = e.user_message_id
                 WHERE p.part_type = 'reasoning'
 
                 UNION ALL
@@ -423,7 +439,8 @@ class MaterializedTableManager:
                         'child_session_id', p.child_session_id
                     ) as event_data
                 FROM parts p
-                JOIN exchanges e ON e.assistant_message_id = p.message_id
+                JOIN messages m ON p.message_id = m.id
+                JOIN exchanges e ON m.parent_id = e.user_message_id
                 WHERE p.part_type = 'tool'
 
                 UNION ALL
@@ -435,8 +452,28 @@ class MaterializedTableManager:
                     se.tokens_input as tokens_in, se.tokens_output as tokens_out,
                     json_object('reason', se.reason, 'cost', se.cost) as event_data
                 FROM step_events se
-                JOIN exchanges e ON e.assistant_message_id = se.message_id
+                JOIN messages m ON se.message_id = m.id
+                JOIN exchanges e ON m.parent_id = e.user_message_id
                 WHERE se.event_type = 'finish'
+
+                UNION ALL
+
+                SELECT
+                    p.id || '_result', p.session_id, e.id as exchange_id,
+                    'delegation_result' as event_type,
+                    p.created_at as timestamp, p.duration_ms,
+                    0 as tokens_in, 0 as tokens_out,
+                    json_object(
+                        'tool_name', p.tool_name,
+                        'child_session_id', p.child_session_id,
+                        'result_summary', p.result_summary
+                    ) as event_data
+                FROM parts p
+                JOIN messages m ON p.message_id = m.id
+                JOIN exchanges e ON m.parent_id = e.user_message_id
+                WHERE p.part_type = 'tool'
+                  AND p.child_session_id IS NOT NULL
+                  AND p.result_summary IS NOT NULL
 
                 UNION ALL
 
@@ -447,12 +484,16 @@ class MaterializedTableManager:
                     0 as tokens_in, 0 as tokens_out,
                     json_object('content', p.content, 'message_id', p.message_id) as event_data
                 FROM parts p
-                JOIN exchanges e ON e.assistant_message_id = p.message_id
+                JOIN messages m ON p.message_id = m.id
+                JOIN exchanges e ON m.parent_id = e.user_message_id
                 WHERE p.part_type = 'text'
+                  AND m.role = 'assistant'
                   AND p.id = (
                       SELECT p2.id FROM parts p2
-                      WHERE p2.message_id = e.assistant_message_id
+                      JOIN messages m2 ON p2.message_id = m2.id
+                      WHERE m2.parent_id = e.user_message_id
                         AND p2.part_type = 'text'
+                        AND m2.role = 'assistant'
                       ORDER BY p2.created_at DESC
                       LIMIT 1
                   )

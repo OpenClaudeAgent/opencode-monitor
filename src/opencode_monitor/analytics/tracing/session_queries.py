@@ -1160,6 +1160,24 @@ class SessionQueriesMixin:
         elif evt_type == "patch":
             events.append(self._build_patch_event(exchange_num, evt_data, timestamp))
 
+        elif evt_type == "delegation_result":
+            child_session_id = evt_data.get("child_session_id")
+            if child_session_id and include_children:
+                pass
+            else:
+                result = evt_data.get("result_summary", "")
+                events.append(
+                    {
+                        "type": "delegation_result",
+                        "exchange_number": exchange_num,
+                        "timestamp": timestamp.isoformat() if timestamp else None,
+                        "content": result,
+                        "result_summary": result,
+                        "tool_name": evt_data.get("tool_name", ""),
+                        "child_session_id": child_session_id,
+                    }
+                )
+
         return events, delegation_exchange_offset, result_summary
 
     def _process_single_exchange(
