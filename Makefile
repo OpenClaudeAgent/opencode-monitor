@@ -227,8 +227,8 @@ clean:
 
 clean-db:
 	@if [ -f ~/.config/opencode-monitor/analytics.duckdb ]; then \
-		rm -f ~/.config/opencode-monitor/analytics.duckdb && \
-		echo "Database cleaned: ~/.config/opencode-monitor/analytics.duckdb"; \
+		rm -f ~/.config/opencode-monitor/analytics.duckdb ~/.config/opencode-monitor/analytics.duckdb.wal && \
+		echo "Database cleaned: ~/.config/opencode-monitor/analytics.duckdb (+ WAL)"; \
 	else \
 		echo "No database found at ~/.config/opencode-monitor/analytics.duckdb"; \
 	fi
