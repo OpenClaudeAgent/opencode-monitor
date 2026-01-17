@@ -1247,15 +1247,16 @@ class SessionQueriesMixin:
 
         new_delegation_result = None
 
-        # Build context for step enrichment
-        exchange_context = {"tools": []}
-        for evt in trace_events:
-            if evt[0] == "tool_call":
-                data = self._parse_event_data(evt[2])
-                if tool_name := data.get("tool_name"):
-                    exchange_context["tools"].append(tool_name)
+        current_step_tools = []
 
         for evt in trace_events:
+            evt_type = evt[0]
+
+            if evt_type == "tool_call":
+                data = self._parse_event_data(evt[2])
+                if tool_name := data.get("tool_name"):
+                    current_step_tools.append(tool_name)
+
             evt_events, delegation_exchange_offset, result = self._process_trace_event(
                 evt,
                 exchange_num,
@@ -1263,9 +1264,13 @@ class SessionQueriesMixin:
                 depth,
                 limit,
                 delegation_exchange_offset,
-                context=exchange_context,
+                context={"tools": current_step_tools},
             )
             events.extend(evt_events)
+
+            if evt_type == "step_finish":
+                current_step_tools = []
+
             if result:
                 new_delegation_result = result
 
