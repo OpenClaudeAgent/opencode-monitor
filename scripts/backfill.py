@@ -83,8 +83,11 @@ def run_backfill() -> int:
 
     counts = bulk_loader.count_files()
     total = sum(counts.values())
+    print(f"Files to scan: {total:,}")
+    print(f"  - Sessions: {counts.get('session', 0):,}")
+    print(f"  - Messages: {counts.get('message', 0):,}")
     print(
-        f"Files to load: {total:,} ({counts['session']:,} sessions, {counts['message']:,} messages, {counts['part']:,} parts)"
+        f"  - Parts:    {counts.get('part', 0):,} (source for step events, patches, file ops)"
     )
     print("-" * 40)
 
@@ -106,22 +109,30 @@ def run_backfill() -> int:
         f"  Parts: {results['part'].files_loaded:,} in {results['part'].duration_seconds:.1f}s"
     )
 
-    print("Loading file operations...", flush=True)
+    print(
+        f"Extracting file operations (scanning {counts.get('part', 0):,} parts)...",
+        flush=True,
+    )
     results["file_operation"] = bulk_loader.load_file_operations()
     print(
-        f"  File operations: {results['file_operation'].files_loaded:,} in {results['file_operation'].duration_seconds:.1f}s"
+        f"  File operations: {results['file_operation'].files_loaded:,} found in {results['file_operation'].duration_seconds:.1f}s"
     )
 
-    print("Loading step events...", flush=True)
+    print(
+        f"Extracting step events (scanning {counts.get('part', 0):,} parts)...",
+        flush=True,
+    )
     results["step_event"] = bulk_loader.load_step_events()
     print(
-        f"  Step events: {results['step_event'].files_loaded:,} in {results['step_event'].duration_seconds:.1f}s"
+        f"  Step events: {results['step_event'].files_loaded:,} found in {results['step_event'].duration_seconds:.1f}s"
     )
 
-    print("Loading patches...", flush=True)
+    print(
+        f"Extracting patches (scanning {counts.get('part', 0):,} parts)...", flush=True
+    )
     results["patch"] = bulk_loader.load_patches()
     print(
-        f"  Patches: {results['patch'].files_loaded:,} in {results['patch'].duration_seconds:.1f}s"
+        f"  Patches: {results['patch'].files_loaded:,} found in {results['patch'].duration_seconds:.1f}s"
     )
 
     print("Enriching file operations with diff stats...", flush=True)
