@@ -1,6 +1,6 @@
 # OpenCode Monitor
 
-> **Note** : Ce projet est entièrement *vibe-codé* avec [OpenCode](https://github.com/sst/opencode) ❤️ et Claude Opus 4.5.
+> **Note** : Ce projet est entièrement *vibe-codé* avec [OpenCode](https://github.com/sst/opencode) ❤️ et ~~Claude Opus 4.5~~ with Gemini.
 
 Native macOS menu bar app to monitor [OpenCode](https://github.com/sst/opencode) instances and API usage.
 
