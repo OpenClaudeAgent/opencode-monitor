@@ -214,6 +214,32 @@ def run_backfill() -> int:
     print("-" * 40)
 
     print()
+    print("Data Distribution Analysis...", flush=True)
+    print("-" * 40)
+
+    try:
+        conn = db.connect()
+
+        types = conn.execute(
+            "SELECT part_type, COUNT(*) FROM parts GROUP BY part_type ORDER BY 2 DESC"
+        ).fetchall()
+        print("Part Types:")
+        for t, c in types:
+            print(f"  - {t or 'None'}: {c:,}")
+
+        tools = conn.execute(
+            "SELECT tool_name, COUNT(*) FROM parts WHERE part_type='tool' GROUP BY tool_name ORDER BY 2 DESC"
+        ).fetchall()
+        print("\nTool Names:")
+        for t, c in tools:
+            print(f"  - {t or 'None'}: {c:,}")
+
+    except Exception as e:
+        print(f"  Analysis failed: {e}")
+
+    print("-" * 40)
+
+    print()
     print("Security enrichment (bulk mode)...", flush=True)
     print("-" * 40)
 
