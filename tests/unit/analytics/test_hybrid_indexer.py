@@ -257,9 +257,12 @@ class TestHandlerErrorCases:
         parser = FileParser()
         trace_builder = TraceBuilder(db)
 
+        invalid_data = {"invalid": "data"}
+        file_path = write_json_file(temp_storage, "session", "p1", "s1", invalid_data)
+
         result = handler.process(
-            Path("/fake/path"),
-            {"invalid": "data"},
+            file_path,
+            invalid_data,
             conn,
             parser,
             trace_builder,
@@ -280,9 +283,12 @@ class TestHandlerErrorCases:
         parser = FileParser()
         trace_builder = TraceBuilder(db)
 
+        invalid_data = {"invalid": "data"}
+        file_path = write_json_file(temp_storage, "message", "s1", "m1", invalid_data)
+
         result = handler.process(
-            Path("/fake/path"),
-            {"invalid": "data"},
+            file_path,
+            invalid_data,
             conn,
             parser,
             trace_builder,
@@ -303,9 +309,12 @@ class TestHandlerErrorCases:
         parser = FileParser()
         trace_builder = TraceBuilder(db)
 
+        invalid_data = {"invalid": "data"}
+        file_path = write_json_file(temp_storage, "part", "m1", "p1", invalid_data)
+
         result = handler.process(
-            Path("/fake/path"),
-            {"invalid": "data"},
+            file_path,
+            invalid_data,
             conn,
             parser,
             trace_builder,
@@ -354,8 +363,12 @@ class TestHandlerErrorCases:
             "time": {"start": now_ms, "end": now_ms + 10000},
         }
 
+        file_path = write_json_file(
+            temp_storage, "part", "msg_task_test", "prt_task_handler", task_data
+        )
+
         result = handler.process(
-            Path("/fake/path"),
+            file_path,
             task_data,
             conn,
             parser,
