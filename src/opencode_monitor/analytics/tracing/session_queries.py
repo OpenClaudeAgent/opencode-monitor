@@ -1050,12 +1050,14 @@ class SessionQueriesMixin:
         timestamp: datetime | None,
         tokens_in: int,
         tokens_out: int,
+        summary: str | None = None,
     ) -> dict:
         return {
             "type": "step_finish",
             "exchange_number": exchange_num,
             "timestamp": timestamp.isoformat() if timestamp else None,
             "reason": evt_data.get("reason", ""),
+            "summary": summary,
             "tokens": {
                 "input": tokens_in,
                 "output": tokens_out,
@@ -1114,6 +1116,7 @@ class SessionQueriesMixin:
         depth: int,
         limit: int | None,
         delegation_exchange_offset: int,
+        context: dict | None = None,
     ) -> tuple[list[dict], int, str | None]:
         evt_type = evt[0]
         evt_data = self._parse_event_data(evt[2])
@@ -1151,9 +1154,19 @@ class SessionQueriesMixin:
                 result_summary = evt_data["result_summary"]
 
         elif evt_type == "step_finish":
+            summary = None
+            if context and context.get("tools"):
+                tools = context["tools"]
+                if len(tools) == 1:
+                    summary = f"Executed {tools[0]}"
+                else:
+                    summary = f"Executed {len(tools)} tools: {', '.join(tools[:3])}"
+                    if len(tools) > 3:
+                        summary += "..."
+
             events.append(
                 self._build_step_finish_event(
-                    exchange_num, evt_data, timestamp, tokens_in, tokens_out
+                    exchange_num, evt_data, timestamp, tokens_in, tokens_out, summary
                 )
             )
 
@@ -1233,6 +1246,15 @@ class SessionQueriesMixin:
                 )
 
         new_delegation_result = None
+
+        # Build context for step enrichment
+        exchange_context = {"tools": []}
+        for evt in trace_events:
+            if evt[0] == "tool_call":
+                data = self._parse_event_data(evt[2])
+                if tool_name := data.get("tool_name"):
+                    exchange_context["tools"].append(tool_name)
+
         for evt in trace_events:
             evt_events, delegation_exchange_offset, result = self._process_trace_event(
                 evt,
@@ -1241,6 +1263,7 @@ class SessionQueriesMixin:
                 depth,
                 limit,
                 delegation_exchange_offset,
+                context=exchange_context,
             )
             events.extend(evt_events)
             if result:

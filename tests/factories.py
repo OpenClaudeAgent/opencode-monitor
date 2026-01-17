@@ -55,6 +55,7 @@ class OpenCodeFactory:
         message_id: Optional[str] = None,
         role: str = "user",
         content: str = "Hello",
+        parent_id: Optional[str] = None,
         created_at: float = None,
     ) -> Dict[str, Any]:
         """Create a message JSON file."""
@@ -67,7 +68,7 @@ class OpenCodeFactory:
         data = {
             "id": message_id,
             "sessionID": session_id,
-            "parentID": None,
+            "parentID": parent_id,
             "role": role,
             "agent": "general",
             "modelID": "claude-3-5-sonnet",

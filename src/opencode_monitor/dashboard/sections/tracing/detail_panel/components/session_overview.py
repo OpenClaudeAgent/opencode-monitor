@@ -442,6 +442,10 @@ class TimelineEventWidget(QFrame):
             return f"→ {shorten_tool_name(tool_name)}"
 
         elif event_type == "step_finish":
+            summary = self._event.get("summary")
+            if summary:
+                return summary
+
             tokens = self._event.get("tokens", {})
             total = tokens.get("total", 0) if isinstance(tokens, dict) else 0
             cost = self._event.get("cost", 0)

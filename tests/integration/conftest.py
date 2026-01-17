@@ -452,3 +452,19 @@ def freezer():
 
     with freeze_time("2026-01-11 12:00:00") as frozen:
         yield frozen
+
+
+@pytest.fixture
+def temp_env():
+    import tempfile
+    import shutil
+    from pathlib import Path
+
+    temp_dir = Path(tempfile.mkdtemp())
+    storage_path = temp_dir / "opencode_storage"
+    storage_path.mkdir()
+    db_path = temp_dir / "analytics.duckdb"
+
+    yield storage_path, db_path
+
+    shutil.rmtree(temp_dir)
